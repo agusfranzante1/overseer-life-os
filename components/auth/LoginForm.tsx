@@ -1,9 +1,10 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { Zap, Loader2, AlertCircle, LogIn, UserPlus } from 'lucide-react'
+import { Loader2, AlertCircle, LogIn, UserPlus } from 'lucide-react'
 import { getSupabaseBrowser, hasSupabaseConfig } from '@/lib/supabase/client'
 
 type Mode = 'login' | 'signup'
@@ -83,9 +84,7 @@ export default function LoginForm() {
         className="w-full max-w-sm"
       >
         <div className="flex items-center gap-3 justify-center mb-8">
-          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center">
-            <Zap className="w-5 h-5 text-white" />
-          </div>
+          <Image src="/logo.png" alt="Overseer" width={44} height={44} className="rounded-xl" priority />
           <h1 className="text-2xl font-bold text-white tracking-wider uppercase">
             Overseer
           </h1>

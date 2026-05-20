@@ -22,6 +22,7 @@ const robotoMono = Roboto_Mono({
 export const metadata: Metadata = {
   title: "Overseer — Life OS",
   description: "Your AI-powered personal operating system",
+  icons: { icon: '/logo.png', apple: '/logo.png' },
 };
 
 export default function RootLayout({

@@ -5,9 +5,10 @@ import { useAppStore } from '@/lib/store/appStore'
 import { useTranslation } from '@/hooks/useTranslation'
 import {
   LayoutDashboard, Calendar, CheckSquare,
-  Globe, Zap, WalletCards, Activity, Dumbbell, Utensils, HeartPulse, Menu,
+  Globe, WalletCards, Activity, Dumbbell, Utensils, HeartPulse, Menu,
   TrendingUp, GripVertical, Check, RotateCcw, Settings2, Cog, LogOut,
 } from 'lucide-react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { hasSupabaseConfig, getSupabaseBrowser } from '@/lib/supabase/client'
@@ -122,9 +123,7 @@ export function Sidebar() {
         </button>
         {!sidebarCollapsed && (
           <>
-            <div className="shrink-0 w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <Zap className="w-4 h-4 text-white" />
-            </div>
+            <Image src="/logo.png" alt="Overseer" width={32} height={32} className="shrink-0 rounded-lg" />
             <span className="font-bold text-white text-sm tracking-wider uppercase whitespace-nowrap flex-1 truncate">
               Overseer
             </span>
