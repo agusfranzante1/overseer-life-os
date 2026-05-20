@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Overseer — Seed Supabase from backup</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #18181b; color: #fafafa; padding: 2rem; max-width: 720px; margin: auto; }
+    h1 { color: #a78bfa; }
+    h2 { color: #818cf8; font-size: 1rem; margin-top: 1.5rem; }
+    button { background: #6366f1; color: white; border: 0; padding: 0.75rem 1.25rem; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 1rem; }
+    button:hover { background: #818cf8; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    input[type=file] { background: #27272a; color: #fafafa; border: 1px solid #3f3f46; padding: 0.5rem; border-radius: 6px; width: 100%; }
+    input[type=text], input[type=password] { background: #27272a; color: #fafafa; border: 1px solid #3f3f46; padding: 0.5rem; border-radius: 6px; width: 100%; font-size: 0.9rem; }
+    pre { background: #27272a; padding: 1rem; border-radius: 8px; overflow: auto; font-size: 0.75rem; max-height: 280px; }
+    .note  { background: #1e3a5f; color: #bae6fd; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    .warn  { background: #451a03; color: #fed7aa; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    .ok    { background: #14532d; color: #bbf7d0; padding: 1rem; border-radius: 8px; margin-bottom: 0.5rem; }
+    .err   { background: #7f1d1d; color: #fecaca; padding: 1rem; border-radius: 8px; margin-bottom: 0.5rem; }
+    label  { display: block; font-size: 0.8rem; color: #a1a1aa; margin-bottom: 0.25rem; }
+    .field { margin-bottom: 0.75rem; }
+    #log   { margin-top: 1rem; }
+    code   { background: #27272a; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>🌱 Overseer — Seed Supabase</h1>
+
+  <div class="note">
+    Esta página sube tu backup JSON a Supabase (solo tablas migradas en Fase 1: <strong>projects, tasks, subtasks</strong>).<br/>
+    Abrila en cualquier navegador — no necesita el mismo origen que localhost:3001.
+  </div>
+
+  <div class="warn">
+    ⚠️ Solo sube datos si Supabase está vacío. Si ya tenés datos en la nube, esto los <strong>sobreescribe</strong> con upsert (por ID).<br/>
+    El sync automático ya migra las tasks al primer login; usá esto solo si algo falló.
+  </div>
+
+  <h2>1. Configuración de Supabase</h2>
+  <div class="field">
+    <label>NEXT_PUBLIC_SUPABASE_URL</label>
+    <input type="text" id="url" placeholder="https://xxxx.supabase.co" />
+  </div>
+  <div class="field">
+    <label>NEXT_PUBLIC_SUPABASE_ANON_KEY</label>
+    <input type="text" id="anon" placeholder="eyJhbG..." />
+  </div>
+
+  <h2>2. Email y contraseña (para autenticarse)</h2>
+  <div class="field">
+    <label>Email</label>
+    <input type="text" id="email" placeholder="tu@email.com" />
+  </div>
+  <div class="field">
+    <label>Contraseña</label>
+    <input type="password" id="pass" placeholder="••••••••" />
+  </div>
+  <button id="btnLogin" onclick="doLogin()">Conectar a Supabase</button>
+  <div id="loginStatus" style="margin-top:0.5rem"></div>
+
+  <h2>3. Archivo de backup</h2>
+  <input type="file" id="file" accept=".json" />
+
+  <h2>4. Ejecutar seed</h2>
+  <button id="btnSeed" disabled onclick="doSeed()">Subir datos a Supabase</button>
+
+  <div id="log"></div>
+
+  <script>
+    let sb = null;
+    let backupData = null;
+
+    function log(msg, cls = '') {
+      const el = document.createElement('div');
+      el.className = cls;
+      el.textContent = msg;
+      document.getElementById('log').appendChild(el);
+      el.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    async function doLogin() {
+      const url  = document.getElementById('url').value.trim();
+      const anon = document.getElementById('anon').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const pass  = document.getElementById('pass').value;
+
+      if (!url || !anon || !email || !pass) {
+        alert('Completá todos los campos primero.');
+        return;
+      }
+
+      sb = supabase.createClient(url, anon);
+      const { error } = await sb.auth.signInWithPassword({ email, password: pass });
+      if (error) {
+        document.getElementById('loginStatus').innerHTML = `<div class="err">Error: ${error.message}</div>`;
+      } else {
+        document.getElementById('loginStatus').innerHTML = `<div class="ok">✓ Sesión iniciada. Ahora seleccioná el archivo y presioná "Subir datos".</div>`;
+        document.getElementById('btnSeed').disabled = false;
+      }
+    }
+
+    document.getElementById('file').addEventListener('change', (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          backupData = JSON.parse(ev.target.result);
+          log(`✓ Archivo cargado: ${Object.keys(backupData.data || {}).length} stores.`, 'ok');
+        } catch {
+          log('Error al parsear el JSON.', 'err');
+          backupData = null;
+        }
+      };
+      reader.readAsText(f);
+    });
+
+    async function doSeed() {
+      if (!sb) { alert('Primero conectate a Supabase.'); return; }
+      if (!backupData?.data) { alert('Primero cargá el archivo de backup.'); return; }
+
+      document.getElementById('btnSeed').disabled = true;
+      document.getElementById('log').innerHTML = '';
+      log('Iniciando seed...');
+
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user) { log('No hay sesión activa.', 'err'); return; }
+      const userId = user.id;
+      log(`Usuario: ${user.email} (${userId})`);
+
+      // --- TASKS store ---
+      const tasksRaw = backupData.data['overseer-tasks'];
+      const tasksState = tasksRaw?.state ?? tasksRaw;
+      if (!tasksState) {
+        log('No se encontró overseer-tasks en el backup.', 'warn');
+      } else {
+        const projects = Object.values(tasksState.projects ?? {});
+        const tasks    = Object.values(tasksState.tasks ?? {});
+
+        const projectRows = projects.map((p) => ({
+          id: p.id, user_id: userId, name: p.name, color: p.color,
+          icon: p.icon ?? null, description: p.description ?? null,
+          statuses: p.statuses ?? [], archived: !!p.archived,
+          created_at: p.createdAt,
+        }));
+
+        const taskRows = tasks.map((t) => ({
+          id: t.id, user_id: userId, project_id: t.projectId,
+          title: t.title, description: t.description ?? null,
+          status: t.status, priority: t.priority, importance: t.importance,
+          due_date: t.dueDate ?? null, energy_estimate: t.energyEstimate ?? null,
+          notes: t.notes ?? null, scheduled_for: t.scheduledFor ?? null,
+          completed_at: t.completedAt ?? null, postponed_count: t.postponedCount ?? 0,
+          category: t.category ?? null,
+          created_at: t.createdAt, updated_at: t.updatedAt,
+        }));
+
+        const subtaskRows = tasks.flatMap((t) =>
+          (t.subtasks ?? []).map((s) => ({
+            id: s.id, user_id: userId, task_id: t.id,
+            parent_id: s.parentId ?? null, title: s.title,
+            completed: s.completed, status: s.status, order: s.order,
+            notes: s.notes ?? null, priority: s.priority ?? null,
+          }))
+        );
+
+        if (projectRows.length > 0) {
+          const { error } = await sb.from('projects').upsert(projectRows);
+          error ? log(`Error en projects: ${error.message}`, 'err')
+                : log(`✓ ${projectRows.length} proyectos subidos.`, 'ok');
+        }
+        if (taskRows.length > 0) {
+          const { error } = await sb.from('tasks').upsert(taskRows);
+          error ? log(`Error en tasks: ${error.message}`, 'err')
+                : log(`✓ ${taskRows.length} tareas subidas.`, 'ok');
+        }
+        if (subtaskRows.length > 0) {
+          const { error } = await sb.from('subtasks').upsert(subtaskRows);
+          error ? log(`Error en subtasks: ${error.message}`, 'err')
+                : log(`✓ ${subtaskRows.length} subtareas subidas.`, 'ok');
+        }
+        if (projectRows.length === 0 && taskRows.length === 0) {
+          log('No había proyectos ni tareas en el backup.', 'warn');
+        }
+      }
+
+      log('Seed completado.', 'ok');
+      document.getElementById('btnSeed').disabled = false;
+    }
+  </script>
+</body>
+</html>

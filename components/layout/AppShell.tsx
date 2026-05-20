@@ -1,16 +1,23 @@
 'use client'
+import { usePathname } from 'next/navigation'
 import { useAppStore } from '@/lib/store/appStore'
 import { Sidebar } from './Sidebar'
 import { ChatBox } from '@/components/chat/ChatBox'
 import { motion } from 'framer-motion'
 import { useSupabaseSync } from '@/lib/supabase/sync'
 
+const AUTH_PATHS = ['/login', '/signup']
+
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed)
   const sidebarWidth = sidebarCollapsed ? 64 : 220
 
-  // Background sync to Supabase (no-op if not configured / not logged in)
   useSupabaseSync()
+
+  const isAuthPage = AUTH_PATHS.some((p) => pathname?.startsWith(p))
+
+  if (isAuthPage) return <>{children}</>
 
   return (
     <div className="flex h-screen bg-zinc-950 overflow-hidden">

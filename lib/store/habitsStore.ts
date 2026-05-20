@@ -46,7 +46,7 @@ interface State {
 export const useHabitsStore = create<State>()(
   persist(
     (set) => ({
-      habits: DEMO_HABITS,
+      habits: [],
       addHabit: (h) => {
         const id = genId()
         set((s) => ({ habits: [...s.habits, { ...h, id, createdAt: todayStr(), completedDates: [] }] }))

@@ -269,9 +269,9 @@ interface State {
 export const useTradingStore = create<State>()(
   persist(
     (set) => ({
-      firms: DEFAULT_FIRMS,
+      firms: [],
       accounts: [],
-      strategies: DEFAULT_STRATEGIES,
+      strategies: [],
       trades: [],
       payouts: [],
       errors: [],

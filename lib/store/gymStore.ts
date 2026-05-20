@@ -143,7 +143,7 @@ const DEMO_ROUTINES: GymRoutine[] = [
 export const useGymStore = create<GymState>()(
   persist(
     (set, get) => ({
-      routines: DEMO_ROUTINES,
+      routines: [],
       sessions: [],
       activeSession: null,
       currentExerciseName: null,

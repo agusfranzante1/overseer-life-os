@@ -271,10 +271,10 @@ interface State {
 export const useFoodStore = create<State>()(
   persist(
     (set) => ({
-      stages: DEMO_STAGES,
-      currentStageId: 's2',
-      shopping: DEMO_SHOPPING,
-      fixedCosts: DEMO_FIXED_COSTS,
+      stages: [],
+      currentStageId: '',
+      shopping: [],
+      fixedCosts: [],
 
       setCurrentStage: (id) => set({ currentStageId: id }),
 

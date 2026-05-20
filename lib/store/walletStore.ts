@@ -122,8 +122,8 @@ export const useWalletStore = create<WalletState>()(
   persist(
     (set, get) => ({
       currencies: DEFAULT_CURRENCIES,
-      wallets: DEMO_WALLETS,
-      transactions: DEMO_TRANSACTIONS,
+      wallets: [],
+      transactions: [],
       distribution: DEFAULT_DISTRIBUTION,
       deletedWallets: [],
 

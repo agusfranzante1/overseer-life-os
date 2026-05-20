@@ -42,37 +42,11 @@ interface TasksState {
   deleteSubtask: (taskId: string, subtaskId: string) => void
 }
 
-const DEMO_PROJECT_ID = 'proj_demo'
-const PERSONAL_PROJECT_ID = 'proj_personal'
-
-const demoStatuses = DEFAULT_STATUSES
-
 export const useTasksStore = create<TasksState>()(
   persist(
     (set, get) => ({
       selectedProjectId: null,
-      projects: {
-        [DEMO_PROJECT_ID]: {
-          id: DEMO_PROJECT_ID,
-          name: 'Life OS',
-          color: PROJECT_COLORS[0],
-          description: 'Core life operating system tasks',
-          statuses: demoStatuses,
-          taskIds: [],
-          createdAt: new Date().toISOString(),
-          archived: false,
-        },
-        [PERSONAL_PROJECT_ID]: {
-          id: PERSONAL_PROJECT_ID,
-          name: 'Personal',
-          color: PROJECT_COLORS[2],
-          description: 'Personal tasks and goals',
-          statuses: demoStatuses,
-          taskIds: [],
-          createdAt: new Date().toISOString(),
-          archived: false,
-        },
-      },
+      projects: {},
       tasks: {},
 
       setSelectedProject: (id) => set({ selectedProjectId: id }),
