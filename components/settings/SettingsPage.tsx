@@ -20,20 +20,25 @@ function GoogleCalendarSection() {
   const [copied, setCopied] = useState(false)
   const [saving, setSaving] = useState(false)
   const [hasCredentials, setHasCredentials] = useState(false)
+  const [clientIdHint, setClientIdHint] = useState<string | null>(null)
   const [connected, setConnected] = useState(false)
   const [saveResult, setSaveResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    setRedirectUri(`${window.location.origin}/api/auth/google/callback`)
+  const loadStatus = () =>
     fetch('/api/auth/google/credentials')
       .then((r) => r.json())
       .then((d) => {
         setHasCredentials(d.hasCredentials ?? false)
         setConnected(d.connected ?? false)
+        setClientIdHint(d.clientIdHint ?? null)
       })
       .catch(() => {})
       .finally(() => setLoading(false))
+
+  useEffect(() => {
+    setRedirectUri(`${window.location.origin}/api/auth/google/callback`)
+    loadStatus()
   }, [])
 
   const copyUri = async () => {
@@ -54,9 +59,10 @@ function GoogleCalendarSection() {
       })
       const d = await res.json()
       if (d.ok) {
-        setHasCredentials(true)
         setSaveResult({ ok: true, msg: 'Credenciales guardadas. Ahora podés conectar tu cuenta.' })
         setClientSecret('')
+        setClientId('')
+        await loadStatus()
       } else {
         setSaveResult({ ok: false, msg: d.error ?? 'Error al guardar' })
       }
@@ -70,7 +76,7 @@ function GoogleCalendarSection() {
   const disconnect = async () => {
     try {
       await fetch('/api/auth/google/disconnect', { method: 'POST' })
-      setConnected(false)
+      await loadStatus()
     } catch { /* ignore */ }
   }
 
@@ -148,7 +154,16 @@ function GoogleCalendarSection() {
 
       {/* Credential inputs */}
       <div className="space-y-3 pt-1">
-        <p className="text-[10px] font-mono uppercase tracking-wider text-blue-300">Tus credenciales OAuth</p>
+        <div className="flex items-center gap-2">
+          <p className="text-[10px] font-mono uppercase tracking-wider text-blue-300">
+            {hasCredentials ? 'Actualizar credenciales OAuth' : 'Tus credenciales OAuth'}
+          </p>
+          {hasCredentials && (
+            <span className="text-[10px] text-emerald-400 font-mono">
+              ✓ guardadas ({clientIdHint})
+            </span>
+          )}
+        </div>
 
         <div>
           <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Client ID</label>
@@ -156,7 +171,7 @@ function GoogleCalendarSection() {
             type="text"
             value={clientId}
             onChange={(e) => setClientId(e.target.value)}
-            placeholder="852205798341-xxxxxxxxxx.apps.googleusercontent.com"
+            placeholder={hasCredentials ? `${clientIdHint ?? ''}… (dejá vacío para no cambiar)` : '852205798341-xxxxxxxxxx.apps.googleusercontent.com'}
             className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500"
           />
         </div>
@@ -168,7 +183,7 @@ function GoogleCalendarSection() {
               type={showSecret ? 'text' : 'password'}
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
-              placeholder="GOCSPX-…"
+              placeholder={hasCredentials ? '••••••••••• (dejá vacío para no cambiar)' : 'GOCSPX-…'}
               className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500"
             />
             <button onClick={() => setShowSecret((v) => !v)} className="p-2 text-zinc-500 hover:text-zinc-200">
@@ -180,11 +195,11 @@ function GoogleCalendarSection() {
 
         <button
           onClick={saveCredentials}
-          disabled={!clientId.trim() || !clientSecret.trim() || saving}
+          disabled={(!clientId.trim() || !clientSecret.trim()) || saving}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/15 border border-blue-500/30 disabled:opacity-40 text-blue-300 text-xs font-bold"
         >
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-          Guardar credenciales
+          {hasCredentials ? 'Actualizar credenciales' : 'Guardar credenciales'}
         </button>
 
         {saveResult && (
