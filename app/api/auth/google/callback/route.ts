@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseServer } from '@/lib/supabase/server'
+import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { getGCalCredentials, saveGCalTokens } from '@/lib/google/credentialStore'
 import { makeOAuthClient } from '@/lib/google/oauthClient'
 
@@ -8,6 +8,7 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url)
     const code = url.searchParams.get('code')
     const error = url.searchParams.get('error')
+    const state = url.searchParams.get('state') // user ID encoded at auth start
 
     if (error) {
       return NextResponse.redirect(new URL(`/calendar?google_error=${encodeURIComponent(error)}`, req.url))
@@ -15,12 +16,14 @@ export async function GET(req: NextRequest) {
     if (!code) {
       return NextResponse.redirect(new URL('/calendar?google_error=no_code', req.url))
     }
+    if (!state) {
+      return NextResponse.redirect(new URL('/calendar?google_error=no_state', req.url))
+    }
 
-    const sb = await getSupabaseServer()
-    const { data: { user } } = await sb.auth.getUser()
-    if (!user) return NextResponse.redirect(new URL('/login', req.url))
+    const userId = state
+    const sb = getSupabaseAdmin()
 
-    const creds = await getGCalCredentials(sb, user.id)
+    const creds = await getGCalCredentials(sb, userId)
     if (!creds) {
       return NextResponse.redirect(new URL('/settings?gcal_error=no_credentials', req.url))
     }
@@ -35,7 +38,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(new URL('/calendar?google_error=no_refresh_token', req.url))
     }
 
-    await saveGCalTokens(sb, user.id, tokens)
+    await saveGCalTokens(sb, userId, tokens)
     return NextResponse.redirect(new URL('/calendar?google_connected=1', req.url))
   } catch (e) {
     const message = e instanceof Error ? e.message : 'unknown'

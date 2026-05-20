@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
       access_type: 'offline',
       scope: SCOPES,
       prompt: 'consent',
+      state: user.id,
     })
     return NextResponse.redirect(url)
   } catch (e) {
