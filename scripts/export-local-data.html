@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Overseer — Export local data</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #18181b; color: #fafafa; padding: 2rem; max-width: 720px; margin: auto; }
+    h1 { color: #a78bfa; }
+    button { background: #6366f1; color: white; border: 0; padding: 0.75rem 1.25rem; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 1rem; }
+    button:hover { background: #818cf8; }
+    pre { background: #27272a; padding: 1rem; border-radius: 8px; overflow: auto; font-size: 0.75rem; max-height: 320px; }
+    .note { background: #1e3a5f; color: #bae6fd; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    .err { background: #7f1d1d; color: #fecaca; }
+    code { background: #27272a; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>🗄 Overseer — Backup local</h1>
+
+  <div class="note">
+    Para que esto funcione, <strong>tenés que abrir este HTML en el mismo navegador donde tenés Overseer corriendo en <code>localhost:3001</code></strong>.
+    Como los <code>localStorage</code> son por origen, este HTML necesita levantarse desde el mismo origen.<br/><br/>
+    <strong>Cómo correrlo:</strong> en una terminal en la raíz del proyecto, hacé:<br/>
+    <code>npx http-server scripts -p 4000 -c-1</code> y abrí <code>http://localhost:4000/export-local-data.html</code>.<br/>
+    O directamente pegá el script de abajo en la consola de DevTools en <code>localhost:3001</code>.
+  </div>
+
+  <p>Detecta todos los keys <code>overseer-*</code> en tu localStorage y los descarga como un JSON.</p>
+
+  <button id="run">Exportar backup</button>
+  <button id="copy" style="background:#27272a;margin-left:0.5rem">Copiar comando para consola</button>
+
+  <h3>Preview de los datos</h3>
+  <pre id="preview">(aún sin datos)</pre>
+
+  <h3>Comando alternativo para consola DevTools</h3>
+  <pre id="snippet">(() => {
+  const out = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith('overseer-')) {
+      try { out[k] = JSON.parse(localStorage.getItem(k)); }
+      catch { out[k] = localStorage.getItem(k); }
+    }
+  }
+  const payload = { exportedAt: new Date().toISOString(), version: 1, data: out };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `overseer-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  console.log('Exported', Object.keys(out).length, 'stores');
+})();</pre>
+
+  <script>
+    function collect() {
+      const out = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('overseer-')) {
+          try { out[k] = JSON.parse(localStorage.getItem(k)); }
+          catch { out[k] = localStorage.getItem(k); }
+        }
+      }
+      return { exportedAt: new Date().toISOString(), version: 1, data: out };
+    }
+    function preview(payload) {
+      const keys = Object.keys(payload.data);
+      const summary = keys.map(k => `${k}: ${JSON.stringify(payload.data[k]).length} chars`).join('\n');
+      document.getElementById('preview').textContent = `Stores: ${keys.length}\n\n${summary || '(ningún key overseer-* encontrado)'}`;
+    }
+    document.getElementById('run').addEventListener('click', () => {
+      const payload = collect();
+      preview(payload);
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `overseer-backup-${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+    document.getElementById('copy').addEventListener('click', async () => {
+      const code = document.getElementById('snippet').textContent;
+      try { await navigator.clipboard.writeText(code); alert('Pegalo en DevTools console y dale Enter'); }
+      catch { alert('Copiá manualmente el bloque de abajo'); }
+    });
+    preview(collect());
+  </script>
+</body>
+</html>

@@ -1,0 +1,122 @@
+'use client'
+import { motion, AnimatePresence } from 'framer-motion'
+import { useTasksStore } from '@/lib/store/tasksStore'
+import { useTranslation } from '@/hooks/useTranslation'
+import { useAppStore } from '@/lib/store/appStore'
+import { Task } from '@/types'
+import { CheckCircle2, Clock, ChevronRight, AlertCircle } from 'lucide-react'
+import { PRIORITY_COLORS, IMPACT_COLORS } from '@/lib/utils/constants'
+import { format } from 'date-fns'
+import Link from 'next/link'
+
+function isOverdue(task: Task): boolean {
+  if (!task.dueDate) return false
+  return new Date(task.dueDate) < new Date(new Date().toDateString())
+}
+
+function isToday(task: Task): boolean {
+  if (task.scheduledFor === 'today') return true
+  if (!task.dueDate) return false
+  const today = new Date().toISOString().split('T')[0]
+  return task.dueDate === today
+}
+
+export function TodayTaskList() {
+  const { tasks, projects, completeTask, postponeTask } = useTasksStore()
+  const { t } = useTranslation()
+
+  const todayTasks = Object.values(tasks).filter((task) => {
+    const proj = projects[task.projectId]
+    const isDone = proj?.statuses.find((s) => s.label === task.status)?.countsAsDone
+    return !isDone && (isToday(task) || isOverdue(task))
+  })
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+          {t('dashboard.todayTasks')}
+          {todayTasks.length > 0 && (
+            <span className="ml-2 text-indigo-400">({todayTasks.length})</span>
+          )}
+        </h2>
+        <Link href="/tasks" className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+          All <ChevronRight className="w-3 h-3" />
+        </Link>
+      </div>
+
+      <div className="space-y-2">
+        <AnimatePresence>
+          {todayTasks.length === 0 ? (
+            <p className="text-zinc-500 text-sm text-center py-6">{t('dashboard.noTasks')}</p>
+          ) : (
+            todayTasks.map((task, i) => {
+              const proj = projects[task.projectId]
+              const overdue = isOverdue(task)
+              return (
+                <motion.div
+                  key={task.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ delay: i * 0.05 }}
+                  className={`flex items-start gap-3 bg-zinc-900 rounded-xl p-3 border group transition-colors hover:border-zinc-700 ${
+                    overdue ? 'border-red-500/30' : 'border-zinc-800'
+                  }`}
+                >
+                  <button
+                    onClick={() => completeTask(task.id)}
+                    className="mt-0.5 shrink-0 text-zinc-600 hover:text-indigo-400 transition-colors"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                  </button>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm text-zinc-200 font-medium truncate">{task.title}</span>
+                      {overdue && (
+                        <span className="flex items-center gap-1 text-xs text-red-400">
+                          <AlertCircle className="w-3 h-3" /> {t('tasks.overdue')}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      {proj && (
+                        <span
+                          className="text-xs px-1.5 py-0.5 rounded"
+                          style={{ backgroundColor: proj.color + '20', color: proj.color }}
+                        >
+                          {proj.name}
+                        </span>
+                      )}
+                      <span
+                        className="text-xs px-1.5 py-0.5 rounded"
+                        style={{ backgroundColor: PRIORITY_COLORS[task.priority] + '20', color: PRIORITY_COLORS[task.priority] }}
+                      >
+                        {t(`tasks.priorities.${task.priority}`)}
+                      </span>
+                      {task.subtasks.length > 0 && (
+                        <span className="text-xs text-zinc-500">
+                          {task.subtasks.filter((s) => s.completed).length}/{task.subtasks.length} subtasks
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button
+                      onClick={() => postponeTask(task.id)}
+                      className="text-xs text-zinc-500 hover:text-amber-400 transition-colors px-2 py-1 rounded hover:bg-zinc-800"
+                    >
+                      <Clock className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </motion.div>
+              )
+            })
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  )
+}
