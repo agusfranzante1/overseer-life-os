@@ -1,38 +1,43 @@
 import { google } from 'googleapis'
 import type { OAuth2Client } from 'google-auth-library'
-import { readTokens, writeTokens } from './tokenStore'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { getGCalCredentials, getGCalTokens, saveGCalTokens } from './credentialStore'
 
 export const SCOPES = [
-  'https://www.googleapis.com/auth/calendar',          // read + write events
-  'https://www.googleapis.com/auth/calendar.readonly', // list calendars
+  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/calendar.readonly',
 ]
 
-export function makeOAuthClient(): OAuth2Client {
-  const clientId = process.env.GOOGLE_CLIENT_ID
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI
-  if (!clientId || !clientSecret || !redirectUri) {
-    throw new Error('Missing GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI in .env.local')
-  }
+export function makeOAuthClient(
+  clientId: string,
+  clientSecret: string,
+  redirectUri: string,
+): OAuth2Client {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri)
 }
 
 /**
- * Returns an authenticated OAuth2 client loaded with stored tokens.
- * Auto-refreshes the access token if expired and persists the new one.
- * Returns null if no tokens are stored yet.
+ * Returns an authenticated OAuth2 client for the given user.
+ * Reads per-user credentials and tokens from Supabase.
+ * Auto-persists refreshed tokens.
+ * Returns null if credentials or tokens are missing.
  */
-export async function getAuthedClient(): Promise<OAuth2Client | null> {
-  const tokens = await readTokens()
+export async function getAuthedClient(
+  sb: SupabaseClient,
+  userId: string,
+  redirectUri: string,
+): Promise<OAuth2Client | null> {
+  const creds = await getGCalCredentials(sb, userId)
+  if (!creds) return null
+
+  const tokens = await getGCalTokens(sb, userId)
   if (!tokens?.refresh_token) return null
 
-  const client = makeOAuthClient()
+  const client = makeOAuthClient(creds.clientId, creds.clientSecret, redirectUri)
   client.setCredentials(tokens)
 
-  // Persist refreshed tokens automatically
   client.on('tokens', async (newTokens) => {
-    const merged = { ...tokens, ...newTokens }
-    await writeTokens(merged)
+    await saveGCalTokens(sb, userId, { ...tokens, ...newTokens })
   })
 
   return client

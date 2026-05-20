@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Settings as SettingsIcon, Bot, Eye, EyeOff, Check, X, Loader2, ExternalLink, AlertCircle } from 'lucide-react'
+import { Settings as SettingsIcon, Bot, Eye, EyeOff, Check, X, Loader2, ExternalLink, AlertCircle, Calendar, Copy, CheckCheck, Link2, Link2Off } from 'lucide-react'
 import { useAppStore } from '@/lib/store/appStore'
 
 const ANTHROPIC_MODELS = [
@@ -9,6 +9,226 @@ const ANTHROPIC_MODELS = [
   { id: 'claude-sonnet-4-5',      label: 'Claude Sonnet 4.5', hint: 'Más inteligente, más caro' },
   { id: 'claude-opus-4-5',        label: 'Claude Opus 4.5',   hint: 'El más potente, más caro aún' },
 ]
+
+// ─── Google Calendar section ──────────────────────────────────────────────────
+
+function GoogleCalendarSection() {
+  const [redirectUri, setRedirectUri] = useState('')
+  const [clientId, setClientId] = useState('')
+  const [clientSecret, setClientSecret] = useState('')
+  const [showSecret, setShowSecret] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [hasCredentials, setHasCredentials] = useState(false)
+  const [connected, setConnected] = useState(false)
+  const [saveResult, setSaveResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setRedirectUri(`${window.location.origin}/api/auth/google/callback`)
+    fetch('/api/auth/google/credentials')
+      .then((r) => r.json())
+      .then((d) => {
+        setHasCredentials(d.hasCredentials ?? false)
+        setConnected(d.connected ?? false)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const copyUri = async () => {
+    await navigator.clipboard.writeText(redirectUri).catch(() => {})
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const saveCredentials = async () => {
+    if (!clientId.trim() || !clientSecret.trim()) return
+    setSaving(true)
+    setSaveResult(null)
+    try {
+      const res = await fetch('/api/auth/google/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: clientId.trim(), clientSecret: clientSecret.trim() }),
+      })
+      const d = await res.json()
+      if (d.ok) {
+        setHasCredentials(true)
+        setSaveResult({ ok: true, msg: 'Credenciales guardadas. Ahora podés conectar tu cuenta.' })
+        setClientSecret('')
+      } else {
+        setSaveResult({ ok: false, msg: d.error ?? 'Error al guardar' })
+      }
+    } catch (e) {
+      setSaveResult({ ok: false, msg: e instanceof Error ? e.message : 'Error' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const disconnect = async () => {
+    try {
+      await fetch('/api/auth/google/disconnect', { method: 'POST' })
+      setConnected(false)
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-5">
+      <div className="flex items-center gap-2">
+        <Calendar className="w-5 h-5 text-blue-400" />
+        <h2 className="text-sm font-bold text-white">Google Calendar</h2>
+        {!loading && (
+          <span className={`ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full ${
+            connected
+              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+              : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+          }`}>
+            {connected ? 'Conectado' : 'Desconectado'}
+          </span>
+        )}
+      </div>
+
+      {/* Instructions */}
+      <div className="space-y-3">
+        <p className="text-xs text-zinc-400 leading-relaxed">
+          Para conectar Google Calendar necesitás crear tu propio proyecto OAuth en Google Cloud.
+          Cada usuario usa sus propias credenciales — tus datos de calendario nunca pasan por ningún servidor compartido.
+        </p>
+
+        <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 space-y-2.5 text-xs">
+          <p className="font-bold text-zinc-300 uppercase tracking-wider text-[10px]">Paso a paso</p>
+
+          <div className="space-y-2 text-zinc-400">
+            <p><span className="text-indigo-400 font-bold">1.</span>{' '}
+              Ir a{' '}
+              <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer"
+                className="text-blue-400 hover:text-blue-300 inline-flex items-center gap-1">
+                console.cloud.google.com <ExternalLink className="w-3 h-3" />
+              </a>
+              {' '}y crear un proyecto nuevo (o usar uno existente).
+            </p>
+
+            <p><span className="text-indigo-400 font-bold">2.</span>{' '}
+              Ir a <strong className="text-zinc-300">APIs & Services → Library</strong>, buscar{' '}
+              <strong className="text-zinc-300">Google Calendar API</strong> y habilitarla.
+            </p>
+
+            <p><span className="text-indigo-400 font-bold">3.</span>{' '}
+              Ir a <strong className="text-zinc-300">APIs & Services → OAuth consent screen</strong>.
+              Elegir <strong className="text-zinc-300">External</strong>, completar nombre de app y email.
+              En Scopes agregar <code className="text-emerald-400 bg-zinc-800 px-1 rounded">.../auth/calendar</code>.
+              En Test users agregarte a vos mismo.
+            </p>
+
+            <p><span className="text-indigo-400 font-bold">4.</span>{' '}
+              Ir a <strong className="text-zinc-300">APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID</strong>.
+              Tipo: <strong className="text-zinc-300">Web application</strong>.
+            </p>
+
+            <p><span className="text-indigo-400 font-bold">5.</span>{' '}
+              En <strong className="text-zinc-300">Authorized redirect URIs</strong> agregar esta URL:
+            </p>
+
+            <div className="flex items-center gap-2 mt-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2">
+              <code className="flex-1 text-emerald-400 text-[11px] break-all">{redirectUri || 'cargando…'}</code>
+              <button onClick={copyUri} className="shrink-0 text-zinc-400 hover:text-white transition-colors" title="Copiar">
+                {copied ? <CheckCheck className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+              </button>
+            </div>
+
+            <p><span className="text-indigo-400 font-bold">6.</span>{' '}
+              Crear el cliente. Google te da el <strong className="text-zinc-300">Client ID</strong> y el{' '}
+              <strong className="text-zinc-300">Client Secret</strong>. Pegálos abajo.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Credential inputs */}
+      <div className="space-y-3 pt-1">
+        <p className="text-[10px] font-mono uppercase tracking-wider text-blue-300">Tus credenciales OAuth</p>
+
+        <div>
+          <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Client ID</label>
+          <input
+            type="text"
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            placeholder="852205798341-xxxxxxxxxx.apps.googleusercontent.com"
+            className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500"
+          />
+        </div>
+
+        <div>
+          <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Client Secret</label>
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type={showSecret ? 'text' : 'password'}
+              value={clientSecret}
+              onChange={(e) => setClientSecret(e.target.value)}
+              placeholder="GOCSPX-…"
+              className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500"
+            />
+            <button onClick={() => setShowSecret((v) => !v)} className="p-2 text-zinc-500 hover:text-zinc-200">
+              {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          <p className="text-[10px] text-zinc-600 mt-1">Se guarda encriptado en Supabase. Nunca se devuelve al cliente.</p>
+        </div>
+
+        <button
+          onClick={saveCredentials}
+          disabled={!clientId.trim() || !clientSecret.trim() || saving}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-500/15 border border-blue-500/30 disabled:opacity-40 text-blue-300 text-xs font-bold"
+        >
+          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+          Guardar credenciales
+        </button>
+
+        {saveResult && (
+          <div className={`p-3 rounded-lg text-xs flex items-start gap-2 ${
+            saveResult.ok
+              ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+              : 'bg-red-500/10 border border-red-500/30 text-red-300'
+          }`}>
+            {saveResult.ok ? <Check className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+            <span>{saveResult.msg}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Connect / Disconnect */}
+      {hasCredentials && (
+        <div className="pt-3 border-t border-zinc-800 flex items-center gap-3">
+          {connected ? (
+            <>
+              <span className="text-xs text-emerald-400 flex items-center gap-1.5">
+                <Check className="w-3.5 h-3.5" /> Cuenta de Google conectada
+              </span>
+              <button
+                onClick={disconnect}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold"
+              >
+                <Link2Off className="w-3.5 h-3.5" /> Desconectar
+              </button>
+            </>
+          ) : (
+            <a
+              href="/api/auth/google"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"
+            >
+              <Link2 className="w-3.5 h-3.5" /> Conectar Google Calendar
+            </a>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
 
 export function SettingsPage() {
   const { aiProvider, anthropicApiKey, anthropicModel, setAiProvider, setAnthropicApiKey, setAnthropicModel } = useAppStore()
@@ -197,10 +417,7 @@ export function SettingsPage() {
         )}
       </section>
 
-      {/* Future settings sections can go here */}
-      <section className="bg-zinc-900/40 border border-dashed border-zinc-800 rounded-2xl p-5 text-center">
-        <p className="text-xs text-zinc-600">Más configuraciones acá próximamente (notificaciones, atajos de teclado, etc.)</p>
-      </section>
+      <GoogleCalendarSection />
     </motion.div>
   )
 }

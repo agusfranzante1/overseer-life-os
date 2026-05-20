@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
+import { getSupabaseServer } from '@/lib/supabase/server'
 import { getAuthedClient } from '@/lib/google/oauthClient'
 
-// PATCH /api/calendar/events/<eventId>?calendarId=<id>
+async function getAuth(req: NextRequest) {
+  const sb = await getSupabaseServer()
+  const { data: { user } } = await sb.auth.getUser()
+  if (!user) return null
+  const { origin } = new URL(req.url)
+  return getAuthedClient(sb, user.id, `${origin}/api/auth/google/callback`)
+}
+
+// PATCH /api/calendar/events/<id>?calendarId=<id>
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const auth = await getAuthedClient()
+    const auth = await getAuth(req)
     if (!auth) return NextResponse.json({ ok: false, error: 'not_connected' }, { status: 401 })
 
     const { id } = await ctx.params
@@ -13,14 +22,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const calendarId = url.searchParams.get('calendarId')
     if (!calendarId) return NextResponse.json({ ok: false, error: 'missing_calendarId' }, { status: 400 })
 
-    const body = await req.json()
-    const { summary, description, location, start, end, allDay } = body as {
-      summary?: string
-      description?: string
-      location?: string
-      start?: string
-      end?: string
-      allDay?: boolean
+    const { summary, description, location, start, end, allDay } = await req.json() as {
+      summary?: string; description?: string; location?: string
+      start?: string; end?: string; allDay?: boolean
     }
 
     const patch: Record<string, unknown> = {}
@@ -34,15 +38,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const res = await calendar.events.patch({ calendarId, eventId: id, requestBody: patch })
     return NextResponse.json({ ok: true, event: res.data })
   } catch (e) {
-    const message = e instanceof Error ? e.message : 'unknown'
-    return NextResponse.json({ ok: false, error: message }, { status: 500 })
+    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : 'unknown' }, { status: 500 })
   }
 }
 
-// DELETE /api/calendar/events/<eventId>?calendarId=<id>
+// DELETE /api/calendar/events/<id>?calendarId=<id>
 export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const auth = await getAuthedClient()
+    const auth = await getAuth(req)
     if (!auth) return NextResponse.json({ ok: false, error: 'not_connected' }, { status: 401 })
 
     const { id } = await ctx.params
@@ -54,7 +57,6 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     await calendar.events.delete({ calendarId, eventId: id })
     return NextResponse.json({ ok: true })
   } catch (e) {
-    const message = e instanceof Error ? e.message : 'unknown'
-    return NextResponse.json({ ok: false, error: message }, { status: 500 })
+    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : 'unknown' }, { status: 500 })
   }
 }

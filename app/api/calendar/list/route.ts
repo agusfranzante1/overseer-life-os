@@ -1,10 +1,16 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
+import { getSupabaseServer } from '@/lib/supabase/server'
 import { getAuthedClient } from '@/lib/google/oauthClient'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const auth = await getAuthedClient()
+    const sb = await getSupabaseServer()
+    const { data: { user } } = await sb.auth.getUser()
+    if (!user) return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 })
+
+    const { origin } = new URL(req.url)
+    const auth = await getAuthedClient(sb, user.id, `${origin}/api/auth/google/callback`)
     if (!auth) return NextResponse.json({ ok: false, error: 'not_connected' }, { status: 401 })
 
     const calendar = google.calendar({ version: 'v3', auth })
