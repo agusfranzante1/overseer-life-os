@@ -243,6 +243,136 @@ function GoogleCalendarSection() {
   )
 }
 
+// ─── Health Webhook section ───────────────────────────────────────────────────
+
+function HealthWebhookSection() {
+  const [token, setToken] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [generating, setGenerating] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [showToken, setShowToken] = useState(false)
+  const [webhookUrl, setWebhookUrl] = useState('')
+
+  useEffect(() => {
+    setWebhookUrl(`${window.location.origin}/api/health`)
+    fetch('/api/health/webhook-token')
+      .then((r) => r.json())
+      .then((d) => setToken(d.token ?? null))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const generate = async () => {
+    setGenerating(true)
+    try {
+      const r = await fetch('/api/health/webhook-token', { method: 'POST' })
+      const d = await r.json()
+      if (d.token) {
+        setToken(d.token)
+        setShowToken(true)
+      }
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const copyToken = async () => {
+    if (!token) return
+    await navigator.clipboard.writeText(token).catch(() => {})
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const copyUrl = async () => {
+    await navigator.clipboard.writeText(webhookUrl).catch(() => {})
+  }
+
+  return (
+    <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <Bot className="w-5 h-5 text-rose-400" />
+        <h2 className="text-sm font-bold text-white">Health Webhook (iOS Shortcut)</h2>
+      </div>
+
+      <p className="text-xs text-zinc-400 leading-relaxed">
+        Para que tu Shortcut de iPhone postee pasos, sueño, frecuencia cardíaca y HRV directamente
+        a la app, generá un token único. El token identifica tus snapshots — nadie más puede escribir
+        a tu cuenta sin él.
+      </p>
+
+      <div>
+        <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">URL del endpoint</label>
+        <div className="flex items-center gap-2 mt-1 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2">
+          <code className="flex-1 text-emerald-400 text-[11px] break-all">{webhookUrl || 'cargando…'}</code>
+          <button onClick={copyUrl} className="shrink-0 text-zinc-400 hover:text-white" title="Copiar URL">
+            <Copy className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Tu webhook token</label>
+        {loading ? (
+          <p className="text-xs text-zinc-500 mt-1">Cargando…</p>
+        ) : token ? (
+          <>
+            <div className="flex items-center gap-2 mt-1 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2">
+              <code className="flex-1 text-rose-300 text-[11px] break-all font-mono">
+                {showToken ? token : '•'.repeat(48)}
+              </code>
+              <button onClick={() => setShowToken((v) => !v)} className="shrink-0 text-zinc-400 hover:text-white" title={showToken ? 'Ocultar' : 'Mostrar'}>
+                {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+              <button onClick={copyToken} className="shrink-0 text-zinc-400 hover:text-white" title="Copiar">
+                {copied ? <CheckCheck className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+              </button>
+            </div>
+            <button
+              onClick={generate}
+              disabled={generating}
+              className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 disabled:opacity-40 text-zinc-300 text-xs font-semibold"
+            >
+              {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertCircle className="w-3.5 h-3.5" />}
+              Regenerar (invalida el anterior)
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={generate}
+            disabled={generating}
+            className="mt-1 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/15 border border-rose-500/30 disabled:opacity-40 text-rose-300 text-xs font-bold"
+          >
+            {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+            Generar token
+          </button>
+        )}
+      </div>
+
+      {token && (
+        <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 space-y-2 text-xs text-zinc-400">
+          <p className="font-bold text-zinc-300 uppercase tracking-wider text-[10px]">Cómo conectar tu Shortcut</p>
+          <p><span className="text-rose-400 font-bold">1.</span> En tu Shortcut, acción <strong className="text-zinc-300">&quot;Obtener contenido de URL&quot;</strong>:</p>
+          <ul className="ml-5 space-y-1 list-disc">
+            <li>URL: <code className="text-emerald-400">{webhookUrl}</code></li>
+            <li>Método: <code className="text-emerald-400">POST</code></li>
+            <li>Headers: <code className="text-emerald-400">Content-Type: application/json</code></li>
+          </ul>
+          <p><span className="text-rose-400 font-bold">2.</span> Body JSON:</p>
+          <pre className="bg-zinc-900 p-2 rounded text-[10px] text-zinc-300 overflow-x-auto">{`{
+  "token": "TU-TOKEN-AQUI",
+  "date": "[Fecha yyyy-MM-dd]",
+  "steps": [Suma pasos],
+  "sleep_minutes": [Min dormido],
+  "resting_hr": [BPM en reposo],
+  "hrv": [SDNN en ms]
+}`}</pre>
+          <p><span className="text-rose-400 font-bold">3.</span> Automatización → Hora del día (ej. 23:30) → ejecutar sin confirmar.</p>
+        </div>
+      )}
+    </section>
+  )
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function SettingsPage() {
@@ -433,6 +563,7 @@ export function SettingsPage() {
       </section>
 
       <GoogleCalendarSection />
+      <HealthWebhookSection />
     </motion.div>
   )
 }
