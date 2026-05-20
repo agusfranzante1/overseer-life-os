@@ -29,7 +29,8 @@
 
   <div class="note">
     Esta página sube tu backup JSON a Supabase. Soporta:
-    <strong>projects/tasks/subtasks</strong> (Fase 1) y <strong>habits + gym (peso corporal + config)</strong> (Fase 3a).<br/>
+    <strong>projects/tasks/subtasks</strong> (Fase 1), <strong>habits + gym (peso corporal + config)</strong> (Fase 3a),
+    <strong>health snapshots</strong> (Fase 3b), <strong>chat history + food (stages/shopping/fixed costs)</strong> (Fase 4).<br/>
     Abrila en cualquier navegador — no necesita el mismo origen que localhost:3001.
   </div>
 
@@ -234,6 +235,80 @@
         }, { onConflict: 'user_id' });
         cfgErr ? log(`Error en gym_config: ${cfgErr.message}`, 'err')
                : log(`✓ Configuración de gym subida (tipo: ${gymState.gymType}, fase: ${gymState.phase}).`, 'ok');
+      }
+
+      // --- HEALTH store (snapshots + sleep goal) ---
+      const healthRaw = backupData.data['overseer-health'];
+      const healthState = healthRaw?.state ?? healthRaw;
+      if (!healthState) {
+        log('No se encontró overseer-health en el backup.', 'warn');
+      } else {
+        const snapMap = healthState.snapshots ?? {};
+        const snapRows = Object.values(snapMap).map((s) => ({
+          user_id: userId, date: s.date,
+          steps: s.steps ?? 0, sleep_minutes: s.sleepMinutes ?? 0,
+          sleep_start: s.sleepStart ?? null, sleep_end: s.sleepEnd ?? null,
+          resting_hr: s.restingHR ?? null, hrv: s.hrv ?? null,
+          source: s.source ?? 'manual', synced_at: s.syncedAt ?? Date.now(),
+        }));
+        if (snapRows.length > 0) {
+          const { error } = await sb.from('health_snapshots').upsert(snapRows, { onConflict: 'user_id,date' });
+          error ? log(`Error en health_snapshots: ${error.message}`, 'err')
+                : log(`✓ ${snapRows.length} snapshots de salud subidos.`, 'ok');
+        } else {
+          log('No había snapshots de salud en el backup.', 'warn');
+        }
+
+        const { error: cfgErr } = await sb.from('health_config').upsert({
+          user_id: userId,
+          sleep_goal_minutes: healthState.baseline?.sleepGoalMinutes ?? 480,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id' });
+        cfgErr ? log(`Error en health_config: ${cfgErr.message}`, 'err')
+               : log(`✓ Sleep goal subido (${healthState.baseline?.sleepGoalMinutes ?? 480} min).`, 'ok');
+      }
+
+      // --- CHAT store ---
+      const chatRaw = backupData.data['overseer-chat'];
+      const chatState = chatRaw?.state ?? chatRaw;
+      if (!chatState) {
+        log('No se encontró overseer-chat en el backup.', 'warn');
+      } else {
+        const chatRows = (chatState.messages ?? []).map((m) => ({
+          id: m.id, user_id: userId, role: m.role, content: m.content,
+          timestamp: m.timestamp, action_card: m.actionCard ?? null,
+        }));
+        if (chatRows.length > 0) {
+          const { error } = await sb.from('chat_messages').upsert(chatRows);
+          error ? log(`Error en chat_messages: ${error.message}`, 'err')
+                : log(`✓ ${chatRows.length} mensajes de chat subidos.`, 'ok');
+        } else {
+          log('No había historial de chat en el backup.', 'warn');
+        }
+      }
+
+      // --- FOOD store (singleton JSONB) ---
+      const foodRaw = backupData.data['overseer-food'];
+      const foodState = foodRaw?.state ?? foodRaw;
+      if (!foodState) {
+        log('No se encontró overseer-food en el backup.', 'warn');
+      } else {
+        const { error } = await sb.from('food_data').upsert({
+          user_id: userId,
+          stages: foodState.stages ?? [],
+          shopping: foodState.shopping ?? [],
+          fixed_costs: foodState.fixedCosts ?? [],
+          current_stage_id: foodState.currentStageId || null,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id' });
+        if (error) {
+          log(`Error en food_data: ${error.message}`, 'err');
+        } else {
+          const stagesN = (foodState.stages ?? []).length;
+          const shoppingN = (foodState.shopping ?? []).length;
+          const fcN = (foodState.fixedCosts ?? []).length;
+          log(`✓ Food data subida: ${stagesN} stages, ${shoppingN} categorías de shopping, ${fcN} costos fijos.`, 'ok');
+        }
       }
 
       log('Seed completado.', 'ok');

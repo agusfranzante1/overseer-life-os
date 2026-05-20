@@ -7,6 +7,9 @@ import { useWalletStore } from '@/lib/store/walletStore'
 import { useTradingStore } from '@/lib/store/tradingStore'
 import { useHabitsStore } from '@/lib/store/habitsStore'
 import { useGymStore } from '@/lib/store/gymStore'
+import { useHealthStore } from '@/lib/store/healthStore'
+import { useChatStore } from '@/lib/store/chatStore'
+import { useFoodStore } from '@/lib/store/foodStore'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
@@ -18,6 +21,9 @@ interface SyncState {
   tradingInit: boolean
   habitsInit: boolean
   gymBasicsInit: boolean
+  healthInit: boolean
+  chatInit: boolean
+  foodInit: boolean
 }
 
 const state: SyncState = {
@@ -28,6 +34,9 @@ const state: SyncState = {
   tradingInit: false,
   habitsInit: false,
   gymBasicsInit: false,
+  healthInit: false,
+  chatInit: false,
+  foodInit: false,
 }
 
 // ─── Push timers (debounced per domain) ───────────────────────────────────────
@@ -37,6 +46,9 @@ let walletPushTimer: ReturnType<typeof setTimeout> | null = null
 let tradingPushTimer: ReturnType<typeof setTimeout> | null = null
 let habitsPushTimer: ReturnType<typeof setTimeout> | null = null
 let gymBasicsPushTimer: ReturnType<typeof setTimeout> | null = null
+let healthPushTimer: ReturnType<typeof setTimeout> | null = null
+let chatPushTimer: ReturnType<typeof setTimeout> | null = null
+let foodPushTimer: ReturnType<typeof setTimeout> | null = null
 
 function schedule(
   timer: ReturnType<typeof setTimeout> | null,
@@ -636,6 +648,171 @@ async function pullGymBasics(): Promise<boolean> {
   return true
 }
 
+// ─── HEALTH (snapshots + sleep goal) ──────────────────────────────────────────
+
+async function pushHealth() {
+  if (!state.userId) return
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { snapshots, baseline } = useHealthStore.getState()
+
+  const snapRows = Object.values(snapshots).map((s) => ({
+    user_id: uid, date: s.date,
+    steps: s.steps, sleep_minutes: s.sleepMinutes,
+    sleep_start: s.sleepStart ?? null, sleep_end: s.sleepEnd ?? null,
+    resting_hr: s.restingHR ?? null, hrv: s.hrv ?? null,
+    source: s.source, synced_at: s.syncedAt,
+  }))
+
+  if (snapRows.length > 0) {
+    await sb.from('health_snapshots').upsert(snapRows, { onConflict: 'user_id,date' })
+  }
+
+  // Delete snapshots no longer present locally
+  const { data: remote } = await sb.from('health_snapshots').select('date').eq('user_id', uid)
+  if (remote) {
+    const localDates = new Set(Object.keys(snapshots))
+    const toDelete = (remote as Row[]).filter((r) => !localDates.has(r.date as string)).map((r) => r.date as string)
+    if (toDelete.length > 0) {
+      await sb.from('health_snapshots').delete().eq('user_id', uid).in('date', toDelete)
+    }
+  }
+
+  await sb.from('health_config').upsert(
+    { user_id: uid, sleep_goal_minutes: baseline.sleepGoalMinutes, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id' }
+  )
+}
+
+async function pullHealth(): Promise<boolean> {
+  if (!state.userId) return false
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const [snapRes, cfgRes] = await Promise.all([
+    sb.from('health_snapshots').select('*').eq('user_id', uid),
+    sb.from('health_config').select('*').eq('user_id', uid).maybeSingle(),
+  ])
+
+  if (snapRes.error || cfgRes.error) {
+    console.error('Health pull failed', snapRes.error ?? cfgRes.error)
+    return false
+  }
+
+  const hasData = (snapRes.data?.length ?? 0) > 0 || !!cfgRes.data
+  if (!hasData) return false
+
+  const snapMap: Record<string, import('@/lib/store/healthStore').HealthSnapshot> = {}
+  for (const s of (snapRes.data ?? []) as Row[]) {
+    const date = s.date as string
+    snapMap[date] = {
+      date,
+      steps: (s.steps as number) ?? 0,
+      sleepMinutes: (s.sleep_minutes as number) ?? 0,
+      sleepStart: (s.sleep_start as string) ?? undefined,
+      sleepEnd: (s.sleep_end as string) ?? undefined,
+      restingHR: (s.resting_hr as number) ?? undefined,
+      hrv: s.hrv !== null && s.hrv !== undefined ? Number(s.hrv) : undefined,
+      source: (s.source as 'shortcut' | 'manual') ?? 'manual',
+      syncedAt: (s.synced_at as number) ?? Date.now(),
+    }
+  }
+
+  const sleepGoal = cfgRes.data
+    ? ((cfgRes.data as Row).sleep_goal_minutes as number) ?? 480
+    : useHealthStore.getState().baseline.sleepGoalMinutes
+
+  useHealthStore.setState({
+    snapshots: snapMap,
+    baseline: { ...useHealthStore.getState().baseline, sleepGoalMinutes: sleepGoal },
+    lastSyncAt: Date.now(),
+  })
+  useHealthStore.getState().computeBaseline()
+  return true
+}
+
+// ─── CHAT ─────────────────────────────────────────────────────────────────────
+
+async function pushChat() {
+  if (!state.userId) return
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { messages } = useChatStore.getState()
+
+  const rows = messages.map((m) => ({
+    id: m.id, user_id: uid, role: m.role, content: m.content,
+    timestamp: m.timestamp, action_card: m.actionCard ?? null,
+  }))
+
+  if (rows.length > 0) await sb.from('chat_messages').upsert(rows)
+  await deleteSurplus(sb, 'chat_messages', uid, rows.map((r) => r.id))
+}
+
+async function pullChat(): Promise<boolean> {
+  if (!state.userId) return false
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('chat_messages').select('*').eq('user_id', uid).order('timestamp', { ascending: true })
+  if (res.error) {
+    console.error('Chat pull failed', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) return false
+
+  useChatStore.setState({
+    messages: (res.data ?? []).map((m: Row) => ({
+      id: m.id as string,
+      role: m.role as 'user' | 'assistant',
+      content: m.content as string,
+      timestamp: m.timestamp as string,
+      actionCard: (m.action_card as import('@/types').ChatActionCard | null) ?? undefined,
+    })),
+  })
+  return true
+}
+
+// ─── FOOD (singleton row, JSONB blobs for nested data) ────────────────────────
+
+async function pushFood() {
+  if (!state.userId) return
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { stages, shopping, fixedCosts, currentStageId } = useFoodStore.getState()
+
+  await sb.from('food_data').upsert(
+    {
+      user_id: uid,
+      stages, shopping, fixed_costs: fixedCosts,
+      current_stage_id: currentStageId || null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id' }
+  )
+}
+
+async function pullFood(): Promise<boolean> {
+  if (!state.userId) return false
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('food_data').select('*').eq('user_id', uid).maybeSingle()
+  if (res.error) {
+    console.error('Food pull failed', res.error)
+    return false
+  }
+  if (!res.data) return false
+
+  const d = res.data as Row
+  useFoodStore.setState({
+    stages: (d.stages as import('@/lib/store/foodStore').Stage[]) ?? [],
+    shopping: (d.shopping as import('@/lib/store/foodStore').ShoppingCategory[]) ?? [],
+    fixedCosts: (d.fixed_costs as import('@/lib/store/foodStore').FixedCost[]) ?? [],
+    currentStageId: (d.current_stage_id as string) ?? '',
+  })
+  return true
+}
+
 // ─── Scheduled pushes ─────────────────────────────────────────────────────────
 
 function scheduleTasks()      { schedule(tasksPushTimer,     pushTasks,     (t) => { tasksPushTimer = t }) }
@@ -643,6 +820,9 @@ function scheduleWallet()     { schedule(walletPushTimer,    pushWallet,    (t) 
 function scheduleTrading()    { schedule(tradingPushTimer,   pushTrading,   (t) => { tradingPushTimer = t }) }
 function scheduleHabits()     { schedule(habitsPushTimer,    pushHabits,    (t) => { habitsPushTimer = t }) }
 function scheduleGymBasics()  { schedule(gymBasicsPushTimer, pushGymBasics, (t) => { gymBasicsPushTimer = t }) }
+function scheduleHealth()     { schedule(healthPushTimer,    pushHealth,    (t) => { healthPushTimer = t }) }
+function scheduleChat()       { schedule(chatPushTimer,      pushChat,      (t) => { chatPushTimer = t }) }
+function scheduleFood()       { schedule(foodPushTimer,      pushFood,      (t) => { foodPushTimer = t }) }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
@@ -703,6 +883,30 @@ export function useSupabaseSync() {
           await pushGymBasics().catch((e) => console.error('Gym basics initial push failed', e))
         }
       }
+
+      if (!state.healthInit) {
+        state.healthInit = true
+        const had = await pullHealth()
+        if (!had) {
+          await pushHealth().catch((e) => console.error('Health initial push failed', e))
+        }
+      }
+
+      if (!state.chatInit) {
+        state.chatInit = true
+        const had = await pullChat()
+        if (!had) {
+          await pushChat().catch((e) => console.error('Chat initial push failed', e))
+        }
+      }
+
+      if (!state.foodInit) {
+        state.foodInit = true
+        const had = await pullFood()
+        if (!had) {
+          await pushFood().catch((e) => console.error('Food initial push failed', e))
+        }
+      }
     })()
 
     // Subscribe to local store changes
@@ -713,6 +917,9 @@ export function useSupabaseSync() {
       useTradingStore.subscribe(() => { if (state.userId) scheduleTrading() })
       useHabitsStore.subscribe(() => { if (state.userId) scheduleHabits() })
       useGymStore.subscribe(() => { if (state.userId) scheduleGymBasics() })
+      useHealthStore.subscribe(() => { if (state.userId) scheduleHealth() })
+      useChatStore.subscribe(() => { if (state.userId) scheduleChat() })
+      useFoodStore.subscribe(() => { if (state.userId) scheduleFood() })
     }
 
     // Auth state changes
@@ -725,6 +932,9 @@ export function useSupabaseSync() {
         state.tradingInit = false
         state.habitsInit = false
         state.gymBasicsInit = false
+        state.healthInit = false
+        state.chatInit = false
+        state.foodInit = false
       }
     })
 
@@ -747,3 +957,9 @@ export async function forceSyncHabits()   { await pushHabits() }
 export async function forcePullHabits()   { return pullHabits() }
 export async function forceSyncGymBasics() { await pushGymBasics() }
 export async function forcePullGymBasics() { return pullGymBasics() }
+export async function forceSyncHealth()   { await pushHealth() }
+export async function forcePullHealth()   { return pullHealth() }
+export async function forceSyncChat()     { await pushChat() }
+export async function forcePullChat()     { return pullChat() }
+export async function forceSyncFood()     { await pushFood() }
+export async function forcePullFood()     { return pullFood() }
