@@ -5,6 +5,8 @@ import { getSupabaseBrowser, hasSupabaseConfig } from './client'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useWalletStore } from '@/lib/store/walletStore'
 import { useTradingStore } from '@/lib/store/tradingStore'
+import { useHabitsStore } from '@/lib/store/habitsStore'
+import { useGymStore } from '@/lib/store/gymStore'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
@@ -14,6 +16,8 @@ interface SyncState {
   tasksInit: boolean
   walletInit: boolean
   tradingInit: boolean
+  habitsInit: boolean
+  gymBasicsInit: boolean
 }
 
 const state: SyncState = {
@@ -22,6 +26,8 @@ const state: SyncState = {
   tasksInit: false,
   walletInit: false,
   tradingInit: false,
+  habitsInit: false,
+  gymBasicsInit: false,
 }
 
 // ─── Push timers (debounced per domain) ───────────────────────────────────────
@@ -29,6 +35,8 @@ const state: SyncState = {
 let tasksPushTimer: ReturnType<typeof setTimeout> | null = null
 let walletPushTimer: ReturnType<typeof setTimeout> | null = null
 let tradingPushTimer: ReturnType<typeof setTimeout> | null = null
+let habitsPushTimer: ReturnType<typeof setTimeout> | null = null
+let gymBasicsPushTimer: ReturnType<typeof setTimeout> | null = null
 
 function schedule(
   timer: ReturnType<typeof setTimeout> | null,
@@ -512,11 +520,129 @@ async function pullTrading(): Promise<boolean> {
   return true
 }
 
+// ─── HABITS ───────────────────────────────────────────────────────────────────
+
+async function pushHabits() {
+  if (!state.userId) return
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { habits } = useHabitsStore.getState()
+
+  const rows = habits.map((h) => ({
+    id: h.id, user_id: uid, name: h.name, icon: h.icon, color: h.color,
+    target_days: h.targetDays, completed_dates: h.completedDates,
+    category: h.category, created_at: h.createdAt,
+  }))
+
+  if (rows.length > 0) await sb.from('habits').upsert(rows)
+  await deleteSurplus(sb, 'habits', uid, rows.map((r) => r.id))
+}
+
+async function pullHabits(): Promise<boolean> {
+  if (!state.userId) return false
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('habits').select('*').eq('user_id', uid)
+  if (res.error) {
+    console.error('Habits pull failed', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) return false
+
+  useHabitsStore.setState({
+    habits: (res.data ?? []).map((h: Row) => ({
+      id: h.id as string,
+      name: h.name as string,
+      icon: h.icon as string,
+      color: h.color as string,
+      targetDays: (h.target_days as number[]) ?? [],
+      completedDates: (h.completed_dates as string[]) ?? [],
+      category: h.category as string,
+      createdAt: h.created_at as string,
+    })),
+  })
+  return true
+}
+
+// ─── GYM BASICS (weight entries + config) ─────────────────────────────────────
+
+async function pushGymBasics() {
+  if (!state.userId) return
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { weightEntries, gymType, phase, weightGoalKg } = useGymStore.getState()
+
+  const weightRows = weightEntries.map((e) => ({
+    id: e.id, user_id: uid, date: e.date, kg: e.kg,
+    note: e.note ?? null, created_at: e.createdAt,
+  }))
+
+  if (weightRows.length > 0) await sb.from('gym_weight_entries').upsert(weightRows)
+  await deleteSurplus(sb, 'gym_weight_entries', uid, weightRows.map((r) => r.id))
+
+  await sb.from('gym_config').upsert(
+    {
+      user_id: uid,
+      gym_type: gymType,
+      phase,
+      weight_goal_kg: weightGoalKg,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id' }
+  )
+}
+
+async function pullGymBasics(): Promise<boolean> {
+  if (!state.userId) return false
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const [weightRes, cfgRes] = await Promise.all([
+    sb.from('gym_weight_entries').select('*').eq('user_id', uid).order('date', { ascending: false }),
+    sb.from('gym_config').select('*').eq('user_id', uid).maybeSingle(),
+  ])
+
+  if (weightRes.error || cfgRes.error) {
+    console.error('Gym basics pull failed', weightRes.error ?? cfgRes.error)
+    return false
+  }
+
+  const hasData = (weightRes.data?.length ?? 0) > 0 || !!cfgRes.data
+  if (!hasData) return false
+
+  const patch: Partial<ReturnType<typeof useGymStore.getState>> = {}
+
+  if ((weightRes.data?.length ?? 0) > 0) {
+    patch.weightEntries = (weightRes.data ?? []).map((e: Row) => ({
+      id: e.id as string,
+      date: e.date as string,
+      kg: Number(e.kg),
+      note: (e.note as string) ?? undefined,
+      createdAt: e.created_at as string,
+    }))
+  }
+
+  if (cfgRes.data) {
+    const c = cfgRes.data as Row
+    patch.gymType = (c.gym_type as 'home' | 'commercial') ?? 'home'
+    patch.phase = (c.phase as 'cut' | 'maintenance' | 'bulk') ?? 'maintenance'
+    patch.weightGoalKg = c.weight_goal_kg !== null && c.weight_goal_kg !== undefined
+      ? Number(c.weight_goal_kg)
+      : null
+  }
+
+  useGymStore.setState(patch)
+  return true
+}
+
 // ─── Scheduled pushes ─────────────────────────────────────────────────────────
 
-function scheduleTasks()   { schedule(tasksPushTimer,   pushTasks,   (t) => { tasksPushTimer = t }) }
-function scheduleWallet()  { schedule(walletPushTimer,  pushWallet,  (t) => { walletPushTimer = t }) }
-function scheduleTrading() { schedule(tradingPushTimer, pushTrading, (t) => { tradingPushTimer = t }) }
+function scheduleTasks()      { schedule(tasksPushTimer,     pushTasks,     (t) => { tasksPushTimer = t }) }
+function scheduleWallet()     { schedule(walletPushTimer,    pushWallet,    (t) => { walletPushTimer = t }) }
+function scheduleTrading()    { schedule(tradingPushTimer,   pushTrading,   (t) => { tradingPushTimer = t }) }
+function scheduleHabits()     { schedule(habitsPushTimer,    pushHabits,    (t) => { habitsPushTimer = t }) }
+function scheduleGymBasics()  { schedule(gymBasicsPushTimer, pushGymBasics, (t) => { gymBasicsPushTimer = t }) }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
@@ -561,6 +687,22 @@ export function useSupabaseSync() {
           await pushTrading().catch((e) => console.error('Trading initial push failed', e))
         }
       }
+
+      if (!state.habitsInit) {
+        state.habitsInit = true
+        const had = await pullHabits()
+        if (!had) {
+          await pushHabits().catch((e) => console.error('Habits initial push failed', e))
+        }
+      }
+
+      if (!state.gymBasicsInit) {
+        state.gymBasicsInit = true
+        const had = await pullGymBasics()
+        if (!had) {
+          await pushGymBasics().catch((e) => console.error('Gym basics initial push failed', e))
+        }
+      }
     })()
 
     // Subscribe to local store changes
@@ -569,6 +711,8 @@ export function useSupabaseSync() {
       useTasksStore.subscribe(() => { if (state.userId) scheduleTasks() })
       useWalletStore.subscribe(() => { if (state.userId) scheduleWallet() })
       useTradingStore.subscribe(() => { if (state.userId) scheduleTrading() })
+      useHabitsStore.subscribe(() => { if (state.userId) scheduleHabits() })
+      useGymStore.subscribe(() => { if (state.userId) scheduleGymBasics() })
     }
 
     // Auth state changes
@@ -579,6 +723,8 @@ export function useSupabaseSync() {
         state.tasksInit = false
         state.walletInit = false
         state.tradingInit = false
+        state.habitsInit = false
+        state.gymBasicsInit = false
       }
     })
 
@@ -597,3 +743,7 @@ export async function forceSyncWallet()   { await pushWallet() }
 export async function forcePullWallet()   { return pullWallet() }
 export async function forceSyncTrading()  { await pushTrading() }
 export async function forcePullTrading()  { return pullTrading() }
+export async function forceSyncHabits()   { await pushHabits() }
+export async function forcePullHabits()   { return pullHabits() }
+export async function forceSyncGymBasics() { await pushGymBasics() }
+export async function forcePullGymBasics() { return pullGymBasics() }

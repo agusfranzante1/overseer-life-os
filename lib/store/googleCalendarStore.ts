@@ -146,16 +146,13 @@ export const useGoogleCalendarStore = create<State>()(
           const r = await fetch('/api/calendar/list', { cache: 'no-store' })
           const j = await r.json()
           if (!j.ok) throw new Error(j.error ?? 'load_failed')
-          const calendars: GCalendar[] = j.calendars
-          // Initialize visibleIds on first load: primary + previously selected ones
-          const existing = new Set(get().visibleIds)
+          const calendars: GCalendar[] = j.calendars ?? []
+          // Filter stale visibleIds (could be from a previous Google account) to only those that
+          // still exist. If none survive, auto-select primary OR first calendar as fallback.
           let visibleIds = get().visibleIds.filter((id) => calendars.some((c) => c.id === id))
-          if (visibleIds.length === 0) {
+          if (visibleIds.length === 0 && calendars.length > 0) {
             const primary = calendars.find((c) => c.primary)
-            if (primary) visibleIds = [primary.id]
-          } else {
-            // keep existing
-            visibleIds = Array.from(existing).filter((id) => calendars.some((c) => c.id === id))
+            visibleIds = [primary?.id ?? calendars[0].id]
           }
           set({ calendars, visibleIds, loading: false })
         } catch (e) {

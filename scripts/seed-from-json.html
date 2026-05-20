@@ -28,7 +28,8 @@
   <h1>🌱 Overseer — Seed Supabase</h1>
 
   <div class="note">
-    Esta página sube tu backup JSON a Supabase (solo tablas migradas en Fase 1: <strong>projects, tasks, subtasks</strong>).<br/>
+    Esta página sube tu backup JSON a Supabase. Soporta:
+    <strong>projects/tasks/subtasks</strong> (Fase 1) y <strong>habits + gym (peso corporal + config)</strong> (Fase 3a).<br/>
     Abrila en cualquier navegador — no necesita el mismo origen que localhost:3001.
   </div>
 
@@ -183,6 +184,56 @@
         if (projectRows.length === 0 && taskRows.length === 0) {
           log('No había proyectos ni tareas en el backup.', 'warn');
         }
+      }
+
+      // --- HABITS store ---
+      const habitsRaw = backupData.data['overseer-habits'];
+      const habitsState = habitsRaw?.state ?? habitsRaw;
+      if (!habitsState) {
+        log('No se encontró overseer-habits en el backup.', 'warn');
+      } else {
+        const habitRows = (habitsState.habits ?? []).map((h) => ({
+          id: h.id, user_id: userId, name: h.name, icon: h.icon, color: h.color,
+          target_days: h.targetDays ?? [],
+          completed_dates: h.completedDates ?? [],
+          category: h.category, created_at: h.createdAt,
+        }));
+        if (habitRows.length > 0) {
+          const { error } = await sb.from('habits').upsert(habitRows);
+          error ? log(`Error en habits: ${error.message}`, 'err')
+                : log(`✓ ${habitRows.length} hábitos subidos.`, 'ok');
+        } else {
+          log('No había hábitos en el backup.', 'warn');
+        }
+      }
+
+      // --- GYM store (weight entries + config only — Fase 3a) ---
+      const gymRaw = backupData.data['overseer-gym'];
+      const gymState = gymRaw?.state ?? gymRaw;
+      if (!gymState) {
+        log('No se encontró overseer-gym en el backup.', 'warn');
+      } else {
+        const weightRows = (gymState.weightEntries ?? []).map((e) => ({
+          id: e.id, user_id: userId, date: e.date, kg: e.kg,
+          note: e.note ?? null, created_at: e.createdAt,
+        }));
+        if (weightRows.length > 0) {
+          const { error } = await sb.from('gym_weight_entries').upsert(weightRows);
+          error ? log(`Error en gym_weight_entries: ${error.message}`, 'err')
+                : log(`✓ ${weightRows.length} entradas de peso subidas.`, 'ok');
+        } else {
+          log('No había entradas de peso corporal en el backup.', 'warn');
+        }
+
+        const { error: cfgErr } = await sb.from('gym_config').upsert({
+          user_id: userId,
+          gym_type: gymState.gymType ?? 'home',
+          phase: gymState.phase ?? 'maintenance',
+          weight_goal_kg: gymState.weightGoalKg ?? null,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id' });
+        cfgErr ? log(`Error en gym_config: ${cfgErr.message}`, 'err')
+               : log(`✓ Configuración de gym subida (tipo: ${gymState.gymType}, fase: ${gymState.phase}).`, 'ok');
       }
 
       log('Seed completado.', 'ok');
