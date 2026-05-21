@@ -53,10 +53,14 @@ export async function saveGCalCredentials(
   clientId: string,
   clientSecret: string,
 ): Promise<void> {
-  await sb.from('gcal_credentials').upsert(
+  // Upsert here is fine because we provide BOTH NOT NULL columns (client_id
+  // and client_secret), so the initial INSERT path doesn't trip the NOT NULL
+  // check before ON CONFLICT can resolve.
+  const { error } = await sb.from('gcal_credentials').upsert(
     { user_id: userId, client_id: clientId, client_secret: clientSecret, updated_at: new Date().toISOString() },
     { onConflict: 'user_id' },
   )
+  if (error) throw new Error(`saveGCalCredentials failed: ${error.message}`)
 }
 
 export async function saveGCalTokens(
@@ -64,17 +68,30 @@ export async function saveGCalTokens(
   userId: string,
   tokens: Credentials,
 ): Promise<void> {
-  await sb.from('gcal_credentials').upsert(
-    {
-      user_id: userId,
-      refresh_token: tokens.refresh_token ?? undefined,
-      access_token: tokens.access_token ?? undefined,
-      token_expiry: tokens.expiry_date ?? undefined,
-      connected: !!tokens.refresh_token,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id' },
-  )
+  // We use UPDATE (not upsert) because the row must already exist — it gets
+  // created by saveGCalCredentials() before OAuth even starts. Upserting with
+  // a partial payload tripped PostgreSQL's NOT NULL check on client_id/secret
+  // before the conflict resolution could kick in, and the silent error path
+  // made tokens appear to save but never persist. UPDATE sidesteps that.
+  const patch: Record<string, unknown> = {
+    connected: !!tokens.refresh_token,
+    updated_at: new Date().toISOString(),
+  }
+  if (tokens.refresh_token) patch.refresh_token = tokens.refresh_token
+  if (tokens.access_token) patch.access_token = tokens.access_token
+  if (tokens.expiry_date) patch.token_expiry = tokens.expiry_date
+
+  const { error, count } = await sb
+    .from('gcal_credentials')
+    .update(patch, { count: 'exact' })
+    .eq('user_id', userId)
+
+  if (error) {
+    throw new Error(`saveGCalTokens update failed: ${error.message}`)
+  }
+  if (count === 0) {
+    throw new Error('saveGCalTokens: no row updated — credentials row missing for user ' + userId)
+  }
 }
 
 export async function disconnectGCal(
