@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { Task, Project, Subtask, CustomStatus } from '@/types'
 import { DEFAULT_STATUSES, PROJECT_COLORS } from '@/lib/utils/constants'
+import { dateKeyInTz } from '@/lib/utils/dateInTz'
 
 function genId() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
@@ -30,6 +31,19 @@ interface TasksState {
   updateTask: (id: string, patch: Partial<Task>) => void
   completeTask: (id: string) => void
   deleteTask: (id: string) => void
+  /** Moves all completed tasks (status countsAsDone) into the archive
+   *  ("papelera") if their completedAt date — computed in the given IANA
+   *  timezone — is strictly before todayKey. Archived tasks stay in the
+   *  store; they just become hidden from normal views. Returns the count
+   *  archived. */
+  archiveCompletedBefore: (todayKey: string, timezone: string) => number
+  /** Restore an archived task: clear its archivedAt + completedAt and reset
+   *  its status to the first non-done status of its project. */
+  restoreFromArchive: (id: string) => void
+  /** Permanently delete a single archived task (skipping the trash). */
+  deletePermanently: (id: string) => void
+  /** Permanently delete every archived task — "vaciar papelera". Returns count. */
+  emptyArchive: () => number
   moveTask: (taskId: string, projectId: string) => void
   postponeTask: (id: string) => void
   pushRemainingToTomorrow: () => void
@@ -129,12 +143,33 @@ export const useTasksStore = create<TasksState>()(
       },
 
       updateTask: (id, patch) =>
-        set((s) => ({
-          tasks: {
-            ...s.tasks,
-            [id]: { ...s.tasks[id], ...patch, updatedAt: new Date().toISOString() },
-          },
-        })),
+        set((s) => {
+          const prev = s.tasks[id]
+          if (!prev) return s
+
+          // If the status is changing, auto-manage completedAt:
+          //   - transitioning INTO a countsAsDone status → stamp completedAt
+          //   - transitioning OUT of a countsAsDone status → clear completedAt
+          //     (so the auto-purge doesn't reap a re-opened task tomorrow)
+          let completedAtPatch: { completedAt?: string | undefined } = {}
+          if (typeof patch.status === 'string' && patch.status !== prev.status) {
+            const proj = s.projects[prev.projectId]
+            const newStatusDef = proj?.statuses.find((st) => st.label === patch.status)
+            const oldStatusDef = proj?.statuses.find((st) => st.label === prev.status)
+            if (newStatusDef?.countsAsDone && !oldStatusDef?.countsAsDone) {
+              completedAtPatch = { completedAt: new Date().toISOString() }
+            } else if (!newStatusDef?.countsAsDone && oldStatusDef?.countsAsDone) {
+              completedAtPatch = { completedAt: undefined }
+            }
+          }
+
+          return {
+            tasks: {
+              ...s.tasks,
+              [id]: { ...prev, ...patch, ...completedAtPatch, updatedAt: new Date().toISOString() },
+            },
+          }
+        }),
 
       completeTask: (id) =>
         set((s) => {
@@ -169,6 +204,95 @@ export const useTasksStore = create<TasksState>()(
             },
           }
         }),
+
+      archiveCompletedBefore: (todayKey, timezone) => {
+        let archived = 0
+        const nowIso = new Date().toISOString()
+        set((s) => {
+          const tasks = { ...s.tasks }
+          for (const t of Object.values(tasks)) {
+            if (t.archivedAt) continue                  // already in archive
+            const proj = s.projects[t.projectId]
+            if (!proj) continue
+            const statusDef = proj.statuses.find((st) => st.label === t.status)
+            if (!statusDef?.countsAsDone) continue
+            if (!t.completedAt) continue
+            const completedKey = dateKeyInTz(new Date(t.completedAt), timezone)
+            if (completedKey < todayKey) {
+              tasks[t.id] = { ...t, archivedAt: nowIso }
+              archived++
+            }
+          }
+          return { tasks }
+        })
+        return archived
+      },
+
+      restoreFromArchive: (id) =>
+        set((s) => {
+          const t = s.tasks[id]
+          if (!t) return s
+          const proj = s.projects[t.projectId]
+          // Find a sensible non-done status to restore to. Prefer "In Progress"
+          // style (first non-done), fall back to current status if nothing fits.
+          const reopenStatus = proj?.statuses.find((st) => !st.countsAsDone)?.label ?? t.status
+          return {
+            tasks: {
+              ...s.tasks,
+              [id]: {
+                ...t,
+                archivedAt: undefined,
+                completedAt: undefined,
+                status: reopenStatus,
+                updatedAt: new Date().toISOString(),
+              },
+            },
+          }
+        }),
+
+      deletePermanently: (id) =>
+        set((s) => {
+          const task = s.tasks[id]
+          if (!task) return s
+          const { [id]: _gone, ...tasks } = s.tasks
+          return {
+            tasks,
+            projects: {
+              ...s.projects,
+              [task.projectId]: {
+                ...s.projects[task.projectId],
+                taskIds: (s.projects[task.projectId]?.taskIds ?? []).filter((tid) => tid !== id),
+              },
+            },
+          }
+        }),
+
+      emptyArchive: () => {
+        let removed = 0
+        set((s) => {
+          const tasks: typeof s.tasks = {}
+          const removedIdsByProject: Record<string, Set<string>> = {}
+          for (const [id, t] of Object.entries(s.tasks)) {
+            if (t.archivedAt) {
+              removed++
+              ;(removedIdsByProject[t.projectId] ??= new Set()).add(id)
+            } else {
+              tasks[id] = t
+            }
+          }
+          const projects = { ...s.projects }
+          for (const [projectId, ids] of Object.entries(removedIdsByProject)) {
+            const p = projects[projectId]
+            if (!p) continue
+            projects[projectId] = {
+              ...p,
+              taskIds: (p.taskIds ?? []).filter((tid) => !ids.has(tid)),
+            }
+          }
+          return { tasks, projects }
+        })
+        return removed
+      },
 
       moveTask: (taskId, newProjectId) =>
         set((s) => {

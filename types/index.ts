@@ -50,6 +50,12 @@ export interface Task {
   createdAt: string
   scheduledFor?: 'today' | 'tomorrow'
   completedAt?: string
+  /** ISO timestamp when the task was moved to the archive ("papelera de
+   *  completadas"). Set automatically by the auto-purge process the day after
+   *  completion. Tasks with archivedAt are excluded from normal views and only
+   *  appear in the archive view, where they can be restored or permanently
+   *  deleted. */
+  archivedAt?: string
   updatedAt: string
   postponedCount?: number
   category?: string

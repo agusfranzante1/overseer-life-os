@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAppStore } from '@/lib/store/appStore'
 import { useTranslation } from '@/hooks/useTranslation'
@@ -7,7 +7,9 @@ import {
   LayoutDashboard, Calendar, CheckSquare,
   Globe, WalletCards, Activity, Dumbbell, Utensils, HeartPulse, Menu,
   TrendingUp, GripVertical, Check, RotateCcw, Settings2, Cog, LogOut,
+  Clock, Search, X as XIcon,
 } from 'lucide-react'
+import { listTimezones, formatTzOffset, detectTimezone } from '@/lib/utils/dateInTz'
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
@@ -224,8 +226,10 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Bottom actions — language toggle + logout */}
+      {/* Bottom actions — timezone + language toggle + logout */}
       <div className="border-t border-zinc-800 p-2 space-y-1">
+        <TimezoneButton collapsed={sidebarCollapsed} />
+
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.97 }}
@@ -257,5 +261,136 @@ export function Sidebar() {
         )}
       </div>
     </motion.aside>
+  )
+}
+
+// ─── Timezone Button — popover with searchable list + auto-purge toggle ───────
+
+function TimezoneButton({ collapsed }: { collapsed: boolean }) {
+  const timezone = useAppStore((s) => s.timezone)
+  const setTimezone = useAppStore((s) => s.setTimezone)
+  const autoPurge = useAppStore((s) => s.autoPurgeCompletedTasks)
+  const setAutoPurge = useAppStore((s) => s.setAutoPurgeCompletedTasks)
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const allTzs = useMemo(() => listTimezones(), [])
+  const filtered = useMemo(() => {
+    if (!query.trim()) return allTzs.slice(0, 60)
+    const q = query.toLowerCase()
+    return allTzs.filter((tz) => tz.toLowerCase().includes(q)).slice(0, 60)
+  }, [allTzs, query])
+
+  const offset = formatTzOffset(timezone)
+  // Show just the city portion for the button label
+  const shortLabel = timezone.split('/').slice(-1)[0]?.replace(/_/g, ' ') ?? timezone
+
+  return (
+    <div className="relative" ref={ref}>
+      <motion.button
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.97 }}
+        onClick={() => setOpen((v) => !v)}
+        title={collapsed ? `${timezone} (${offset})` : undefined}
+        className={`w-full flex items-center gap-3 ${collapsed ? 'justify-center px-2' : 'px-3'} py-2.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors`}
+      >
+        <Clock className="w-4 h-4 shrink-0" />
+        {!collapsed && (
+          <span className="text-sm font-medium whitespace-nowrap flex items-center gap-2 min-w-0 flex-1 text-left">
+            <span className="truncate">{shortLabel}</span>
+            <span className="text-[10px] font-mono text-zinc-500 shrink-0">{offset}</span>
+          </span>
+        )}
+      </motion.button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            className="absolute bottom-full mb-2 left-0 right-0 z-30 w-72 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl"
+            style={{ maxHeight: '60vh' }}
+          >
+            <div className="p-3 border-b border-zinc-800">
+              <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-2">Zona horaria</p>
+              <p className="text-xs text-zinc-300 mb-3">
+                {timezone}
+                <span className="ml-2 text-[10px] font-mono text-zinc-500">{offset}</span>
+              </p>
+              <button
+                onClick={() => setTimezone(detectTimezone())}
+                className="w-full text-[11px] text-left px-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
+              >
+                Usar la del dispositivo ({detectTimezone()})
+              </button>
+            </div>
+
+            <div className="p-2 border-b border-zinc-800">
+              <div className="flex items-center gap-2 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1">
+                <Search className="w-3.5 h-3.5 text-zinc-500" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Buscar zona horaria..."
+                  className="flex-1 bg-transparent text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none"
+                />
+                {query && (
+                  <button onClick={() => setQuery('')} className="text-zinc-500 hover:text-zinc-300">
+                    <XIcon className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="overflow-y-auto" style={{ maxHeight: '30vh' }}>
+              {filtered.map((tz) => (
+                <button
+                  key={tz}
+                  onClick={() => { setTimezone(tz); setOpen(false) }}
+                  className={`w-full flex items-center justify-between text-left px-3 py-1.5 text-xs transition-colors ${
+                    tz === timezone ? 'bg-indigo-500/15 text-indigo-300' : 'text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                >
+                  <span className="truncate">{tz}</span>
+                  <span className="text-[10px] font-mono text-zinc-500 shrink-0 ml-2">{formatTzOffset(tz)}</span>
+                </button>
+              ))}
+              {filtered.length === 0 && (
+                <p className="text-xs text-zinc-600 text-center py-4">Sin resultados</p>
+              )}
+            </div>
+
+            <div className="p-3 border-t border-zinc-800 flex items-center justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-zinc-300">Auto-archivar completadas</p>
+                <p className="text-[10px] text-zinc-500 leading-tight">Al día siguiente las pasa a la papelera (no las borra)</p>
+              </div>
+              <button
+                onClick={() => setAutoPurge(!autoPurge)}
+                className={`shrink-0 w-10 h-5 rounded-full transition-colors relative ${
+                  autoPurge ? 'bg-emerald-500' : 'bg-zinc-700'
+                }`}
+                title={autoPurge ? 'Apagar auto-archivar' : 'Encender auto-archivar'}
+              >
+                <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                  autoPurge ? 'translate-x-5' : 'translate-x-0.5'
+                }`} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   )
 }

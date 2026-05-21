@@ -9,6 +9,8 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
 import { useHabitsStore, type Habit } from '@/lib/store/habitsStore'
+import { useAppStore } from '@/lib/store/appStore'
+import { todayKeyInTz } from '@/lib/utils/dateInTz'
 
 const COLORS = ['#10b981', '#6366f1', '#f59e0b', '#ec4899', '#3b82f6', '#f97316', '#8b5cf6', '#ef4444']
 const ICONS = ['🏋️', '🧘', '📚', '🏃', '💧', '🥗', '😴', '💊', '🧠', '✍️', '🎯', '🚴']
@@ -64,6 +66,7 @@ function computeStreak(completedDates: string[]): number {
 
 export function HabitsPage() {
   const { habits, addHabit, removeHabit, toggleDate } = useHabitsStore()
+  const timezone = useAppStore((s) => s.timezone)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name: '', icon: '🎯', color: COLORS[0], category: 'Salud' })
   const [weekAnchor, setWeekAnchor] = useState(() => startOfWeekMonday(new Date()))
@@ -73,7 +76,10 @@ export function HabitsPage() {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
-  const today = todayStr()
+  // "Today" is computed in the user's selected IANA timezone — so habits roll
+  // over on the user's day, not the device's local day. Important when
+  // travelling or working across timezones.
+  const today = todayKeyInTz(timezone)
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekAnchor, i)), [weekAnchor])
   const weekDayStrs = useMemo(() => weekDays.map(dateToStr), [weekDays])
 

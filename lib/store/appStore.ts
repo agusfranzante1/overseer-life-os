@@ -2,6 +2,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { Language, DayType, DayTypeConfig, MetricEntry } from '@/types'
+import { detectTimezone } from '@/lib/utils/dateInTz'
 
 export interface ScheduleSlot {
   label: string
@@ -46,6 +47,11 @@ interface AppState {
   idealSchedule: Record<string, ScheduleSlot>
   scheduleOrder: ScheduleKey[]
   dayTypes: DayTypeConfig[]
+  /** IANA timezone (e.g. "America/Argentina/Buenos_Aires"). Determines the
+   *  app's notion of "today" for habits, task auto-purge, etc. */
+  timezone: string
+  /** Toggle for auto-deleting tasks the day after they're completed. */
+  autoPurgeCompletedTasks: boolean
 
   setLanguage: (lang: Language) => void
   toggleSidebar: () => void
@@ -54,6 +60,8 @@ interface AppState {
   addDayType: (cfg: { label: string; color: string; icon: string }) => string
   removeDayType: (id: string) => void
   updateDayType: (id: string, patch: Partial<Omit<DayTypeConfig, 'id'>>) => void
+  setTimezone: (tz: string) => void
+  setAutoPurgeCompletedTasks: (v: boolean) => void
   setActiveSection: (s: AppState['activeSection']) => void
   updateMetric: <K extends keyof MetricEntry>(key: K, value: MetricEntry[K]) => void
   setChatOpen: (v: boolean) => void
@@ -86,6 +94,8 @@ export const useAppStore = create<AppState>()(
       idealSchedule: DEFAULT_SCHEDULE,
       scheduleOrder: DEFAULT_SCHEDULE_ORDER,
       dayTypes: DEFAULT_DAY_TYPES,
+      timezone: detectTimezone(),
+      autoPurgeCompletedTasks: true,
       metrics: {
         focus: 72,
         energy: 61,
@@ -124,6 +134,8 @@ export const useAppStore = create<AppState>()(
       updateDayType: (id, patch) => set((s) => ({
         dayTypes: s.dayTypes.map((d) => d.id === id ? { ...d, ...patch } : d),
       })),
+      setTimezone: (tz) => set({ timezone: tz }),
+      setAutoPurgeCompletedTasks: (v) => set({ autoPurgeCompletedTasks: v }),
       setActiveSection: (activeSection) => set({ activeSection }),
       updateMetric: (key, value) =>
         set((s) => ({ metrics: { ...s.metrics, [key]: value } })),
@@ -194,9 +206,18 @@ export const useAppStore = create<AppState>()(
         const dayTypes = Array.isArray(p.dayTypes) && p.dayTypes.length > 0
           ? p.dayTypes
           : DEFAULT_DAY_TYPES
-        return { ...p, idealSchedule: sched, scheduleOrder: order, dayTypes } as AppState
+        const timezone = typeof p.timezone === 'string' && p.timezone.length > 0
+          ? p.timezone
+          : detectTimezone()
+        const autoPurgeCompletedTasks =
+          typeof p.autoPurgeCompletedTasks === 'boolean' ? p.autoPurgeCompletedTasks : true
+        return {
+          ...p,
+          idealSchedule: sched, scheduleOrder: order, dayTypes,
+          timezone, autoPurgeCompletedTasks,
+        } as AppState
       },
-      version: 4,
+      version: 5,
     }
   )
 )
