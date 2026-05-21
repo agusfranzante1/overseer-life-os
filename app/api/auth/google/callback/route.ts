@@ -32,16 +32,46 @@ export async function GET(req: NextRequest) {
     const redirectUri = `${origin}/api/auth/google/callback`
 
     const client = makeOAuthClient(creds.clientId, creds.clientSecret, redirectUri)
-    const { tokens } = await client.getToken(code)
 
-    if (!tokens.refresh_token) {
-      return NextResponse.redirect(new URL('/calendar?google_error=no_refresh_token', req.url))
+    let tokens
+    try {
+      const tokenRes = await client.getToken(code)
+      tokens = tokenRes.tokens
+    } catch (tokenErr) {
+      // Capture Google's actual error so the user sees what's wrong on the redirect.
+      const msg = tokenErr instanceof Error ? tokenErr.message : 'token_exchange_failed'
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const detail = (tokenErr as any)?.response?.data
+      const detailStr = detail ? `_${JSON.stringify(detail).slice(0, 200)}` : ''
+      console.error('[gcal callback] token exchange failed', { msg, detail })
+      return NextResponse.redirect(new URL(
+        `/calendar?google_error=${encodeURIComponent('token_exchange:' + msg + detailStr)}`,
+        req.url,
+      ))
     }
 
-    await saveGCalTokens(sb, userId, tokens)
+    if (!tokens.refresh_token) {
+      return NextResponse.redirect(new URL(
+        '/calendar?google_error=no_refresh_token_revoke_previous_grant_first',
+        req.url,
+      ))
+    }
+
+    try {
+      await saveGCalTokens(sb, userId, tokens)
+    } catch (saveErr) {
+      const msg = saveErr instanceof Error ? saveErr.message : 'save_failed'
+      console.error('[gcal callback] saveGCalTokens failed', { msg })
+      return NextResponse.redirect(new URL(
+        `/calendar?google_error=${encodeURIComponent('save_tokens:' + msg)}`,
+        req.url,
+      ))
+    }
+
     return NextResponse.redirect(new URL('/calendar?google_connected=1', req.url))
   } catch (e) {
     const message = e instanceof Error ? e.message : 'unknown'
-    return NextResponse.redirect(new URL(`/calendar?google_error=${encodeURIComponent(message)}`, req.url))
+    console.error('[gcal callback] outer error', { message, error: e })
+    return NextResponse.redirect(new URL(`/calendar?google_error=${encodeURIComponent('outer:' + message)}`, req.url))
   }
 }
