@@ -130,8 +130,6 @@ export function TaskCard({ task, project, onClick }: Props) {
 
   return (
     <motion.div
-      layout
-      whileHover={{ scale: 1.005 }}
       className={`bg-zinc-900 border rounded-xl transition-all ${borderClass}`}
     >
       {/* Body — clicking it opens the detail modal */}
@@ -280,7 +278,8 @@ export function TaskCard({ task, project, onClick }: Props) {
         <motion.div
           initial={{ height: 0 }}
           animate={{ height: 'auto' }}
-          className="border-t border-zinc-800 bg-zinc-900/50 px-3 py-2"
+          transition={{ type: 'tween', duration: 0.18, ease: 'easeOut' }}
+          className="border-t border-zinc-800 bg-zinc-900/50 px-3 py-2 overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="ml-7 space-y-1">
@@ -363,7 +362,8 @@ export function TaskCard({ task, project, onClick }: Props) {
         <motion.div
           initial={{ height: 0 }}
           animate={{ height: 'auto' }}
-          className="border-t border-zinc-800 bg-zinc-900/50 px-3 py-2"
+          transition={{ type: 'tween', duration: 0.18, ease: 'easeOut' }}
+          className="border-t border-zinc-800 bg-zinc-900/50 px-3 py-2 overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           <form onSubmit={handleAddSubtask} className="ml-7 flex items-center gap-1">

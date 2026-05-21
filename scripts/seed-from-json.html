@@ -235,6 +235,31 @@
         }, { onConflict: 'user_id' });
         cfgErr ? log(`Error en gym_config: ${cfgErr.message}`, 'err')
                : log(`✓ Configuración de gym subida (tipo: ${gymState.gymType}, fase: ${gymState.phase}).`, 'ok');
+
+        // Routines (Phase 3b)
+        const routineRows = (gymState.routines ?? []).map((r) => ({
+          id: r.id, user_id: userId, name: r.name,
+          day_label: r.dayLabel ?? '', exercises: r.exercises ?? [],
+        }));
+        if (routineRows.length > 0) {
+          const { error } = await sb.from('gym_routines').upsert(routineRows);
+          error ? log(`Error en gym_routines: ${error.message}`, 'err')
+                : log(`✓ ${routineRows.length} rutinas de gym subidas.`, 'ok');
+        }
+
+        // Sessions (Phase 3b) — nested exercises with sets as JSONB
+        const sessionRows = (gymState.sessions ?? []).map((s) => ({
+          id: s.id, user_id: userId, date: s.date, name: s.name,
+          routine_id: s.routineId ?? null,
+          exercises: s.exercises ?? [],
+          started_at: s.startedAt, ended_at: s.endedAt ?? null,
+          notes: s.notes ?? null,
+        }));
+        if (sessionRows.length > 0) {
+          const { error } = await sb.from('gym_sessions').upsert(sessionRows);
+          error ? log(`Error en gym_sessions: ${error.message}`, 'err')
+                : log(`✓ ${sessionRows.length} sesiones de gym subidas.`, 'ok');
+        }
       }
 
       // --- HEALTH store (snapshots + sleep goal) ---

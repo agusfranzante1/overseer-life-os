@@ -220,8 +220,11 @@ export function TasksPage() {
                 title={proj.name}
                 className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${
                   selectedProjectId === proj.id ? 'ring-2 ring-white/40' : 'hover:bg-zinc-900'
-                }`}>
-                <span className="w-3 h-3 rounded-full" style={{ background: proj.color }} />
+                }`}
+                style={{ backgroundColor: `${proj.color}22` }}>
+                <span className="text-[13px] font-bold leading-none" style={{ color: proj.color }}>
+                  {proj.name.trim().charAt(0).toUpperCase() || '·'}
+                </span>
               </button>
             ))}
           </div>

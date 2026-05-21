@@ -1,18 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { promises as fs } from 'fs'
-import path from 'path'
+import { getSupabaseAdmin } from '@/lib/supabase/admin'
 
 /**
  * Receives data from the iOS app "Health Auto Export".
- * The app posts a payload like:
+ * Authentication: per-user webhook_token (same as /api/health). Send as:
+ *   - Body field "token", OR
+ *   - Header "x-overseer-key"
  *
+ * HAE posts a payload like:
  *   {
+ *     "token": "<user-webhook-token>",
  *     "data": {
  *       "metrics": [
  *         { "name": "step_count", "units": "count",
  *           "data": [{ "date": "2026-05-14 00:00:00 -0300", "qty": 8432 }, ...] },
  *         { "name": "sleep_analysis",
- *           "data": [{ "sleepStart": "...", "sleepEnd": "...", "asleep": 7.2, "inBed": 7.5, ... }] },
+ *           "data": [{ "sleepStart": "...", "sleepEnd": "...", "asleep": 7.2, "inBed": 7.5, "awake": 0.3 }] },
  *         { "name": "resting_heart_rate", "units": "count/min",
  *           "data": [{ "date": "...", "qty": 58 }] },
  *         { "name": "heart_rate_variability", "units": "ms",
@@ -21,11 +24,9 @@ import path from 'path'
  *     }
  *   }
  *
- * We pick the most recent reading per metric, normalize it, and write
- * one JSON file per local date under `data/health/`.
+ * Buckets by local date, normalizes, and upserts one row per (user, date)
+ * into health_snapshots.
  */
-
-const DATA_DIR = path.join(process.cwd(), 'data', 'health')
 
 function todayLocal(): string {
   const d = new Date()
@@ -47,10 +48,13 @@ interface MetricItem {
   sleepEnd?: string
   asleep?: number          // hours
   inBed?: number           // hours
+  awake?: number           // hours
   source?: string
   Avg?: number
   Min?: number
   Max?: number
+  value?: number
+  totalSleep?: number
 }
 
 interface Metric {
@@ -60,18 +64,21 @@ interface Metric {
 }
 
 interface HAEPayload {
+  token?: string
   data?: { metrics?: Metric[] }
-  metrics?: Metric[]  // some configs flatten
+  metrics?: Metric[]
 }
 
-// Group reading by local date so multi-day batches still write correctly
 interface DayBucket {
   steps?: number
   sleepMinutes?: number
+  sleepInBedMinutes?: number
+  sleepAwakeMinutes?: number
   sleepStart?: string
   sleepEnd?: string
   restingHR?: number
   hrv?: number
+  _minHR?: number   // accumulator for HR-min fallback
 }
 
 function bucketByDate(metrics: Metric[]): Record<string, DayBucket> {
@@ -89,32 +96,33 @@ function bucketByDate(metrics: Metric[]): Record<string, DayBucket> {
         const b = ensure(key)
         b.steps = (b.steps ?? 0) + Math.round(item.qty)
       }
-      // Sleep — HAE can use several shapes/names:
-      //   v1: { asleep, inBed, awake, sleepStart, sleepEnd }
-      //   v2: { date, qty }   (qty in hours)
-      //   alternate: { value, totalSleep, ... }
+      // Sleep
       else if (name.includes('sleep') || name === 'time_asleep' || name === 'time_in_bed') {
         const key = dateToLocalKey(item.sleepEnd || item.date)
         const b = ensure(key)
-        const itm = item as MetricItem & { qty?: number; value?: number; totalSleep?: number; awake?: number }
-        const hours =
-          (typeof itm.asleep === 'number' && itm.asleep) ||
-          (typeof itm.totalSleep === 'number' && itm.totalSleep) ||
-          (typeof itm.qty === 'number' && itm.qty) ||
-          (typeof itm.value === 'number' && itm.value) ||
-          (typeof itm.inBed === 'number' && itm.inBed && typeof itm.awake === 'number'
-            ? itm.inBed - itm.awake
+        const asleepHours =
+          (typeof item.asleep === 'number' && item.asleep) ||
+          (typeof item.totalSleep === 'number' && item.totalSleep) ||
+          (typeof item.qty === 'number' && item.qty) ||
+          (typeof item.value === 'number' && item.value) ||
+          (typeof item.inBed === 'number' && item.inBed && typeof item.awake === 'number'
+            ? item.inBed - item.awake
             : 0) ||
-          (typeof itm.inBed === 'number' && itm.inBed) ||
+          (typeof item.inBed === 'number' && item.inBed) ||
           0
-        if (hours > 0) {
-          // If a previous entry already exists for the same date, sum it (multiple sleep sessions)
-          b.sleepMinutes = (b.sleepMinutes ?? 0) + Math.round(hours * 60)
+        if (asleepHours > 0) {
+          b.sleepMinutes = (b.sleepMinutes ?? 0) + Math.round(asleepHours * 60)
+        }
+        if (typeof item.inBed === 'number' && item.inBed > 0) {
+          b.sleepInBedMinutes = (b.sleepInBedMinutes ?? 0) + Math.round(item.inBed * 60)
+        }
+        if (typeof item.awake === 'number' && item.awake > 0) {
+          b.sleepAwakeMinutes = (b.sleepAwakeMinutes ?? 0) + Math.round(item.awake * 60)
         }
         if (item.sleepStart) b.sleepStart = item.sleepStart
         if (item.sleepEnd) b.sleepEnd = item.sleepEnd
       }
-      // Resting heart rate (explicit)
+      // Resting HR (explicit)
       else if (name.includes('resting') && (name.includes('heart') || name.includes('hr'))) {
         const key = dateToLocalKey(item.date)
         const b = ensure(key)
@@ -122,26 +130,30 @@ function bucketByDate(metrics: Metric[]): Record<string, DayBucket> {
         if (typeof v === 'number') b.restingHR = Math.round(v)
       }
       // HRV
-      else if (name.includes('variability') || name === 'hrv' || name.includes('hrv')) {
+      else if (name.includes('variability') || name === 'hrv') {
         const key = dateToLocalKey(item.date)
         const b = ensure(key)
         const v = item.qty ?? item.Avg
         if (typeof v === 'number') b.hrv = Math.round(v * 10) / 10
       }
-      // Generic heart rate — used as fallback for RHR if no explicit resting_heart_rate.
-      // We take the daily minimum of "Avg" / "Min" values as a proxy for resting HR.
+      // Generic heart rate — fallback for RHR (min of daily Avg/Min samples)
       else if (name === 'heart_rate' || (name.includes('heart') && name.includes('rate') && !name.includes('walking'))) {
         const key = dateToLocalKey(item.date)
         const b = ensure(key)
-        const itm = item as MetricItem & { Min?: number; Max?: number; Avg?: number; qty?: number }
-        const v = itm.Min ?? itm.Avg ?? itm.qty
+        const v = item.Min ?? item.Avg ?? item.qty
         if (typeof v === 'number' && v > 30 && v < 200) {
-          // Track min-of-Avg across samples per day (most stable estimate of RHR)
-          const prev = (b as DayBucket & { _minHR?: number })._minHR
-          ;(b as DayBucket & { _minHR?: number })._minHR = prev === undefined ? v : Math.min(prev, v)
+          b._minHR = b._minHR === undefined ? v : Math.min(b._minHR, v)
         }
       }
     }
+  }
+
+  // Apply minHR fallback per day
+  for (const day of Object.values(buckets)) {
+    if (day.restingHR === undefined && typeof day._minHR === 'number') {
+      day.restingHR = Math.round(day._minHR)
+    }
+    delete day._minHR
   }
 
   return buckets
@@ -149,71 +161,70 @@ function bucketByDate(metrics: Metric[]): Record<string, DayBucket> {
 
 export async function POST(req: NextRequest) {
   try {
-    // Optional shared secret (configure in the iOS app as a header: x-overseer-key OR api-key)
-    const requiredKey = process.env.OVERSEER_HEALTH_KEY
-    if (requiredKey) {
-      const got = req.headers.get('x-overseer-key') ?? req.headers.get('api-key')
-      if (got !== requiredKey) {
-        return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 })
-      }
+    const raw = (await req.json()) as HAEPayload
+
+    // Auth: per-user webhook token (body or header)
+    const token = raw.token ?? req.headers.get('x-overseer-key') ?? req.headers.get('api-key') ?? null
+    if (!token) {
+      return NextResponse.json({ ok: false, error: 'missing_token' }, { status: 401 })
     }
 
-    const raw = (await req.json()) as HAEPayload
+    const sb = getSupabaseAdmin()
+    const { data: cfg, error: cfgErr } = await sb
+      .from('health_config')
+      .select('user_id')
+      .eq('webhook_token', token)
+      .maybeSingle()
+
+    if (cfgErr || !cfg) {
+      return NextResponse.json({ ok: false, error: 'invalid_token' }, { status: 401 })
+    }
+
+    const userId = cfg.user_id as string
+
     const metrics = raw?.data?.metrics ?? raw?.metrics ?? []
-
-    // Debug: dump raw payload to disk so we can see what HAE actually sends
-    await fs.mkdir(DATA_DIR, { recursive: true })
-    const debugPath = path.join(DATA_DIR, '_last-payload.json')
-    await fs.writeFile(debugPath, JSON.stringify({
-      receivedAt: new Date().toISOString(),
-      metricNames: metrics.map((m) => m.name),
-      sampleSizes: metrics.map((m) => ({ name: m.name, count: m.data?.length ?? 0 })),
-      raw,
-    }, null, 2), 'utf-8')
-
     if (!Array.isArray(metrics) || metrics.length === 0) {
       return NextResponse.json({ ok: false, error: 'no_metrics' }, { status: 400 })
     }
 
     const buckets = bucketByDate(metrics)
-
-    // Apply minHR fallback for restingHR when no explicit resting_heart_rate was provided
-    for (const day of Object.values(buckets)) {
-      const minHR = (day as DayBucket & { _minHR?: number })._minHR
-      if (day.restingHR === undefined && typeof minHR === 'number') {
-        day.restingHR = Math.round(minHR)
-      }
-      delete (day as DayBucket & { _minHR?: number })._minHR
+    const dates = Object.keys(buckets)
+    if (dates.length === 0) {
+      return NextResponse.json({ ok: false, error: 'no_data_after_bucketing' }, { status: 400 })
     }
 
-    const written: string[] = []
-    for (const [date, b] of Object.entries(buckets)) {
-      const file = path.join(DATA_DIR, `${date}.json`)
-      // Merge with existing day's data if present (don't lose previously-written fields)
-      let existing: Record<string, unknown> = {}
-      try {
-        const prev = await fs.readFile(file, 'utf-8')
-        existing = JSON.parse(prev)
-      } catch { /* no previous file */ }
-
-      const snapshot = {
-        ...existing,
+    // Upsert one row per date. Use upsert with onConflict so we don't lose
+    // previously-written fields (e.g. core/deep/rem from the other shortcut).
+    const rows = dates.map((date) => {
+      const b = buckets[date]
+      return {
+        user_id: userId,
         date,
-        steps: b.steps ?? (existing.steps as number | undefined) ?? 0,
-        sleepMinutes: b.sleepMinutes ?? (existing.sleepMinutes as number | undefined) ?? 0,
-        sleepStart: b.sleepStart ?? existing.sleepStart,
-        sleepEnd: b.sleepEnd ?? existing.sleepEnd,
-        restingHR: b.restingHR ?? existing.restingHR,
-        hrv: b.hrv ?? existing.hrv,
-        source: 'health-auto-export' as const,
-        syncedAt: Date.now(),
+        steps: b.steps ?? 0,
+        sleep_minutes: b.sleepMinutes ?? 0,
+        sleep_in_bed_minutes: b.sleepInBedMinutes ?? null,
+        sleep_awake_minutes: b.sleepAwakeMinutes ?? null,
+        sleep_start: b.sleepStart ?? null,
+        sleep_end: b.sleepEnd ?? null,
+        resting_hr: b.restingHR ?? null,
+        hrv: b.hrv ?? null,
+        source: 'auto-export',
+        synced_at: Date.now(),
       }
+    })
 
-      await fs.writeFile(file, JSON.stringify(snapshot, null, 2), 'utf-8')
-      written.push(date)
+    const { error: upErr } = await sb.from('health_snapshots').upsert(rows, { onConflict: 'user_id,date' })
+
+    if (upErr) {
+      return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 })
     }
 
-    return NextResponse.json({ ok: true, days: written.length, dates: written })
+    return NextResponse.json({
+      ok: true,
+      days: dates.length,
+      dates,
+      metricNames: metrics.map((m) => m.name),
+    })
   } catch (e) {
     const message = e instanceof Error ? e.message : 'unknown'
     return NextResponse.json({ ok: false, error: message }, { status: 500 })
@@ -221,7 +232,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  // Healthcheck so you can test that the URL is reachable from your iPhone:
-  // open http://<PC-LAN-IP>:3001/api/health/auto-export in Safari.
-  return NextResponse.json({ ok: true, hint: 'POST Health Auto Export JSON here' })
+  return NextResponse.json({
+    ok: true,
+    hint: 'POST Health Auto Export JSON here. Include "token" field with your per-user webhook token.',
+  })
 }

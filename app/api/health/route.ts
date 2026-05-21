@@ -6,9 +6,18 @@ interface HealthPayload {
   token?: string
   date?: string
   steps?: number
+  // Sleep — pick ONE of these strategies:
+  //  (A) explicit stage minutes (recommended)
+  sleep_core_minutes?: number
+  sleep_deep_minutes?: number
+  sleep_rem_minutes?: number
+  sleep_awake_minutes?: number
+  sleep_in_bed_minutes?: number
+  //  (B) a single total (no breakdown)
   sleep_minutes?: number
   sleepMinutes?: number
-  sleep_raw?: string             // Raw HealthKit dump from iOS Shortcut
+  //  (C) raw text dump — server parses
+  sleep_raw?: string
   sleep_start?: string
   sleepStart?: string
   sleep_end?: string
@@ -52,13 +61,30 @@ export async function POST(req: NextRequest) {
 
     const steps = Number.isFinite(body.steps) ? Math.round(body.steps!) : 0
 
-    // Sleep: parse raw if provided, otherwise fall back to scalar sleep_minutes.
+    // Sleep — accept in this priority:
+    //   (A) explicit per-stage minutes → compute total
+    //   (B) scalar sleep_minutes (no breakdown)
+    //   (C) raw text → parser
     let sleepMinutes = 0
     let sleepStart: string | null = body.sleep_start ?? body.sleepStart ?? null
     let sleepEnd: string | null = body.sleep_end ?? body.sleepEnd ?? null
     let stages = { inBedMinutes: 0, coreMinutes: 0, deepMinutes: 0, remMinutes: 0, awakeMinutes: 0 }
 
-    if (typeof body.sleep_raw === 'string' && body.sleep_raw.trim().length > 0) {
+    const hasStageInputs = [
+      body.sleep_core_minutes, body.sleep_deep_minutes, body.sleep_rem_minutes,
+      body.sleep_awake_minutes, body.sleep_in_bed_minutes,
+    ].some((v) => Number.isFinite(v))
+
+    if (hasStageInputs) {
+      stages = {
+        inBedMinutes: Number.isFinite(body.sleep_in_bed_minutes) ? Math.round(body.sleep_in_bed_minutes!) : 0,
+        coreMinutes:  Number.isFinite(body.sleep_core_minutes)   ? Math.round(body.sleep_core_minutes!)   : 0,
+        deepMinutes:  Number.isFinite(body.sleep_deep_minutes)   ? Math.round(body.sleep_deep_minutes!)   : 0,
+        remMinutes:   Number.isFinite(body.sleep_rem_minutes)    ? Math.round(body.sleep_rem_minutes!)    : 0,
+        awakeMinutes: Number.isFinite(body.sleep_awake_minutes)  ? Math.round(body.sleep_awake_minutes!)  : 0,
+      }
+      sleepMinutes = stages.coreMinutes + stages.deepMinutes + stages.remMinutes
+    } else if (typeof body.sleep_raw === 'string' && body.sleep_raw.trim().length > 0) {
       const parsed = parseSleepRaw(body.sleep_raw)
       sleepMinutes = parsed.totalAsleepMinutes
       stages = {
@@ -104,17 +130,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 })
     }
 
-    const debug = typeof body.sleep_raw === 'string' && body.sleep_raw.length > 0
-      ? {
-          sleep_raw_length: body.sleep_raw.length,
-          sleep_raw_preview: body.sleep_raw.slice(0, 500),
-          parsed: {
-            total: sleepMinutes,
-            ...stages,
-            sleepStart, sleepEnd,
-          },
-        }
-      : undefined
+    const debug = {
+      strategy: hasStageInputs ? 'per-stage' : (body.sleep_raw ? 'raw-parse' : 'scalar'),
+      sleep_raw_length: body.sleep_raw?.length ?? 0,
+      sleep_raw_preview: body.sleep_raw?.slice(0, 500),
+      stored: {
+        total: sleepMinutes,
+        ...stages,
+        sleepStart, sleepEnd,
+        steps, restingHR, hrv,
+      },
+    }
 
     return NextResponse.json({ ok: true, date, debug })
   } catch (e) {

@@ -577,22 +577,23 @@ async function pullHabits(): Promise<boolean> {
   return true
 }
 
-// ─── GYM BASICS (weight entries + config) ─────────────────────────────────────
+// ─── GYM (weight entries + config + routines + sessions) ──────────────────────
 
-async function pushGymBasics() {
+async function pushGym() {
   if (!state.userId) return
   const sb = getSupabaseBrowser()
   const uid = state.userId!
-  const { weightEntries, gymType, phase, weightGoalKg } = useGymStore.getState()
+  const { weightEntries, gymType, phase, weightGoalKg, routines, sessions } = useGymStore.getState()
 
+  // Weight entries
   const weightRows = weightEntries.map((e) => ({
     id: e.id, user_id: uid, date: e.date, kg: e.kg,
     note: e.note ?? null, created_at: e.createdAt,
   }))
-
   if (weightRows.length > 0) await sb.from('gym_weight_entries').upsert(weightRows)
   await deleteSurplus(sb, 'gym_weight_entries', uid, weightRows.map((r) => r.id))
 
+  // Config (singleton)
   await sb.from('gym_config').upsert(
     {
       user_id: uid,
@@ -603,24 +604,51 @@ async function pushGymBasics() {
     },
     { onConflict: 'user_id' }
   )
+
+  // Routines (nested exercises as JSONB)
+  const routineRows = routines.map((r) => ({
+    id: r.id, user_id: uid, name: r.name, day_label: r.dayLabel,
+    exercises: r.exercises,
+  }))
+  if (routineRows.length > 0) await sb.from('gym_routines').upsert(routineRows)
+  await deleteSurplus(sb, 'gym_routines', uid, routineRows.map((r) => r.id))
+
+  // Sessions (nested exercises + sets as JSONB). activeSession is local-only.
+  const sessionRows = sessions.map((s) => ({
+    id: s.id, user_id: uid, date: s.date, name: s.name,
+    routine_id: s.routineId ?? null,
+    exercises: s.exercises,
+    started_at: s.startedAt,
+    ended_at: s.endedAt ?? null,
+    notes: s.notes ?? null,
+  }))
+  if (sessionRows.length > 0) await sb.from('gym_sessions').upsert(sessionRows)
+  await deleteSurplus(sb, 'gym_sessions', uid, sessionRows.map((r) => r.id))
 }
 
-async function pullGymBasics(): Promise<boolean> {
+async function pullGym(): Promise<boolean> {
   if (!state.userId) return false
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
-  const [weightRes, cfgRes] = await Promise.all([
+  const [weightRes, cfgRes, routinesRes, sessionsRes] = await Promise.all([
     sb.from('gym_weight_entries').select('*').eq('user_id', uid).order('date', { ascending: false }),
     sb.from('gym_config').select('*').eq('user_id', uid).maybeSingle(),
+    sb.from('gym_routines').select('*').eq('user_id', uid),
+    sb.from('gym_sessions').select('*').eq('user_id', uid).order('started_at', { ascending: false }),
   ])
 
-  if (weightRes.error || cfgRes.error) {
-    console.error('Gym basics pull failed', weightRes.error ?? cfgRes.error)
+  const anyError = weightRes.error ?? cfgRes.error ?? routinesRes.error ?? sessionsRes.error
+  if (anyError) {
+    console.error('Gym pull failed', anyError)
     return false
   }
 
-  const hasData = (weightRes.data?.length ?? 0) > 0 || !!cfgRes.data
+  const hasData =
+    (weightRes.data?.length ?? 0) > 0 ||
+    !!cfgRes.data ||
+    (routinesRes.data?.length ?? 0) > 0 ||
+    (sessionsRes.data?.length ?? 0) > 0
   if (!hasData) return false
 
   const patch: Partial<ReturnType<typeof useGymStore.getState>> = {}
@@ -644,9 +672,35 @@ async function pullGymBasics(): Promise<boolean> {
       : null
   }
 
+  if ((routinesRes.data?.length ?? 0) > 0) {
+    patch.routines = (routinesRes.data ?? []).map((r: Row) => ({
+      id: r.id as string,
+      name: r.name as string,
+      dayLabel: (r.day_label as string) ?? '',
+      exercises: (r.exercises as import('@/lib/store/gymStore').RoutineExercise[]) ?? [],
+    }))
+  }
+
+  if ((sessionsRes.data?.length ?? 0) > 0) {
+    patch.sessions = (sessionsRes.data ?? []).map((s: Row) => ({
+      id: s.id as string,
+      date: s.date as string,
+      name: s.name as string,
+      routineId: (s.routine_id as string) ?? undefined,
+      exercises: (s.exercises as import('@/lib/store/gymStore').WorkoutExercise[]) ?? [],
+      startedAt: s.started_at as string,
+      endedAt: (s.ended_at as string) ?? undefined,
+      notes: (s.notes as string) ?? undefined,
+    }))
+  }
+
   useGymStore.setState(patch)
   return true
 }
+
+// Aliases for backwards compatibility with previous "basics-only" naming.
+const pushGymBasics = pushGym
+const pullGymBasics = pullGym
 
 // ─── HEALTH (snapshots + sleep goal) ──────────────────────────────────────────
 
