@@ -777,7 +777,13 @@ export function TasksPage() {
           viewMode === 'kanban' ? (
             <KanbanBoard
               project={activeProject}
-              tasks={getProjectTasks(activeProject.id)}
+              // Apply priority/category filters before passing to kanban.
+              // (Status filter is intentionally not applied here — each column
+              // already represents one status, so it'd be confusing.)
+              tasks={getProjectTasks(activeProject.id).filter((t) =>
+                (priorityFilter ? t.priority === priorityFilter : true) &&
+                (categoryFilter ? (t.category ?? '') === categoryFilter : true)
+              )}
               sortMode={sortMode}
               onTaskClick={(t) => setSelectedTask(t)}
             />
@@ -803,19 +809,39 @@ export function TasksPage() {
         ) : viewMode === 'kanban' ? (
           <AllProjectsKanban
             projects={projectList}
-            tasks={Object.values(tasks)}
+            // Pre-filter and pre-sort for All Projects kanban. Each column will
+            // still split by status internally, so sort is applied first to
+            // give a stable cross-project order within each status bucket.
+            tasks={sortTasks(
+              Object.values(tasks).filter((t) => !t.archivedAt).filter(passesFilters),
+              sortMode,
+              null,
+            )}
             sortMode={sortMode}
             onTaskClick={(tk) => setSelectedTask(tk)}
           />
         ) : (
-          // All projects grouped view
+          // All projects grouped view — apply filters and sort PER project so
+          // the toolbar controls actually take effect in the cross-project view.
           <div className="space-y-6">
             {projectList.map((proj) => {
-              const projTasks = getProjectTasks(proj.id)
+              const projStatusOrder = new Map(proj.statuses.map((s, i) => [s.label, i]))
+              const projTasks = sortTasks(
+                getProjectTasks(proj.id).filter(passesFilters),
+                sortMode,
+                projStatusOrder,
+              )
+              const totalInProject = getProjectTasks(proj.id).length
               const expanded = expandedProjects[proj.id] !== false
               const done = projTasks.filter((t) =>
                 proj.statuses.find((s) => s.label === t.status)?.countsAsDone
               ).length
+
+              // Hide project section entirely if filters leave it empty AND
+              // there ARE filters applied — otherwise empty projects (no
+              // filter) keep showing so the user can still add tasks there.
+              const anyFilterActive = !!(statusFilter || priorityFilter || categoryFilter)
+              if (anyFilterActive && projTasks.length === 0) return null
 
               return (
                 <div key={proj.id}>
@@ -826,7 +852,11 @@ export function TasksPage() {
                     >
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: proj.color }} />
                       <span className="text-sm font-semibold text-zinc-300">{proj.name}</span>
-                      <span className="text-xs text-zinc-600">{done}/{projTasks.length}</span>
+                      <span className="text-xs text-zinc-600">
+                        {projTasks.length === totalInProject
+                          ? `${done}/${totalInProject}`
+                          : `${projTasks.length} de ${totalInProject}`}
+                      </span>
                       {expanded ? <ChevronDown className="w-3.5 h-3.5 text-zinc-600" /> : <ChevronRight className="w-3.5 h-3.5 text-zinc-600" />}
                     </button>
                     <button
