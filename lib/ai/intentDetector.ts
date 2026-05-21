@@ -217,7 +217,10 @@ function extractTaskRef(raw: string): Intent['extracted'] {
 }
 
 // Words that indicate "same exercise, new set" or set-type context — NOT exercise names
-const SET_ORDINALS = /^(primer[ao]?|segund[ao]?|tercer[ao]?|cuart[ao]?|quint[ao]?|sext[ao]?|s[eé]ptim[ao]?|octav[ao]?|noven[ao]?|d[eé]cim[ao]?|otra|otro|misma|mismo|igual|siguiente|next|same|last|ejercicio|ejercicios|drop\s*set|dropset|drop|superset|superserie|cluster|bi-?set|giant|[1-9](ra|da|ta|ma|mo|ro)?|y\s*(otra|otro))$/i
+// Words that, when alone, mean "use the currently tracked exercise" rather
+// than naming a new one. Covers ordinals, set-type names, references to the
+// previous exercise, and chat-affirmation words that often precede a log.
+const SET_ORDINALS = /^(primer[ao]?|segund[ao]?|tercer[ao]?|cuart[ao]?|quint[ao]?|sext[ao]?|s[eé]ptim[ao]?|octav[ao]?|noven[ao]?|d[eé]cim[ao]?|[uú]ltim[ao]?|antepen[uú]ltim[ao]?|otra|otro|misma|mismo|igual|siguiente|next|same|last|ejercicio|ejercicios|drop\s*set+|dropset+|drop-?set+|drop|superset|superserie|cluster|bi-?set|giant|tambi[eé]n|tambien|ah[íi]|esa|este|esta|eso|esto|ese|agregale|agregar|sum[aá]le|s[íi]|no|ok|okay|dale|listo|claro|exacto|perfecto|bueno|[1-9](ra|da|ta|ma|mo|ro)?|y\s*(otra|otro))$/i
 
 function parseGymSet(lower: string): Intent['extracted'] | null {
   // Patterns like: "hice sentadilla 80kg 5 reps", "press inclinado 20kg 8 repes", "3 series 12 reps"
@@ -265,11 +268,21 @@ function parseGymSet(lower: string): Intent['extracted'] | null {
 
   // Extract exercise name: strip all filler words, numbers, and set context
   const rawExercise = lower
-    .replace(/\b(hice|hic[ei]|hic[ei]mos|did|puse|pus[ei]|hac[eé]r|bueno|listo|ok|okay)\b/gi, '')
+    // Affirmations and chat acknowledgements at the start of a message
+    .replace(/\b(s[íi]|no|ok|okay|dale|listo|claro|exacto|perfecto|bueno|ah[íi])\b/gi, '')
+    // Logging verbs (broad conjugations: hacer, agregar, sumar, meter, poner)
+    .replace(/\b(hice|hic[ei]|hic[ei]mos|did|hac[eé]r|agreg[aáeé][a-z]*|sum[aáeé][a-z]*|met[eéií][a-z]*|met[ií]|pus[ei]|pon[eéí][a-z]*|puse|tir[eéaá][a-z]*)\b/gi, '')
+    // Numbers + units
     .replace(/\b\d+\.?\d*\s*(kg|lb)?\b/gi, '')
+    // Set/rep terminology
     .replace(/\b(rep[esa]?s?|repeticiones?|series?|vueltas?|rondas?)\b/gi, '')
-    .replace(/\b(drop\s*set|dropset|superset|superserie|cluster|bi-?set)\b/gi, '')
-    .replace(/\b(con|with|en|de|x|y|por|cada|al|la|el|un|una)\b/gi, '')
+    // Set-type modifiers (incl. typo'd dropset/dropsett/drop-set)
+    .replace(/\b(drop\s*set+|dropset+|drop-?set+|superset|superserie|cluster|bi-?set|giant)\b/gi, '')
+    // Reference words pointing to the previous exercise/set
+    .replace(/\b([uú]ltim[ao]?|antepen[uú]ltim[ao]?|misma|mismo|otra|otro|esa|este|esta|eso|esto|ese|tambi[eé]n|tambien|igual|siguiente|next|same|last)\b/gi, '')
+    // Prepositions/articles
+    .replace(/\b(con|with|en|de|del|al|x|y|por|cada|la|el|un|una|los|las)\b/gi, '')
+    // Rest descriptors
     .replace(/\b(descansando|descans[ao]|descanso|min|minutos?|seg|segundos?)\b/gi, '')
     .replace(/[,\.\-]/g, ' ')
     .replace(/\s+/g, ' ')

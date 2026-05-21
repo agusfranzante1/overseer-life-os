@@ -486,16 +486,19 @@ export function TasksPage() {
                 </span>
               </button>
             ))}
-            {/* Archive (papelera) — collapsed icon */}
-            <button
-              onClick={() => setSelectedProject(ARCHIVE_SENTINEL)}
-              title={`Papelera (${archivedTasks.length})`}
-              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors mt-2 border-t border-zinc-800 pt-3 ${
-                inArchiveView ? 'bg-zinc-800 text-amber-400' : 'text-zinc-500 hover:text-amber-400 hover:bg-zinc-900'
-              }`}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            {/* Archive (papelera) — collapsed icon. Wrapper carries the
+                divider so the button itself stays a clean centered square. */}
+            <div className="mt-2 pt-2 border-t border-zinc-800 w-full flex justify-center">
+              <button
+                onClick={() => setSelectedProject(ARCHIVE_SENTINEL)}
+                title={`Papelera (${archivedTasks.length})`}
+                className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+                  inArchiveView ? 'bg-zinc-800 text-amber-400' : 'text-zinc-500 hover:text-amber-400 hover:bg-zinc-900'
+                }`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
       ) : (
