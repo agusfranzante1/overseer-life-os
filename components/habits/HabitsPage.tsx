@@ -295,13 +295,20 @@ export function HabitsPage() {
             const streak = computeStreak(habit.completedDates)
             const isDragging = dragId === habit.id
             const isDropTarget = overId === habit.id && dragId !== habit.id
+            // framer-motion's `motion.div` overrides React's native HTML5
+            // drag events with its own pan/gesture system. We need the native
+            // ones for reorder, so we attach them via a spread + cast.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const dragHandlers: any = reorderMode ? {
+              draggable: true,
+              onDragStart: handleDragStart(habit.id),
+              onDragOver: handleDragOver(habit.id),
+              onDrop: handleDrop(habit.id),
+              onDragEnd: handleDragEnd,
+            } : {}
             return (
               <motion.div key={habit.id} layout
-                draggable={reorderMode}
-                onDragStart={reorderMode ? handleDragStart(habit.id) : undefined}
-                onDragOver={reorderMode ? handleDragOver(habit.id) : undefined}
-                onDrop={reorderMode ? handleDrop(habit.id) : undefined}
-                onDragEnd={reorderMode ? handleDragEnd : undefined}
+                {...dragHandlers}
                 className={`bg-zinc-900 border rounded-xl px-4 py-3 flex items-center gap-4 group transition-all ${
                   isDragging
                     ? 'border-emerald-500/60 opacity-50 cursor-grabbing'
