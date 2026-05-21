@@ -603,7 +603,6 @@ export function TasksPage() {
             {/* Ordenar — visible in BOTH views */}
             <div className="flex items-center gap-1.5">
               <ArrowUpDown className="w-3.5 h-3.5 text-emerald-400/80" />
-              <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400/80">Ordenar</span>
               <select
                 value={sortMode}
                 onChange={(e) => changeSort(e.target.value as KanbanSort)}
@@ -626,7 +625,6 @@ export function TasksPage() {
             {viewMode === 'list' && (
               <div className="flex items-center gap-1.5 flex-wrap">
                 <Filter className="w-3.5 h-3.5 text-blue-400/80" />
-                <span className="text-[10px] font-mono uppercase tracking-wider text-blue-400/80">Filtrar</span>
 
                 {activeProject && (
                   <select
