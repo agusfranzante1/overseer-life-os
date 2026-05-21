@@ -4,8 +4,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Task, Project, Priority } from '@/types'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTranslation } from '@/hooks/useTranslation'
-import { X, Plus, Trash2, CheckCircle2 } from 'lucide-react'
+import { X, Plus, Trash2, CheckCircle2, ChevronRight } from 'lucide-react'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
+import { SubtaskDetailModal } from './SubtaskDetailModal'
 
 interface Props {
   task: Task | null
@@ -22,6 +23,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
   const [editDesc, setEditDesc] = useState('')
   const [editNotes, setEditNotes] = useState('')
   const [newSubtask, setNewSubtask] = useState('')
+  const [openSubtaskId, setOpenSubtaskId] = useState<string | null>(null)
 
   useEffect(() => {
     if (task) {
@@ -197,7 +199,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
             <div>
               <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">{t('tasks.subtasks')}</label>
               <div className="space-y-1.5 mb-2">
-                {task.subtasks.map((sub) => (
+                {task.subtasks.filter((s) => !s.parentId).map((sub) => (
                   <SubtaskRow
                     key={sub.id}
                     title={sub.title}
@@ -207,6 +209,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                       const t = newTitle.trim()
                       if (t && t !== sub.title) updateSubtask(task.id, sub.id, { title: t })
                     }}
+                    onOpenDetail={() => setOpenSubtaskId(sub.id)}
                     onDelete={() => deleteSubtask(task.id, sub.id)}
                   />
                 ))}
@@ -241,6 +244,21 @@ export function TaskDetail({ task, project, onClose }: Props) {
             </div>
           </div>
         </motion.div>
+
+        {/* Nested subtask detail modal */}
+        {openSubtaskId && (() => {
+          const sub = task.subtasks.find((s) => s.id === openSubtaskId)
+          if (!sub) return null
+          return (
+            <SubtaskDetailModal
+              taskId={task.id}
+              subtask={sub}
+              project={project}
+              parentTitle={task.title}
+              onClose={() => setOpenSubtaskId(null)}
+            />
+          )
+        })()}
       </motion.div>
     </AnimatePresence>
   )
@@ -253,10 +271,11 @@ interface SubtaskRowProps {
   completed: boolean
   onToggle: () => void
   onRename: (newTitle: string) => void
+  onOpenDetail: () => void
   onDelete: () => void
 }
 
-function SubtaskRow({ title, completed, onToggle, onRename, onDelete }: SubtaskRowProps) {
+function SubtaskRow({ title, completed, onToggle, onRename, onOpenDetail, onDelete }: SubtaskRowProps) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(title)
 
@@ -294,8 +313,9 @@ function SubtaskRow({ title, completed, onToggle, onRename, onDelete }: SubtaskR
         />
       ) : (
         <button
-          onClick={() => setEditing(true)}
-          title="Click para editar"
+          onClick={onOpenDetail}
+          onDoubleClick={() => setEditing(true)}
+          title="Click para abrir detalle · doble click para renombrar inline"
           className={`flex-1 text-sm text-left px-2 py-0.5 rounded hover:bg-zinc-800/60 transition-colors ${
             completed ? 'line-through text-zinc-500' : 'text-zinc-300'
           }`}
@@ -304,6 +324,13 @@ function SubtaskRow({ title, completed, onToggle, onRename, onDelete }: SubtaskR
         </button>
       )}
 
+      <button
+        onClick={onOpenDetail}
+        title="Abrir detalle"
+        className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-indigo-400 transition-all"
+      >
+        <ChevronRight className="w-3.5 h-3.5" />
+      </button>
       <button
         onClick={onDelete}
         className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"

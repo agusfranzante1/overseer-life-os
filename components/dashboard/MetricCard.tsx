@@ -86,12 +86,14 @@ export function MetricCard({ metricKey, color, icon }: Props) {
         <div className="flex items-center gap-1">
           <input
             autoFocus
+            type={metricKey === 'wakeTime' ? 'time' : 'text'}
             value={editVal}
             onChange={(e) => setEditVal(e.target.value)}
+            onBlur={saveEdit}
             onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing(false) }}
             className="w-full bg-zinc-800 border border-indigo-500 rounded px-2 py-1 text-sm text-white focus:outline-none"
           />
-          <button onClick={saveEdit} className="text-indigo-400 hover:text-indigo-300">
+          <button onMouseDown={(e) => e.preventDefault()} onClick={saveEdit} className="text-indigo-400 hover:text-indigo-300">
             <Check className="w-4 h-4" />
           </button>
         </div>

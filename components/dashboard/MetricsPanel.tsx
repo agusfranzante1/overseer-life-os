@@ -7,6 +7,7 @@ import { MetricEntry } from '@/types'
 import {
   Brain, Moon, AlertTriangle, Footprints,
   Sunrise, Minus, Gauge, Heart, Activity, Pencil, Check, X,
+  AlarmClock,
 } from 'lucide-react'
 import { useTranslation } from '@/hooks/useTranslation'
 import { useHealthStore, getTodaySnapshot } from '@/lib/store/healthStore'
@@ -24,11 +25,11 @@ const METRIC_ICONS: Record<keyof MetricEntry, React.ReactNode> = {
   workload: <Gauge className="w-3.5 h-3.5" />,
 }
 
-// Subjective metrics — user-editable, self-reported. focus/stress/workload were
-// removed because they were never wired to anything useful in the rest of the
-// app. wakeTime and sleepDebt remain because the schedule engine uses them.
+// Subjective metrics — user-editable, self-reported. focus/stress/workload
+// were removed (never wired). sleepDebt is now auto-computed below, so only
+// wakeTime stays here as user-input.
 const SUBJECTIVE_KEYS: (keyof MetricEntry)[] = [
-  'wakeTime', 'sleepDebt',
+  'wakeTime',
 ]
 
 export function MetricsPanel() {
@@ -107,6 +108,13 @@ export function MetricsPanel() {
           subtitle={baseline.restingHR
             ? `baseline ${Math.round(baseline.restingHR)} bpm`
             : 'Necesita 14d'}
+        />
+
+        {/* Sleep debt — auto-computed from goal vs actual sleep */}
+        <SleepDebtCard
+          color={METRIC_COLORS.sleepDebt}
+          sleepMinutes={today?.sleepMinutes ?? 0}
+          goalMinutes={baseline.sleepGoalMinutes}
         />
 
         {/* Subjective metrics — user-editable */}
@@ -257,6 +265,60 @@ function AutoMetricCard({ label, icon, color, value, suffix, subtitle, progress,
         {subtitle && (
           <p className="mt-1.5 text-[10px] text-zinc-500 truncate" title={subtitle}>{subtitle}</p>
         )}
+      </div>
+    </motion.div>
+  )
+}
+
+// ─── Sleep Debt Card (auto, computed from goal − today's actual sleep) ────────
+
+interface SleepDebtCardProps {
+  color: string
+  sleepMinutes: number
+  goalMinutes: number
+}
+
+function SleepDebtCard({ color, sleepMinutes, goalMinutes }: SleepDebtCardProps) {
+  // Debt = how much less you slept than your goal. Surplus is shown as 0.
+  // Only meaningful when there's actual sleep data; otherwise show em-dash.
+  const hasData = sleepMinutes > 0
+  const debtMinutes = hasData ? Math.max(0, goalMinutes - sleepMinutes) : 0
+  const debtHours = (debtMinutes / 60).toFixed(1)
+  const goalH = (goalMinutes / 60).toFixed(1)
+  const sleptH = (sleepMinutes / 60).toFixed(1)
+
+  // Color logic: green if no debt, amber if mild (<1h), red if heavy (>=1h)
+  const tone = !hasData
+    ? color
+    : debtMinutes === 0
+      ? '#10b981'
+      : debtMinutes < 60
+        ? '#f59e0b'
+        : '#ef4444'
+
+  const subtitle = hasData
+    ? debtMinutes === 0
+      ? `meta ${goalH}h · dormiste ${sleptH}h`
+      : `meta ${goalH}h · dormiste ${sleptH}h`
+    : 'Sin registro de sueño hoy'
+
+  return (
+    <motion.div
+      whileHover={{ scale: 1.02 }}
+      className="relative bg-zinc-900 rounded-xl p-4 border border-zinc-800 hover:border-zinc-700 transition-colors"
+      style={{ borderLeftColor: tone, borderLeftWidth: 3 }}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <span style={{ color: tone }}><AlarmClock className="w-3.5 h-3.5" /></span>
+        <span className="text-xs text-zinc-400 font-medium uppercase tracking-wider">Déficit Sueño</span>
+        <span className="ml-auto text-[8px] font-mono text-zinc-600 uppercase tracking-wider">auto</span>
+      </div>
+      <div className="mt-1">
+        <span className="text-2xl font-bold tabular-nums" style={{ color: tone }}>
+          {hasData ? debtHours : '—'}
+          {hasData && <span className="text-sm font-semibold opacity-70 ml-0.5">h</span>}
+        </span>
+        <p className="mt-1.5 text-[10px] text-zinc-500 truncate" title={subtitle}>{subtitle}</p>
       </div>
     </motion.div>
   )

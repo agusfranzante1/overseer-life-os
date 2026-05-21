@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTranslation } from '@/hooks/useTranslation'
@@ -9,6 +9,7 @@ import { TaskDetail } from './TaskDetail'
 import { BreakdownModal } from './BreakdownModal'
 import {
   Plus, FolderOpen, X, ChevronDown, ChevronRight, ChevronLeft, Filter, Wand2, LayoutList, Columns3,
+  Pencil, Trash2, MoreHorizontal, ArrowUpDown,
 } from 'lucide-react'
 import { PROJECT_COLORS } from '@/lib/utils/constants'
 
@@ -86,7 +87,190 @@ function NewTaskForm({ projectId, statuses, onAdd, onClose, t }: {
   )
 }
 
-type KanbanSort = 'priority' | 'priorityAsc' | 'dueDate' | 'alphabetical' | 'newest' | 'oldest' | 'manual'
+// ─── Project Header — editable name/description + actions menu ────────────────
+
+function ProjectHeader({ project, onRename, onUpdateDescription, onUpdateColor, onDelete }: {
+  project: Project
+  onRename: (name: string) => void
+  onUpdateDescription: (description: string) => void
+  onUpdateColor: (color: string) => void
+  onDelete: () => void
+}) {
+  const [editingName, setEditingName] = useState(false)
+  const [editingDesc, setEditingDesc] = useState(false)
+  const [nameDraft, setNameDraft] = useState(project.name)
+  const [descDraft, setDescDraft] = useState(project.description ?? '')
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Resync drafts when the active project changes
+  useEffect(() => { setNameDraft(project.name) }, [project.id, project.name])
+  useEffect(() => { setDescDraft(project.description ?? '') }, [project.id, project.description])
+
+  // Close the kebab menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [menuOpen])
+
+  const commitName = () => {
+    const trimmed = nameDraft.trim()
+    if (trimmed && trimmed !== project.name) onRename(trimmed)
+    else setNameDraft(project.name)
+    setEditingName(false)
+  }
+  const commitDesc = () => {
+    const trimmed = descDraft.trim()
+    if (trimmed !== (project.description ?? '')) onUpdateDescription(trimmed)
+    setEditingDesc(false)
+  }
+
+  return (
+    <div className="group">
+      <div className="flex items-center gap-2 mb-1">
+        <ColorDot color={project.color} onChange={onUpdateColor} />
+
+        {editingName ? (
+          <input
+            autoFocus
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={commitName}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commitName() }
+              if (e.key === 'Escape') { setNameDraft(project.name); setEditingName(false) }
+            }}
+            className="text-xl font-bold bg-transparent border-b border-indigo-500 text-white focus:outline-none px-0 py-0.5 min-w-0 flex-1"
+          />
+        ) : (
+          <button
+            onClick={() => setEditingName(true)}
+            title="Click para renombrar"
+            className="text-xl font-bold text-white hover:text-indigo-300 transition-colors text-left truncate"
+          >
+            {project.name}
+          </button>
+        )}
+
+        <button
+          onClick={() => setEditingName(true)}
+          title="Renombrar"
+          className="opacity-0 group-hover:opacity-100 transition-opacity text-zinc-500 hover:text-zinc-200"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
+
+        <div className="relative ml-auto" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            title="Más"
+            className="text-zinc-500 hover:text-zinc-200 p-1 rounded hover:bg-zinc-800 transition-colors"
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-full mt-1 z-20 w-44 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl py-1">
+              <button
+                onClick={() => { setMenuOpen(false); setEditingName(true) }}
+                className="w-full text-left px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 flex items-center gap-2"
+              >
+                <Pencil className="w-3.5 h-3.5" /> Renombrar
+              </button>
+              <button
+                onClick={() => { setMenuOpen(false); setEditingDesc(true) }}
+                className="w-full text-left px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 flex items-center gap-2"
+              >
+                <Pencil className="w-3.5 h-3.5" /> Editar descripción
+              </button>
+              <div className="my-1 border-t border-zinc-800" />
+              <button
+                onClick={() => { setMenuOpen(false); onDelete() }}
+                className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 flex items-center gap-2"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Eliminar proyecto
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {editingDesc ? (
+        <textarea
+          autoFocus
+          value={descDraft}
+          onChange={(e) => setDescDraft(e.target.value)}
+          onBlur={commitDesc}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitDesc() }
+            if (e.key === 'Escape') { setDescDraft(project.description ?? ''); setEditingDesc(false) }
+          }}
+          rows={2}
+          placeholder="Descripción del proyecto..."
+          className="w-full bg-transparent text-sm text-zinc-400 border-b border-indigo-500 focus:outline-none resize-none px-0 py-0.5"
+        />
+      ) : project.description ? (
+        <button
+          onClick={() => setEditingDesc(true)}
+          title="Click para editar descripción"
+          className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors text-left"
+        >
+          {project.description}
+        </button>
+      ) : (
+        <button
+          onClick={() => setEditingDesc(true)}
+          className="text-xs text-zinc-600 hover:text-zinc-400 transition-colors opacity-0 group-hover:opacity-100"
+        >
+          + agregar descripción
+        </button>
+      )}
+    </div>
+  )
+}
+
+// Inline color picker — small dot that opens a swatches popover
+function ColorDot({ color, onChange }: { color: string; onChange: (c: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+  return (
+    <div className="relative shrink-0" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title="Cambiar color del proyecto"
+        className="w-3 h-3 rounded-full ring-offset-2 ring-offset-zinc-950 hover:ring-2 hover:ring-zinc-600 transition-all"
+        style={{ backgroundColor: color }}
+      />
+      {open && (
+        <div className="absolute left-0 top-full mt-2 z-20 p-2 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl grid grid-cols-5 gap-1.5">
+          {PROJECT_COLORS.map((c) => (
+            <button
+              key={c}
+              onClick={() => { onChange(c); setOpen(false) }}
+              className={`w-5 h-5 rounded transition-all ${color === c ? 'ring-2 ring-white' : 'hover:scale-110'}`}
+              style={{ backgroundColor: c }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Sort mode used for both list view and Kanban view. The name "KanbanSort"
+// is historical — it now drives ordering everywhere.
+type KanbanSort = 'priority' | 'priorityAsc' | 'status' | 'statusReverse' | 'dueDate' | 'alphabetical' | 'newest' | 'oldest' | 'manual'
 
 const PRIORITY_RANK: Record<string, number> = {
   urgent: 0,
@@ -95,13 +279,39 @@ const PRIORITY_RANK: Record<string, number> = {
   low: 3,
 }
 
-function sortTasks(tasks: Task[], mode: KanbanSort): Task[] {
+function sortTasks(
+  tasks: Task[],
+  mode: KanbanSort,
+  // Status order map: status label → numeric order. When sorting "by status" we
+  // use the project's defined order if available. When tasks come from
+  // multiple projects (All Projects view), the caller can pass null and we
+  // fall back to alphabetical-by-status.
+  statusOrder: Map<string, number> | null = null,
+): Task[] {
   const arr = [...tasks]
   switch (mode) {
     case 'priority':
       return arr.sort((a, b) => (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9))
     case 'priorityAsc':
       return arr.sort((a, b) => (PRIORITY_RANK[b.priority] ?? 9) - (PRIORITY_RANK[a.priority] ?? 9))
+    case 'status':
+      return arr.sort((a, b) => {
+        if (statusOrder) {
+          const oa = statusOrder.get(a.status) ?? 999
+          const ob = statusOrder.get(b.status) ?? 999
+          if (oa !== ob) return oa - ob
+        }
+        return a.status.localeCompare(b.status)
+      })
+    case 'statusReverse':
+      return arr.sort((a, b) => {
+        if (statusOrder) {
+          const oa = statusOrder.get(a.status) ?? 999
+          const ob = statusOrder.get(b.status) ?? 999
+          if (oa !== ob) return ob - oa
+        }
+        return b.status.localeCompare(a.status)
+      })
     case 'dueDate':
       return arr.sort((a, b) => {
         if (!a.dueDate && !b.dueDate) return 0
@@ -122,7 +332,7 @@ function sortTasks(tasks: Task[], mode: KanbanSort): Task[] {
 }
 
 export function TasksPage() {
-  const { projects, tasks, selectedProjectId, setSelectedProject, addProject, addTask } = useTasksStore()
+  const { projects, tasks, selectedProjectId, setSelectedProject, addProject, addTask, updateProject, deleteProject } = useTasksStore()
   const { t } = useTranslation()
   const [showProjectForm, setShowProjectForm] = useState(false)
   const [newTaskProjectId, setNewTaskProjectId] = useState<string | null>(null)
@@ -172,10 +382,21 @@ export function TasksPage() {
     (priorityFilter ? t.priority === priorityFilter : true) &&
     (categoryFilter ? (t.category ?? '') === categoryFilter : true)
 
-  const displayedTasks = (activeProject
-    ? getProjectTasks(activeProject.id)
-    : Object.values(tasks)
-  ).filter(passesFilters)
+  // Status order map for sortTasks: built from the active project's statuses
+  // when a project is selected. In "All Projects" view we have no global
+  // status order, so sortTasks falls back to alphabetical-by-status.
+  const statusOrderMap = activeProject
+    ? new Map(activeProject.statuses.map((s, i) => [s.label, i]))
+    : null
+
+  const displayedTasks = sortTasks(
+    (activeProject
+      ? getProjectTasks(activeProject.id)
+      : Object.values(tasks)
+    ).filter(passesFilters),
+    sortMode,
+    statusOrderMap,
+  )
 
   // All distinct categories used across (this project | all projects), for the filter dropdown
   const availableCategories = Array.from(new Set(
@@ -315,65 +536,104 @@ export function TasksPage() {
 
       {/* Main: Tasks */}
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-xl font-bold text-white">
-              {activeProject ? activeProject.name : t('tasks.title')}
-            </h1>
-            {activeProject?.description && (
-              <p className="text-sm text-zinc-500 mt-0.5">{activeProject.description}</p>
-            )}
+        {/* Header — restructured into two rows for breathing room.
+            Row 1: project identity + primary actions.
+            Row 2: view controls (mode + sort + filters). */}
+        <div className="mb-5 space-y-3">
+          {/* Row 1 — Identity + actions */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              {activeProject ? (
+                <ProjectHeader
+                  project={activeProject}
+                  onRename={(name) => updateProject(activeProject.id, { name })}
+                  onUpdateDescription={(description) => updateProject(activeProject.id, { description })}
+                  onUpdateColor={(color) => updateProject(activeProject.id, { color })}
+                  onDelete={() => {
+                    if (confirm(`¿Eliminar el proyecto "${activeProject.name}" y todas sus tareas?`)) {
+                      deleteProject(activeProject.id)
+                      setSelectedProject(null)
+                    }
+                  }}
+                />
+              ) : (
+                <h1 className="text-xl font-bold text-white">{t('tasks.title')}</h1>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setShowBreakdown({ task: null })}
+                className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 border border-indigo-500/40 hover:border-indigo-400 text-indigo-300 rounded-lg text-sm font-bold transition-all"
+                title="Pedile a la IA que desglose una tarea en sub-pasos"
+              >
+                <Wand2 className="w-3.5 h-3.5" />
+                Desglosar con IA
+              </button>
+              <button
+                onClick={() => setNewTaskProjectId(activeProject?.id ?? projectList[0]?.id ?? null)}
+                className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                {t('tasks.newTask')}
+              </button>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* View mode toggle */}
+          {/* Row 2 — View / Sort / Filter controls (clearly separated) */}
+          <div className="flex items-center gap-x-5 gap-y-2 flex-wrap pt-3 border-t border-zinc-800">
+            {/* View mode toggle (segmented control) */}
             <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
               <button onClick={() => changeView('list')}
                 title="Vista lista"
-                className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold transition-colors ${
+                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
                   viewMode === 'list' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-200'
                 }`}>
                 <LayoutList className="w-3.5 h-3.5" /> Lista
               </button>
               <button onClick={() => changeView('kanban')}
                 title="Vista Kanban"
-                className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold transition-colors ${
+                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
                   viewMode === 'kanban' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-200'
                 }`}>
                 <Columns3 className="w-3.5 h-3.5" /> Kanban
               </button>
             </div>
 
-            {/* Kanban sort selector */}
-            {viewMode === 'kanban' && (
+            {/* Ordenar — visible in BOTH views */}
+            <div className="flex items-center gap-1.5">
+              <ArrowUpDown className="w-3.5 h-3.5 text-emerald-400/80" />
+              <span className="text-[10px] font-mono uppercase tracking-wider text-emerald-400/80">Ordenar</span>
               <select
                 value={sortMode}
                 onChange={(e) => changeSort(e.target.value as KanbanSort)}
-                className="bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
-                title="Ordenar por"
+                title="Ordenar tareas por"
+                className="bg-zinc-900 border border-emerald-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-emerald-500"
               >
-                <option value="priority">Prioridad ↓</option>
-                <option value="priorityAsc">Prioridad ↑</option>
+                <option value="priority">Urgencia ↓ (urgente arriba)</option>
+                <option value="priorityAsc">Urgencia ↑ (urgente abajo)</option>
+                <option value="status">Estado ↓</option>
+                <option value="statusReverse">Estado ↑</option>
                 <option value="dueDate">Fecha límite</option>
                 <option value="alphabetical">Alfabético</option>
                 <option value="newest">Más recientes</option>
                 <option value="oldest">Más antiguas</option>
                 <option value="manual">Sin orden (creación)</option>
               </select>
-            )}
+            </div>
 
-            {/* Filters — list view */}
+            {/* Filtrar — list view only (kanban filters by status implicitly per column) */}
             {viewMode === 'list' && (
               <div className="flex items-center gap-1.5 flex-wrap">
-                <Filter className="w-3.5 h-3.5 text-zinc-500" />
+                <Filter className="w-3.5 h-3.5 text-blue-400/80" />
+                <span className="text-[10px] font-mono uppercase tracking-wider text-blue-400/80">Filtrar</span>
 
-                {/* Status (only meaningful inside a project, since each project has its own statuses) */}
                 {activeProject && (
                   <select
                     value={statusFilter ?? ''}
                     onChange={(e) => setStatusFilter(e.target.value || null)}
-                    title="Estado"
-                    className="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
+                    title="Filtrar por estado"
+                    className="bg-zinc-900 border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
                   >
                     <option value="">Estado: todos</option>
                     {activeProject.statuses.map((s) => (
@@ -382,12 +642,11 @@ export function TasksPage() {
                   </select>
                 )}
 
-                {/* Priority / Urgencia — works in both views */}
                 <select
                   value={priorityFilter ?? ''}
                   onChange={(e) => setPriorityFilter(e.target.value || null)}
-                  title="Urgencia"
-                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
+                  title="Filtrar por urgencia"
+                  className="bg-zinc-900 border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
                 >
                   <option value="">Urgencia: toda</option>
                   <option value="urgent">Urgente</option>
@@ -396,13 +655,12 @@ export function TasksPage() {
                   <option value="low">Baja</option>
                 </select>
 
-                {/* Category / Tipo — dynamic, based on whatever categories exist in scope */}
                 {availableCategories.length > 0 && (
                   <select
                     value={categoryFilter ?? ''}
                     onChange={(e) => setCategoryFilter(e.target.value || null)}
-                    title="Tipo de tarea"
-                    className="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
+                    title="Filtrar por tipo"
+                    className="bg-zinc-900 border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
                   >
                     <option value="">Tipo: todos</option>
                     {availableCategories.map((c) => (
@@ -415,29 +673,13 @@ export function TasksPage() {
                   <button
                     onClick={() => { setStatusFilter(null); setPriorityFilter(null); setCategoryFilter(null) }}
                     title="Limpiar filtros"
-                    className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 hover:text-zinc-200 px-2"
+                    className="text-[10px] font-mono uppercase tracking-wider text-blue-300 hover:text-blue-100 px-2 py-1 rounded hover:bg-blue-500/10 transition-colors"
                   >
                     limpiar
                   </button>
                 )}
               </div>
             )}
-
-            <button
-              onClick={() => setShowBreakdown({ task: null })}
-              className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 border border-indigo-500/40 hover:border-indigo-400 text-indigo-300 rounded-lg text-sm font-bold transition-all"
-              title="Pedile a la IA que desglose una tarea en sub-pasos"
-            >
-              <Wand2 className="w-3.5 h-3.5" />
-              Desglosar con IA
-            </button>
-            <button
-              onClick={() => setNewTaskProjectId(activeProject?.id ?? projectList[0]?.id ?? null)}
-              className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              {t('tasks.newTask')}
-            </button>
           </div>
         </div>
 

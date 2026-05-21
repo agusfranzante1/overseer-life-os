@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
-import { X, Trash2 } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { X, Trash2, Plus, CheckCircle2 } from 'lucide-react'
 import { Priority, Subtask, Project } from '@/types'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { useTasksStore } from '@/lib/store/tasksStore'
@@ -19,18 +19,27 @@ interface Props {
 const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
 export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, parentSubtaskTitle, onClose }: Props) {
-  const { updateSubtask, deleteSubtask, toggleSubtask } = useTasksStore()
+  const { tasks, updateSubtask, deleteSubtask, toggleSubtask, addSubtask } = useTasksStore()
   const { t } = useTranslation()
 
   const [title, setTitle]   = useState(subtask.title)
   const [notes, setNotes]   = useState(subtask.notes ?? '')
   const [status, setStatus] = useState(subtask.status || project.statuses[0]?.label || 'To Do')
   const [priority, setPriority] = useState<Priority | ''>(subtask.priority ?? '')
+  const [newChildTitle, setNewChildTitle] = useState('')
+  const [openChildId, setOpenChildId] = useState<string | null>(null)
 
-  // Save on blur of inputs (live save)
+  // Re-sync local state when the user navigates between subtasks
+  useEffect(() => {
+    setTitle(subtask.title)
+    setNotes(subtask.notes ?? '')
+    setStatus(subtask.status || project.statuses[0]?.label || 'To Do')
+    setPriority(subtask.priority ?? '')
+  }, [subtask.id])
+
+  // Persist any pending changes when this modal unmounts
   useEffect(() => {
     return () => {
-      // On unmount, persist any pending change
       updateSubtask(taskId, subtask.id, {
         title: title.trim() || subtask.title,
         notes: notes.trim() || undefined,
@@ -56,145 +65,220 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
     onClose()
   }
 
-  return (
-    <motion.div
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      onClick={onClose}
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-start justify-end"
-    >
-      <motion.div
-        initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
-        transition={{ type: 'spring', stiffness: 320, damping: 30 }}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md bg-zinc-900 border-l border-zinc-800 h-full overflow-y-auto"
-      >
-        <div className="p-6 space-y-5">
-          {/* Breadcrumb */}
-          <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 flex items-center flex-wrap gap-1">
-            <span>{project.name}</span>
-            <span>›</span>
-            <span className="text-zinc-400 truncate max-w-[200px]">{parentTitle}</span>
-            {parentSubtaskTitle && (
-              <>
-                <span>›</span>
-                <span className="text-zinc-400 truncate max-w-[160px]">{parentSubtaskTitle}</span>
-              </>
-            )}
-            <span className="ml-auto text-indigo-400">Subtarea</span>
-          </div>
+  // Find direct child subtasks (1 level only — Subtask.parentId is single-depth)
+  const parentTask = tasks[taskId]
+  const children = (parentTask?.subtasks ?? [])
+    .filter((s) => s.parentId === subtask.id)
+    .sort((a, b) => a.order - b.order)
 
-          {/* Title + close */}
-          <div className="flex items-start justify-between gap-3">
-            <textarea
-              ref={(el) => {
-                if (el) {
-                  el.style.height = 'auto'
-                  el.style.height = el.scrollHeight + 'px'
-                }
-              }}
-              value={title}
-              onChange={(e) => {
-                setTitle(e.target.value)
-                e.currentTarget.style.height = 'auto'
-                e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px'
-              }}
-              onBlur={save}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  e.currentTarget.blur()
-                }
-              }}
-              rows={1}
-              className="flex-1 bg-transparent text-lg font-bold text-white focus:outline-none border-b border-transparent focus:border-indigo-500 pb-1 resize-none leading-tight overflow-hidden"
-            />
-            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 shrink-0 mt-1">
-              <X className="w-5 h-5" />
+  const handleAddChild = (e: React.FormEvent) => {
+    e.preventDefault()
+    const t = newChildTitle.trim()
+    if (!t) return
+    addSubtask(taskId, t, subtask.id)
+    setNewChildTitle('')
+  }
+
+  const openChild = openChildId ? children.find((c) => c.id === openChildId) : null
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex justify-end"
+      >
+        <motion.div
+          initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
+          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-lg bg-zinc-900 border-l border-zinc-800 h-full overflow-y-auto"
+        >
+          <div className="p-6 space-y-5">
+            {/* Breadcrumb */}
+            <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 flex items-center flex-wrap gap-1">
+              <span style={{ color: project.color }}>●</span>
+              <span>{project.name}</span>
+              <span>›</span>
+              <span className="text-zinc-400 truncate max-w-[200px]">{parentTitle}</span>
+              {parentSubtaskTitle && (
+                <>
+                  <span>›</span>
+                  <span className="text-zinc-400 truncate max-w-[160px]">{parentSubtaskTitle}</span>
+                </>
+              )}
+              <span className="ml-auto text-indigo-400">Subtarea</span>
+            </div>
+
+            {/* Title + close */}
+            <div className="flex items-start justify-between gap-3">
+              <textarea
+                ref={(el) => {
+                  if (el) {
+                    el.style.height = 'auto'
+                    el.style.height = el.scrollHeight + 'px'
+                  }
+                }}
+                value={title}
+                onChange={(e) => {
+                  setTitle(e.target.value)
+                  e.currentTarget.style.height = 'auto'
+                  e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px'
+                }}
+                onBlur={save}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    e.currentTarget.blur()
+                  }
+                }}
+                rows={1}
+                className="flex-1 bg-transparent text-xl font-bold text-white focus:outline-none border-b border-transparent focus:border-indigo-500 pb-1 resize-none leading-tight overflow-hidden"
+              />
+              <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 shrink-0 mt-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Completed toggle */}
+            <button
+              onClick={() => { toggleSubtask(taskId, subtask.id) }}
+              className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg border transition-colors ${
+                subtask.completed
+                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                  : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+              }`}>
+              <span className="text-sm font-bold">{subtask.completed ? '✓ Completada' : 'Marcar como completada'}</span>
+            </button>
+
+            {/* Status */}
+            <div>
+              <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">{t('tasks.status')}</label>
+              <div className="flex flex-wrap gap-2">
+                {project.statuses.map((s) => (
+                  <button key={s.id}
+                    onClick={() => { setStatus(s.label); updateSubtask(taskId, subtask.id, { status: s.label }) }}
+                    className={`text-xs px-3 py-1.5 rounded-lg border transition-all font-medium ${
+                      status === s.label ? 'border-current' : 'border-zinc-700 text-zinc-500 hover:border-zinc-500'
+                    }`}
+                    style={status === s.label ? {
+                      backgroundColor: s.color + '20',
+                      borderColor: s.color,
+                      color: s.color,
+                    } : {}}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Priority */}
+            <div>
+              <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">{t('tasks.priority')}</label>
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={() => { setPriority(''); updateSubtask(taskId, subtask.id, { priority: undefined }) }}
+                  className={`text-xs px-2 py-1.5 rounded-lg text-left transition-all border ${
+                    priority === '' ? 'border-zinc-500 text-zinc-300' : 'border-transparent text-zinc-600 hover:bg-zinc-800'
+                  }`}>
+                  — Sin urgencia
+                </button>
+                {PRIORITIES.map((p) => (
+                  <button key={p}
+                    onClick={() => { setPriority(p); updateSubtask(taskId, subtask.id, { priority: p }) }}
+                    className={`text-xs px-2 py-1.5 rounded-lg text-left transition-all border ${
+                      priority === p ? 'border-current' : 'border-transparent text-zinc-500 hover:bg-zinc-800'
+                    }`}
+                    style={priority === p ? {
+                      backgroundColor: PRIORITY_COLORS[p] + '20',
+                      borderColor: PRIORITY_COLORS[p],
+                      color: PRIORITY_COLORS[p],
+                    } : {}}>
+                    {t(`tasks.priorities.${p}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">{t('tasks.notes')}</label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                onBlur={save}
+                rows={5}
+                placeholder="Notas, contexto, links..."
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 resize-none"
+              />
+            </div>
+
+            {/* Child subtasks (only 1 level — Subtask.parentId is single-depth) */}
+            {!parentSubtaskTitle && (
+              <div>
+                <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">Sub-subtareas</label>
+                <div className="space-y-1.5 mb-2">
+                  {children.map((c) => (
+                    <div key={c.id} className="flex items-center gap-2 group">
+                      <button onClick={() => toggleSubtask(taskId, c.id)}>
+                        <CheckCircle2 className={`w-4 h-4 transition-colors ${
+                          c.completed ? 'text-emerald-400' : 'text-zinc-600 hover:text-zinc-400'
+                        }`} />
+                      </button>
+                      <button
+                        onClick={() => setOpenChildId(c.id)}
+                        title="Abrir detalle"
+                        className={`flex-1 text-sm text-left px-2 py-0.5 rounded hover:bg-zinc-800/60 transition-colors ${
+                          c.completed ? 'line-through text-zinc-500' : 'text-zinc-300'
+                        }`}
+                      >
+                        {c.title}
+                      </button>
+                      <button
+                        onClick={() => deleteSubtask(taskId, c.id)}
+                        className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <form onSubmit={handleAddChild} className="flex items-center gap-2">
+                  <input
+                    value={newChildTitle}
+                    onChange={(e) => setNewChildTitle(e.target.value)}
+                    placeholder="Agregar sub-subtarea..."
+                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500"
+                  />
+                  <button type="submit" className="text-zinc-500 hover:text-indigo-400 transition-colors">
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* Delete */}
+            <button
+              onClick={handleDelete}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 text-sm font-semibold transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Eliminar subtarea
             </button>
           </div>
+        </motion.div>
 
-          {/* Completed toggle */}
-          <button
-            onClick={() => { toggleSubtask(taskId, subtask.id) }}
-            className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg border transition-colors ${
-              subtask.completed
-                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
-            }`}>
-            <span className="text-sm font-bold">{subtask.completed ? '✓ Completada' : 'Marcar como completada'}</span>
-          </button>
-
-          {/* Status */}
-          <div>
-            <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">{t('tasks.status')}</label>
-            <div className="grid grid-cols-2 gap-1">
-              {project.statuses.map((s) => (
-                <button key={s.id}
-                  onClick={() => { setStatus(s.label); updateSubtask(taskId, subtask.id, { status: s.label }) }}
-                  className={`text-xs px-2 py-1.5 rounded-lg text-left transition-all border ${
-                    status === s.label ? 'border-current' : 'border-transparent text-zinc-500 hover:bg-zinc-800'
-                  }`}
-                  style={status === s.label ? {
-                    backgroundColor: s.color + '20',
-                    borderColor: s.color,
-                    color: s.color,
-                  } : {}}>
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Priority */}
-          <div>
-            <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">{t('tasks.priority')}</label>
-            <div className="grid grid-cols-5 gap-1">
-              <button
-                onClick={() => { setPriority(''); updateSubtask(taskId, subtask.id, { priority: undefined }) }}
-                className={`text-xs px-2 py-1.5 rounded-lg transition-all border ${
-                  priority === '' ? 'border-zinc-500 text-zinc-300' : 'border-transparent text-zinc-600 hover:bg-zinc-800'
-                }`}>
-                —
-              </button>
-              {PRIORITIES.map((p) => (
-                <button key={p}
-                  onClick={() => { setPriority(p); updateSubtask(taskId, subtask.id, { priority: p }) }}
-                  className={`text-xs px-2 py-1.5 rounded-lg transition-all border ${
-                    priority === p ? 'border-current' : 'border-transparent text-zinc-500 hover:bg-zinc-800'
-                  }`}
-                  style={priority === p ? {
-                    backgroundColor: PRIORITY_COLORS[p] + '20',
-                    borderColor: PRIORITY_COLORS[p],
-                    color: PRIORITY_COLORS[p],
-                  } : {}}>
-                  {t(`tasks.priorities.${p}`)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Notes */}
-          <div>
-            <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">{t('tasks.notes')}</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              onBlur={save}
-              rows={5}
-              placeholder="Notas, contexto, links..."
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 resize-none"
-            />
-          </div>
-
-          {/* Delete */}
-          <button
-            onClick={handleDelete}
-            className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 text-sm font-semibold transition-colors"
-          >
-            <Trash2 className="w-3.5 h-3.5" /> Eliminar subtarea
-          </button>
-        </div>
+        {/* Nested child subtask modal (1 level deep) */}
+        {openChild && (
+          <SubtaskDetailModal
+            taskId={taskId}
+            subtask={openChild}
+            project={project}
+            parentTitle={parentTitle}
+            parentSubtaskTitle={subtask.title}
+            onClose={() => setOpenChildId(null)}
+          />
+        )}
       </motion.div>
-    </motion.div>
+    </AnimatePresence>
   )
 }

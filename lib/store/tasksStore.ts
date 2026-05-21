@@ -36,7 +36,7 @@ interface TasksState {
   planNext2h: () => Task[]
 
   // Subtask actions
-  addSubtask: (taskId: string, title: string) => void
+  addSubtask: (taskId: string, title: string, parentId?: string) => void
   updateSubtask: (taskId: string, subtaskId: string, patch: Partial<Subtask>) => void
   toggleSubtask: (taskId: string, subtaskId: string) => void
   deleteSubtask: (taskId: string, subtaskId: string) => void
@@ -245,7 +245,7 @@ export const useTasksStore = create<TasksState>()(
         return candidates.slice(0, 3)
       },
 
-      addSubtask: (taskId, title) => {
+      addSubtask: (taskId, title, parentId) => {
         const id = genId()
         set((s) => ({
           tasks: {
@@ -254,7 +254,11 @@ export const useTasksStore = create<TasksState>()(
               ...s.tasks[taskId],
               subtasks: [
                 ...s.tasks[taskId].subtasks,
-                { id, title, completed: false, status: 'todo', order: s.tasks[taskId].subtasks.length, notes: '' },
+                {
+                  id, title, completed: false, status: 'todo',
+                  order: s.tasks[taskId].subtasks.length, notes: '',
+                  ...(parentId ? { parentId } : {}),
+                },
               ],
               updatedAt: new Date().toISOString(),
             },
