@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
+import { parseSleepRaw } from '@/lib/health/sleep-parser'
 
 interface HealthPayload {
   token?: string
   date?: string
   steps?: number
   sleep_minutes?: number
-  sleepMinutes?: number      // accept both camel/snake for shortcut convenience
+  sleepMinutes?: number
+  sleep_raw?: string             // Raw HealthKit dump from iOS Shortcut
   sleep_start?: string
   sleepStart?: string
   sleep_end?: string
@@ -29,7 +31,6 @@ export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as HealthPayload
 
-    // Resolve token from body OR header (Shortcuts can send either)
     const token = body.token ?? req.headers.get('x-overseer-key') ?? null
     if (!token) {
       return NextResponse.json({ ok: false, error: 'missing_token' }, { status: 401 })
@@ -50,10 +51,30 @@ export async function POST(req: NextRequest) {
     const date = body.date && isValidDate(body.date) ? body.date : todayLocal()
 
     const steps = Number.isFinite(body.steps) ? Math.round(body.steps!) : 0
-    const sleepMinutesRaw = body.sleep_minutes ?? body.sleepMinutes
-    const sleepMinutes = Number.isFinite(sleepMinutesRaw) ? Math.round(sleepMinutesRaw!) : 0
-    const sleepStart = body.sleep_start ?? body.sleepStart ?? null
-    const sleepEnd = body.sleep_end ?? body.sleepEnd ?? null
+
+    // Sleep: parse raw if provided, otherwise fall back to scalar sleep_minutes.
+    let sleepMinutes = 0
+    let sleepStart: string | null = body.sleep_start ?? body.sleepStart ?? null
+    let sleepEnd: string | null = body.sleep_end ?? body.sleepEnd ?? null
+    let stages = { inBedMinutes: 0, coreMinutes: 0, deepMinutes: 0, remMinutes: 0, awakeMinutes: 0 }
+
+    if (typeof body.sleep_raw === 'string' && body.sleep_raw.trim().length > 0) {
+      const parsed = parseSleepRaw(body.sleep_raw)
+      sleepMinutes = parsed.totalAsleepMinutes
+      stages = {
+        inBedMinutes: parsed.inBedMinutes,
+        coreMinutes: parsed.coreMinutes,
+        deepMinutes: parsed.deepMinutes,
+        remMinutes: parsed.remMinutes,
+        awakeMinutes: parsed.awakeMinutes,
+      }
+      if (!sleepStart && parsed.sleepStart) sleepStart = parsed.sleepStart
+      if (!sleepEnd && parsed.sleepEnd) sleepEnd = parsed.sleepEnd
+    } else {
+      const sleepMinutesRaw = body.sleep_minutes ?? body.sleepMinutes
+      if (Number.isFinite(sleepMinutesRaw)) sleepMinutes = Math.round(sleepMinutesRaw!)
+    }
+
     const restingRaw = body.resting_hr ?? body.restingHR
     const restingHR = Number.isFinite(restingRaw) ? Math.round(restingRaw!) : null
     const hrv = Number.isFinite(body.hrv) ? Math.round(body.hrv! * 10) / 10 : null
@@ -64,8 +85,13 @@ export async function POST(req: NextRequest) {
         date,
         steps,
         sleep_minutes: sleepMinutes,
-        sleep_start: typeof sleepStart === 'string' ? sleepStart : null,
-        sleep_end: typeof sleepEnd === 'string' ? sleepEnd : null,
+        sleep_in_bed_minutes: stages.inBedMinutes || null,
+        sleep_core_minutes: stages.coreMinutes || null,
+        sleep_deep_minutes: stages.deepMinutes || null,
+        sleep_rem_minutes: stages.remMinutes || null,
+        sleep_awake_minutes: stages.awakeMinutes || null,
+        sleep_start: sleepStart,
+        sleep_end: sleepEnd,
         resting_hr: restingHR,
         hrv,
         source: 'shortcut',
@@ -78,7 +104,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 })
     }
 
-    return NextResponse.json({ ok: true, date })
+    return NextResponse.json({
+      ok: true,
+      date,
+      parsed_sleep: stages.coreMinutes + stages.deepMinutes + stages.remMinutes > 0 ? {
+        total: sleepMinutes,
+        ...stages,
+      } : undefined,
+    })
   } catch (e) {
     const message = e instanceof Error ? e.message : 'unknown'
     return NextResponse.json({ ok: false, error: message }, { status: 500 })

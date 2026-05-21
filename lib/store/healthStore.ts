@@ -7,9 +7,14 @@ import { persist } from 'zustand/middleware'
 export interface HealthSnapshot {
   date: string          // YYYY-MM-DD (local day)
   steps: number
-  sleepMinutes: number  // minutes asleep
+  sleepMinutes: number  // total asleep = core + deep + rem
   sleepStart?: string   // ISO datetime
   sleepEnd?: string     // ISO datetime
+  sleepInBedMinutes?: number
+  sleepCoreMinutes?: number
+  sleepDeepMinutes?: number
+  sleepRemMinutes?: number
+  sleepAwakeMinutes?: number
   restingHR?: number    // bpm
   hrv?: number          // ms (SDNN from Apple Health)
   source: 'shortcut' | 'manual'
