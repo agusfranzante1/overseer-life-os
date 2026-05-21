@@ -104,14 +104,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 })
     }
 
-    return NextResponse.json({
-      ok: true,
-      date,
-      parsed_sleep: stages.coreMinutes + stages.deepMinutes + stages.remMinutes > 0 ? {
-        total: sleepMinutes,
-        ...stages,
-      } : undefined,
-    })
+    const debug = typeof body.sleep_raw === 'string' && body.sleep_raw.length > 0
+      ? {
+          sleep_raw_length: body.sleep_raw.length,
+          sleep_raw_preview: body.sleep_raw.slice(0, 500),
+          parsed: {
+            total: sleepMinutes,
+            ...stages,
+            sleepStart, sleepEnd,
+          },
+        }
+      : undefined
+
+    return NextResponse.json({ ok: true, date, debug })
   } catch (e) {
     const message = e instanceof Error ? e.message : 'unknown'
     return NextResponse.json({ ok: false, error: message }, { status: 500 })
