@@ -826,7 +826,58 @@ function scheduleFood()       { schedule(foodPushTimer,      pushFood,      (t) 
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
-/** Mount once at the app root. Wires tasks + wallet + trading sync. */
+/** Pull-then-maybe-push each domain. Idempotent — gated by *Init flags so it
+ *  only runs once per logged-in user. Called on initial mount AND on auth
+ *  state change so that logins after mount (e.g. fresh incognito) still
+ *  trigger the initial hydration. */
+async function initAllDomains() {
+  if (!state.userId) return
+
+  if (!state.tasksInit) {
+    state.tasksInit = true
+    const pulled = await pullTasks()
+    if (pulled && pulled.projects === 0 && pulled.tasks === 0) {
+      await pushTasks().catch((e) => console.error('Tasks initial push failed', e))
+    }
+  }
+  if (!state.walletInit) {
+    state.walletInit = true
+    const had = await pullWallet()
+    if (!had) await pushWallet().catch((e) => console.error('Wallet initial push failed', e))
+  }
+  if (!state.tradingInit) {
+    state.tradingInit = true
+    const had = await pullTrading()
+    if (!had) await pushTrading().catch((e) => console.error('Trading initial push failed', e))
+  }
+  if (!state.habitsInit) {
+    state.habitsInit = true
+    const had = await pullHabits()
+    if (!had) await pushHabits().catch((e) => console.error('Habits initial push failed', e))
+  }
+  if (!state.gymBasicsInit) {
+    state.gymBasicsInit = true
+    const had = await pullGymBasics()
+    if (!had) await pushGymBasics().catch((e) => console.error('Gym basics initial push failed', e))
+  }
+  if (!state.healthInit) {
+    state.healthInit = true
+    const had = await pullHealth()
+    if (!had) await pushHealth().catch((e) => console.error('Health initial push failed', e))
+  }
+  if (!state.chatInit) {
+    state.chatInit = true
+    const had = await pullChat()
+    if (!had) await pushChat().catch((e) => console.error('Chat initial push failed', e))
+  }
+  if (!state.foodInit) {
+    state.foodInit = true
+    const had = await pullFood()
+    if (!had) await pushFood().catch((e) => console.error('Food initial push failed', e))
+  }
+}
+
+/** Mount once at the app root. Wires all domains for sync. */
 export function useSupabaseSync() {
   const subscribedRef = useRef(false)
 
@@ -840,73 +891,7 @@ export function useSupabaseSync() {
       if (!mounted) return
       state.userId = user?.id ?? null
       state.ready = true
-
-      if (!state.userId) return
-
-      // Initial pull + conditional push for each domain
-      if (!state.tasksInit) {
-        state.tasksInit = true
-        const pulled = await pullTasks()
-        if (pulled && pulled.projects === 0 && pulled.tasks === 0) {
-          await pushTasks().catch((e) => console.error('Tasks initial push failed', e))
-        }
-      }
-
-      if (!state.walletInit) {
-        state.walletInit = true
-        const had = await pullWallet()
-        if (!had) {
-          await pushWallet().catch((e) => console.error('Wallet initial push failed', e))
-        }
-      }
-
-      if (!state.tradingInit) {
-        state.tradingInit = true
-        const had = await pullTrading()
-        if (!had) {
-          await pushTrading().catch((e) => console.error('Trading initial push failed', e))
-        }
-      }
-
-      if (!state.habitsInit) {
-        state.habitsInit = true
-        const had = await pullHabits()
-        if (!had) {
-          await pushHabits().catch((e) => console.error('Habits initial push failed', e))
-        }
-      }
-
-      if (!state.gymBasicsInit) {
-        state.gymBasicsInit = true
-        const had = await pullGymBasics()
-        if (!had) {
-          await pushGymBasics().catch((e) => console.error('Gym basics initial push failed', e))
-        }
-      }
-
-      if (!state.healthInit) {
-        state.healthInit = true
-        const had = await pullHealth()
-        if (!had) {
-          await pushHealth().catch((e) => console.error('Health initial push failed', e))
-        }
-      }
-
-      if (!state.chatInit) {
-        state.chatInit = true
-        const had = await pullChat()
-        if (!had) {
-          await pushChat().catch((e) => console.error('Chat initial push failed', e))
-        }
-      }
-
-      if (!state.foodInit) {
-        state.foodInit = true
-        const had = await pullFood()
-        if (!had) {
-          await pushFood().catch((e) => console.error('Food initial push failed', e))
-        }
-      }
+      await initAllDomains()
     })()
 
     // Subscribe to local store changes
@@ -922,19 +907,22 @@ export function useSupabaseSync() {
       useFoodStore.subscribe(() => { if (state.userId) scheduleFood() })
     }
 
-    // Auth state changes
+    // Auth state changes — when the user signs in *after* mount (e.g. from
+    // /login → /dashboard), re-run init so the new user's data gets pulled.
     const { data: sub } = sb.auth.onAuthStateChange((_event: string, session: { user?: { id: string } } | null) => {
       const newId = session?.user?.id ?? null
-      if (newId !== state.userId) {
-        state.userId = newId
-        state.tasksInit = false
-        state.walletInit = false
-        state.tradingInit = false
-        state.habitsInit = false
-        state.gymBasicsInit = false
-        state.healthInit = false
-        state.chatInit = false
-        state.foodInit = false
+      if (newId === state.userId) return
+      state.userId = newId
+      state.tasksInit = false
+      state.walletInit = false
+      state.tradingInit = false
+      state.habitsInit = false
+      state.gymBasicsInit = false
+      state.healthInit = false
+      state.chatInit = false
+      state.foodInit = false
+      if (newId) {
+        initAllDomains().catch((e) => console.error('Init after auth change failed', e))
       }
     })
 
