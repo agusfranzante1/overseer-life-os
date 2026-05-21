@@ -1,9 +1,9 @@
 'use client'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Activity, Plus, Trash2, Flame, CheckCircle2, Circle, Trophy, X,
-  ChevronLeft, ChevronRight, TrendingUp,
+  ChevronLeft, ChevronRight, TrendingUp, GripVertical, ArrowUpDown, Check,
 } from 'lucide-react'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -65,7 +65,7 @@ function computeStreak(completedDates: string[]): number {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function HabitsPage() {
-  const { habits, addHabit, removeHabit, toggleDate } = useHabitsStore()
+  const { habits, addHabit, removeHabit, toggleDate, reorderHabits } = useHabitsStore()
   const timezone = useAppStore((s) => s.timezone)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name: '', icon: '🎯', color: COLORS[0], category: 'Salud' })
@@ -75,6 +75,46 @@ export function HabitsPage() {
   })
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
+
+  // ─── Manual reorder (drag-and-drop) ─────────────────────────────────────────
+  const [reorderMode, setReorderMode] = useState(false)
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [overId, setOverId] = useState<string | null>(null)
+  const draggedRef = useRef<string | null>(null)
+
+  const handleDragStart = (id: string) => (e: React.DragEvent) => {
+    draggedRef.current = id
+    setDragId(id)
+    e.dataTransfer.effectAllowed = 'move'
+    // Firefox needs data set or drag won't initiate
+    try { e.dataTransfer.setData('text/plain', id) } catch { /* ignore */ }
+  }
+  const handleDragOver = (id: string) => (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (overId !== id) setOverId(id)
+  }
+  const handleDrop = (targetId: string) => (e: React.DragEvent) => {
+    e.preventDefault()
+    const sourceId = draggedRef.current
+    draggedRef.current = null
+    setDragId(null)
+    setOverId(null)
+    if (!sourceId || sourceId === targetId) return
+    const ids = habits.map((h) => h.id)
+    const from = ids.indexOf(sourceId)
+    const to = ids.indexOf(targetId)
+    if (from < 0 || to < 0) return
+    const next = [...ids]
+    next.splice(from, 1)
+    next.splice(to, 0, sourceId)
+    reorderHabits(next)
+  }
+  const handleDragEnd = () => {
+    draggedRef.current = null
+    setDragId(null)
+    setOverId(null)
+  }
 
   // "Today" is computed in the user's selected IANA timezone — so habits roll
   // over on the user's day, not the device's local day. Important when
@@ -124,11 +164,27 @@ export function HabitsPage() {
           </h1>
           <p className="text-sm text-zinc-500 mt-0.5">Seguimiento diario de rutinas</p>
         </div>
-        <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-          onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-pink-500/10 border border-pink-500/30 hover:bg-pink-500/20 text-pink-400 rounded-xl text-sm font-semibold transition-all">
-          <Plus className="w-4 h-4" /> Nuevo hábito
-        </motion.button>
+        <div className="flex items-center gap-2">
+          {habits.length > 1 && (
+            <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+              onClick={() => { setReorderMode((v) => !v); if (showForm) setShowForm(false) }}
+              title={reorderMode ? 'Salir del modo reordenar' : 'Reordenar hábitos'}
+              className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
+                reorderMode
+                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                  : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-zinc-200'
+              }`}>
+              {reorderMode ? <Check className="w-4 h-4" /> : <ArrowUpDown className="w-4 h-4" />}
+              {reorderMode ? 'Listo' : 'Reordenar'}
+            </motion.button>
+          )}
+          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+            onClick={() => setShowForm(!showForm)}
+            disabled={reorderMode}
+            className="flex items-center gap-2 px-4 py-2.5 bg-pink-500/10 border border-pink-500/30 hover:bg-pink-500/20 disabled:opacity-40 disabled:cursor-not-allowed text-pink-400 rounded-xl text-sm font-semibold transition-all">
+            <Plus className="w-4 h-4" /> Nuevo hábito
+          </motion.button>
+        </div>
       </div>
 
       {/* Summary */}
@@ -237,9 +293,26 @@ export function HabitsPage() {
         <div className="space-y-2">
           {habits.map((habit) => {
             const streak = computeStreak(habit.completedDates)
+            const isDragging = dragId === habit.id
+            const isDropTarget = overId === habit.id && dragId !== habit.id
             return (
               <motion.div key={habit.id} layout
-                className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 flex items-center gap-4 group">
+                draggable={reorderMode}
+                onDragStart={reorderMode ? handleDragStart(habit.id) : undefined}
+                onDragOver={reorderMode ? handleDragOver(habit.id) : undefined}
+                onDrop={reorderMode ? handleDrop(habit.id) : undefined}
+                onDragEnd={reorderMode ? handleDragEnd : undefined}
+                className={`bg-zinc-900 border rounded-xl px-4 py-3 flex items-center gap-4 group transition-all ${
+                  isDragging
+                    ? 'border-emerald-500/60 opacity-50 cursor-grabbing'
+                    : isDropTarget
+                      ? 'border-emerald-500/60 bg-emerald-500/5'
+                      : 'border-zinc-800'
+                } ${reorderMode ? 'cursor-grab select-none' : ''}`}>
+                {/* Drag handle — only in reorder mode */}
+                {reorderMode && (
+                  <GripVertical className="w-4 h-4 text-zinc-500 shrink-0" />
+                )}
                 {/* Icon + name */}
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <span className="text-xl shrink-0">{habit.icon}</span>
@@ -257,7 +330,7 @@ export function HabitsPage() {
                 </div>
 
                 {/* Weekly dots — clickable Mon→Sun */}
-                <div className="hidden md:flex items-center gap-1">
+                <div className={`hidden md:flex items-center gap-1 ${reorderMode ? 'pointer-events-none opacity-40' : ''}`}>
                   {weekDayStrs.map((ds, i) => {
                     const done = habit.completedDates.includes(ds)
                     const isToday = ds === today
@@ -265,6 +338,7 @@ export function HabitsPage() {
                     return (
                       <button key={ds}
                         onClick={() => toggleDate(habit.id, ds)}
+                        disabled={reorderMode}
                         title={`${weekDays[i].toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' })} — click para ${done ? 'desmarcar' : 'marcar'}`}
                         className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all hover:scale-110 ${future ? 'opacity-40' : ''} ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
                         style={{ backgroundColor: done ? habit.color + '30' : '#18181b' }}>
@@ -282,17 +356,21 @@ export function HabitsPage() {
 
                 {/* Mobile fallback: today toggle */}
                 <button onClick={() => toggleDate(habit.id, today)}
-                  className="md:hidden shrink-0 transition-all"
+                  disabled={reorderMode}
+                  className={`md:hidden shrink-0 transition-all ${reorderMode ? 'opacity-40 pointer-events-none' : ''}`}
                   style={{ color: habit.completedDates.includes(today) ? habit.color : '#52525b' }}>
                   {habit.completedDates.includes(today)
                     ? <CheckCircle2 className="w-6 h-6" />
                     : <Circle className="w-6 h-6" />}
                 </button>
 
-                <button onClick={() => removeHabit(habit.id)}
-                  className="shrink-0 text-zinc-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                {/* Delete — hidden in reorder mode to avoid accidental clicks */}
+                {!reorderMode && (
+                  <button onClick={() => removeHabit(habit.id)}
+                    className="shrink-0 text-zinc-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </motion.div>
             )
           })}

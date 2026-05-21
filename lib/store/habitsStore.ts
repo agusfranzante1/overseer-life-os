@@ -41,6 +41,10 @@ interface State {
   removeHabit: (id: string) => void
   renameHabit: (id: string, name: string) => void
   toggleDate: (id: string, date: string) => void
+  /** Reorder habits to match the given ID sequence. Missing IDs are dropped,
+   *  unknown IDs are ignored, habits not in the new order get appended at end
+   *  in their previous relative order. */
+  reorderHabits: (orderedIds: string[]) => void
 }
 
 export const useHabitsStore = create<State>()(
@@ -68,6 +72,24 @@ export const useHabitsStore = create<State>()(
           }
         }),
       })),
+      reorderHabits: (orderedIds) => set((s) => {
+        const byId = new Map(s.habits.map((h) => [h.id, h]))
+        const reordered: Habit[] = []
+        const used = new Set<string>()
+        for (const id of orderedIds) {
+          const h = byId.get(id)
+          if (h && !used.has(id)) {
+            reordered.push(h)
+            used.add(id)
+          }
+        }
+        // Append any habit that wasn't in orderedIds (e.g. added since the
+        // drag started) at the end, preserving relative order.
+        for (const h of s.habits) {
+          if (!used.has(h.id)) reordered.push(h)
+        }
+        return { habits: reordered }
+      }),
     }),
     { name: 'overseer-habits' }
   )
