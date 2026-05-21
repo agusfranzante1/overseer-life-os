@@ -1,7 +1,7 @@
 'use client'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { Language, DayType, MetricEntry } from '@/types'
+import { Language, DayType, DayTypeConfig, MetricEntry } from '@/types'
 
 export interface ScheduleSlot {
   label: string
@@ -26,6 +26,16 @@ export const DEFAULT_SCHEDULE_ORDER: ScheduleKey[] = [
   'cafe', 'almuerzo', 'fruta_snack', 'merienda', 'entrenamiento', 'cena',
 ]
 
+// Built-in day types. Users can add and remove (including these defaults).
+export const DEFAULT_DAY_TYPES: DayTypeConfig[] = [
+  { id: 'deep_work', label: 'Deep Work',  color: '#6366f1', icon: '🧠' },
+  { id: 'admin',     label: 'Admin',      color: '#94a3b8', icon: '💼' },
+  { id: 'recovery',  label: 'Recovery',   color: '#10b981', icon: '❤️' },
+  { id: 'legs_day',  label: 'Legs Day',   color: '#f59e0b', icon: '🏋️' },
+  { id: 'trading',   label: 'Trading',    color: '#3b82f6', icon: '📈' },
+  { id: 'content',   label: 'Content',    color: '#ec4899', icon: '📷' },
+]
+
 interface AppState {
   language: Language
   sidebarCollapsed: boolean
@@ -35,11 +45,15 @@ interface AppState {
   chatOpen: boolean
   idealSchedule: Record<string, ScheduleSlot>
   scheduleOrder: ScheduleKey[]
+  dayTypes: DayTypeConfig[]
 
   setLanguage: (lang: Language) => void
   toggleSidebar: () => void
   setSidebarCollapsed: (v: boolean) => void
   setDayType: (type: DayType | null) => void
+  addDayType: (cfg: { label: string; color: string; icon: string }) => string
+  removeDayType: (id: string) => void
+  updateDayType: (id: string, patch: Partial<Omit<DayTypeConfig, 'id'>>) => void
   setActiveSection: (s: AppState['activeSection']) => void
   updateMetric: <K extends keyof MetricEntry>(key: K, value: MetricEntry[K]) => void
   setChatOpen: (v: boolean) => void
@@ -71,6 +85,7 @@ export const useAppStore = create<AppState>()(
       chatOpen: false,
       idealSchedule: DEFAULT_SCHEDULE,
       scheduleOrder: DEFAULT_SCHEDULE_ORDER,
+      dayTypes: DEFAULT_DAY_TYPES,
       metrics: {
         focus: 72,
         energy: 61,
@@ -86,6 +101,29 @@ export const useAppStore = create<AppState>()(
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
       setDayType: (type) => set({ dayType: type }),
+      addDayType: ({ label, color, icon }) => {
+        const base = label.toLowerCase()
+          .normalize('NFD').replace(/[̀-ͯ]/g, '')
+          .replace(/[^a-z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '') || 'day_type'
+        let assignedId = base
+        set((s) => {
+          let id = base
+          let i = 2
+          while (s.dayTypes.some((d) => d.id === id)) { id = `${base}_${i++}` }
+          assignedId = id
+          return { dayTypes: [...s.dayTypes, { id, label, color, icon }] }
+        })
+        return assignedId
+      },
+      removeDayType: (id) => set((s) => ({
+        dayTypes: s.dayTypes.filter((d) => d.id !== id),
+        // If the removed type is currently selected, clear it
+        dayType: s.dayType === id ? null : s.dayType,
+      })),
+      updateDayType: (id, patch) => set((s) => ({
+        dayTypes: s.dayTypes.map((d) => d.id === id ? { ...d, ...patch } : d),
+      })),
       setActiveSection: (activeSection) => set({ activeSection }),
       updateMetric: (key, value) =>
         set((s) => ({ metrics: { ...s.metrics, [key]: value } })),
@@ -153,9 +191,12 @@ export const useAppStore = create<AppState>()(
               ...DEFAULT_SCHEDULE_ORDER.filter((k) => !p.scheduleOrder!.includes(k)),
             ]
           : DEFAULT_SCHEDULE_ORDER
-        return { ...p, idealSchedule: sched, scheduleOrder: order } as AppState
+        const dayTypes = Array.isArray(p.dayTypes) && p.dayTypes.length > 0
+          ? p.dayTypes
+          : DEFAULT_DAY_TYPES
+        return { ...p, idealSchedule: sched, scheduleOrder: order, dayTypes } as AppState
       },
-      version: 3,
+      version: 4,
     }
   )
 )

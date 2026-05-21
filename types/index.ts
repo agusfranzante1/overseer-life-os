@@ -1,12 +1,15 @@
 export type Language = 'en' | 'es'
 
-export type DayType =
-  | 'deep_work'
-  | 'admin'
-  | 'recovery'
-  | 'legs_day'
-  | 'trading'
-  | 'content'
+// Day type IDs are now user-extensible. Built-in IDs are still these strings;
+// custom ones generated via appStore.addDayType use slugified labels.
+export type DayType = string
+
+export interface DayTypeConfig {
+  id: string
+  label: string
+  color: string
+  icon: string        // emoji
+}
 
 export type Priority = 'low' | 'medium' | 'high' | 'urgent'
 export type Impact = 'low' | 'medium' | 'high' | 'critical'

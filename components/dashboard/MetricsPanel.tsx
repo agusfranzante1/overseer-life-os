@@ -24,9 +24,11 @@ const METRIC_ICONS: Record<keyof MetricEntry, React.ReactNode> = {
   workload: <Gauge className="w-3.5 h-3.5" />,
 }
 
-// Subjective metrics — user-editable, self-reported
+// Subjective metrics — user-editable, self-reported. focus/stress/workload were
+// removed because they were never wired to anything useful in the rest of the
+// app. wakeTime and sleepDebt remain because the schedule engine uses them.
 const SUBJECTIVE_KEYS: (keyof MetricEntry)[] = [
-  'focus', 'stress', 'wakeTime', 'sleepDebt', 'workload',
+  'wakeTime', 'sleepDebt',
 ]
 
 export function MetricsPanel() {

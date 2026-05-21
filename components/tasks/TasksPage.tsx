@@ -157,6 +157,8 @@ export function TasksPage() {
   }
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({})
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
+  const [priorityFilter, setPriorityFilter] = useState<string | null>(null)
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
 
   const projectList = Object.values(projects).filter((p) => !p.archived)
   const activeProject = selectedProjectId ? projects[selectedProjectId] : null
@@ -165,13 +167,22 @@ export function TasksPage() {
     return Object.values(tasks).filter((t) => t.projectId === projectId)
   }
 
-  const displayedTasks = activeProject
-    ? getProjectTasks(activeProject.id).filter((t) =>
-        statusFilter ? t.status === statusFilter : true
-      )
-    : Object.values(tasks).filter((t) =>
-        statusFilter ? t.status === statusFilter : true
-      )
+  const passesFilters = (t: typeof tasks[string]) =>
+    (statusFilter ? t.status === statusFilter : true) &&
+    (priorityFilter ? t.priority === priorityFilter : true) &&
+    (categoryFilter ? (t.category ?? '') === categoryFilter : true)
+
+  const displayedTasks = (activeProject
+    ? getProjectTasks(activeProject.id)
+    : Object.values(tasks)
+  ).filter(passesFilters)
+
+  // All distinct categories used across (this project | all projects), for the filter dropdown
+  const availableCategories = Array.from(new Set(
+    (activeProject ? getProjectTasks(activeProject.id) : Object.values(tasks))
+      .map((t) => t.category)
+      .filter((c): c is string => !!c && c.trim().length > 0)
+  )).sort()
 
   const toggleExpand = (id: string) =>
     setExpandedProjects((p) => ({ ...p, [id]: !p[id] }))
@@ -351,20 +362,64 @@ export function TasksPage() {
               </select>
             )}
 
-            {/* Status filter — only list view */}
-            {activeProject && viewMode === 'list' && (
-              <div className="flex items-center gap-1">
+            {/* Filters — list view */}
+            {viewMode === 'list' && (
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <Filter className="w-3.5 h-3.5 text-zinc-500" />
+
+                {/* Status (only meaningful inside a project, since each project has its own statuses) */}
+                {activeProject && (
+                  <select
+                    value={statusFilter ?? ''}
+                    onChange={(e) => setStatusFilter(e.target.value || null)}
+                    title="Estado"
+                    className="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">Estado: todos</option>
+                    {activeProject.statuses.map((s) => (
+                      <option key={s.id} value={s.label}>{s.label}</option>
+                    ))}
+                  </select>
+                )}
+
+                {/* Priority / Urgencia — works in both views */}
                 <select
-                  value={statusFilter ?? ''}
-                  onChange={(e) => setStatusFilter(e.target.value || null)}
+                  value={priorityFilter ?? ''}
+                  onChange={(e) => setPriorityFilter(e.target.value || null)}
+                  title="Urgencia"
                   className="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
                 >
-                  <option value="">All</option>
-                  {activeProject.statuses.map((s) => (
-                    <option key={s.id} value={s.label}>{s.label}</option>
-                  ))}
+                  <option value="">Urgencia: toda</option>
+                  <option value="urgent">Urgente</option>
+                  <option value="high">Alta</option>
+                  <option value="medium">Media</option>
+                  <option value="low">Baja</option>
                 </select>
+
+                {/* Category / Tipo — dynamic, based on whatever categories exist in scope */}
+                {availableCategories.length > 0 && (
+                  <select
+                    value={categoryFilter ?? ''}
+                    onChange={(e) => setCategoryFilter(e.target.value || null)}
+                    title="Tipo de tarea"
+                    className="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="">Tipo: todos</option>
+                    {availableCategories.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                )}
+
+                {(statusFilter || priorityFilter || categoryFilter) && (
+                  <button
+                    onClick={() => { setStatusFilter(null); setPriorityFilter(null); setCategoryFilter(null) }}
+                    title="Limpiar filtros"
+                    className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 hover:text-zinc-200 px-2"
+                  >
+                    limpiar
+                  </button>
+                )}
               </div>
             )}
 
