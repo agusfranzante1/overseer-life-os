@@ -417,6 +417,21 @@ export async function handleIntent(
       }
     }
 
+    case 'gym_log_sets': {
+      if (!stores.gym) return { content: lang === 'es' ? "El módulo de gimnasio no está disponible." : "Gym module not available." }
+      if (!stores.gym.activeSession) {
+        // Auto-start a generic session so we don't lose the data
+        const session = stores.gym.startSession()
+        const startMsg = lang === 'es'
+          ? `🏋️ Sesión iniciada automáticamente: **${session.name}**\n`
+          : `🏋️ Auto-started session: **${session.name}**\n`
+        // Continue to log sets
+        const result = logMultipleSets(stores, intent.extracted, lang)
+        return { content: startMsg + result }
+      }
+      return { content: logMultipleSets(stores, intent.extracted, lang) }
+    }
+
     case 'gym_batch': {
       if (!stores.gym) return { content: lang === 'es' ? "El módulo de gimnasio no está disponible." : "Gym module not available." }
       const actions = intent.extracted.gymActions ?? []
@@ -504,6 +519,47 @@ export async function handleIntent(
           : "Not sure I understood. You can say: add task, complete task, postpone, plan next 2 hours, or ask me a question."
       }
   }
+}
+
+/** Logs multiple sets for one exercise. Used by gym_log_sets handler. */
+function logMultipleSets(
+  stores: Stores,
+  extracted: Intent['extracted'],
+  lang: Language,
+): string {
+  if (!stores.gym) return lang === 'es' ? "El módulo de gimnasio no está disponible." : "Gym module not available."
+  const sets = extracted.sets ?? []
+  if (sets.length === 0) {
+    return lang === 'es'
+      ? "No pude leer ninguna serie del mensaje. Probá: *\"3 series: 75kg×8, 80kg×10, 85kg×8\"*"
+      : "Couldn't parse any sets. Try: *\"3 sets: 75kg×8, 80kg×10, 85kg×8\"*"
+  }
+
+  // Resolve exercise: explicit → currently tracked → last in session
+  const resolvedName = extracted.exerciseName
+    || stores.gym.currentExerciseName
+    || stores.gym.activeSession?.exercises.slice(-1)[0]?.name
+    || 'Ejercicio'
+
+  const lines: string[] = []
+  let logged = 0
+  for (const s of sets) {
+    if (typeof s.weight !== 'number' || typeof s.reps !== 'number') continue
+    const unit = (s.unit as 'kg' | 'lb') ?? 'kg'
+    stores.gym.addSetToExercise(resolvedName, s.weight, s.reps, unit)
+    lines.push(`  ${logged + 1}. ${s.weight}${unit} × ${s.reps} reps`)
+    logged++
+  }
+
+  if (logged === 0) {
+    return lang === 'es'
+      ? "Las series no tenían peso o reps válidos."
+      : "Sets didn't have valid weight or reps."
+  }
+
+  return lang === 'es'
+    ? `💪 **${resolvedName}** — ${logged} serie${logged !== 1 ? 's' : ''} registrada${logged !== 1 ? 's' : ''}:\n${lines.join('\n')}`
+    : `💪 **${resolvedName}** — ${logged} set${logged !== 1 ? 's' : ''} logged:\n${lines.join('\n')}`
 }
 
 function buildAdviceReply(

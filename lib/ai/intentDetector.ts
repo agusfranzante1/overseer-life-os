@@ -15,6 +15,7 @@ export type IntentType =
   | 'gym_start_session'
   | 'gym_end_session'
   | 'gym_add_set'
+  | 'gym_log_sets'
   | 'gym_switch_exercise'
   | 'gym_batch'
   | 'schedule_update'
@@ -39,6 +40,7 @@ export interface Intent {
     scheduleKey?: string
     scheduleTime?: string
     gymActions?: GymAction[]
+    sets?: { weight: number; reps: number; unit?: 'kg' | 'lb' }[]
   }
 }
 
@@ -115,6 +117,25 @@ export function detectIntent(message: string, knownProjects: string[]): Intent {
     const nameMatch = lower.match(/(?:sesi[oó]n|entrenamiento|estoy\s+haciendo)\s+(?:de\s+)?([a-záéíóúñ\s]+?)(?=[\.,]|$)/i)
     const sessionName = nameMatch?.[1]?.trim()
     return { type: 'gym_start_session', raw, extracted: { sessionName } }
+  }
+  // Multi-set in ONE exercise — DON'T let the single-set regex grab this.
+  // Signals:
+  //   (a) ordinal series markers ("la primera", "segunda serie"...)
+  //   (b) multiple weight mentions ("75kg ... 80kg ... 85kg")
+  //   (c) chained "X@Y" / "AxB" patterns ("8x80, 6x85")
+  //   (d) explicit N-series declarations ("hice 3 series", "4 series de 8")
+  // Route through LLM so it returns gym_log_sets with all sets parsed.
+  const ordinalSeriesMarker = /\b(primer[ao]?|segund[ao]|tercer[ao]?|cuart[ao]|quint[ao])\s+(serie|set)\b|\bla\s+(primera|segunda|tercera|cuarta|quinta)\b/i
+  const multipleWeights = (lower.match(/\b\d+(?:[\.,]\d+)?\s*kg\b/gi) || []).length >= 2
+  const setAtPattern = /\b\d+\s*[x×@]\s*\d+(?:[\.,]\d+)?\b.*\b\d+\s*[x×@]\s*\d+(?:[\.,]\d+)?\b/i
+  const nSeriesDecl = /\b(\d+|tres|cuatro|cinco|seis|siete|ocho)\s+(series?|sets?)\b/i
+  if (
+    ordinalSeriesMarker.test(lower) ||
+    multipleWeights ||
+    setAtPattern.test(lower) ||
+    (nSeriesDecl.test(lower) && (GYM_ADD_SET.test(lower) || /\bkg\b/i.test(lower)))
+  ) {
+    return { type: 'unknown', raw, extracted: {} }
   }
   // gym_add_set before gym_switch — a message with weight+reps is always a set log
   if (GYM_ADD_SET.test(lower)) {

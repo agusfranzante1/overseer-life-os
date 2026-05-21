@@ -23,11 +23,23 @@ Available intents (use the EXACT "type" string shown):
    When user finishes a workout. Examples: "terminé", "fin de sesión", "listo gym", "finalizar"
 
 3. {"type":"gym_add_set","extracted":{"exerciseName":"<string|null>","weight":<number>,"reps":<number>,"unit":"kg"|"lb"}}
-   When user logs ONE set. Examples: "hice 80kg 5 reps", "press banca 82.5 por 8", "tres por ocho con cuarenta" (3 sets of 8 reps with 40kg → still ONE entry, prefer sets=3 internally), "120 por 5", "metí 100 ocho veces"
+   When user logs ONE set with a SINGLE weight/reps pair. Examples: "hice 80kg 5 reps", "press banca 82.5 por 8", "120 por 5", "metí 100 ocho veces"
    Default unit is "kg" if not stated. exerciseName can be null if user is continuing the previous exercise.
 
+3b. {"type":"gym_log_sets","extracted":{"exerciseName":"<string|null>","sets":[{"weight":<number>,"reps":<number>,"unit":"kg|lb"}, ...]}}
+   When user logs MULTIPLE sets of the SAME exercise with DIFFERENT weights or reps per set. Examples:
+   - "hice 3 series, la primera 8 con 75kg, la segunda 10 reps con 80kg, la tercera 8 con 85kg"
+        → exerciseName: null (continuing previous), sets: [{weight:75,reps:8,unit:"kg"},{weight:80,reps:10,unit:"kg"},{weight:85,reps:8,unit:"kg"}]
+   - "press banca: 8x80, 6x85, 4x90"
+        → exerciseName: "press banca", sets: [{weight:80,reps:8,unit:"kg"},{weight:85,reps:6,unit:"kg"},{weight:90,reps:4,unit:"kg"}]
+   - "sentadilla 10@100, 8@110, 6@120"
+        → 3 sets escalonados de sentadilla
+   - "tres series de 8 reps con 70" (todas iguales) → STILL use gym_log_sets with 3 identical entries
+   This is the right intent whenever the user describes MULTIPLE sets within ONE exercise, even if the weights are all equal.
+
 4. {"type":"gym_batch","extracted":{"gymActions":[ ...array of {"kind":"session_start"|"exercise","name":"...","sets":N,"reps":N,"weight":N,"unit":"kg|lb"} ]}}
-   When user describes MULTIPLE exercises in one message. Example: "empezamos piernas, primer ejercicio sentadilla 4 series de 8 con 100kg, segundo ejercicio prensa 3 de 12 con 200kg"
+   When user describes MULTIPLE DIFFERENT exercises in one message. Example: "empezamos piernas, primer ejercicio sentadilla 4 series de 8 con 100kg, segundo ejercicio prensa 3 de 12 con 200kg"
+   Note: ONE exercise with N sets at varying weights goes to gym_log_sets, NOT here.
 
 5. {"type":"gym_switch_exercise","extracted":{"exerciseName":"<string>"}}
    When user changes exercise WITHOUT logging a set. Examples: "ahora pasamos a curl", "cambio de ejercicio", "siguiente: peso muerto"
@@ -53,8 +65,11 @@ Available intents (use the EXACT "type" string shown):
 RULES:
 - Output ONE single JSON object, nothing else.
 - Numbers must be numbers, not strings.
-- For weight/reps, parse Spanish phrasings: "ochenta por cinco" = weight 80, reps 5. "tres por ocho con cuarenta" = sets 3 reps 8 weight 40 → use gym_batch.
-- If multiple exercises in one message, use gym_batch.
+- For weight/reps, parse Spanish phrasings: "ochenta por cinco" = weight 80, reps 5.
+- "primera/segunda/tercera serie" or "X@Y" or "AxB, CxD" patterns → gym_log_sets (one exercise, many sets).
+- Multiple DIFFERENT exercises in one message → gym_batch.
+- ONE exercise + ONE set → gym_add_set.
+- ONE exercise + MULTIPLE sets (even if all identical) → gym_log_sets.
 - Be tolerant of typos and informal language.`
 
 interface IntentOut {
