@@ -228,6 +228,83 @@ export async function handleIntent(
       }
     }
 
+    case 'task_create_batch': {
+      const batch = intent.extracted.taskBatch ?? []
+      if (batch.length === 0) {
+        return {
+          content: lang === 'es'
+            ? "No pude leer ninguna tarea del mensaje."
+            : "Couldn't parse any tasks from the message."
+        }
+      }
+      if (allProjects.length === 0) {
+        return {
+          content: lang === 'es'
+            ? "No tenés proyectos creados. Creá uno primero desde el Task Tracker."
+            : "You have no projects yet. Create one first from the Task Tracker."
+        }
+      }
+
+      const created: { title: string; projectName: string }[] = []
+      const skipped: { title: string; reason: string }[] = []
+
+      for (const item of batch) {
+        const title = (item.taskTitle ?? '').trim()
+        if (!title) {
+          skipped.push({ title: '(sin título)', reason: 'título vacío' })
+          continue
+        }
+        // If no project given, fall back to the first project (or skip with hint?)
+        // Better: skip and report — explicit > implicit for batch.
+        let project = item.projectName ? findProjectByName(item.projectName, projects) : null
+        if (!project && !item.projectName) {
+          // No project specified: use the FIRST project as fallback so the
+          // user doesn't lose the task. They can move it after.
+          project = allProjects[0]
+        }
+        if (!project) {
+          skipped.push({ title, reason: `proyecto "${item.projectName}" no existe` })
+          continue
+        }
+        stores.tasks.addTask({
+          title,
+          projectId: project.id,
+          status: project.statuses[0]?.label ?? 'To Do',
+          priority: 'medium',
+          importance: 'medium',
+          subtasks: [],
+          scheduledFor: 'today',
+        })
+        created.push({ title, projectName: project.name })
+      }
+
+      // Group created tasks by project for a clean confirmation message
+      const byProject = new Map<string, string[]>()
+      for (const c of created) {
+        if (!byProject.has(c.projectName)) byProject.set(c.projectName, [])
+        byProject.get(c.projectName)!.push(c.title)
+      }
+
+      const lines: string[] = []
+      if (created.length > 0) {
+        lines.push(lang === 'es'
+          ? `✅ Agregué ${created.length} tarea${created.length !== 1 ? 's' : ''}:`
+          : `✅ Added ${created.length} task${created.length !== 1 ? 's' : ''}:`)
+        for (const [projName, titles] of byProject) {
+          lines.push(`\n**${projName}**`)
+          for (const tt of titles) lines.push(`- ${tt}`)
+        }
+      }
+      if (skipped.length > 0) {
+        lines.push(lang === 'es'
+          ? `\n⚠️ ${skipped.length} no se pudieron crear:`
+          : `\n⚠️ ${skipped.length} couldn't be created:`)
+        for (const sk of skipped) lines.push(`- "${sk.title}" — ${sk.reason}`)
+      }
+
+      return { content: lines.join('\n') }
+    }
+
     case 'execute_complete': {
       const task = findTaskByRef(intent.extracted.taskTitle, tasks)
       if (!task) {

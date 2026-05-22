@@ -191,15 +191,37 @@ export const useTasksStore = create<TasksState>()(
       deleteTask: (id) =>
         set((s) => {
           const task = s.tasks[id]
-          const { [id]: _, ...tasks } = s.tasks
-          if (!task) return { tasks }
+          if (!task) return s
+
+          // If the task is ALREADY archived (you're cleaning it up from the
+          // papelera), this is a hard delete. Otherwise, soft-delete: move it
+          // to the archive so the user can recover it from the papelera.
+          if (task.archivedAt) {
+            const { [id]: _gone, ...tasks } = s.tasks
+            return {
+              tasks,
+              projects: {
+                ...s.projects,
+                [task.projectId]: {
+                  ...s.projects[task.projectId],
+                  taskIds: s.projects[task.projectId]?.taskIds.filter((tid) => tid !== id) ?? [],
+                },
+              },
+            }
+          }
+
+          // Soft delete → archive
+          const nowIso = new Date().toISOString()
           return {
-            tasks,
-            projects: {
-              ...s.projects,
-              [task.projectId]: {
-                ...s.projects[task.projectId],
-                taskIds: s.projects[task.projectId]?.taskIds.filter((tid) => tid !== id) ?? [],
+            tasks: {
+              ...s.tasks,
+              [id]: {
+                ...task,
+                archivedAt: nowIso,
+                // If the task wasn't already completed, stamp completedAt now
+                // so the archive UI has a sensible "completada" date to show.
+                completedAt: task.completedAt ?? nowIso,
+                updatedAt: nowIso,
               },
             },
           }

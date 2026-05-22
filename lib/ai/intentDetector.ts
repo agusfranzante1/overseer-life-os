@@ -3,6 +3,7 @@ export type IntentType =
   | 'question'
   | 'task_create_no_project'
   | 'task_create_with_project'
+  | 'task_create_batch'
   | 'execute_complete'
   | 'execute_postpone'
   | 'execute_move'
@@ -41,6 +42,9 @@ export interface Intent {
     scheduleTime?: string
     gymActions?: GymAction[]
     sets?: { weight: number; reps: number; unit?: 'kg' | 'lb' }[]
+    /** Multiple tasks to create in one shot. Used by task_create_batch.
+     *  Each item can target a different project. */
+    taskBatch?: { taskTitle: string; projectName?: string }[]
   }
 }
 
@@ -73,6 +77,8 @@ const DAILY_STATUS = /\b(how.*day|cómo.*día|summary|resumen|status|estado del 
 export function detectIntent(message: string, knownProjects: string[]): Intent {
   const raw = message.trim()
   const lower = raw.toLowerCase()
+  // Local helper for safe regex composition from project names
+  const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
   // Short greeting check
   if (GREETING.test(lower) && raw.length < 80 && !CREATE.test(lower)) {
@@ -164,7 +170,18 @@ export function detectIntent(message: string, knownProjects: string[]): Intent {
 
   // Task creation
   if (CREATE.test(lower)) {
-    const projectName = knownProjects.find((p) => lower.includes(p.toLowerCase()))
+    // Multi-task heuristic: if the message mentions MORE THAN ONE known
+    // project, or has chained "y / también / y también" with task-like
+    // fragments, route to LLM so it can return a structured batch.
+    const projectsMentioned = knownProjects.filter((p) =>
+      new RegExp(`\\b${escapeRegex(p.toLowerCase())}\\b`, 'i').test(lower)
+    )
+    const hasChainedTasks = /\b(y\s+(?:una\s+)?tarea|y\s+(?:otra|también|tambien)|también|tambien|,\s*(?:y\s+)?(?:agreg|crea|nuev|añad|sum))/i.test(lower)
+    if (projectsMentioned.length >= 2 || (projectsMentioned.length >= 1 && hasChainedTasks)) {
+      return { type: 'unknown', raw, extracted: {} }   // LLM will return task_create_batch
+    }
+
+    const projectName = projectsMentioned[0]
     const taskTitle = extractTaskTitle(raw)
     return projectName
       ? { type: 'task_create_with_project', raw, extracted: { taskTitle, projectName } }

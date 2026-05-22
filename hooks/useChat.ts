@@ -9,19 +9,33 @@ import { detectIntent, type Intent, type IntentType } from '@/lib/ai/intentDetec
 import { handleIntent } from '@/lib/ai/intentHandlers'
 import { getAiHeaders } from '@/lib/ai/headers'
 
-const LLM_FALLBACK_TYPES: IntentType[] = ['unknown']  // only call LLM when regex couldn't classify
-// Intents whose handlers return canned/heuristic prose. When AI is configured
-// we let Claude generate a contextual answer instead.
+// LLM-FIRST architecture:
+//   1. Every message goes to Claude (or Ollama) for classification — Claude is
+//      the primary brain. It sees the full app context and recent chat history
+//      and returns either a structured intent OR signals it's open-ended.
+//   2. The regex detector is now ONLY a SAFETY NET that runs if the AI is
+//      offline / no key configured / API errored. It still understands the
+//      common patterns (gym set logging, single-task add, completion, etc).
+//   3. Open-ended intents (`question` / `unknown`) trigger a conversational
+//      reply from Claude using the full context.
+//
+// Trade-off accepted: every message pays ~500-1500ms for the API roundtrip.
+// In exchange we stop misclassifying messages the regex thinks it understands
+// but actually doesn't (the classic "agregar X en P, y Y en Q" disaster).
 const AI_CONVERSATIONAL_INTENTS: IntentType[] = ['question', 'unknown']
 
-async function classifyWithLLM(message: string, context: Record<string, unknown>): Promise<Intent | null> {
+async function classifyWithLLM(
+  message: string,
+  context: Record<string, unknown>,
+  history: { role: 'user' | 'assistant'; content: string }[] = [],
+): Promise<Intent | null> {
   const headers = getAiHeaders()
   if (!headers) return null  // AI disabled in settings
   try {
     const res = await fetch('/api/ai/interpret', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ message, context }),
+      body: JSON.stringify({ message, context: { ...context, recentChat: history } }),
       signal: AbortSignal.timeout(60_000),
     })
     if (!res.ok) return null
@@ -171,24 +185,38 @@ export function useChat() {
       const projectNames = Object.values(tasksStore.projects).map((p) => p.name)
       const pending = chatStore.pendingIntent
 
-      let intent: Intent = pending?.type === 'task_create_no_project'
+      // If we have a pending clarification (e.g. asked which project), force
+      // that path and skip the LLM round-trip — the user's "Personal" reply
+      // doesn't need to be re-classified.
+      let intent: Intent | null = pending?.type === 'task_create_no_project'
         ? { type: 'clarify_project' as const, raw: text, extracted: { taskTitle: pending.extracted?.taskTitle } }
-        : detectIntent(text, projectNames)
+        : null
 
-      // LLM intent fallback — when regex couldn't classify, try Claude to see
-      // if it's actually a structured action (gym set, task create, etc.)
-      if (LLM_FALLBACK_TYPES.includes(intent.type)) {
+      // ── LLM-FIRST CLASSIFICATION ─────────────────────────────────────────
+      // Always ask Claude first when no pending state. Pass projects, gym
+      // state, language, AND recent chat history so it can resolve references
+      // like "esa misma serie", "la primera de las que dijiste", etc.
+      if (!intent) {
+        const recentHistory = chatStore.messages.slice(-6).map((m) => ({
+          role: m.role, content: m.content.slice(0, 400),
+        }))
         const llm = await classifyWithLLM(text, {
           projects: projectNames,
           activeGymSession: gymStore.activeSession?.name ?? null,
           currentExercise: gymStore.currentExerciseName ?? null,
           language,
-        })
-        if (llm && llm.type !== 'unknown') intent = llm
+        }, recentHistory)
+        if (llm) {
+          intent = llm
+        } else {
+          // SAFETY NET: AI unreachable (offline, no key, error). Fall back to
+          // the regex detector so the user still gets SOMETHING useful.
+          intent = detectIntent(text, projectNames)
+        }
       }
 
       // Conversational AI path — for open-ended messages, ask Claude with full
-      // app context instead of returning a canned reply.
+      // app context for a real reply instead of returning a canned line.
       if (AI_CONVERSATIONAL_INTENTS.includes(intent.type)) {
         const ctx = buildChatContext({
           tasksStore, gymStore, appStore,

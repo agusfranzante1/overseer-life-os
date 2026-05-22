@@ -45,7 +45,24 @@ Available intents (use the EXACT "type" string shown):
    When user changes exercise WITHOUT logging a set. Examples: "ahora pasamos a curl", "cambio de ejercicio", "siguiente: peso muerto"
 
 6. {"type":"task_create_no_project","extracted":{"taskTitle":"<string>"}}
-   When user wants to add a task. Examples: "agregá llamar al banco", "tengo que comprar leche", "nueva tarea: revisar emails"
+   When user wants to add a SINGLE task without specifying a project. Examples: "agregá llamar al banco", "tengo que comprar leche", "nueva tarea: revisar emails"
+
+6b. {"type":"task_create_with_project","extracted":{"taskTitle":"<string>","projectName":"<string>"}}
+   When user wants to add a SINGLE task IN a specific project. Example: "agregá llamar al banco en personal"
+   projectName MUST be one of the project names in CONTEXT.projects (exact match, case-insensitive). If the user references a project that doesn't exist, fall back to task_create_no_project.
+
+6c. {"type":"task_create_batch","extracted":{"taskBatch":[{"taskTitle":"<string>","projectName":"<string|null>"}, ...]}}
+   When user wants to add MULTIPLE tasks in ONE message, possibly across DIFFERENT projects. Each array item is one task.
+   Examples:
+   - "necesito agregar revisar precios en personal, y llamar al cliente en nqn survey"
+       → taskBatch: [{taskTitle:"revisar precios", projectName:"Personal"}, {taskTitle:"llamar al cliente", projectName:"NQN Survey"}]
+   - "agregame: comprar leche y enviar mail a juan, ambas en personal"
+       → taskBatch: [{taskTitle:"comprar leche", projectName:"Personal"}, {taskTitle:"enviar mail a juan", projectName:"Personal"}]
+   - "tengo que terminar el informe, después arrancar la presentación y mandarle el budget a maria"
+       → taskBatch: 3 items, all with projectName:null (no project specified)
+   - "agrega X tarea en personal, también Y en gym"
+       → taskBatch: [{taskTitle:"X tarea", projectName:"Personal"}, {taskTitle:"Y", projectName:"Gym"}]
+   Rules: split on ", y / y también / también / coma+verbo". Trim trailing project mention from each title. projectName must match one in CONTEXT.projects or be null.
 
 7. {"type":"execute_complete","extracted":{"taskTitle":"<string>"}}
    When user wants to mark a task done. Examples: "terminé la tarea de X", "completé Y", "marcá como hecho Z"
@@ -70,7 +87,13 @@ RULES:
 - Multiple DIFFERENT exercises in one message → gym_batch.
 - ONE exercise + ONE set → gym_add_set.
 - ONE exercise + MULTIPLE sets (even if all identical) → gym_log_sets.
-- Be tolerant of typos and informal language.`
+- MULTIPLE tasks (esp. in different projects) → task_create_batch.
+- ONE task with a project → task_create_with_project.
+- ONE task without a project → task_create_no_project.
+- Be tolerant of typos, abbreviations, and informal language.
+- Use CONTEXT.recentChat to resolve references like "esa misma", "la última que dijiste", "agregale otra". If the previous assistant message asked about a specific exercise/task/project, prefer that as the target.
+- If the user's message is a simple "sí / no / dale / ok" confirming the previous assistant question, infer the intent from that context (e.g. if the assistant just asked "¿agrego dropset al Press Inclinado?", a "sí" should be the relevant gym intent, not greeting).
+- When in doubt between conversation/question and an action, prefer the action ONLY if there are unambiguous signals (numbers, exercise names, project names, explicit verbs).`
 
 interface IntentOut {
   type: string
