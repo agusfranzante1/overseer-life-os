@@ -49,20 +49,35 @@ export function CalendarPage() {
     }
   }, [])
 
-  // Initial load
+  // Initial load — STALE-WHILE-REVALIDATE strategy.
+  // If we have cached events from a previous session (lastFetchedAt set),
+  // the calendar renders them INSTANTLY from localStorage. Then in parallel
+  // we refresh status + reload calendars + events in the background, so
+  // changes from other devices arrive seconds later without blocking the UI.
+  // Skip the background refresh entirely if the cache is "fresh enough"
+  // (under 60s old) to avoid hammering the API when switching tabs rapidly.
   useEffect(() => {
     if (!mounted) return
+    const FRESH_THRESHOLD_MS = 60_000
+    const ageMs = gcal.lastFetchedAt ? Date.now() - gcal.lastFetchedAt : Infinity
+    if (ageMs < FRESH_THRESHOLD_MS) {
+      // Cache is fresh — don't even hit the network on mount.
+      return
+    }
     ;(async () => {
       await gcal.refreshStatus()
       if (useGoogleCalendarStore.getState().connected) {
-        await gcal.loadCalendars()
-        await gcal.loadEvents()
+        // Parallel — calendars rarely change, events change more often.
+        // Both update the store as they finish so the UI re-renders piece
+        // by piece. The user sees their cached events the whole time.
+        await Promise.all([gcal.loadCalendars(), gcal.loadEvents()])
       }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted])
 
-  // Re-load events when visibility toggles change
+  // Re-load events when visibility toggles change. This one we want to be
+  // somewhat fast because the user just clicked a toggle and expects feedback.
   useEffect(() => {
     if (!mounted || !gcal.connected) return
     gcal.loadEvents()

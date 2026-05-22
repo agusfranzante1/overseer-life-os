@@ -225,11 +225,14 @@ export const useGoogleCalendarStore = create<State>()(
     }),
     {
       name: 'overseer-gcal',
-      // Don't persist events/loading/error — re-fetch on mount
+      // Persist events too so the calendar paints instantly on next load.
+      // We refresh in the background to keep data fresh (stale-while-revalidate).
       partialize: (s) => ({
         connected: s.connected,
         calendars: s.calendars,
         visibleIds: s.visibleIds,
+        events: s.events,
+        lastFetchedAt: s.lastFetchedAt,
         view: s.view,
         showSideRail: s.showSideRail,
         hideNight: s.hideNight,
