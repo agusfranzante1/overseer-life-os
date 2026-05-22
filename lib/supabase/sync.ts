@@ -542,10 +542,13 @@ async function pushHabits() {
   const uid = state.userId!
   const { habits } = useHabitsStore.getState()
 
-  const rows = habits.map((h) => ({
+  // Position in the local array IS the canonical order — push it explicitly
+  // so reordering from any device persists and propagates back.
+  const rows = habits.map((h, idx) => ({
     id: h.id, user_id: uid, name: h.name, icon: h.icon, color: h.color,
     target_days: h.targetDays, completed_dates: h.completedDates,
     category: h.category, created_at: h.createdAt,
+    sort_order: idx,
   }))
 
   if (rows.length > 0) await sb.from('habits').upsert(rows)
@@ -557,7 +560,11 @@ async function pullHabits(): Promise<boolean> {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
+  // Order by sort_order so manual reordering persists across devices. Rows
+  // without sort_order (legacy) fall to the end, then ordered by created_at.
   const res = await sb.from('habits').select('*').eq('user_id', uid)
+    .order('sort_order', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: true })
   if (res.error) {
     console.error('Habits pull failed', res.error)
     return false

@@ -394,7 +394,7 @@ export function HabitsPage() {
       <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-zinc-400" /> Tendencia mensual · todos los hábitos
+            <TrendingUp className="w-4 h-4 text-zinc-400" /> Cumplimiento diario · mensual
           </h2>
           <div className="flex items-center gap-1">
             <button onClick={() => {
@@ -456,13 +456,15 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
   const completedSets = useMemo(() => habits.map((h) => new Set(h.completedDates)), [habits])
   const totalHabits = habits.length
 
-  // For each day: daily score = (habits done that day / total habits) * 100
-  // Trend line = 7d rolling average of that daily score (smoother).
+  // For each day of the month (up to today): daily score = (habits done that
+  // day / total habits) * 100. Plus the day-of-week letter so users can
+  // recognize patterns (e.g. "siempre fallo los domingos").
   const series = useMemo(() => {
     if (totalHabits === 0) return []
-    const data: { day: number; date: string; dailyScore: number; trend: number }[] = []
-    // Pre-compute daily score for each day of the month up to today
-    const dailyScores: number[] = []
+    // Argentinian convention: L Ma Mi J V S D, using single letters with
+    // duplicate M acceptable since position disambiguates.
+    const DAY_LETTERS = ['D', 'L', 'M', 'M', 'J', 'V', 'S']
+    const data: { day: number; date: string; dailyScore: number; dayLetter: string }[] = []
     for (let day = 1; day <= totalDays; day++) {
       const d = new Date(year, monthIdx, day)
       d.setHours(0, 0, 0, 0)
@@ -470,15 +472,7 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
       const dateStr = dateToStr(d)
       const doneCount = completedSets.reduce((acc, s) => acc + (s.has(dateStr) ? 1 : 0), 0)
       const score = Math.round((doneCount / totalHabits) * 100)
-      dailyScores.push(score)
-      data.push({ day, date: dateStr, dailyScore: score, trend: 0 })
-    }
-    // Rolling 7-day average
-    for (let i = 0; i < data.length; i++) {
-      const from = Math.max(0, i - 6)
-      const slice = dailyScores.slice(from, i + 1)
-      const avg = slice.reduce((a, b) => a + b, 0) / slice.length
-      data[i].trend = Math.round(avg)
+      data.push({ day, date: dateStr, dailyScore: score, dayLetter: DAY_LETTERS[d.getDay()] })
     }
     return data
   }, [completedSets, year, monthIdx, totalDays, today, totalHabits])
@@ -513,41 +507,57 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
       {/* Chart */}
       <div style={{ width: '100%', height: 240 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={series} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-            <defs>
-              <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={avgColor} stopOpacity={0.3} />
-                <stop offset="100%" stopColor={avgColor} stopOpacity={0} />
-              </linearGradient>
-            </defs>
+          <LineChart data={series} margin={{ top: 8, right: 8, left: -20, bottom: 12 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-            <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#71717a' }} />
+            {/* Two-row X axis tick: day number on top, day-of-week letter below.
+                Saturdays/Sundays get a softer tint so weekly patterns pop. */}
+            <XAxis
+              dataKey="day"
+              interval={0}
+              height={36}
+              tick={(props) => {
+                const { x, y, payload } = props
+                const item = series.find((s) => s.day === payload.value)
+                const letter = item?.dayLetter ?? ''
+                const isWeekend = letter === 'S' || letter === 'D'
+                return (
+                  <g transform={`translate(${x},${y})`}>
+                    <text x={0} y={0} dy={10} textAnchor="middle"
+                      fontSize={10} fill={isWeekend ? '#a1a1aa' : '#71717a'}
+                      fontWeight={isWeekend ? 600 : 400}>
+                      {payload.value}
+                    </text>
+                    <text x={0} y={0} dy={22} textAnchor="middle"
+                      fontSize={8} fill={isWeekend ? '#a1a1aa' : '#52525b'}
+                      fontWeight={isWeekend ? 600 : 400}>
+                      {letter}
+                    </text>
+                  </g>
+                )
+              }}
+            />
             <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#71717a' }} width={32}
               tickFormatter={(v) => `${v}%`} />
             <Tooltip
               contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }}
-              labelFormatter={(d) => `Día ${d}`}
-              formatter={(v, name) => [`${v}%`, name === 'dailyScore' ? 'Nota del día' : 'Tendencia 7d'] as [string, string]}
+              labelFormatter={(d) => {
+                const item = series.find((s) => s.day === d)
+                return item ? `Día ${d} (${item.dayLetter})` : `Día ${d}`
+              }}
+              formatter={(v) => [`${v}%`, 'Cumplimiento'] as [string, string]}
             />
-            {/* Daily score — light dotted line */}
-            <Line type="monotone" dataKey="dailyScore" stroke="#52525b" strokeWidth={1}
-              strokeDasharray="3 3" dot={{ r: 2, fill: '#52525b' }} />
-            {/* Trend — bold colored line */}
-            <Line type="monotone" dataKey="trend" stroke={avgColor} strokeWidth={2.5}
+            {/* Daily completion — single bold colored line */}
+            <Line type="monotone" dataKey="dailyScore" stroke={avgColor} strokeWidth={2.5}
               dot={{ r: 3, fill: avgColor }} activeDot={{ r: 5 }} />
           </LineChart>
         </ResponsiveContainer>
       </div>
 
-      {/* Legend */}
+      {/* Legend — single indicator */}
       <div className="flex items-center justify-center gap-5 mt-3 text-[10px] font-mono text-zinc-500">
         <span className="flex items-center gap-1.5">
           <span className="w-4 h-px" style={{ background: avgColor, height: 2 }} />
-          Tendencia 7d
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-4 h-px border-t border-dashed border-zinc-500" />
-          Nota diaria
+          % de hábitos cumplidos por día
         </span>
       </div>
     </div>

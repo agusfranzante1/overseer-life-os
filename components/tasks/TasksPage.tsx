@@ -253,15 +253,21 @@ function ColorDot({ color, onChange }: { color: string; onChange: (c: string) =>
         style={{ backgroundColor: color }}
       />
       {open && (
-        <div className="absolute left-0 top-full mt-2 z-20 p-2 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl grid grid-cols-5 gap-1.5">
-          {PROJECT_COLORS.map((c) => (
-            <button
-              key={c}
-              onClick={() => { onChange(c); setOpen(false) }}
-              className={`w-5 h-5 rounded transition-all ${color === c ? 'ring-2 ring-white' : 'hover:scale-110'}`}
-              style={{ backgroundColor: c }}
-            />
-          ))}
+        <div className="absolute left-0 top-full mt-2 z-20 p-3 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl">
+          <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-2">Color del proyecto</p>
+          <div className="grid grid-cols-5 gap-2">
+            {PROJECT_COLORS.map((c) => (
+              <button
+                key={c}
+                onClick={() => { onChange(c); setOpen(false) }}
+                title={c}
+                className={`w-7 h-7 rounded-md transition-all ${
+                  color === c ? 'ring-2 ring-white ring-offset-2 ring-offset-zinc-900' : 'hover:scale-110 hover:shadow-lg'
+                }`}
+                style={{ backgroundColor: c }}
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -1181,7 +1187,7 @@ function AllProjectsKanban({ projects, tasks, sortMode, onTaskClick }: { project
                         onDragStart={() => setDragId(task.id)}
                         onDragEnd={() => setDragId(null)}
                         style={{ opacity: dragId === task.id ? 0.4 : 1, cursor: 'grab' }}>
-                        <TaskCard task={task} project={proj} onClick={() => onTaskClick(task)} />
+                        <TaskCard task={task} project={proj} onClick={() => onTaskClick(task)} showProjectBadge />
                       </div>
                     )
                   })

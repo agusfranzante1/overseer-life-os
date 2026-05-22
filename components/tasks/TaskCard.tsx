@@ -14,11 +14,15 @@ interface Props {
   task: Task
   project: Project
   onClick: () => void
+  /** Show a small project badge on the card. Used by views that mix tasks
+   *  from multiple projects (All Projects Kanban) so the user knows which
+   *  project owns each card. Defaults to false. */
+  showProjectBadge?: boolean
 }
 
 const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
-export function TaskCard({ task, project, onClick }: Props) {
+export function TaskCard({ task, project, onClick, showProjectBadge = false }: Props) {
   const { completeTask, postponeTask, deleteTask, toggleSubtask, addSubtask, updateSubtask, deleteSubtask, updateTask } = useTasksStore()
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
@@ -153,6 +157,23 @@ export function TaskCard({ task, project, onClick }: Props) {
           </button>
 
           <div className="flex-1 min-w-0">
+            {/* Project badge — only shown in mixed-project views (e.g. All
+                Projects Kanban) so users know which project owns the card. */}
+            {showProjectBadge && (
+              <div className="flex items-center gap-1.5 mb-1 -mt-0.5">
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ backgroundColor: project.color }}
+                />
+                <span
+                  className="text-[10px] font-mono uppercase tracking-wider truncate"
+                  style={{ color: project.color }}
+                  title={project.name}
+                >
+                  {project.name}
+                </span>
+              </div>
+            )}
             {/* Title */}
             <div className="flex items-center gap-2">
               {editingTitle ? (
