@@ -118,12 +118,14 @@ interface SPIState {
  *  - 20% mood (1-10 normalized)
  *  Tasks with no entries → that component skipped (rescaled). */
 function computeScore(session: SPISession): number {
-  const checklistTotal = Object.keys(session.mainChecklist).length || 1
-  const checklistDone = Object.values(session.mainChecklist).filter(Boolean).length
+  const mainChecklist = session.mainChecklist ?? {}
+  const checklistTotal = Object.keys(mainChecklist).length || 1
+  const checklistDone = Object.values(mainChecklist).filter(Boolean).length
   const checklistPct = (checklistDone / checklistTotal) * 100
 
-  const totalTasks = session.tasks.length
-  const doneTasks = session.tasks.filter((t) => !!t.linkedTaskId && !!t.movedToProjectId).length
+  const tasks = session.tasks ?? []
+  const totalTasks = tasks.length
+  const doneTasks = tasks.filter((t) => !!t.linkedTaskId && !!t.movedToProjectId).length
   // Without integration yet (Phase 2), use important flag count as proxy.
   const tasksPct = totalTasks > 0
     ? (doneTasks / totalTasks) * 100
@@ -451,48 +453,58 @@ export const useSPIStore = create<SPIState>()(
       //   3. Initialize `selectedLanes: []` for sessions that predate it.
       onRehydrateStorage: () => (state) => {
         if (!state) return
+        try {
+          const sections = state.template?.sections ?? []
+          const hasV1Split = sections.some((sec) => sec.key === 'aaa_emocional' || sec.key === 'aaa_tactico')
+          const hasV1Bitacora = sections.some((sec) => sec.key === 'bitacora')
+          const hasV2Aaa = sections.some((sec) => sec.key === 'aaa' && (sec.subsections?.length ?? 0) > 0)
+          const isV3 = !!state.template?.lanes && sections.some((sec) => !!sec.laneKey)
 
-        const sections = state.template?.sections ?? []
-        const hasV1Split = sections.some((sec) => sec.key === 'aaa_emocional' || sec.key === 'aaa_tactico')
-        const hasV1Bitacora = sections.some((sec) => sec.key === 'bitacora')
-        const hasV2Aaa = sections.some((sec) => sec.key === 'aaa' && (sec.subsections?.length ?? 0) > 0)
-        const isV3 = !!state.template?.lanes && sections.some((sec) => !!sec.laneKey)
+          if (!isV3 && (hasV1Split || hasV1Bitacora || hasV2Aaa)) {
+            // Bundled-default upgrade path. Custom user templates wouldn't
+            // match any of these shapes — leave them alone.
+            state.template = DEFAULT_SPI_TEMPLATE
+          }
 
-        if (!isV3 && (hasV1Split || hasV1Bitacora || hasV2Aaa)) {
-          // Bundled-default upgrade path. Custom user templates wouldn't
-          // match any of these shapes — leave them alone.
+          // Migrate value keys: v1/v2 used nested paths like "aaa.intencion.intencion"
+          // and "aaa.profundidad.que_buscamos.meta_pro_q". v3 uses flat paths
+          // like "intencion.intencion" and "que_buscamos.meta_pro_q".
+          if (Array.isArray(state.sessions)) {
+            state.sessions = state.sessions.map((sess) => {
+              const next = { ...sess }
+              // Ensure required fields exist on EVERY session — guards
+              // against any payload that pre-dates a given field.
+              if (!next.mainChecklist || typeof next.mainChecklist !== 'object') next.mainChecklist = {}
+              if (!Array.isArray(next.tasks)) next.tasks = []
+              if (!next.values || typeof next.values !== 'object') next.values = {}
+              if (!Array.isArray(next.selectedLanes)) {
+                // Pre-v3 sessions get ALL lanes selected so nothing disappears.
+                next.selectedLanes = (state.template?.lanes ?? []).map((l) => l.key)
+              }
+
+              // Rewrite value keys (v1/v2 → v3).
+              const oldVals = next.values
+              const newVals: typeof oldVals = {}
+              for (const [key, fields] of Object.entries(oldVals)) {
+                let newKey = key
+                if (newKey.startsWith('aaa.profundidad.')) newKey = newKey.slice('aaa.profundidad.'.length)
+                else if (newKey.startsWith('aaa.')) newKey = newKey.slice('aaa.'.length)
+                newVals[newKey] = { ...(newVals[newKey] ?? {}), ...fields }
+              }
+              next.values = newVals
+              return next
+            })
+          }
+
+          if (!Array.isArray(state.bitacoraEntries)) state.bitacoraEntries = []
+        } catch (err) {
+          // Migration failure shouldn't brick the SPI page. Log and reset
+          // to bundled defaults so the user can keep using the app.
+          console.error('SPI migration failed — resetting to defaults', err)
           state.template = DEFAULT_SPI_TEMPLATE
+          if (!Array.isArray(state.sessions)) state.sessions = []
+          if (!Array.isArray(state.bitacoraEntries)) state.bitacoraEntries = []
         }
-
-        // Migrate value keys: v1/v2 used nested paths like "aaa.intencion.intencion"
-        // and "aaa.profundidad.que_buscamos.meta_pro_q". v3 uses flat paths
-        // like "intencion.intencion" and "que_buscamos.meta_pro_q".
-        if (Array.isArray(state.sessions)) {
-          state.sessions = state.sessions.map((sess) => {
-            const next = { ...sess }
-            // Ensure selectedLanes exists. Pre-v3 sessions get ALL lanes
-            // selected so nothing disappears under them.
-            if (!Array.isArray(next.selectedLanes)) {
-              next.selectedLanes = (state.template?.lanes ?? []).map((l) => l.key)
-            }
-            // Rewrite value keys.
-            const oldVals = sess.values ?? {}
-            const newVals: typeof oldVals = {}
-            for (const [key, fields] of Object.entries(oldVals)) {
-              let newKey = key
-              if (newKey.startsWith('aaa.profundidad.')) newKey = newKey.slice('aaa.profundidad.'.length)
-              else if (newKey.startsWith('aaa.')) newKey = newKey.slice('aaa.'.length)
-              // Merge if multiple old keys collapse to the same new key.
-              newVals[newKey] = { ...(newVals[newKey] ?? {}), ...fields }
-            }
-            next.values = newVals
-            return next
-          })
-        }
-
-        // Defensive: ensure bitacoraEntries exists (for users who had
-        // a persisted state from before this field was introduced).
-        if (!Array.isArray(state.bitacoraEntries)) state.bitacoraEntries = []
       },
     }
   )

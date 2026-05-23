@@ -28,7 +28,7 @@ export function computeSessionXP(session: SPISession): SessionXP {
   const mood = session.mood ?? 0
   const moodBonus = mood >= 9 ? 30 : mood >= 7 ? 15 : 0
 
-  const paretoLinked = session.tasks.filter((t) => t.important && !!t.linkedTaskId).length
+  const paretoLinked = (session.tasks ?? []).filter((t) => t.important && !!t.linkedTaskId).length
   const taskBonus = paretoLinked * 5
 
   return {

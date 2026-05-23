@@ -655,8 +655,31 @@ async function pullSPI(): Promise<boolean> {
     resolved: boolean | null
     created_at: string; updated_at: string
   }
+
+  // Sanitize: sessions stored before fields like `selectedLanes`,
+  // `mainChecklist`, `tasks`, `values` existed need defaults so renderers
+  // (which do `session.selectedLanes.length` etc.) don't crash.
+  const sanitize = (raw: unknown): import('@/lib/spi/types').SPISession => {
+    const s = (raw ?? {}) as Partial<import('@/lib/spi/types').SPISession>
+    return {
+      id: s.id ?? '',
+      weekStartDate: s.weekStartDate ?? '',
+      createdAt: s.createdAt ?? new Date().toISOString(),
+      updatedAt: s.updatedAt ?? new Date().toISOString(),
+      closedAt: s.closedAt,
+      mainChecklist: s.mainChecklist ?? {},
+      selectedLanes: Array.isArray(s.selectedLanes) ? s.selectedLanes : [],
+      values: s.values ?? {},
+      tasks: Array.isArray(s.tasks) ? s.tasks : [],
+      mood: s.mood,
+      score: s.score,
+      notes: s.notes,
+      templateVersion: s.templateVersion ?? 1,
+    }
+  }
+
   useSPIStore.setState({
-    sessions: (sessRes.data ?? []).map((r: SessRow) => r.payload as import('@/lib/spi/types').SPISession),
+    sessions: (sessRes.data ?? []).map((r: SessRow) => sanitize(r.payload)),
     bitacoraEntries: (bitRes.data ?? []).map((r: BitRow) => ({
       id: r.id,
       kind: r.kind,

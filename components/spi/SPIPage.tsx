@@ -167,7 +167,7 @@ export function SPIPage() {
         )}
         {showClose && activeSession && (
           <CloseSessionModal
-            pendingTaskCount={activeSession.tasks.filter((t) => !t.linkedTaskId).length}
+            pendingTaskCount={(activeSession.tasks ?? []).filter((t) => !t.linkedTaskId).length}
             onClose={() => setShowClose(false)}
             onConfirm={({ mood, notes }) => {
               const result = closeSession(activeSession.id, { mood, notes })
@@ -271,8 +271,13 @@ function ActiveSession({
   }, [session.weekStartDate])
 
   const isClosed = !!session.closedAt
-  const checklistDone = Object.values(session.mainChecklist).filter(Boolean).length
-  const checklistTotal = Object.keys(session.mainChecklist).length
+  // Defensive: a session pulled from Supabase before these fields existed
+  // could be missing them. Default to safe empties so renders don't crash.
+  const safeMainChecklist = session.mainChecklist ?? {}
+  const safeSelectedLanes = Array.isArray(session.selectedLanes) ? session.selectedLanes : []
+  const safeLanes = Array.isArray(template.lanes) ? template.lanes : []
+  const checklistDone = Object.values(safeMainChecklist).filter(Boolean).length
+  const checklistTotal = Object.keys(safeMainChecklist).length
 
   return (
     <div className="space-y-4">
@@ -305,7 +310,7 @@ function ActiveSession({
           </p>
           <div className="space-y-1.5">
             {template.mainChecklist.map((item) => {
-              const checked = !!session.mainChecklist[item.key]
+              const checked = !!safeMainChecklist[item.key]
               return (
                 <button
                   key={item.key}
@@ -338,19 +343,19 @@ function ActiveSession({
       />
 
       {/* ── Lane picker — full-screen-ish card when no lanes picked yet ── */}
-      {session.selectedLanes.length === 0 && !showLanePicker && (
+      {safeSelectedLanes.length === 0 && !showLanePicker && (
         <LanePicker
-          lanes={template.lanes}
+          lanes={safeLanes}
           selected={[]}
           onConfirm={(picked) => onSetLanes(picked)}
         />
       )}
 
       {/* ── Lane bar (when lanes ARE picked) ─────────────────────────── */}
-      {session.selectedLanes.length > 0 && (
+      {safeSelectedLanes.length > 0 && (
         <LaneBar
-          lanes={template.lanes}
-          selectedKeys={session.selectedLanes}
+          lanes={safeLanes}
+          selectedKeys={safeSelectedLanes}
           onAdjust={() => setShowLanePicker(true)}
         />
       )}
@@ -359,8 +364,8 @@ function ActiveSession({
       <AnimatePresence>
         {showLanePicker && (
           <LanePickerModal
-            lanes={template.lanes}
-            selected={session.selectedLanes}
+            lanes={safeLanes}
+            selected={safeSelectedLanes}
             onClose={() => setShowLanePicker(false)}
             onConfirm={(picked) => { onSetLanes(picked); setShowLanePicker(false) }}
           />
@@ -368,8 +373,8 @@ function ActiveSession({
       </AnimatePresence>
 
       {/* ── Sections — only those tagged with a selected lane, grouped ── */}
-      {session.selectedLanes.length > 0 && template.lanes
-        .filter((lane) => session.selectedLanes.includes(lane.key))
+      {safeSelectedLanes.length > 0 && safeLanes
+        .filter((lane) => safeSelectedLanes.includes(lane.key))
         .map((lane) => {
           const laneSections = template.sections.filter((sec) => sec.laneKey === lane.key)
           if (laneSections.length === 0) return null
@@ -397,7 +402,7 @@ function ActiveSession({
         })}
       {/* Sections WITHOUT a laneKey (e.g. user-added in editor without
           assigning a lane) — always render. */}
-      {session.selectedLanes.length > 0 && template.sections
+      {safeSelectedLanes.length > 0 && template.sections
         .filter((sec) => !sec.laneKey)
         .map((section) => (
           <Section
@@ -698,8 +703,9 @@ function TasksBlock({
     onAdd({ title: t, important: false })
     setNewTitle('')
   }
-  const importantCount = session.tasks.filter((t) => t.important).length
-  const linkedCount = session.tasks.filter((t) => !!t.linkedTaskId).length
+  const sessionTasks = session.tasks ?? []
+  const importantCount = sessionTasks.filter((t) => t.important).length
+  const linkedCount = sessionTasks.filter((t) => !!t.linkedTaskId).length
 
   return (
     <div className="bg-gradient-to-br from-fuchsia-950/20 to-zinc-950/40 border border-fuchsia-500/20 rounded-xl p-5">
@@ -718,7 +724,7 @@ function TasksBlock({
       </p>
 
       <div className="space-y-2 mb-3">
-        {session.tasks.map((task) => (
+        {sessionTasks.map((task) => (
           <TaskRow
             key={task.id}
             task={task}
