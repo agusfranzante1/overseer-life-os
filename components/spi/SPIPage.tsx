@@ -22,6 +22,7 @@ export function SPIPage() {
     toggleChecklistItem, updateValue, closeSession,
     addTask, updateTask, removeTask, pushTaskToManager,
     updateTemplate, resetTemplate,
+    bitacoraEntries, addBitacoraEntry, updateBitacoraEntry, removeBitacoraEntry,
     getStreak, getLevel,
   } = useSPIStore()
   const projectsById = useTasksStore((s) => s.projects)
@@ -139,6 +140,10 @@ export function SPIPage() {
           template={template}
           projectsById={projectsById}
           taskMap={taskMap}
+          bitacoraEntries={bitacoraEntries}
+          onBitacoraAdd={addBitacoraEntry}
+          onBitacoraUpdate={updateBitacoraEntry}
+          onBitacoraRemove={removeBitacoraEntry}
           onChecklistToggle={(key) => toggleChecklistItem(activeSession.id, key)}
           onValueChange={(secKey, fieldKey, v) => updateValue(activeSession.id, secKey, fieldKey, v)}
           onAddTask={(t) => addTask(activeSession.id, t)}
@@ -235,6 +240,7 @@ function EmptyState({
 // ─────────────────────────────────────────────────────────────────────
 function ActiveSession({
   session, template, projectsById, taskMap,
+  bitacoraEntries, onBitacoraAdd, onBitacoraUpdate, onBitacoraRemove,
   onChecklistToggle, onValueChange,
   onAddTask, onUpdateTask, onRemoveTask, onPushTask,
   onCloseRequest,
@@ -243,6 +249,10 @@ function ActiveSession({
   template: ReturnType<typeof useSPIStore.getState>['template']
   projectsById: ReturnType<typeof useTasksStore.getState>['projects']
   taskMap: ReturnType<typeof useTasksStore.getState>['tasks']
+  bitacoraEntries: import('@/lib/spi/types').BitacoraEntry[]
+  onBitacoraAdd: (e: Omit<import('@/lib/spi/types').BitacoraEntry, 'id' | 'createdAt' | 'updatedAt'>) => string
+  onBitacoraUpdate: (id: string, patch: Partial<import('@/lib/spi/types').BitacoraEntry>) => void
+  onBitacoraRemove: (id: string) => void
   onChecklistToggle: (key: string) => void
   onValueChange: (sectionKey: string, fieldKey: string, value: string) => void
   onAddTask: (t: Omit<SPITask, 'id'>) => string
@@ -315,6 +325,16 @@ function ActiveSession({
           </div>
         </div>
       </div>
+
+      {/* Bitácora de Calibración — dedicated cross-session DB block.
+          Hardcoded (not template-driven) because it's a structured DB,
+          not a form field. */}
+      <BitacoraBlock
+        entries={bitacoraEntries}
+        onAdd={onBitacoraAdd}
+        onUpdate={onBitacoraUpdate}
+        onRemove={onBitacoraRemove}
+      />
 
       {/* Sections */}
       {template.sections.map((section) => (
@@ -803,6 +823,276 @@ function CloseSessionModal({
         </div>
       </motion.div>
     </motion.div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// BITÁCORA BLOCK — cross-session knowledge base
+// Two columns: "Sí funciona" (preservar) and "No funciona" (arreglar).
+// Entries persist across ALL SPI sessions — visible from every Saturday
+// so the user accumulates self-knowledge over time.
+// ─────────────────────────────────────────────────────────────────────
+function BitacoraBlock({
+  entries, onAdd, onUpdate, onRemove,
+}: {
+  entries: import('@/lib/spi/types').BitacoraEntry[]
+  onAdd: (e: Omit<import('@/lib/spi/types').BitacoraEntry, 'id' | 'createdAt' | 'updatedAt'>) => string
+  onUpdate: (id: string, patch: Partial<import('@/lib/spi/types').BitacoraEntry>) => void
+  onRemove: (id: string) => void
+}) {
+  const [collapsed, setCollapsed] = useState(false)
+  const [showResolved, setShowResolved] = useState(false)
+
+  const working = entries.filter((e) => e.kind === 'working')
+  const broken = entries.filter((e) => e.kind === 'broken' && (showResolved || !e.resolved))
+  const totalWorking = working.length
+  const totalBroken = entries.filter((e) => e.kind === 'broken').length
+  const resolvedCount = entries.filter((e) => e.kind === 'broken' && e.resolved).length
+
+  return (
+    <div className="bg-zinc-950/40 border border-zinc-800 rounded-xl overflow-hidden">
+      {/* Header */}
+      <button
+        onClick={() => setCollapsed((v) => !v)}
+        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-zinc-900/40 transition-colors"
+      >
+        <span className="text-lg shrink-0">🗂️</span>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-semibold text-zinc-200">Bitácora de Calibración</h3>
+          <p className="text-[11px] text-zinc-500 mt-0.5">
+            Lo que funciona, no se toca · Cross-session ·
+            <span className="text-emerald-400/80 ml-1">{totalWorking} ✓</span> ·
+            <span className="text-amber-400/80 ml-1">{totalBroken - resolvedCount} ⚠</span>
+            {resolvedCount > 0 && <span className="text-zinc-600 ml-1">({resolvedCount} resueltos)</span>}
+          </p>
+        </div>
+        {collapsed ? <ChevronRight className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+      </button>
+
+      <AnimatePresence initial={false}>
+        {!collapsed && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-zinc-800/60 p-4">
+              {/* Toggle resolved visibility */}
+              {totalBroken > 0 && resolvedCount > 0 && (
+                <div className="flex justify-end mb-2">
+                  <button
+                    onClick={() => setShowResolved((v) => !v)}
+                    className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                  >
+                    {showResolved ? 'ocultar resueltos' : `mostrar resueltos (${resolvedCount})`}
+                  </button>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* SI FUNCIONA */}
+                <BitacoraColumn
+                  kind="working"
+                  title="✓ Sí está funcionando"
+                  subtitle="Y por qué — efecto / causa"
+                  color="emerald"
+                  entries={working}
+                  onAdd={(situation, dominoEffect) => onAdd({ kind: 'working', situation, dominoEffect })}
+                  onUpdate={onUpdate}
+                  onRemove={onRemove}
+                />
+                {/* NO FUNCIONA */}
+                <BitacoraColumn
+                  kind="broken"
+                  title="⚠ NO está funcionando"
+                  subtitle="Acción / efecto dominó solución"
+                  color="amber"
+                  entries={broken}
+                  onAdd={(situation, dominoEffect) => onAdd({ kind: 'broken', situation, dominoEffect, resolved: false })}
+                  onUpdate={onUpdate}
+                  onRemove={onRemove}
+                />
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function BitacoraColumn({
+  kind, title, subtitle, color, entries, onAdd, onUpdate, onRemove,
+}: {
+  kind: 'working' | 'broken'
+  title: string
+  subtitle: string
+  color: 'emerald' | 'amber'
+  entries: import('@/lib/spi/types').BitacoraEntry[]
+  onAdd: (situation: string, dominoEffect: string) => string
+  onUpdate: (id: string, patch: Partial<import('@/lib/spi/types').BitacoraEntry>) => void
+  onRemove: (id: string) => void
+}) {
+  const [newSituation, setNewSituation] = useState('')
+  const [newDomino, setNewDomino] = useState('')
+  const [adding, setAdding] = useState(false)
+
+  const submit = () => {
+    const s = newSituation.trim()
+    if (!s) return
+    onAdd(s, newDomino.trim())
+    setNewSituation('')
+    setNewDomino('')
+    setAdding(false)
+  }
+
+  const accent = color === 'emerald'
+    ? { text: 'text-emerald-300', border: 'border-emerald-500/30', bg: 'bg-emerald-500/5', btn: 'hover:text-emerald-300 hover:bg-emerald-500/10' }
+    : { text: 'text-amber-300', border: 'border-amber-500/30', bg: 'bg-amber-500/5', btn: 'hover:text-amber-300 hover:bg-amber-500/10' }
+
+  return (
+    <div className={`bg-zinc-900 border ${accent.border} rounded-lg p-3`}>
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <p className={`text-[11px] font-semibold ${accent.text}`}>{title}</p>
+          <p className="text-[9px] text-zinc-600 mt-0.5">{subtitle}</p>
+        </div>
+        <span className="text-[10px] font-mono text-zinc-600">{entries.length}</span>
+      </div>
+
+      <div className="space-y-1.5 mb-2 max-h-80 overflow-y-auto">
+        {entries.length === 0 && (
+          <p className="text-[11px] text-zinc-600 italic py-2 text-center">Sin entradas todavía.</p>
+        )}
+        {entries.map((e) => (
+          <BitacoraRow
+            key={e.id}
+            entry={e}
+            color={color}
+            onUpdate={(patch) => onUpdate(e.id, patch)}
+            onRemove={() => onRemove(e.id)}
+          />
+        ))}
+      </div>
+
+      {/* Add new */}
+      {!adding ? (
+        <button
+          onClick={() => setAdding(true)}
+          className={`w-full text-[11px] text-zinc-500 ${accent.btn} px-2 py-1.5 rounded transition-colors flex items-center gap-1.5 border border-dashed border-zinc-800 hover:${accent.border}`}
+        >
+          <Plus className="w-3 h-3" /> Agregar entrada
+        </button>
+      ) : (
+        <div className={`${accent.bg} border ${accent.border} rounded p-2 space-y-1.5`}>
+          <input
+            autoFocus
+            value={newSituation}
+            onChange={(e) => setNewSituation(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') { setAdding(false); setNewSituation(''); setNewDomino('') } }}
+            placeholder={kind === 'working' ? 'Qué está funcionando?' : 'Qué NO está funcionando?'}
+            className="w-full text-xs bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
+          />
+          <input
+            value={newDomino}
+            onChange={(e) => setNewDomino(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); submit() }
+              if (e.key === 'Escape') { setAdding(false); setNewSituation(''); setNewDomino('') }
+            }}
+            placeholder={kind === 'working' ? 'Por qué? (efecto / causa)' : 'Acción solución / efecto dominó'}
+            className="w-full text-[11px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
+          />
+          <div className="flex justify-end gap-1">
+            <button
+              onClick={() => { setAdding(false); setNewSituation(''); setNewDomino('') }}
+              className="text-[10px] text-zinc-500 hover:text-zinc-300 px-2 py-0.5"
+            >
+              cancel
+            </button>
+            <button
+              onClick={submit}
+              disabled={!newSituation.trim()}
+              className={`text-[10px] ${accent.text} ${accent.btn} disabled:opacity-30 px-2 py-0.5 rounded`}
+            >
+              guardar
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BitacoraRow({
+  entry, color, onUpdate, onRemove,
+}: {
+  entry: import('@/lib/spi/types').BitacoraEntry
+  color: 'emerald' | 'amber'
+  onUpdate: (patch: Partial<import('@/lib/spi/types').BitacoraEntry>) => void
+  onRemove: () => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const dotColor = color === 'emerald' ? '#10b981' : '#f59e0b'
+  return (
+    <div className={`bg-zinc-950 border border-zinc-800/60 rounded p-1.5 group ${entry.resolved ? 'opacity-50' : ''}`}>
+      <div className="flex items-start gap-1.5">
+        {entry.kind === 'broken' && (
+          <button
+            onClick={() => onUpdate({ resolved: !entry.resolved })}
+            title={entry.resolved ? 'Marcar como pendiente' : 'Marcar como resuelto'}
+            className={`shrink-0 w-3 h-3 mt-0.5 rounded border flex items-center justify-center transition-all ${
+              entry.resolved
+                ? 'bg-emerald-500/20 border-emerald-500'
+                : 'border-zinc-700 hover:border-zinc-500'
+            }`}
+          >
+            {entry.resolved && <Check className="w-2 h-2 text-emerald-400" />}
+          </button>
+        )}
+        {entry.kind === 'working' && (
+          <span className="w-1 h-1 rounded-full mt-2 shrink-0" style={{ background: dotColor }} />
+        )}
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex-1 text-left text-[11px] text-zinc-200 leading-tight"
+        >
+          <span className={entry.resolved ? 'line-through' : ''}>{entry.situation || <em className="text-zinc-600">(vacío)</em>}</span>
+        </button>
+        <button
+          onClick={onRemove}
+          className="shrink-0 text-zinc-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+        >
+          <Trash2 className="w-2.5 h-2.5" />
+        </button>
+      </div>
+
+      {/* Domino effect — always visible if filled, smaller */}
+      {entry.dominoEffect && !expanded && (
+        <p className="text-[10px] text-zinc-500 italic mt-0.5 ml-3 line-clamp-2">→ {entry.dominoEffect}</p>
+      )}
+
+      {/* Expanded edit mode */}
+      {expanded && (
+        <div className="space-y-1.5 mt-1.5 ml-3">
+          <textarea
+            value={entry.situation}
+            onChange={(e) => onUpdate({ situation: e.target.value })}
+            rows={2}
+            className="w-full text-[11px] bg-zinc-900 border border-zinc-800 rounded px-1.5 py-1 text-zinc-200 focus:outline-none focus:border-fuchsia-500/40 resize-none"
+          />
+          <textarea
+            value={entry.dominoEffect}
+            onChange={(e) => onUpdate({ dominoEffect: e.target.value })}
+            placeholder={entry.kind === 'working' ? 'Por qué funciona?' : 'Acción solución'}
+            rows={2}
+            className="w-full text-[10px] bg-zinc-900 border border-zinc-800 rounded px-1.5 py-1 text-zinc-400 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40 resize-none"
+          />
+          <p className="text-[9px] text-zinc-700">{new Date(entry.createdAt).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -1,22 +1,24 @@
 import type { SPITemplate } from './types'
 
-/** The default SPI template — mirrors the Notion "Semana X" structure
- *  the user shared. Hardcoded in V1; Phase 4 will introduce a UI to
- *  edit this and bump the version.
+/** The default SPI template — based on the user's Notion "Semana X" but
+ *  with two structural corrections requested in May 2026:
  *
- *  STRUCTURE (top-down):
- *  1. mainChecklist        4 items the user ticks while executing
- *  2. 🗂️ Bitácora           "lo que funciona no se toca" — running notes
- *  3. 📇 AAA Emocional      heart: intention, depth, execution, sitting
- *  4. 🧠 AAA Táctico        head: where, how, who/when, conclusion
- *  5. ⚒️ Tareas             generated tasks (rendered separately by UI)
+ *  1. The Bitácora de Calibración is NO LONGER a template section. It
+ *     became a cross-session persistent database (see BitacoraEntry +
+ *     spiStore.bitacoraEntries). The UI renders it as a dedicated block
+ *     above the AAA section, hardcoded — not template-driven.
  *
- *  Notes:
- *  - We KEEP the philosophical blockquotes from the user's Notion — they
- *    are part of his system, not decoration.
- *  - Subsections are nested accordions (e.g. "Necesito profundidad?"). */
+ *  2. The two AAA sections ("Visión" and "Táctico") got merged into a
+ *     single "Protocolo de Control [AAA]" section. The Visión version
+ *     was the latest; the Táctico version was an older iteration. The
+ *     unique value from Táctico (Conclusión Semanal + Poner en Acción)
+ *     was preserved as the final two subsections of the merged AAA.
+ *
+ *  Version bumped to 2 → triggers auto-migration in spiStore for any
+ *  user holding the v1 template.
+ */
 export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
-  version: 1,
+  version: 2,
 
   mainChecklist: [
     { key: 'aaa', label: 'Ejecutar Protocolo de Control [AAA]' },
@@ -27,27 +29,12 @@ export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
 
   sections: [
     // ─────────────────────────────────────────────────────────────────
-    {
-      key: 'bitacora',
-      emoji: '🗂️',
-      title: 'Bitácora de Calibración',
-      intro: 'Lo que funciona, no se toca. Ajustes, descubrimientos, prácticas que están dando resultado.',
-      defaultCollapsed: true,
-      fields: [
-        {
-          key: 'notas',
-          label: 'Notas de calibración',
-          type: 'textarea',
-          placeholder: 'Lo que aprendiste, lo que estás manteniendo, lo que vas a ajustar...',
-        },
-      ],
-    },
-
+    // 📇 PROTOCOLO DE CONTROL [AAA] — MERGED (visión + táctico)
     // ─────────────────────────────────────────────────────────────────
     {
-      key: 'aaa_emocional',
+      key: 'aaa',
       emoji: '📇',
-      title: 'Protocolo de Control [AAA] — Visión',
+      title: 'Protocolo de Control [AAA]',
       intro: 'Apunta a las estrellas, y llegarás al cielo.',
       defaultCollapsed: false,
       subsections: [
@@ -91,7 +78,7 @@ export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
               key: 'donde_estamos',
               emoji: '📍',
               title: 'Dónde estamos?',
-              intro: 'Comprender dónde poner la energía. Cuál es el 20% que hace girar el 80% del reloj.',
+              intro: 'Comprender dónde poner la energía. Cuál es el 20% que hace girar el 80% del reloj. + análisis de proyectos a vista de águila (generales, anuales, trimestrales, metas, objetivos y tareas).',
               fields: [
                 {
                   key: 'foco_90dias',
@@ -104,6 +91,12 @@ export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
                   label: 'Cómo se comporta la persona que ya consiguió eso?',
                   type: 'textarea',
                   hint: 'Cómo actúa, piensa, se mueve, qué energía emana. Debemos convertirnos en ello.',
+                },
+                {
+                  key: 'analisis_proyectos',
+                  label: 'Análisis de proyectos · estado actual y recursos',
+                  type: 'textarea',
+                  hint: 'Vista de águila a todos tus proyectos: distancia al objetivo, recursos disponibles, qué necesitás.',
                   epigraph: 'Sé impecable con tus palabras — con la forma en que te hablás y en cómo pensás. Honrá lo que te propusiste ser.',
                 },
               ],
@@ -162,13 +155,19 @@ export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
           key: 'como_ejecutar',
           emoji: '🧩',
           title: 'Cómo lo ejecutaremos?',
-          intro: 'Sabiendo dónde estamos, qué tenemos y qué necesitamos ejecutar — definir CÓMO vamos a ejecutar.',
+          intro: 'Sabiendo dónde estamos, qué tenemos y qué necesitamos ejecutar — definir CÓMO vamos a ejecutar. Reflexionar para pasar del pixel a la realidad.',
           fields: [
             {
               key: 'productividad',
               label: 'Qué cosas necesito aplicar para aumentar mi productividad y ejecutar las tareas 80/20?',
               type: 'textarea',
               hint: 'Cosas que necesitan estar fijas. Qué cosas no son tan importantes como pensaba. Para qué estoy haciendo cada tarea?',
+            },
+            {
+              key: 'accion_concreta',
+              label: 'Acción concreta que sale de la reflexión anterior',
+              type: 'textarea',
+              hint: 'Del pixel a la realidad — qué vas a hacer puntualmente.',
               epigraph: 'NO HAGAS SUPOSICIONES — me abro con curiosidad...',
             },
           ],
@@ -177,13 +176,19 @@ export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
           key: 'quien_cuando',
           emoji: '⚒️',
           title: 'Quién lo hará y en qué tiempo?',
-          intro: 'Ubicar las acciones en línea temporal. Hábitos / Block Times → Google Calendar. Tareas → SPI (abajo).',
+          intro: 'Ubicar las acciones en línea temporal. Estructurar las tareas. Hábitos / Block Times → Google Calendar. Tareas → SPI (abajo).',
           fields: [
             {
               key: 'bloques',
               label: 'Bloques / hábitos que van al calendario',
               type: 'textarea',
               placeholder: 'Ej: Lunes 8-9 ritual de anclaje, Lunes 9-13 deep work...',
+            },
+            {
+              key: 'cronograma',
+              label: 'Cronograma de las tareas más importantes',
+              type: 'textarea',
+              hint: 'Cuándo, en qué día, en qué bloque vas a ejecutar cada tarea clave.',
             },
           ],
         },
@@ -195,9 +200,10 @@ export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
           fields: [
             { key: 'como_siento', label: 'Cómo siento que estoy?', type: 'textarea' },
             { key: 'como_se_ve_10', label: 'Cómo se vería un 10?', type: 'textarea' },
+            { key: 'camino_correcto', label: 'Estoy caminando por el camino correcto? Mis acciones estuvieron alineadas con mis metas?', type: 'textarea' },
             { key: 'decisiones_recientes', label: 'Qué decisiones he tomado recientemente?', type: 'textarea' },
-            { key: 'camino_alineado', label: 'En qué camino me he adentrado? Se alinea a mi planificación?', type: 'textarea' },
             { key: 'efectividad', label: 'Fueron efectivas mis decisiones? Cómo las tomé? Cómo reaccioné a ellas?', type: 'textarea' },
+            { key: 'area_ajuste', label: 'Qué área de mi vida necesita un ajuste?', type: 'textarea' },
           ],
         },
         {
@@ -225,60 +231,7 @@ export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
             { key: 'felicitar_sabado', label: 'Por qué te vas a felicitar el SÁBADO?', type: 'text' },
           ],
         },
-      ],
-    },
-
-    // ─────────────────────────────────────────────────────────────────
-    {
-      key: 'aaa_tactico',
-      emoji: '🧠',
-      title: 'Protocolo de Control [AAA] — Táctico',
-      intro: 'Versión estructurada de análisis → acción → tiempo → conclusión.',
-      defaultCollapsed: true,
-      subsections: [
-        {
-          key: 'donde_y_que',
-          emoji: '🔍',
-          title: 'Dónde estamos y qué tenemos?',
-          intro: 'Vista de águila a los proyectos actuales. Analizar Sistema de Proyección: Generales, Anuales, Trimestrales, Metas, Objetivos y Tareas.',
-          fields: [
-            {
-              key: 'analisis',
-              label: 'Análisis',
-              type: 'textarea',
-              placeholder: 'Estado actual de cada proyecto, recursos disponibles, distancia al objetivo...',
-            },
-          ],
-        },
-        {
-          key: 'ejecucion',
-          emoji: '🧩',
-          title: 'Cómo lo ejecutaremos?',
-          intro: 'Reflexionar para pasar del pixel a la realidad.',
-          fields: [
-            { key: 'accion', label: 'Acción concreta', type: 'textarea' },
-          ],
-        },
-        {
-          key: 'tiempo',
-          emoji: '⚒️',
-          title: 'Quién lo hará y en qué tiempo?',
-          intro: 'Estructurar las tareas en línea temporal.',
-          fields: [
-            { key: 'cronograma', label: 'Cronograma', type: 'textarea' },
-          ],
-        },
-        {
-          key: 'sitting_conclusion',
-          emoji: '👁️',
-          title: 'Sitting & Thinking — conclusión',
-          intro: 'Observate como un águila.',
-          fields: [
-            { key: 'camino_correcto', label: 'Estoy caminando por el camino correcto?', type: 'textarea' },
-            { key: 'acciones_alineadas', label: 'Mis acciones estuvieron alineadas con mis metas?', type: 'textarea' },
-            { key: 'area_ajuste', label: 'Qué área de mi vida necesita un ajuste?', type: 'textarea' },
-          ],
-        },
+        // ── From old "Táctico" — preserved unique content ──────────────
         {
           key: 'conclusion_semanal',
           emoji: '🏁',
@@ -294,7 +247,7 @@ export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
           key: 'poner_en_accion',
           emoji: '🚀',
           title: 'Poner en acción la conclusión',
-          intro: 'Concretar la conclusión en pasos accionables.',
+          intro: 'Concretar la conclusión semanal en pasos accionables — qué vas a hacer puntualmente la próxima semana en base a lo que aprendiste.',
           fields: [
             { key: 'acciones_conclusion', label: 'Acciones concretas', type: 'textarea' },
           ],

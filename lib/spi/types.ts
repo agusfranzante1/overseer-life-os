@@ -75,6 +75,31 @@ export interface SPITemplate {
   mainChecklist: { key: string; label: string }[]
 }
 
+/** Entry in the Bitácora de Calibración — a CROSS-SESSION knowledge base
+ *  of what's working (and why) and what's NOT working (and how to fix it).
+ *
+ *  Unlike session field values which are scoped to a single Saturday,
+ *  bitácora entries live globally and are visible from every SPI session.
+ *  This is the user's running journal of personal patterns:
+ *
+ *    kind: 'working'  → situation: "Pomodoros de 50min"
+ *                       dominoEffect: "Energía estable hasta las 13"
+ *    kind: 'broken'   → situation: "Me levanto tarde, no llego al sol"
+ *                       dominoEffect: "Apegarme al plan, dormir 23:30"
+ *                       resolved: true  ← marcado cuando ya lo arreglaste
+ */
+export interface BitacoraEntry {
+  id: string
+  kind: 'working' | 'broken'
+  situation: string
+  dominoEffect: string
+  /** Only meaningful for `kind: 'broken'` — set true when the user has
+   *  applied the fix and the situation is no longer an issue. */
+  resolved?: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export interface SPISession {
   id: string
   /** ISO YYYY-MM-DD — the Saturday this session "belongs to". */

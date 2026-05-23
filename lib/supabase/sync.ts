@@ -596,12 +596,13 @@ async function pushSPI() {
   if (!state.userId) return
   const sb = getSupabaseBrowser()
   const uid = state.userId!
-  const { sessions } = useSPIStore.getState()
+  const { sessions, bitacoraEntries } = useSPIStore.getState()
 
+  // ── Sessions ──────────────────────────────────────────────────────
   // Each session stored as one row; full payload in JSONB. We strip the
   // top-level metadata (week_start_date, closed_at) into columns for query
   // performance later (e.g. "all closed sessions this quarter").
-  const rows = sessions.map((sess) => ({
+  const sessRows = sessions.map((sess) => ({
     id: sess.id,
     user_id: uid,
     week_start_date: sess.weekStartDate,
@@ -610,9 +611,22 @@ async function pushSPI() {
     closed_at: sess.closedAt ?? null,
     payload: sess,
   }))
+  if (sessRows.length > 0) await sb.from('spi_sessions').upsert(sessRows)
+  await deleteSurplus(sb, 'spi_sessions', uid, sessRows.map((r) => r.id))
 
-  if (rows.length > 0) await sb.from('spi_sessions').upsert(rows)
-  await deleteSurplus(sb, 'spi_sessions', uid, rows.map((r) => r.id))
+  // ── Bitácora (cross-session) ──────────────────────────────────────
+  const bitRows = bitacoraEntries.map((e) => ({
+    id: e.id,
+    user_id: uid,
+    kind: e.kind,
+    situation: e.situation,
+    domino_effect: e.dominoEffect,
+    resolved: e.resolved ?? false,
+    created_at: e.createdAt,
+    updated_at: e.updatedAt,
+  }))
+  if (bitRows.length > 0) await sb.from('spi_bitacora').upsert(bitRows)
+  await deleteSurplus(sb, 'spi_bitacora', uid, bitRows.map((r) => r.id))
 }
 
 async function pullSPI(): Promise<boolean> {
@@ -620,17 +634,38 @@ async function pullSPI(): Promise<boolean> {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
-  const res = await sb.from('spi_sessions').select('*').eq('user_id', uid)
-    .order('week_start_date', { ascending: false })
-  if (res.error) {
-    console.error('SPI pull failed', res.error)
-    return false
-  }
-  if ((res.data?.length ?? 0) === 0) return false
+  const [sessRes, bitRes] = await Promise.all([
+    sb.from('spi_sessions').select('*').eq('user_id', uid)
+      .order('week_start_date', { ascending: false }),
+    sb.from('spi_bitacora').select('*').eq('user_id', uid)
+      .order('created_at', { ascending: false }),
+  ])
 
-  type Row = { payload: unknown }
+  if (sessRes.error) { console.error('SPI sessions pull failed', sessRes.error); return false }
+  if (bitRes.error)  { console.error('SPI bitacora pull failed', bitRes.error) }
+
+  const hasSessions = (sessRes.data?.length ?? 0) > 0
+  const hasBitacora = (bitRes.data?.length ?? 0) > 0
+  if (!hasSessions && !hasBitacora) return false
+
+  type SessRow = { payload: unknown }
+  type BitRow = {
+    id: string; kind: 'working' | 'broken'
+    situation: string; domino_effect: string
+    resolved: boolean | null
+    created_at: string; updated_at: string
+  }
   useSPIStore.setState({
-    sessions: (res.data ?? []).map((r: Row) => r.payload as import('@/lib/spi/types').SPISession),
+    sessions: (sessRes.data ?? []).map((r: SessRow) => r.payload as import('@/lib/spi/types').SPISession),
+    bitacoraEntries: (bitRes.data ?? []).map((r: BitRow) => ({
+      id: r.id,
+      kind: r.kind,
+      situation: r.situation,
+      dominoEffect: r.domino_effect,
+      resolved: r.resolved ?? false,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    })),
   })
   return true
 }

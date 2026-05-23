@@ -2,7 +2,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { DEFAULT_SPI_TEMPLATE } from '@/lib/spi/template'
-import type { SPISession, SPITask, SPITemplate } from '@/lib/spi/types'
+import type { SPISession, SPITask, SPITemplate, BitacoraEntry } from '@/lib/spi/types'
 import { useTasksStore } from './tasksStore'
 import { computeSessionXP, totalXPFromSessions, levelFromXP, didLevelUp, type SessionXP } from '@/lib/spi/gamification'
 
@@ -46,6 +46,10 @@ interface SPIState {
   template: SPITemplate
   sessions: SPISession[]
   activeSessionId: string | null
+  /** Cross-session persistent journal — the Bitácora de Calibración.
+   *  Lives globally (NOT inside individual sessions) so every Saturday
+   *  the user can see ALL accumulated insights from prior weeks. */
+  bitacoraEntries: BitacoraEntry[]
 
   // ─── Session lifecycle ────────────────────────────────────────────
   /** Creates a new session for the most recent Saturday and sets it
@@ -65,6 +69,11 @@ interface SPIState {
     newLevel: number
     previousLevel: number
   }
+
+  // ─── Bitácora de Calibración (cross-session DB) ─────────────────
+  addBitacoraEntry: (e: Omit<BitacoraEntry, 'id' | 'createdAt' | 'updatedAt'>) => string
+  updateBitacoraEntry: (id: string, patch: Partial<BitacoraEntry>) => void
+  removeBitacoraEntry: (id: string) => void
 
   // ─── Template editing (Phase 4) ─────────────────────────────────
   /** Replace the entire template. New sessions will use this. Existing
@@ -133,6 +142,7 @@ export const useSPIStore = create<SPIState>()(
       template: DEFAULT_SPI_TEMPLATE,
       sessions: [],
       activeSessionId: null,
+      bitacoraEntries: [],
 
       createOrOpenCurrentWeek: () => {
         const target = lastSaturdayYmd()
@@ -223,6 +233,30 @@ export const useSPIStore = create<SPIState>()(
         const pushed = updatedTasks.filter((t) => t.linkedTaskId && !session.tasks.find((o) => o.id === t.id)?.linkedTaskId).length
         return { pushedTasks: pushed, xp, leveledUp, newLevel, previousLevel }
       },
+
+      addBitacoraEntry: (e) => {
+        const id = genId()
+        const nowIso = new Date().toISOString()
+        set((s) => ({
+          bitacoraEntries: [
+            { ...e, id, createdAt: nowIso, updatedAt: nowIso },
+            ...s.bitacoraEntries,
+          ],
+        }))
+        return id
+      },
+
+      updateBitacoraEntry: (id, patch) =>
+        set((s) => ({
+          bitacoraEntries: s.bitacoraEntries.map((e) =>
+            e.id !== id ? e : { ...e, ...patch, updatedAt: new Date().toISOString() }
+          ),
+        })),
+
+      removeBitacoraEntry: (id) =>
+        set((s) => ({
+          bitacoraEntries: s.bitacoraEntries.filter((e) => e.id !== id),
+        })),
 
       updateTemplate: (t) => set({
         // Bump version so future sessions snapshot the new template id.
@@ -382,12 +416,28 @@ export const useSPIStore = create<SPIState>()(
     }),
     {
       name: 'overseer-spi',
-      // Persist everything except active session pointer (rehydrate to latest)
       partialize: (s) => ({
         template: s.template,
         sessions: s.sessions,
         activeSessionId: s.activeSessionId,
+        bitacoraEntries: s.bitacoraEntries,
       }),
+      // Auto-migrate: if the user has the old v1 template (separate
+      // "aaa_emocional" + "aaa_tactico" sections), replace it with v2
+      // (single merged "aaa"). Custom user templates are not touched.
+      onRehydrateStorage: () => (state) => {
+        if (!state) return
+        const hasOldSplit = state.template?.sections?.some((sec) => sec.key === 'aaa_emocional' || sec.key === 'aaa_tactico')
+        const hasOldBitacora = state.template?.sections?.some((sec) => sec.key === 'bitacora')
+        if (hasOldSplit || hasOldBitacora) {
+          // User is still on the original default template — safe to swap
+          // out. Versioning ensures we don't trample on customizations.
+          state.template = DEFAULT_SPI_TEMPLATE
+        }
+        // Defensive: ensure bitacoraEntries exists (for users who had
+        // a persisted state from before this field was introduced).
+        if (!Array.isArray(state.bitacoraEntries)) state.bitacoraEntries = []
+      },
     }
   )
 )
