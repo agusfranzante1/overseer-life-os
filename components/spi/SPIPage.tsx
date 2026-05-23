@@ -21,7 +21,7 @@ export function SPIPage() {
     createOrOpenCurrentWeek, setActiveSession,
     toggleChecklistItem, updateValue, closeSession,
     addTask, updateTask, removeTask, pushTaskToManager,
-    updateTemplate, resetTemplate,
+    updateTemplate, resetTemplate, setSessionLanes,
     bitacoraEntries, addBitacoraEntry, updateBitacoraEntry, removeBitacoraEntry,
     getStreak, getLevel,
   } = useSPIStore()
@@ -146,6 +146,7 @@ export function SPIPage() {
           onBitacoraRemove={removeBitacoraEntry}
           onChecklistToggle={(key) => toggleChecklistItem(activeSession.id, key)}
           onValueChange={(secKey, fieldKey, v) => updateValue(activeSession.id, secKey, fieldKey, v)}
+          onSetLanes={(lanes) => setSessionLanes(activeSession.id, lanes)}
           onAddTask={(t) => addTask(activeSession.id, t)}
           onUpdateTask={(taskId, patch) => updateTask(activeSession.id, taskId, patch)}
           onRemoveTask={(taskId) => removeTask(activeSession.id, taskId)}
@@ -241,7 +242,7 @@ function EmptyState({
 function ActiveSession({
   session, template, projectsById, taskMap,
   bitacoraEntries, onBitacoraAdd, onBitacoraUpdate, onBitacoraRemove,
-  onChecklistToggle, onValueChange,
+  onChecklistToggle, onValueChange, onSetLanes,
   onAddTask, onUpdateTask, onRemoveTask, onPushTask,
   onCloseRequest,
 }: {
@@ -255,12 +256,14 @@ function ActiveSession({
   onBitacoraRemove: (id: string) => void
   onChecklistToggle: (key: string) => void
   onValueChange: (sectionKey: string, fieldKey: string, value: string) => void
+  onSetLanes: (lanes: string[]) => void
   onAddTask: (t: Omit<SPITask, 'id'>) => string
   onUpdateTask: (taskId: string, patch: Partial<SPITask>) => void
   onRemoveTask: (taskId: string) => void
   onPushTask: (taskId: string) => void
   onCloseRequest: () => void
 }) {
+  const [showLanePicker, setShowLanePicker] = useState(false)
   const weekLabel = useMemo(() => {
     const [y, m, d] = session.weekStartDate.split('-').map(Number)
     const date = new Date(y, m - 1, d)
@@ -326,9 +329,7 @@ function ActiveSession({
         </div>
       </div>
 
-      {/* Bitácora de Calibración — dedicated cross-session DB block.
-          Hardcoded (not template-driven) because it's a structured DB,
-          not a form field. */}
+      {/* Bitácora de Calibración — always visible, lane-agnostic. */}
       <BitacoraBlock
         entries={bitacoraEntries}
         onAdd={onBitacoraAdd}
@@ -336,16 +337,77 @@ function ActiveSession({
         onRemove={onBitacoraRemove}
       />
 
-      {/* Sections */}
-      {template.sections.map((section) => (
-        <Section
-          key={section.key}
-          section={section}
-          session={session}
-          parentKey=""
-          onValueChange={onValueChange}
+      {/* ── Lane picker — full-screen-ish card when no lanes picked yet ── */}
+      {session.selectedLanes.length === 0 && !showLanePicker && (
+        <LanePicker
+          lanes={template.lanes}
+          selected={[]}
+          onConfirm={(picked) => onSetLanes(picked)}
         />
-      ))}
+      )}
+
+      {/* ── Lane bar (when lanes ARE picked) ─────────────────────────── */}
+      {session.selectedLanes.length > 0 && (
+        <LaneBar
+          lanes={template.lanes}
+          selectedKeys={session.selectedLanes}
+          onAdjust={() => setShowLanePicker(true)}
+        />
+      )}
+
+      {/* ── Lane picker modal (when re-adjusting) ────────────────────── */}
+      <AnimatePresence>
+        {showLanePicker && (
+          <LanePickerModal
+            lanes={template.lanes}
+            selected={session.selectedLanes}
+            onClose={() => setShowLanePicker(false)}
+            onConfirm={(picked) => { onSetLanes(picked); setShowLanePicker(false) }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── Sections — only those tagged with a selected lane, grouped ── */}
+      {session.selectedLanes.length > 0 && template.lanes
+        .filter((lane) => session.selectedLanes.includes(lane.key))
+        .map((lane) => {
+          const laneSections = template.sections.filter((sec) => sec.laneKey === lane.key)
+          if (laneSections.length === 0) return null
+          return (
+            <div key={lane.key} className="space-y-3">
+              {/* Lane header */}
+              <div className="flex items-center gap-2 px-1 pt-2">
+                <span className="text-base">{lane.emoji}</span>
+                <h3 className="text-[11px] font-mono uppercase tracking-widest" style={{ color: lane.color }}>
+                  {lane.title}
+                </h3>
+                <div className="flex-1 h-px" style={{ background: `${lane.color}30` }} />
+              </div>
+              {laneSections.map((section) => (
+                <Section
+                  key={section.key}
+                  section={section}
+                  session={session}
+                  parentKey=""
+                  onValueChange={onValueChange}
+                />
+              ))}
+            </div>
+          )
+        })}
+      {/* Sections WITHOUT a laneKey (e.g. user-added in editor without
+          assigning a lane) — always render. */}
+      {session.selectedLanes.length > 0 && template.sections
+        .filter((sec) => !sec.laneKey)
+        .map((section) => (
+          <Section
+            key={section.key}
+            section={section}
+            session={session}
+            parentKey=""
+            onValueChange={onValueChange}
+          />
+        ))}
 
       {/* Tasks block */}
       <TasksBlock
@@ -357,6 +419,143 @@ function ActiveSession({
         onRemove={onRemoveTask}
         onPush={onPushTask}
       />
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// LANE PICKER — inline card shown when no lanes selected yet
+// ─────────────────────────────────────────────────────────────────────
+function LanePicker({
+  lanes, selected, onConfirm,
+}: {
+  lanes: import('@/lib/spi/types').SPILane[]
+  selected: string[]
+  onConfirm: (picked: string[]) => void
+}) {
+  const [picked, setPicked] = useState<string[]>(selected)
+  const toggle = (key: string) =>
+    setPicked((prev) => prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key])
+  return (
+    <div className="bg-zinc-950/60 border border-fuchsia-500/30 rounded-2xl p-6">
+      <h2 className="text-base font-semibold text-zinc-100 mb-1">¿En dónde querés concentrarte hoy?</h2>
+      <p className="text-xs text-zinc-500 mb-5">
+        Elegí uno o varios carriles. Solo se mostrarán las preguntas de los carriles que actives —
+        las demás quedan ocultas para esta sesión.
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+        {lanes.map((lane) => {
+          const isPicked = picked.includes(lane.key)
+          return (
+            <button
+              key={lane.key}
+              onClick={() => toggle(lane.key)}
+              className={`text-left p-4 rounded-xl border-2 transition-all ${
+                isPicked
+                  ? 'bg-zinc-900 shadow-lg'
+                  : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700'
+              }`}
+              style={isPicked ? {
+                borderColor: lane.color,
+                boxShadow: `0 0 0 1px ${lane.color}40, 0 8px 24px -8px ${lane.color}40`,
+              } : {}}
+            >
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-xl">{lane.emoji}</span>
+                <span className="font-semibold text-sm" style={{ color: isPicked ? lane.color : '#d4d4d8' }}>
+                  {lane.title}
+                </span>
+                {isPicked && (
+                  <Check className="w-3.5 h-3.5 ml-auto" style={{ color: lane.color }} />
+                )}
+              </div>
+              <p className="text-[11px] text-zinc-500 leading-relaxed">{lane.description}</p>
+            </button>
+          )
+        })}
+      </div>
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => setPicked(lanes.map((l) => l.key))}
+          className="text-xs text-zinc-500 hover:text-fuchsia-300 transition-colors"
+        >
+          Seleccionar todos
+        </button>
+        <button
+          onClick={() => onConfirm(picked)}
+          disabled={picked.length === 0}
+          className="px-4 py-2 bg-fuchsia-500/15 border border-fuchsia-500/40 hover:bg-fuchsia-500/25 disabled:opacity-30 disabled:cursor-not-allowed text-fuchsia-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
+        >
+          Confirmar {picked.length > 0 && `(${picked.length})`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function LanePickerModal({
+  lanes, selected, onConfirm, onClose,
+}: {
+  lanes: import('@/lib/spi/types').SPILane[]
+  selected: string[]
+  onConfirm: (picked: string[]) => void
+  onClose: () => void
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      onClick={onClose}
+      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+    >
+      <motion.div
+        initial={{ scale: 0.96, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 10 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-zinc-950 border border-fuchsia-500/30 rounded-2xl w-full max-w-2xl overflow-hidden"
+      >
+        <div className="px-5 py-3 border-b border-zinc-800 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-zinc-100">Ajustar carriles activos</h2>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="p-5">
+          <LanePicker lanes={lanes} selected={selected} onConfirm={onConfirm} />
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+function LaneBar({
+  lanes, selectedKeys, onAdjust,
+}: {
+  lanes: import('@/lib/spi/types').SPILane[]
+  selectedKeys: string[]
+  onAdjust: () => void
+}) {
+  const selectedLanes = lanes.filter((l) => selectedKeys.includes(l.key))
+  return (
+    <div className="flex items-center gap-2 flex-wrap px-1">
+      <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">carriles activos:</span>
+      {selectedLanes.map((lane) => (
+        <span
+          key={lane.key}
+          className="text-[11px] font-mono px-2 py-0.5 rounded border"
+          style={{
+            color: lane.color,
+            borderColor: `${lane.color}40`,
+            background: `${lane.color}15`,
+          }}
+        >
+          {lane.emoji} {lane.title}
+        </span>
+      ))}
+      <button
+        onClick={onAdjust}
+        className="text-[10px] text-zinc-500 hover:text-fuchsia-300 transition-colors px-2 py-0.5 ml-auto"
+      >
+        ajustar
+      </button>
     </div>
   )
 }

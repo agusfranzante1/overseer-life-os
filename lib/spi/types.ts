@@ -62,6 +62,24 @@ export interface SPISection {
    *  style accordions). Each subsection is rendered as a nested collapsible. */
   subsections?: SPISection[]
   fields?: SectionField[]
+  /** Which lane ("carril") this section belongs to. Lanes group sections
+   *  thematically so the user can pick which areas to work on each Saturday
+   *  (e.g. just Táctico, or all four). Undefined → renders in every lane
+   *  (use for sections that should always appear). */
+  laneKey?: string
+}
+
+/** A thematic lane the user can pick when starting a session. Allows
+ *  shorter Saturdays ("just Táctico today") or full-depth ones ("all four").
+ *  Configurable from the template editor. */
+export interface SPILane {
+  key: string
+  emoji: string
+  title: string
+  /** One-liner shown in the picker so the user knows when to pick this. */
+  description: string
+  /** Accent color (hex) used for lane chips / picker cards. */
+  color: string
 }
 
 /** The full template — defines what sections and fields appear in each
@@ -73,6 +91,10 @@ export interface SPITemplate {
   /** The top-level main checklist — items the user ticks during execution
    *  of the SPI session (e.g. "Ejecutar Protocolo AAA"). */
   mainChecklist: { key: string; label: string }[]
+  /** Thematic lanes available to pick from when starting a session.
+   *  Sections are tagged with `laneKey` to indicate which lane they
+   *  belong to. The user selects 1-4 lanes per session. */
+  lanes: SPILane[]
 }
 
 /** Entry in the Bitácora de Calibración — a CROSS-SESSION knowledge base
@@ -110,6 +132,12 @@ export interface SPISession {
 
   /** State of the top-level checklist (key → ticked). */
   mainChecklist: Record<string, boolean>
+
+  /** Lanes the user picked at the start of this session. Determines
+   *  which sections render. Empty array → picker is shown (user hasn't
+   *  chosen yet). User can re-pick anytime; existing values for de-selected
+   *  lanes are NOT erased (just hidden). */
+  selectedLanes: string[]
 
   /** Field values: sectionKey → fieldKey → value (string). For checklist
    *  fields the value is JSON-encoded array of strings; for select it's

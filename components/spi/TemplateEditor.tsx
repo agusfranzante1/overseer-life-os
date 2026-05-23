@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 import {
   X, Plus, Trash2, ChevronUp, ChevronDown, RotateCcw, Save, Settings2,
 } from 'lucide-react'
-import type { SPITemplate, SPISection, SectionField, SectionFieldType } from '@/lib/spi/types'
+import type { SPITemplate, SPISection, SectionField, SectionFieldType, SPILane } from '@/lib/spi/types'
 import { DEFAULT_SPI_TEMPLATE } from '@/lib/spi/template'
 
 /** Template editor — lets the user shape the SPI ritual to their needs.
@@ -118,16 +118,60 @@ export function TemplateEditor({
             </div>
           </div>
 
+          {/* Lanes editor */}
+          <div>
+            <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-300 mb-2">
+              Carriles temáticos
+            </p>
+            <p className="text-[10px] text-zinc-500 mb-2 italic">
+              Los carriles son los grupos temáticos que el usuario elige al inicio de cada sesión.
+              Cada sección de abajo se asigna a uno.
+            </p>
+            <div className="space-y-1.5">
+              {(draft.lanes ?? []).map((lane, idx) => (
+                <LaneRow
+                  key={lane.key}
+                  lane={lane}
+                  canUp={idx > 0}
+                  canDown={idx < (draft.lanes?.length ?? 0) - 1}
+                  onChange={(l) => update((t) => { t.lanes[idx] = l })}
+                  onDelete={() => update((t) => { t.lanes.splice(idx, 1) })}
+                  onUp={() => update((t) => { [t.lanes[idx - 1], t.lanes[idx]] = [t.lanes[idx], t.lanes[idx - 1]] })}
+                  onDown={() => update((t) => { [t.lanes[idx], t.lanes[idx + 1]] = [t.lanes[idx + 1], t.lanes[idx]] })}
+                />
+              ))}
+              <button
+                onClick={() => update((t) => {
+                  if (!t.lanes) t.lanes = []
+                  t.lanes.push({
+                    key: genKey('lane'),
+                    emoji: '✨',
+                    title: 'Nuevo carril',
+                    description: '',
+                    color: '#a1a1aa',
+                  })
+                })}
+                className="w-full text-left text-xs text-zinc-500 hover:text-fuchsia-300 hover:bg-fuchsia-500/5 px-3 py-2 rounded-lg transition-colors flex items-center gap-2"
+              >
+                <Plus className="w-3 h-3" /> Agregar carril
+              </button>
+            </div>
+          </div>
+
           {/* Sections editor */}
           <div>
             <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-300 mb-2">
               Secciones
+            </p>
+            <p className="text-[10px] text-zinc-500 mb-2 italic">
+              Cada sección se asigna a un carril (dropdown a la derecha del título).
             </p>
             <div className="space-y-3">
               {draft.sections.map((section, idx) => (
                 <SectionEditor
                   key={section.key}
                   section={section}
+                  lanes={draft.lanes ?? []}
                   canUp={idx > 0}
                   canDown={idx < draft.sections.length - 1}
                   onChange={(newSection) => update((t) => { t.sections[idx] = newSection })}
@@ -190,12 +234,76 @@ export function TemplateEditor({
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// LANE ROW EDITOR
+// ─────────────────────────────────────────────────────────────────────
+function LaneRow({
+  lane, canUp, canDown, onChange, onDelete, onUp, onDown,
+}: {
+  lane: SPILane
+  canUp: boolean
+  canDown: boolean
+  onChange: (l: SPILane) => void
+  onDelete: () => void
+  onUp: () => void
+  onDown: () => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-lg">
+      <div className="px-2 py-1.5 flex items-center gap-2">
+        <input
+          value={lane.emoji}
+          onChange={(e) => onChange({ ...lane, emoji: e.target.value })}
+          className="w-9 bg-zinc-950 border border-zinc-800 rounded text-center text-sm focus:outline-none focus:border-fuchsia-500/40"
+          maxLength={2}
+        />
+        <input
+          value={lane.title}
+          onChange={(e) => onChange({ ...lane, title: e.target.value })}
+          className="flex-1 bg-transparent text-sm font-semibold focus:outline-none"
+          style={{ color: lane.color }}
+        />
+        <input
+          type="color"
+          value={lane.color}
+          onChange={(e) => onChange({ ...lane, color: e.target.value })}
+          className="w-6 h-6 rounded cursor-pointer bg-transparent border border-zinc-800"
+          title="Color del carril"
+        />
+        <ReorderButtons canUp={canUp} canDown={canDown} onUp={onUp} onDown={onDown} />
+        <button onClick={() => setExpanded((v) => !v)} className="text-zinc-600 hover:text-zinc-300 text-[10px] font-mono px-1">
+          {expanded ? '−' : '+'}
+        </button>
+        <button
+          onClick={() => { if (confirm(`Eliminar carril "${lane.title}"? Las secciones quedan sin carril.`)) onDelete() }}
+          className="text-zinc-700 hover:text-red-400 p-1"
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      </div>
+      {expanded && (
+        <div className="px-2 pb-2 pt-0 border-t border-zinc-800">
+          <label className="text-[9px] text-zinc-600 mb-0.5 block mt-1">Descripción (qué decirle al usuario cuándo elegir este)</label>
+          <textarea
+            value={lane.description}
+            onChange={(e) => onChange({ ...lane, description: e.target.value })}
+            rows={2}
+            className="w-full text-[11px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-fuchsia-500/40 resize-none"
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // SECTION EDITOR (recursive — handles subsections)
 // ─────────────────────────────────────────────────────────────────────
 function SectionEditor({
-  section, canUp, canDown, onChange, onDelete, onUp, onDown,
+  section, lanes, canUp, canDown, onChange, onDelete, onUp, onDown,
 }: {
   section: SPISection
+  lanes: SPILane[]
   canUp: boolean
   canDown: boolean
   onChange: (s: SPISection) => void
@@ -279,6 +387,17 @@ function SectionEditor({
           className="flex-1 bg-transparent text-sm font-semibold text-zinc-200 focus:outline-none"
           placeholder="Título de la sección"
         />
+        <select
+          value={section.laneKey ?? ''}
+          onChange={(e) => onChange({ ...section, laneKey: e.target.value || undefined })}
+          className="text-[10px] bg-zinc-950 border border-zinc-800 rounded px-1.5 py-1 text-zinc-400 focus:outline-none focus:border-fuchsia-500/40"
+          title="Carril al que pertenece"
+        >
+          <option value="">(sin carril)</option>
+          {lanes.map((l) => (
+            <option key={l.key} value={l.key}>{l.emoji} {l.title}</option>
+          ))}
+        </select>
         <ReorderButtons canUp={canUp} canDown={canDown} onUp={onUp} onDown={onDown} />
         <button
           onClick={() => setExpanded((v) => !v)}
@@ -355,6 +474,7 @@ function SectionEditor({
                   <SectionEditor
                     key={sub.key}
                     section={sub}
+                    lanes={lanes}
                     canUp={idx > 0}
                     canDown={idx < section.subsections!.length - 1}
                     onChange={(s) => updateSubsection(idx, s)}

@@ -36,6 +36,8 @@ function emptySession(template: SPITemplate, weekStartDate: string): SPISession 
     createdAt: nowIso,
     updatedAt: nowIso,
     mainChecklist,
+    // Empty array → lane picker is shown until user picks
+    selectedLanes: [],
     values: {},
     tasks: [],
     templateVersion: template.version,
@@ -95,6 +97,9 @@ interface SPIState {
   // ─── Field / checklist editing ────────────────────────────────────
   toggleChecklistItem: (id: string, key: string) => void
   updateValue: (sessionId: string, sectionKey: string, fieldKey: string, value: string) => void
+  /** Pick which lanes ("carriles") are active for this session.
+   *  Empty array shows the picker; non-empty filters which sections render. */
+  setSessionLanes: (sessionId: string, lanes: string[]) => void
 
   // ─── Generated tasks ──────────────────────────────────────────────
   addTask: (sessionId: string, task: Omit<SPITask, 'id'>) => string
@@ -335,6 +340,17 @@ export const useSPIStore = create<SPIState>()(
           ),
         })),
 
+      setSessionLanes: (sessionId, lanes) =>
+        set((s) => ({
+          sessions: s.sessions.map((sess) =>
+            sess.id !== sessionId ? sess : {
+              ...sess,
+              selectedLanes: lanes,
+              updatedAt: new Date().toISOString(),
+            }
+          ),
+        })),
+
       addTask: (sessionId, task) => {
         const id = genId()
         set((s) => ({
@@ -422,18 +438,58 @@ export const useSPIStore = create<SPIState>()(
         activeSessionId: s.activeSessionId,
         bitacoraEntries: s.bitacoraEntries,
       }),
-      // Auto-migrate: if the user has the old v1 template (separate
-      // "aaa_emocional" + "aaa_tactico" sections), replace it with v2
-      // (single merged "aaa"). Custom user templates are not touched.
+      // Auto-migration on rehydration. We need to handle 3 epochs:
+      //   v1 → "aaa_emocional" + "aaa_tactico" split sections
+      //   v2 → single "aaa" parent with nested subsections
+      //   v3 → flat sections tagged with `laneKey` (current)
+      //
+      // For each upgrade, we:
+      //   1. Replace template with current DEFAULT (only if user hasn't
+      //      customized — we detect that via known-shape markers).
+      //   2. Rewrite session.values keys to match the new structure so
+      //      data the user typed before isn't orphaned.
+      //   3. Initialize `selectedLanes: []` for sessions that predate it.
       onRehydrateStorage: () => (state) => {
         if (!state) return
-        const hasOldSplit = state.template?.sections?.some((sec) => sec.key === 'aaa_emocional' || sec.key === 'aaa_tactico')
-        const hasOldBitacora = state.template?.sections?.some((sec) => sec.key === 'bitacora')
-        if (hasOldSplit || hasOldBitacora) {
-          // User is still on the original default template — safe to swap
-          // out. Versioning ensures we don't trample on customizations.
+
+        const sections = state.template?.sections ?? []
+        const hasV1Split = sections.some((sec) => sec.key === 'aaa_emocional' || sec.key === 'aaa_tactico')
+        const hasV1Bitacora = sections.some((sec) => sec.key === 'bitacora')
+        const hasV2Aaa = sections.some((sec) => sec.key === 'aaa' && (sec.subsections?.length ?? 0) > 0)
+        const isV3 = !!state.template?.lanes && sections.some((sec) => !!sec.laneKey)
+
+        if (!isV3 && (hasV1Split || hasV1Bitacora || hasV2Aaa)) {
+          // Bundled-default upgrade path. Custom user templates wouldn't
+          // match any of these shapes — leave them alone.
           state.template = DEFAULT_SPI_TEMPLATE
         }
+
+        // Migrate value keys: v1/v2 used nested paths like "aaa.intencion.intencion"
+        // and "aaa.profundidad.que_buscamos.meta_pro_q". v3 uses flat paths
+        // like "intencion.intencion" and "que_buscamos.meta_pro_q".
+        if (Array.isArray(state.sessions)) {
+          state.sessions = state.sessions.map((sess) => {
+            const next = { ...sess }
+            // Ensure selectedLanes exists. Pre-v3 sessions get ALL lanes
+            // selected so nothing disappears under them.
+            if (!Array.isArray(next.selectedLanes)) {
+              next.selectedLanes = (state.template?.lanes ?? []).map((l) => l.key)
+            }
+            // Rewrite value keys.
+            const oldVals = sess.values ?? {}
+            const newVals: typeof oldVals = {}
+            for (const [key, fields] of Object.entries(oldVals)) {
+              let newKey = key
+              if (newKey.startsWith('aaa.profundidad.')) newKey = newKey.slice('aaa.profundidad.'.length)
+              else if (newKey.startsWith('aaa.')) newKey = newKey.slice('aaa.'.length)
+              // Merge if multiple old keys collapse to the same new key.
+              newVals[newKey] = { ...(newVals[newKey] ?? {}), ...fields }
+            }
+            next.values = newVals
+            return next
+          })
+        }
+
         // Defensive: ensure bitacoraEntries exists (for users who had
         // a persisted state from before this field was introduced).
         if (!Array.isArray(state.bitacoraEntries)) state.bitacoraEntries = []
