@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Calendar, CheckSquare,
   Globe, WalletCards, Activity, Dumbbell, Utensils, HeartPulse, Menu,
   TrendingUp, GripVertical, Check, RotateCcw, Settings2, Cog, LogOut,
-  Clock, Search, X as XIcon,
+  Clock, Search, X as XIcon, Infinity as InfinityIcon,
 } from 'lucide-react'
 import { listTimezones, formatTzOffset, detectTimezone } from '@/lib/utils/dateInTz'
 import Image from 'next/image'
@@ -23,6 +23,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', icon: LayoutDashboard, key: 'dashboard' },
+  { href: '/spi',       icon: InfinityIcon,    key: 'spi' },
   { href: '/tasks',     icon: CheckSquare,     key: 'tasks' },
   { href: '/calendar',  icon: Calendar,        key: 'calendar' },
   { href: '/money',     icon: WalletCards,     key: 'money' },

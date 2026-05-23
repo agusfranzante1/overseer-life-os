@@ -5,6 +5,7 @@ import { useTasksStore } from '@/lib/store/tasksStore'
 import { useAppStore } from '@/lib/store/appStore'
 import { useGymStore } from '@/lib/store/gymStore'
 import { useHealthStore, getTodaySnapshot } from '@/lib/store/healthStore'
+import { useGoogleCalendarStore } from '@/lib/store/googleCalendarStore'
 import { detectIntent, type Intent, type IntentType } from '@/lib/ai/intentDetector'
 import { handleIntent } from '@/lib/ai/intentHandlers'
 import { getAiHeaders } from '@/lib/ai/headers'
@@ -58,10 +59,11 @@ function buildChatContext(args: {
   tasksStore: ReturnType<typeof useTasksStore.getState>
   gymStore: ReturnType<typeof useGymStore.getState>
   appStore: ReturnType<typeof useAppStore.getState>
+  gcalStore: ReturnType<typeof useGoogleCalendarStore.getState>
   todaySnap: ReturnType<typeof getTodaySnapshot>
   baseline: { sleepGoalMinutes: number; restingHR?: number; hrv?: number }
 }) {
-  const { tasksStore, gymStore, appStore, todaySnap, baseline } = args
+  const { tasksStore, gymStore, appStore, gcalStore, todaySnap, baseline } = args
   const projects = Object.values(tasksStore.projects).filter((p) => !p.archived)
   const allTasks = Object.values(tasksStore.tasks)
   const isDone = (t: typeof allTasks[number]) => {
@@ -141,6 +143,42 @@ function buildChatContext(args: {
     schedule: appStore.scheduleOrder.map((k) => ({
       key: k, label: appStore.idealSchedule[k]?.label, time: appStore.idealSchedule[k]?.time,
     })),
+    // ── Google Calendar upcoming events ─────────────────────────────────────
+    // Include events from NOW → +30 days so Claude can answer questions like
+    // "¿cuándo es mi próximo turno con X?", "¿qué tengo mañana?",
+    // "¿qué se viene esta semana?". Trim each event to the essentials —
+    // descriptions and locations are kept short so context stays compact.
+    calendar: buildCalendarSlice(gcalStore),
+  }
+}
+
+function buildCalendarSlice(gcal: ReturnType<typeof useGoogleCalendarStore.getState>) {
+  if (!gcal.connected) return { connected: false, upcoming: [] }
+  const now = Date.now()
+  const thirtyDaysOut = now + 30 * 24 * 60 * 60 * 1000
+  const calendarsById = Object.fromEntries(gcal.calendars.map((c) => [c.id, c.summary]))
+  const upcoming = (gcal.events ?? [])
+    .filter((e) => {
+      const startMs = new Date(e.start).getTime()
+      const endMs = new Date(e.end).getTime()
+      // Include events that haven't ended yet AND start within 30 days.
+      return endMs >= now && startMs <= thirtyDaysOut
+    })
+    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+    .slice(0, 40)  // cap so we don't blow up the prompt
+    .map((e) => ({
+      title: e.summary,
+      start: e.start,
+      end: e.end,
+      allDay: e.allDay,
+      calendar: calendarsById[e.calendarId] ?? null,
+      location: e.location?.slice(0, 80) ?? undefined,
+      description: e.description?.slice(0, 200) ?? undefined,
+    }))
+  return {
+    connected: true,
+    lastFetchedAt: gcal.lastFetchedAt ?? null,
+    upcoming,
   }
 }
 
@@ -174,6 +212,7 @@ export function useChat() {
   const { language, metrics, updateSchedule } = appStore
   const gymStore = useGymStore()
   const healthStore = useHealthStore()
+  const gcalStore = useGoogleCalendarStore()
 
   const sendMessage = useCallback(async (text: string) => {
     chatStore.addMessage({ role: 'user', content: text })
@@ -194,17 +233,26 @@ export function useChat() {
 
       // ── LLM-FIRST CLASSIFICATION ─────────────────────────────────────────
       // Always ask Claude first when no pending state. Pass projects, gym
-      // state, language, AND recent chat history so it can resolve references
-      // like "esa misma serie", "la primera de las que dijiste", etc.
+      // state, language, recent chat history AND user corrections so Claude
+      // sees what was previously misinterpreted and learns the user's
+      // personal patterns (few-shot in-context learning).
       if (!intent) {
         const recentHistory = chatStore.messages.slice(-6).map((m) => ({
           role: m.role, content: m.content.slice(0, 400),
+        }))
+        // Pick the 20 most recent corrections — newer ones are more likely
+        // to reflect current preferences; capping keeps the prompt compact.
+        const corrections = chatStore.corrections.slice(0, 20).map((c) => ({
+          userInput: c.userInput,
+          wrongInterpretation: c.wrongInterpretation,
+          correctInterpretation: c.correctInterpretation,
         }))
         const llm = await classifyWithLLM(text, {
           projects: projectNames,
           activeGymSession: gymStore.activeSession?.name ?? null,
           currentExercise: gymStore.currentExerciseName ?? null,
           language,
+          userCorrections: corrections,
         }, recentHistory)
         if (llm) {
           intent = llm
@@ -219,7 +267,7 @@ export function useChat() {
       // app context for a real reply instead of returning a canned line.
       if (AI_CONVERSATIONAL_INTENTS.includes(intent.type)) {
         const ctx = buildChatContext({
-          tasksStore, gymStore, appStore,
+          tasksStore, gymStore, appStore, gcalStore,
           todaySnap: getTodaySnapshot(healthStore.snapshots),
           baseline: healthStore.baseline,
         })
@@ -257,7 +305,7 @@ export function useChat() {
     } finally {
       chatStore.setThinking(false)
     }
-  }, [chatStore, tasksStore, appStore, gymStore, healthStore, language, metrics, updateSchedule])
+  }, [chatStore, tasksStore, appStore, gymStore, healthStore, gcalStore, language, metrics, updateSchedule])
 
   return {
     messages: chatStore.messages,

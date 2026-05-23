@@ -65,6 +65,27 @@ function findTaskByRef(ref: string | undefined, tasks: Record<string, Task>): Ta
   ) ?? null
 }
 
+/** Detect title strings that are just filler words the LLM or regex picked
+ *  up by mistake ("una tarea", "tarea", "task", "cosa"). When we see one of
+ *  these, we ask the user for the real title instead of creating garbage. */
+function isFillerTitle(title: string | undefined | null): boolean {
+  if (!title) return true
+  const t = title.toLowerCase().trim()
+    .replace(/[¿?¡!.,:;]/g, '')
+    .replace(/\s+/g, ' ')
+  if (t.length === 0) return true
+  // Strip leading articles/determiners.
+  const stripped = t.replace(/^(una|un|la|el|the|a|an)\s+/i, '').trim()
+  const FILLER_WORDS = new Set([
+    'tarea', 'tareas', 'task', 'tasks',
+    'cosa', 'cosas', 'thing',
+    'algo', 'something',
+    'esto', 'eso', 'esta', 'ese', 'esa', 'this', 'that',
+    'nota', 'nueva', 'nuevo', 'nueva tarea', 'new task',
+  ])
+  return FILLER_WORDS.has(stripped) || FILLER_WORDS.has(t)
+}
+
 function findProjectByName(name: string, projects: Stores['tasks']['projects']): { id: string; name: string; statuses: { label: string; countsAsDone: boolean }[] } | null {
   const lower = name.toLowerCase()
   return Object.values(projects).find((p) => p.name.toLowerCase().includes(lower)) ?? null
@@ -180,6 +201,19 @@ export async function handleIntent(
             : "You have no projects yet. Create one first from the Task Tracker."
         }
       }
+      // Safety net for filler titles ("agregar una tarea" with no content)
+      if (isFillerTitle(intent.extracted.taskTitle)) {
+        stores.setPendingIntent({
+          type: 'task_create_no_project',
+          raw: intent.raw,
+          extracted: { taskTitle: '' },
+        })
+        return {
+          content: lang === 'es'
+            ? "¿Qué tarea querés agregar? Decime el título o lo que hay que hacer."
+            : "What's the task? Tell me the title or what needs to be done."
+        }
+      }
       const projectNames = allProjects.map((p) => p.name).join(', ')
       stores.setPendingIntent({
         type: 'task_create_with_project',
@@ -209,6 +243,20 @@ export async function handleIntent(
           content: lang === 'es'
             ? `No encontré el proyecto "${projectName}". Verificá el nombre.`
             : `Project "${projectName}" not found. Check the name.`
+        }
+      }
+      // Safety net: if extraction left only filler ("una tarea", "tarea"),
+      // refuse to create garbage and ask for the real content.
+      if (isFillerTitle(taskTitle)) {
+        stores.setPendingIntent({
+          type: 'task_create_with_project',
+          raw: intent.raw,
+          extracted: { taskTitle: '', projectName: project.name },
+        })
+        return {
+          content: lang === 'es'
+            ? `Ok, en **${project.name}**. ¿Qué tarea querés agregar? Decime el título o lo que hay que hacer.`
+            : `Ok, in **${project.name}**. What's the task? Tell me the title or what needs to be done.`
         }
       }
       const title = taskTitle || intent.raw

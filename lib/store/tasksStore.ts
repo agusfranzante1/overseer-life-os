@@ -22,6 +22,10 @@ interface TasksState {
   addProject: (p: { name: string; description?: string; color?: string }) => string
   updateProject: (id: string, patch: Partial<Project>) => void
   deleteProject: (id: string) => void
+  /** Finds an existing system project by its systemProjectKey (e.g. 'spi'),
+   *  or creates one if it doesn't exist. Returns the project id. Idempotent
+   *  — safe to call on every SPI page mount. */
+  ensureSystemProject: (args: { systemProjectKey: 'spi'; name: string; color: string; icon?: string }) => string
   setSelectedProject: (id: string | null) => void
   addStatusToProject: (projectId: string, status: Omit<CustomStatus, 'id'>) => void
   removeStatusFromProject: (projectId: string, statusId: string) => void
@@ -92,8 +96,36 @@ export const useTasksStore = create<TasksState>()(
           projects: { ...s.projects, [id]: { ...s.projects[id], ...patch } },
         })),
 
+      ensureSystemProject: ({ systemProjectKey, name, color, icon }) => {
+        const existing = Object.values(get().projects).find(
+          (p) => p.systemProjectKey === systemProjectKey
+        )
+        if (existing) return existing.id
+        const id = genId()
+        set((s) => ({
+          projects: {
+            ...s.projects,
+            [id]: {
+              id, name, color, icon,
+              statuses: DEFAULT_STATUSES,
+              taskIds: [],
+              createdAt: new Date().toISOString(),
+              archived: false,
+              isSystemProject: true,
+              systemProjectKey,
+            },
+          },
+        }))
+        return id
+      },
+
       deleteProject: (id) =>
         set((s) => {
+          // System projects (e.g. SPI) cannot be deleted from the task
+          // manager — they're owned by another subsystem that needs them
+          // to exist. The UI already disables the delete button, but we
+          // guard at the store too in case someone calls programmatically.
+          if (s.projects[id]?.isSystemProject) return s
           const { [id]: _, ...rest } = s.projects
           const tasks = Object.fromEntries(
             Object.entries(s.tasks).filter(([, t]) => t.projectId !== id)

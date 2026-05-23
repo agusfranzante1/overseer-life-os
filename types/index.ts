@@ -71,6 +71,14 @@ export interface Project {
   taskIds: string[]
   createdAt: string
   archived: boolean
+  /** Marks projects owned by another system (e.g. SPI) that should NOT be
+   *  user-deletable from the task manager. They can still be renamed/recolored
+   *  and the user can add tasks manually, but the delete button is disabled
+   *  and a small "sistema" badge is shown. */
+  isSystemProject?: boolean
+  /** Optional key identifying which system owns this project. Used for
+   *  auto-recreate logic and badge labels. Currently: 'spi'. */
+  systemProjectKey?: 'spi'
 }
 
 export interface MetricEntry {

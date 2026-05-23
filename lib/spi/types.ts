@@ -1,0 +1,108 @@
+/** SPI: Sistema de Progreso Infinito — type definitions.
+ *
+ *  A SPI session is a weekly reflection/planning ritual (typically every
+ *  Saturday). The user fills out a structured template with reflection
+ *  prompts across multiple sections, ending in a list of tasks to execute
+ *  during the upcoming week.
+ *
+ *  Each session is persisted forever, forming a journal-like archive
+ *  the user can revisit and learn from. Sessions also generate XP and a
+ *  streak counter to gamify the consistency of doing this ritual weekly.
+ */
+
+/** A task generated during the planning session. Lives in the SPISession
+ *  but, once the session is "closed", is mirrored into the global Tasks
+ *  store under a non-deletable project called "SPI". */
+export interface SPITask {
+  id: string
+  title: string
+  /** ⭐ Pareto flag — the user marks tasks that are part of the 20% that
+   *  drives 80% of the outcomes. Used for prioritization in the UI. */
+  important: boolean
+  /** ISO date string (YYYY-MM-DD) — when the user plans to do it. */
+  dueDate?: string
+  /** "Para qué" — the purpose/why behind this task. Lives only here
+   *  (not in the global Task model) per user's design choice. */
+  whyPurpose?: string
+  /** If the session has been closed, the corresponding global Task id. */
+  linkedTaskId?: string
+  /** If the user moved the linked task from "SPI" project to another
+   *  one, this records the destination project so we still know where
+   *  it ended up. */
+  movedToProjectId?: string
+}
+
+export type SectionFieldType = 'text' | 'textarea' | 'select' | 'checklist'
+
+export interface SectionField {
+  key: string
+  label: string
+  type: SectionFieldType
+  placeholder?: string
+  /** Options for type='select'. */
+  options?: string[]
+  /** Small italic hint shown ABOVE the field for context. */
+  hint?: string
+  /** Italic blockquote shown above the field (philosophy / mantra). */
+  blockquote?: string
+  /** Below-field epigraph (also italic blockquote, often the closing
+   *  thought of a section). */
+  epigraph?: string
+}
+
+export interface SPISection {
+  key: string
+  emoji: string
+  title: string
+  /** Short intro paragraph, shown collapsed when the section is closed. */
+  intro?: string
+  /** Whether this section is collapsed by default. */
+  defaultCollapsed?: boolean
+  /** Optional sub-sections inside this one (for nested "Necesito profundidad"
+   *  style accordions). Each subsection is rendered as a nested collapsible. */
+  subsections?: SPISection[]
+  fields?: SectionField[]
+}
+
+/** The full template — defines what sections and fields appear in each
+ *  weekly session. Versioned so we can migrate older sessions whose
+ *  structure was different. */
+export interface SPITemplate {
+  version: number
+  sections: SPISection[]
+  /** The top-level main checklist — items the user ticks during execution
+   *  of the SPI session (e.g. "Ejecutar Protocolo AAA"). */
+  mainChecklist: { key: string; label: string }[]
+}
+
+export interface SPISession {
+  id: string
+  /** ISO YYYY-MM-DD — the Saturday this session "belongs to". */
+  weekStartDate: string
+  createdAt: string
+  updatedAt: string
+  closedAt?: string
+
+  /** State of the top-level checklist (key → ticked). */
+  mainChecklist: Record<string, boolean>
+
+  /** Field values: sectionKey → fieldKey → value (string). For checklist
+   *  fields the value is JSON-encoded array of strings; for select it's
+   *  the option label. */
+  values: Record<string, Record<string, string>>
+
+  /** Tasks generated this week. */
+  tasks: SPITask[]
+
+  /** Mood after closing — 1-10 scale. */
+  mood?: number
+  /** Auto-calculated 0-100 score. Combines main checklist completion,
+   *  task completion ratio, and mood. Computed at close time. */
+  score?: number
+  /** Optional closing notes / reflection. */
+  notes?: string
+
+  /** Template version this session was built against — for backward
+   *  compat when we change the template in the future. */
+  templateVersion: number
+}

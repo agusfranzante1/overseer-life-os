@@ -10,6 +10,7 @@ import { useGymStore } from '@/lib/store/gymStore'
 import { useHealthStore } from '@/lib/store/healthStore'
 import { useChatStore } from '@/lib/store/chatStore'
 import { useFoodStore } from '@/lib/store/foodStore'
+import { useSPIStore } from '@/lib/store/spiStore'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
@@ -24,6 +25,7 @@ interface SyncState {
   healthInit: boolean
   chatInit: boolean
   foodInit: boolean
+  spiInit: boolean
 }
 
 const state: SyncState = {
@@ -37,6 +39,7 @@ const state: SyncState = {
   healthInit: false,
   chatInit: false,
   foodInit: false,
+  spiInit: false,
 }
 
 // ─── Push timers (debounced per domain) ───────────────────────────────────────
@@ -49,6 +52,7 @@ let gymBasicsPushTimer: ReturnType<typeof setTimeout> | null = null
 let healthPushTimer: ReturnType<typeof setTimeout> | null = null
 let chatPushTimer: ReturnType<typeof setTimeout> | null = null
 let foodPushTimer: ReturnType<typeof setTimeout> | null = null
+let spiPushTimer: ReturnType<typeof setTimeout> | null = null
 
 function schedule(
   timer: ReturnType<typeof setTimeout> | null,
@@ -586,6 +590,51 @@ async function pullHabits(): Promise<boolean> {
   return true
 }
 
+// ─── SPI (weekly planning sessions) ───────────────────────────────────────────
+
+async function pushSPI() {
+  if (!state.userId) return
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { sessions } = useSPIStore.getState()
+
+  // Each session stored as one row; full payload in JSONB. We strip the
+  // top-level metadata (week_start_date, closed_at) into columns for query
+  // performance later (e.g. "all closed sessions this quarter").
+  const rows = sessions.map((sess) => ({
+    id: sess.id,
+    user_id: uid,
+    week_start_date: sess.weekStartDate,
+    created_at: sess.createdAt,
+    updated_at: sess.updatedAt,
+    closed_at: sess.closedAt ?? null,
+    payload: sess,
+  }))
+
+  if (rows.length > 0) await sb.from('spi_sessions').upsert(rows)
+  await deleteSurplus(sb, 'spi_sessions', uid, rows.map((r) => r.id))
+}
+
+async function pullSPI(): Promise<boolean> {
+  if (!state.userId) return false
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('spi_sessions').select('*').eq('user_id', uid)
+    .order('week_start_date', { ascending: false })
+  if (res.error) {
+    console.error('SPI pull failed', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) return false
+
+  type Row = { payload: unknown }
+  useSPIStore.setState({
+    sessions: (res.data ?? []).map((r: Row) => r.payload as import('@/lib/spi/types').SPISession),
+  })
+  return true
+}
+
 // ─── GYM (weight entries + config + routines + sessions) ──────────────────────
 
 async function pushGym() {
@@ -896,6 +945,7 @@ function scheduleGymBasics()  { schedule(gymBasicsPushTimer, pushGymBasics, (t) 
 function scheduleHealth()     { schedule(healthPushTimer,    pushHealth,    (t) => { healthPushTimer = t }) }
 function scheduleChat()       { schedule(chatPushTimer,      pushChat,      (t) => { chatPushTimer = t }) }
 function scheduleFood()       { schedule(foodPushTimer,      pushFood,      (t) => { foodPushTimer = t }) }
+function scheduleSPI()        { schedule(spiPushTimer,       pushSPI,       (t) => { spiPushTimer = t }) }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
@@ -948,6 +998,11 @@ async function initAllDomains() {
     const had = await pullFood()
     if (!had) await pushFood().catch((e) => console.error('Food initial push failed', e))
   }
+  if (!state.spiInit) {
+    state.spiInit = true
+    const had = await pullSPI()
+    if (!had) await pushSPI().catch((e) => console.error('SPI initial push failed', e))
+  }
 }
 
 /** Mount once at the app root. Wires all domains for sync. */
@@ -978,6 +1033,7 @@ export function useSupabaseSync() {
       useHealthStore.subscribe(() => { if (state.userId) scheduleHealth() })
       useChatStore.subscribe(() => { if (state.userId) scheduleChat() })
       useFoodStore.subscribe(() => { if (state.userId) scheduleFood() })
+      useSPIStore.subscribe(() => { if (state.userId) scheduleSPI() })
     }
 
     // Auth state changes — when the user signs in *after* mount (e.g. from
@@ -994,6 +1050,7 @@ export function useSupabaseSync() {
       state.healthInit = false
       state.chatInit = false
       state.foodInit = false
+      state.spiInit = false
       if (newId) {
         initAllDomains().catch((e) => console.error('Init after auth change failed', e))
       }
@@ -1024,3 +1081,5 @@ export async function forceSyncChat()     { await pushChat() }
 export async function forcePullChat()     { return pullChat() }
 export async function forceSyncFood()     { await pushFood() }
 export async function forcePullFood()     { return pullFood() }
+export async function forceSyncSPI()      { await pushSPI() }
+export async function forcePullSPI()      { return pullSPI() }

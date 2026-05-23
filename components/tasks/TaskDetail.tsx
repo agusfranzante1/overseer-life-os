@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Task, Project, Priority } from '@/types'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTranslation } from '@/hooks/useTranslation'
-import { X, Plus, Trash2, CheckCircle2, ChevronRight } from 'lucide-react'
+import { X, Plus, Trash2, CheckCircle2, ChevronRight, ArrowRightLeft, Check } from 'lucide-react'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { SubtaskDetailModal } from './SubtaskDetailModal'
 
@@ -17,13 +17,14 @@ interface Props {
 const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
 export function TaskDetail({ task, project, onClose }: Props) {
-  const { updateTask, addSubtask, toggleSubtask, deleteSubtask, updateSubtask, projects } = useTasksStore()
+  const { updateTask, addSubtask, toggleSubtask, deleteSubtask, updateSubtask, moveTask, projects } = useTasksStore()
   const { t } = useTranslation()
   const [editTitle, setEditTitle] = useState('')
   const [editDesc, setEditDesc] = useState('')
   const [editNotes, setEditNotes] = useState('')
   const [newSubtask, setNewSubtask] = useState('')
   const [openSubtaskId, setOpenSubtaskId] = useState<string | null>(null)
+  const [showMoveMenu, setShowMoveMenu] = useState(false)
 
   useEffect(() => {
     if (task) {
@@ -97,10 +98,57 @@ export function TaskDetail({ task, project, onClose }: Props) {
               </button>
             </div>
 
-            {/* Project */}
-            <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: project.color }} />
-              <span className="text-sm text-zinc-400">{project.name}</span>
+            {/* Project — click to move task to another project */}
+            <div className="relative">
+              <button
+                onClick={() => setShowMoveMenu((v) => !v)}
+                className="flex items-center gap-2 group hover:bg-zinc-800/40 px-2 py-1 -mx-2 rounded-md transition-colors"
+                title="Click para mover a otro proyecto"
+              >
+                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: project.color }} />
+                <span className="text-sm text-zinc-400 group-hover:text-zinc-200 transition-colors">{project.name}</span>
+                <ArrowRightLeft className="w-3 h-3 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+              </button>
+              {showMoveMenu && (
+                <>
+                  {/* Click-outside catcher */}
+                  <div className="fixed inset-0 z-10" onClick={() => setShowMoveMenu(false)} />
+                  <div className="absolute left-0 top-full mt-1.5 z-20 min-w-[220px] bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1 max-h-72 overflow-y-auto">
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 px-3 py-2 border-b border-zinc-800">
+                      Mover a proyecto
+                    </p>
+                    {Object.values(projects)
+                      .filter((p) => !p.archived)
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map((p) => {
+                        const isCurrent = p.id === project.id
+                        return (
+                          <button
+                            key={p.id}
+                            disabled={isCurrent}
+                            onClick={() => {
+                              if (isCurrent) return
+                              moveTask(task.id, p.id)
+                              setShowMoveMenu(false)
+                            }}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                              isCurrent
+                                ? 'text-zinc-500 cursor-default'
+                                : 'text-zinc-200 hover:bg-zinc-800'
+                            }`}
+                          >
+                            <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: p.color }} />
+                            <span className="flex-1 truncate">{p.name}</span>
+                            {p.isSystemProject && (
+                              <span className="text-[9px] font-mono uppercase text-fuchsia-400/70 px-1 bg-fuchsia-500/10 rounded">sistema</span>
+                            )}
+                            {isCurrent && <Check className="w-3 h-3 text-emerald-400 shrink-0" />}
+                          </button>
+                        )
+                      })}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Status */}

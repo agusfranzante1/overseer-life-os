@@ -48,7 +48,27 @@ Available intents (use the EXACT "type" string shown):
    When user wants to add a SINGLE task without specifying a project. Examples: "agregá llamar al banco", "tengo que comprar leche", "nueva tarea: revisar emails"
 
 6b. {"type":"task_create_with_project","extracted":{"taskTitle":"<string>","projectName":"<string>"}}
-   When user wants to add a SINGLE task IN a specific project. Example: "agregá llamar al banco en personal"
+   When user wants to add a SINGLE task IN a specific project.
+   Examples (notice all the different syntaxes — extract the ACTUAL task content, NOT filler words):
+   - "agregá llamar al banco en personal"
+       → taskTitle: "llamar al banco", projectName: "Personal"
+   - "necesito crear una tarea en nqn survey: limpiar porton"
+       → taskTitle: "limpiar porton", projectName: "NQN Survey"
+   - "creame una tarea en gym, comprar proteína"
+       → taskTitle: "comprar proteína", projectName: "Gym"
+   - "tarea en personal: revisar facturas del mes"
+       → taskTitle: "revisar facturas del mes", projectName: "Personal"
+   - "agregame revisar precios al proyecto nqn survey"
+       → taskTitle: "revisar precios", projectName: "NQN Survey"
+   - "para personal: cambiar lamparas living"
+       → taskTitle: "cambiar lamparas living", projectName: "Personal"
+
+   CRITICAL EXTRACTION RULES:
+   - The taskTitle is the ACTUAL CONTENT — what to DO. It's NEVER the words "tarea", "task", "cosa", "algo", "una", "esto", "eso".
+   - When the user uses a colon (":") or hyphen separator, the title is what comes AFTER it: "tarea en X: Y" → title is "Y".
+   - When the user uses prepositions ("en", "para", "al proyecto", "a"), the project is what comes AFTER that preposition; the title is the REST of the meaningful content.
+   - If after stripping filler the title is empty or just generic words ("tarea", "algo", "cosa"), output task_create_no_project with the BEST guess from context OR fall back to type "unknown" so the user is asked.
+
    projectName MUST be one of the project names in CONTEXT.projects (exact match, case-insensitive). If the user references a project that doesn't exist, fall back to task_create_no_project.
 
 6c. {"type":"task_create_batch","extracted":{"taskBatch":[{"taskTitle":"<string>","projectName":"<string|null>"}, ...]}}
@@ -71,13 +91,30 @@ Available intents (use the EXACT "type" string shown):
    When user updates a daily-schedule slot. Examples: "almuerzo a las 14", "quiero cenar 21hs", "mover entrenamiento a las 19"
 
 9. {"type":"question","extracted":{}}
-   When user asks something open-ended that needs reasoning. Examples: "¿qué me conviene hacer ahora?", "¿cómo viene mi semana?"
+   When user asks something open-ended that needs reasoning, INCLUDING questions about
+   their Google Calendar (próximos eventos, turnos, recordatorios futuros).
+   Examples: "¿qué me conviene hacer ahora?", "¿cómo viene mi semana?",
+   "¿cuándo es mi próximo turno con el kinesiólogo?", "¿qué tengo mañana?",
+   "¿qué eventos tengo esta semana?", "qué reuniones se vienen", "que debería recordar".
 
 10. {"type":"greeting","extracted":{}}
     Just a hello.
 
 11. {"type":"unknown","extracted":{}}
     None of the above clearly applies.
+
+═══════════════════════════════════════════════════════════════════════
+PERSONAL LEARNING — HIGHEST PRIORITY RULE
+═══════════════════════════════════════════════════════════════════════
+CONTEXT may include "userCorrections": an array of past mistakes the user
+explicitly corrected. Format: { userInput, wrongInterpretation, correctInterpretation }.
+
+These are LAW. The user has personally said "you got this wrong, this is what I meant".
+- BEFORE classifying the current message, scan userCorrections for similar phrasings.
+- If the current message resembles ANY past userInput, follow the correctInterpretation pattern — DO NOT repeat the wrongInterpretation.
+- These corrections override examples in this prompt when they conflict.
+- The user has limited patience for repeated mistakes. Honor their corrections.
+═══════════════════════════════════════════════════════════════════════
 
 RULES:
 - Output ONE single JSON object, nothing else.
@@ -90,6 +127,7 @@ RULES:
 - MULTIPLE tasks (esp. in different projects) → task_create_batch.
 - ONE task with a project → task_create_with_project.
 - ONE task without a project → task_create_no_project.
+- NEVER use filler words ("tarea", "task", "cosa", "algo", "una", "esto") as taskTitle. If the user's message is "agregar una tarea en X" with NO actual task content, output task_create_no_project with EMPTY taskTitle "" so the system asks them to clarify.
 - Be tolerant of typos, abbreviations, and informal language.
 - Use CONTEXT.recentChat to resolve references like "esa misma", "la última que dijiste", "agregale otra". If the previous assistant message asked about a specific exercise/task/project, prefer that as the target.
 - If the user's message is a simple "sí / no / dale / ok" confirming the previous assistant question, infer the intent from that context (e.g. if the assistant just asked "¿agrego dropset al Press Inclinado?", a "sí" should be the relevant gym intent, not greeting).

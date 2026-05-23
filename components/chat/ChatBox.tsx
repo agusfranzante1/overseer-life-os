@@ -4,9 +4,80 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useChat } from '@/hooks/useChat'
 import { useTranslation } from '@/hooks/useTranslation'
 import { useAppStore } from '@/lib/store/appStore'
-import { Send, Trash2, MessageSquare, ChevronDown, Mic, MicOff } from 'lucide-react'
+import { useChatStore } from '@/lib/store/chatStore'
+import { Send, Trash2, MessageSquare, ChevronDown, Mic, MicOff, X, Check, GraduationCap } from 'lucide-react'
 import { useVoiceInput } from '@/hooks/useVoiceInput'
 import ReactMarkdown from 'react-markdown'
+
+/** Inline correction widget. Lets the user say "this was wrong, here's what
+ *  I meant" — saved correction goes to chatStore and is injected as a
+ *  few-shot example into all future intent classifier calls. */
+function CorrectionForm({
+  userInput,
+  wrongInterpretation,
+  onClose,
+}: {
+  userInput: string
+  wrongInterpretation: string
+  onClose: () => void
+}) {
+  const addCorrection = useChatStore((s) => s.addCorrection)
+  const [text, setText] = useState('')
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  const submit = () => {
+    const trimmed = text.trim()
+    if (!trimmed) return
+    addCorrection({ userInput, wrongInterpretation, correctInterpretation: trimmed })
+    onClose()
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      exit={{ opacity: 0, height: 0 }}
+      className="mt-2 -mx-1 overflow-hidden"
+    >
+      <div className="bg-zinc-900 border border-amber-500/30 rounded-lg p-2 space-y-2">
+        <p className="text-[10px] text-amber-300/80 font-mono uppercase tracking-wider flex items-center gap-1.5">
+          <GraduationCap className="w-3 h-3" /> Enseñame
+        </p>
+        <textarea
+          ref={inputRef}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit() }
+            if (e.key === 'Escape') { e.preventDefault(); onClose() }
+          }}
+          placeholder="¿Qué deberías haber entendido? Ej: el título era 'limpiar porton', no 'tarea'"
+          rows={2}
+          className="w-full text-xs bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-200 focus:outline-none focus:border-amber-500/50 placeholder:text-zinc-600 resize-none"
+        />
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[9px] text-zinc-600">Cmd/Ctrl+Enter para guardar · Esc cancelar</p>
+          <div className="flex gap-1">
+            <button
+              onClick={onClose}
+              className="px-2 py-1 text-[10px] text-zinc-400 hover:text-zinc-200 transition-colors"
+            >
+              <X className="w-3 h-3" />
+            </button>
+            <button
+              onClick={submit}
+              disabled={!text.trim()}
+              className="px-2 py-1 text-[10px] text-amber-300 bg-amber-500/15 hover:bg-amber-500/25 disabled:opacity-30 disabled:cursor-not-allowed rounded transition-colors flex items-center gap-1"
+            >
+              <Check className="w-3 h-3" /> Guardar
+            </button>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
 
 function MarkdownContent({ content }: { content: string }) {
   return (
@@ -26,12 +97,71 @@ function MarkdownContent({ content }: { content: string }) {
   )
 }
 
+/** Lists everything the user has taught the chat. Each row is one
+ *  correction with a delete button. Useful for cleaning up bad lessons. */
+function CorrectionsPanel({ onClose }: { onClose: () => void }) {
+  const corrections = useChatStore((s) => s.corrections)
+  const removeCorrection = useChatStore((s) => s.removeCorrection)
+  const clearCorrections = useChatStore((s) => s.clearCorrections)
+  return (
+    <motion.div
+      initial={{ height: 0, opacity: 0 }}
+      animate={{ height: 'auto', opacity: 1 }}
+      exit={{ height: 0, opacity: 0 }}
+      className="overflow-hidden border-b border-amber-500/20 bg-amber-500/5"
+    >
+      <div className="px-4 py-2 flex items-center justify-between">
+        <p className="text-[10px] font-mono uppercase tracking-wider text-amber-400/80 flex items-center gap-1.5">
+          <GraduationCap className="w-3 h-3" /> Lecciones aprendidas ({corrections.length})
+        </p>
+        <div className="flex items-center gap-2">
+          {corrections.length > 0 && (
+            <button
+              onClick={() => { if (confirm('Borrar todas las lecciones?')) clearCorrections() }}
+              className="text-[10px] text-zinc-500 hover:text-red-400 transition-colors"
+            >
+              borrar todo
+            </button>
+          )}
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+      <div className="max-h-48 overflow-y-auto px-4 pb-3 space-y-2">
+        {corrections.length === 0 && (
+          <p className="text-[11px] text-zinc-500 italic">Todavía no le enseñaste nada.</p>
+        )}
+        {corrections.map((c) => (
+          <div key={c.id} className="bg-zinc-900 border border-zinc-800 rounded p-2 text-[11px] space-y-1">
+            <p className="text-zinc-400">
+              <span className="text-zinc-600">vos:</span> "{c.userInput}"
+            </p>
+            <p className="text-amber-300/80">
+              <span className="text-zinc-600">debería:</span> {c.correctInterpretation}
+            </p>
+            <button
+              onClick={() => removeCorrection(c.id)}
+              className="text-[9px] text-zinc-600 hover:text-red-400 transition-colors"
+            >
+              borrar lección
+            </button>
+          </div>
+        ))}
+      </div>
+    </motion.div>
+  )
+}
+
 export function ChatBox() {
   const { messages, isThinking, sendMessage, clearHistory } = useChat()
   const { t } = useTranslation()
   const { chatOpen, setChatOpen, language } = useAppStore()
+  const corrections = useChatStore((s) => s.corrections)
   const [input, setInput] = useState('')
   const [interim, setInterim] = useState('')   // live partial transcript while speaking
+  const [correctingMessageId, setCorrectingMessageId] = useState<string | null>(null)
+  const [showCorrectionsPanel, setShowCorrectionsPanel] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -87,14 +217,33 @@ export function ChatBox() {
               <span className="text-xs font-semibold text-indigo-400 uppercase tracking-wider">
                 {t('chat.assistant')}
               </span>
-              <button
-                onClick={clearHistory}
-                className="text-zinc-500 hover:text-zinc-300 transition-colors"
-                title={t('chat.clear')}
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center gap-3">
+                {corrections.length > 0 && (
+                  <button
+                    onClick={() => setShowCorrectionsPanel((v) => !v)}
+                    className="text-amber-400/80 hover:text-amber-300 transition-colors text-[10px] font-mono uppercase tracking-wider flex items-center gap-1"
+                    title="Ver lo que le enseñaste"
+                  >
+                    <GraduationCap className="w-3 h-3" /> {corrections.length}
+                  </button>
+                )}
+                <button
+                  onClick={clearHistory}
+                  className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                  title={t('chat.clear')}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
+
+            {/* Corrections panel — shows everything the user has taught the
+                bot. Lets them review or delete individual lessons. */}
+            <AnimatePresence>
+              {showCorrectionsPanel && (
+                <CorrectionsPanel onClose={() => setShowCorrectionsPanel(false)} />
+              )}
+            </AnimatePresence>
 
             <div className="h-[calc(320px-80px)] overflow-y-auto px-4 py-3 space-y-3">
               {visibleMessages.length === 0 && (
@@ -102,13 +251,21 @@ export function ChatBox() {
                   {t('chat.placeholder')}
                 </p>
               )}
-              {visibleMessages.map((msg, i) => (
+              {visibleMessages.map((msg, i) => {
+                // For an assistant message, the "user input that caused this"
+                // is the last user message earlier in the visibleMessages array.
+                const prevUserMsg = msg.role === 'assistant'
+                  ? [...visibleMessages.slice(0, i)].reverse().find((m) => m.role === 'user')
+                  : null
+                const canCorrect = msg.role === 'assistant' && !!prevUserMsg
+                const isShowingForm = correctingMessageId === msg.id
+                return (
                 <motion.div
                   key={msg.id}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0 }}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
                 >
                   <div
                     className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
@@ -123,8 +280,29 @@ export function ChatBox() {
                       <span>{msg.content}</span>
                     )}
                   </div>
+                  {/* Feedback footer — only on assistant messages following a
+                      user turn. Lets the user record a correction that future
+                      classifier calls will see as a personal example. */}
+                  {canCorrect && !isShowingForm && (
+                    <button
+                      onClick={() => setCorrectingMessageId(msg.id)}
+                      className="mt-1 text-[10px] text-zinc-600 hover:text-amber-300 transition-colors flex items-center gap-1 px-1"
+                      title="Enseñá al chat qué era lo correcto"
+                    >
+                      <GraduationCap className="w-2.5 h-2.5" /> no era eso
+                    </button>
+                  )}
+                  {canCorrect && isShowingForm && prevUserMsg && (
+                    <div className="w-full max-w-[85%]">
+                      <CorrectionForm
+                        userInput={prevUserMsg.content}
+                        wrongInterpretation={msg.content}
+                        onClose={() => setCorrectingMessageId(null)}
+                      />
+                    </div>
+                  )}
                 </motion.div>
-              ))}
+              )})}
               {isThinking && (
                 <motion.div
                   initial={{ opacity: 0 }}

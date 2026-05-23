@@ -156,6 +156,15 @@ function ProjectHeader({ project, onRename, onUpdateDescription, onUpdateColor, 
           </button>
         )}
 
+        {project.isSystemProject && (
+          <span
+            className="text-[9px] font-mono uppercase tracking-wider text-fuchsia-300 bg-fuchsia-500/15 border border-fuchsia-500/30 px-1.5 py-0.5 rounded shrink-0"
+            title={`Proyecto del sistema (${project.systemProjectKey ?? 'system'}) — gestionado automáticamente`}
+          >
+            sistema
+          </span>
+        )}
+
         <button
           onClick={() => setEditingName(true)}
           title="Renombrar"
@@ -186,13 +195,25 @@ function ProjectHeader({ project, onRename, onUpdateDescription, onUpdateColor, 
               >
                 <Pencil className="w-3.5 h-3.5" /> Editar descripción
               </button>
-              <div className="my-1 border-t border-zinc-800" />
-              <button
-                onClick={() => { setMenuOpen(false); onDelete() }}
-                className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 flex items-center gap-2"
-              >
-                <Trash2 className="w-3.5 h-3.5" /> Eliminar proyecto
-              </button>
+              {!project.isSystemProject && (
+                <>
+                  <div className="my-1 border-t border-zinc-800" />
+                  <button
+                    onClick={() => { setMenuOpen(false); onDelete() }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 flex items-center gap-2"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Eliminar proyecto
+                  </button>
+                </>
+              )}
+              {project.isSystemProject && (
+                <>
+                  <div className="my-1 border-t border-zinc-800" />
+                  <div className="px-3 py-1.5 text-[10px] text-fuchsia-400/70 italic">
+                    Proyecto del sistema — no se puede eliminar
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

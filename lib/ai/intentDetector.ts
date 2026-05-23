@@ -214,12 +214,31 @@ function detectImplicitTask(lower: string, knownProjects: string[]): Intent | nu
 }
 
 function extractTaskTitle(raw: string): string {
-  return raw
-    .replace(/\b(add|create|new task|agregar|crear|nueva tarea|añadir|quiero agregar|necesito agregar)\b/gi, '')
-    .replace(/\b(for|in|to|al|a|en|para)\b\s+\w+.*/i, '')
+  // First: if the user used a colon or " - " as a separator, the title is
+  // EVERYTHING after the last such separator. This handles patterns like
+  // "necesito crear una tarea en nqn survey: limpiar porton" → "limpiar porton".
+  const colonSplit = raw.split(/\s*[:\-—]\s+/)
+  if (colonSplit.length > 1) {
+    const afterColon = colonSplit.slice(-1)[0].trim()
+    if (afterColon.length > 2) return afterColon
+  }
+
+  // Otherwise: strip command words AND filler nouns ("una tarea", "la tarea")
+  // before trying to find a preposition+project to drop.
+  let cleaned = raw
+    .replace(/\b(add|create|new task|agregar|crear|nueva tarea|añadir|añade|necesito (?:crear|agregar|añadir)|quiero (?:crear|agregar|añadir)|creame|agregame|añadime|hacé|hace|poneme|pon[ée]me)\b/gi, '')
+    .replace(/\b(?:una|un|la|el)\s+(?:nueva\s+)?tareas?\b/gi, '')
+    .replace(/\bnueva tarea\b/gi, '')
     .trim()
-    .replace(/^[:\-\s]+/, '')
-    || raw
+
+  // Then drop "<preposition> <project-words>...END" — but ONLY if what's left
+  // before the preposition has actual content. Otherwise we'd lose everything.
+  const prepMatch = cleaned.match(/^(.+?)\s+\b(for|in|to|al|a|en|para|del proyecto|al proyecto)\b\s+\S+.*$/i)
+  if (prepMatch && prepMatch[1].trim().length > 2) {
+    cleaned = prepMatch[1].trim()
+  }
+
+  return cleaned.replace(/^[:\-\s]+/, '').trim() || raw
 }
 
 function extractTaskRef(raw: string): Intent['extracted'] {
