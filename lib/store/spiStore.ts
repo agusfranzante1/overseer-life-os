@@ -66,6 +66,13 @@ interface SPIState {
     previousLevel: number
   }
 
+  // ─── Template editing (Phase 4) ─────────────────────────────────
+  /** Replace the entire template. New sessions will use this. Existing
+   *  sessions keep their snapshot via templateVersion field. */
+  updateTemplate: (t: SPITemplate) => void
+  /** Restore the bundled default template. */
+  resetTemplate: () => void
+
   // ─── Gamification selectors ─────────────────────────────────────
   /** Total XP earned across all closed sessions. */
   getTotalXP: () => number
@@ -182,6 +189,11 @@ export const useSPIStore = create<SPIState>()(
           return { ...t, linkedTaskId: realTaskId }
         })
 
+        // Auto-tick the "cerrar" checklist item — the user just closed,
+        // they shouldn't have to also remember to tick it. We look it up
+        // by key (matches DEFAULT_SPI_TEMPLATE.mainChecklist.cerrar).
+        const autoCheckedMain = { ...session.mainChecklist, cerrar: true }
+
         const closedSession: SPISession = {
           ...session,
           tasks: updatedTasks,
@@ -189,10 +201,12 @@ export const useSPIStore = create<SPIState>()(
           updatedAt: new Date().toISOString(),
           mood: args.mood ?? session.mood,
           notes: args.notes ?? session.notes,
+          mainChecklist: autoCheckedMain,
           score: computeScore({
             ...session,
             tasks: updatedTasks,
             mood: args.mood ?? session.mood,
+            mainChecklist: autoCheckedMain,
           }),
         }
         set((s) => ({
@@ -209,6 +223,14 @@ export const useSPIStore = create<SPIState>()(
         const pushed = updatedTasks.filter((t) => t.linkedTaskId && !session.tasks.find((o) => o.id === t.id)?.linkedTaskId).length
         return { pushedTasks: pushed, xp, leveledUp, newLevel, previousLevel }
       },
+
+      updateTemplate: (t) => set({
+        // Bump version so future sessions snapshot the new template id.
+        template: { ...t, version: (get().template.version ?? 0) + 1 },
+      }),
+      resetTemplate: () => set({
+        template: { ...DEFAULT_SPI_TEMPLATE, version: (get().template.version ?? 0) + 1 },
+      }),
 
       getTotalXP: () => totalXPFromSessions(get().sessions),
       getLevel: () => levelFromXP(totalXPFromSessions(get().sessions)),

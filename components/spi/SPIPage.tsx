@@ -4,7 +4,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Infinity as InfinityIcon, Plus, ChevronDown, ChevronRight, Flame, Trophy,
   Check, Calendar, Star, Trash2, Sparkles, History, X, ArrowRight, Zap, TrendingUp,
+  Settings2,
 } from 'lucide-react'
+import { TemplateEditor } from './TemplateEditor'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
@@ -19,6 +21,7 @@ export function SPIPage() {
     createOrOpenCurrentWeek, setActiveSession,
     toggleChecklistItem, updateValue, closeSession,
     addTask, updateTask, removeTask, pushTaskToManager,
+    updateTemplate, resetTemplate,
     getStreak, getLevel,
   } = useSPIStore()
   const projectsById = useTasksStore((s) => s.projects)
@@ -28,6 +31,7 @@ export function SPIPage() {
   useEffect(() => setMounted(true), [])
   const [showHistory, setShowHistory] = useState(false)
   const [showClose, setShowClose] = useState(false)
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false)
   /** Set when the just-closed session triggered a level-up — drives the
    *  celebration modal. Cleared on dismiss. */
   const [closeResult, setCloseResult] = useState<null | {
@@ -101,6 +105,13 @@ export function SPIPage() {
           >
             <History className="w-3.5 h-3.5" /> Historial ({sessions.length})
           </button>
+          <button
+            onClick={() => setShowTemplateEditor(true)}
+            className="px-2 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-fuchsia-500/40 text-zinc-500 hover:text-fuchsia-300 rounded-lg transition-all"
+            title="Editar plantilla — agregá, quitá o renombrá preguntas y secciones"
+          >
+            <Settings2 className="w-3.5 h-3.5" />
+          </button>
           {!activeSession && (
             <button
               onClick={() => createOrOpenCurrentWeek()}
@@ -168,6 +179,14 @@ export function SPIPage() {
           <CelebrationModal
             result={closeResult}
             onClose={() => setCloseResult(null)}
+          />
+        )}
+        {showTemplateEditor && (
+          <TemplateEditor
+            template={template}
+            onSave={updateTemplate}
+            onReset={resetTemplate}
+            onClose={() => setShowTemplateEditor(false)}
           />
         )}
       </AnimatePresence>

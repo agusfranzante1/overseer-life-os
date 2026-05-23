@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
+import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTranslation } from '@/hooks/useTranslation'
@@ -163,6 +164,15 @@ function ProjectHeader({ project, onRename, onUpdateDescription, onUpdateColor, 
           >
             sistema
           </span>
+        )}
+        {project.systemProjectKey === 'spi' && (
+          <Link
+            href="/spi"
+            className="text-[10px] text-fuchsia-300/80 hover:text-fuchsia-200 hover:bg-fuchsia-500/10 px-2 py-0.5 rounded transition-colors shrink-0 flex items-center gap-1"
+            title="Volver a la pestaña SPI"
+          >
+            ♾️ ir a SPI
+          </Link>
         )}
 
         <button
