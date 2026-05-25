@@ -5,7 +5,7 @@ import { motion } from 'framer-motion'
 import { Task, Project, Priority, Subtask } from '@/types'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTranslation } from '@/hooks/useTranslation'
-import { CheckCircle2, Clock, Trash2, ChevronDown, ChevronUp, Plus, Flag, GripVertical, CornerDownRight, MoreHorizontal, ChevronRight } from 'lucide-react'
+import { CheckCircle2, Clock, Trash2, ChevronDown, ChevronUp, Plus, Flag, GripVertical, CornerDownRight, MoreHorizontal, ChevronRight, Calendar, X } from 'lucide-react'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { format } from 'date-fns'
 import { SubtaskDetailModal } from './SubtaskDetailModal'
@@ -325,12 +325,15 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
                     progressLabel={hasChildren ? `${doneChildren}/${children.length}` : undefined}
                     isDragging={dragSubId === root.id}
                     isOver={overSubId === root.id}
+                    projectStatuses={project.statuses}
                     onToggle={() => toggleSubtask(task.id, root.id)}
                     onRename={(nt) => {
                       const tt = nt.trim()
                       if (tt && tt !== root.title) updateSubtask(task.id, root.id, { title: tt })
                     }}
                     onPriorityChange={(p) => updateSubtask(task.id, root.id, { priority: p || undefined })}
+                    onStatusChange={(s) => updateSubtask(task.id, root.id, { status: s })}
+                    onDueDateChange={(d) => updateSubtask(task.id, root.id, { dueDate: d })}
                     onDelete={() => deleteSubtask(task.id, root.id)}
                     onOpenDetail={() => setDetailSubtaskId(root.id)}
                     onDragStart={onSubDragStart(root.id, hasChildren)}
@@ -355,12 +358,15 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
                           isChild
                           isDragging={dragSubId === child.id}
                           isOver={overSubId === child.id}
+                          projectStatuses={project.statuses}
                           onToggle={() => toggleSubtask(task.id, child.id)}
                           onRename={(nt) => {
                             const tt = nt.trim()
                             if (tt && tt !== child.title) updateSubtask(task.id, child.id, { title: tt })
                           }}
                           onPriorityChange={(p) => updateSubtask(task.id, child.id, { priority: p || undefined })}
+                          onStatusChange={(s) => updateSubtask(task.id, child.id, { status: s })}
+                          onDueDateChange={(d) => updateSubtask(task.id, child.id, { dueDate: d })}
                           onDelete={() => deleteSubtask(task.id, child.id)}
                           onUngroup={() => updateSubtask(task.id, child.id, { parentId: undefined })}
                           onOpenDetail={() => setDetailSubtaskId(child.id)}
@@ -534,9 +540,15 @@ interface InlineSubtaskProps {
   progressLabel?: string
   isDragging?: boolean
   isOver?: boolean
+  /** Statuses the subtask can cycle through — typically inherited from
+   *  the parent task's project. Lets subtasks track in-flight state
+   *  ("Doing", "Done") so the user can see sub-project progress. */
+  projectStatuses: { label: string; color: string }[]
   onToggle: () => void
   onRename: (nt: string) => void
   onPriorityChange: (p: Priority | '') => void
+  onStatusChange: (status: string) => void
+  onDueDateChange: (date: string | undefined) => void
   onDelete: () => void
   onUngroup?: () => void
   onOpenDetail: () => void
@@ -549,16 +561,65 @@ interface InlineSubtaskProps {
 
 function InlineSubtask({
   subtask, hasChildren, childrenCollapsed, onToggleCollapse, isChild, progressLabel, isDragging, isOver,
-  onToggle, onRename, onPriorityChange, onDelete, onUngroup, onOpenDetail,
+  projectStatuses,
+  onToggle, onRename, onPriorityChange, onStatusChange, onDueDateChange,
+  onDelete, onUngroup, onOpenDetail,
   onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd,
 }: InlineSubtaskProps) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(subtask.title)
+  const dateInputRef = useRef<HTMLInputElement>(null)
   useEffect(() => { if (!editing) setDraft(subtask.title) }, [subtask.title, editing])
 
   const commit = () => { setEditing(false); onRename(draft) }
   const prioColor = subtask.priority ? PRIORITY_COLORS[subtask.priority] : null
   const canDrag = !hasChildren
+
+  // Status pill — find the matching project status for color + cycle on click
+  const currentStatusObj = projectStatuses.find((s) => s.label === subtask.status) ?? projectStatuses[0]
+  const cycleStatus = () => {
+    if (projectStatuses.length === 0) return
+    const idx = projectStatuses.findIndex((s) => s.label === subtask.status)
+    const next = projectStatuses[(idx + 1) % projectStatuses.length]
+    if (next) onStatusChange(next.label)
+  }
+
+  // Native date picker — clicking the chip uses showPicker() where supported,
+  // falls back to clicking the hidden input which opens it in older browsers.
+  const openDatePicker = () => {
+    const input = dateInputRef.current
+    if (!input) return
+    if (typeof input.showPicker === 'function') {
+      try { input.showPicker(); return } catch { /* showPicker can throw in unfocused contexts */ }
+    }
+    input.click()
+  }
+
+  // Format dueDate as "DD/MM" for the chip; full string in tooltip.
+  const dueDateChip = subtask.dueDate
+    ? (() => {
+        const [y, m, d] = subtask.dueDate!.split('-').map(Number)
+        const dt = new Date(y, m - 1, d)
+        return dt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })
+      })()
+    : null
+  const dueDateFull = subtask.dueDate
+    ? (() => {
+        const [y, m, d] = subtask.dueDate!.split('-').map(Number)
+        const dt = new Date(y, m - 1, d)
+        return dt.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })
+      })()
+    : null
+  // Visual cue for overdue/today
+  const dueStateColor = (() => {
+    if (!subtask.dueDate || subtask.completed) return '#71717a'  // zinc-500
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const [y, m, d] = subtask.dueDate.split('-').map(Number)
+    const due = new Date(y, m - 1, d); due.setHours(0, 0, 0, 0)
+    if (due.getTime() < today.getTime()) return '#ef4444'   // red — overdue
+    if (due.getTime() === today.getTime()) return '#f59e0b' // amber — today
+    return '#71717a'
+  })()
 
   return (
     <div
@@ -645,6 +706,65 @@ function InlineSubtask({
         <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 tabular-nums shrink-0">
           {progressLabel}
         </span>
+      )}
+
+      {/* ── Property chips (status + date) ────────────────────────────
+          Always visible if set; subtle when unset (date appears on hover).
+          Status pill cycles through the parent project's status list. */}
+      {currentStatusObj && projectStatuses.length > 0 && (
+        <button
+          data-interactive
+          onClick={(e) => { e.stopPropagation(); cycleStatus() }}
+          title={`Estado: ${currentStatusObj.label} — click para cambiar`}
+          className="shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded border transition-all"
+          style={{
+            color: currentStatusObj.color,
+            borderColor: `${currentStatusObj.color}40`,
+            background: `${currentStatusObj.color}12`,
+          }}
+        >
+          {currentStatusObj.label}
+        </button>
+      )}
+
+      {/* Hidden date input + visible chip / "+ fecha" button */}
+      <input
+        ref={dateInputRef}
+        type="date"
+        value={subtask.dueDate ?? ''}
+        onChange={(e) => onDueDateChange(e.target.value || undefined)}
+        onClick={(e) => e.stopPropagation()}
+        className="sr-only"
+        tabIndex={-1}
+      />
+      {subtask.dueDate ? (
+        <button
+          data-interactive
+          onClick={(e) => { e.stopPropagation(); openDatePicker() }}
+          title={`Vence: ${dueDateFull} — click para cambiar`}
+          className="shrink-0 flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border transition-all hover:bg-zinc-800"
+          style={{ color: dueStateColor, borderColor: `${dueStateColor}40` }}
+        >
+          <Calendar className="w-2.5 h-2.5" />
+          {dueDateChip}
+          <span
+            role="button"
+            onClick={(e) => { e.stopPropagation(); onDueDateChange(undefined) }}
+            title="Quitar fecha"
+            className="text-zinc-600 hover:text-red-400 -mr-0.5"
+          >
+            <X className="w-2 h-2" />
+          </span>
+        </button>
+      ) : (
+        <button
+          data-interactive
+          onClick={(e) => { e.stopPropagation(); openDatePicker() }}
+          title="Agregar fecha de entrega"
+          className="shrink-0 text-zinc-700 hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-all p-0.5"
+        >
+          <Calendar className="w-3 h-3" />
+        </button>
       )}
 
       {/* Action buttons (on hover) */}

@@ -425,23 +425,31 @@ export const useTasksStore = create<TasksState>()(
 
       addSubtask: (taskId, title, parentId) => {
         const id = genId()
-        set((s) => ({
-          tasks: {
-            ...s.tasks,
-            [taskId]: {
-              ...s.tasks[taskId],
-              subtasks: [
-                ...s.tasks[taskId].subtasks,
-                {
-                  id, title, completed: false, status: 'todo',
-                  order: s.tasks[taskId].subtasks.length, notes: '',
-                  ...(parentId ? { parentId } : {}),
-                },
-              ],
-              updatedAt: new Date().toISOString(),
+        set((s) => {
+          // Inherit the parent project's first status (e.g. "To Do") so the
+          // status chip renders correctly. Falls back to "todo" if the
+          // project somehow has no statuses configured.
+          const task = s.tasks[taskId]
+          const proj = s.projects[task?.projectId]
+          const defaultStatus = proj?.statuses[0]?.label ?? 'todo'
+          return {
+            tasks: {
+              ...s.tasks,
+              [taskId]: {
+                ...task,
+                subtasks: [
+                  ...task.subtasks,
+                  {
+                    id, title, completed: false, status: defaultStatus,
+                    order: task.subtasks.length, notes: '',
+                    ...(parentId ? { parentId } : {}),
+                  },
+                ],
+                updatedAt: new Date().toISOString(),
+              },
             },
-          },
-        }))
+          }
+        })
       },
 
       updateSubtask: (taskId, subtaskId, patch) =>
@@ -459,18 +467,34 @@ export const useTasksStore = create<TasksState>()(
         })),
 
       toggleSubtask: (taskId, subtaskId) =>
-        set((s) => ({
-          tasks: {
-            ...s.tasks,
-            [taskId]: {
-              ...s.tasks[taskId],
-              subtasks: s.tasks[taskId].subtasks.map((st) =>
-                st.id === subtaskId ? { ...st, completed: !st.completed } : st
-              ),
-              updatedAt: new Date().toISOString(),
+        set((s) => {
+          // Toggling completed should also flip the status chip between
+          // "done-ish" and the first non-done status, so the visual stays
+          // consistent. Looks up the parent project's status list to find
+          // the matching done/non-done labels.
+          const task = s.tasks[taskId]
+          const proj = s.projects[task?.projectId]
+          const doneLabel = proj?.statuses.find((st) => st.countsAsDone)?.label
+          const firstOpenLabel = proj?.statuses.find((st) => !st.countsAsDone)?.label
+            ?? proj?.statuses[0]?.label
+          return {
+            tasks: {
+              ...s.tasks,
+              [taskId]: {
+                ...task,
+                subtasks: task.subtasks.map((st) => {
+                  if (st.id !== subtaskId) return st
+                  const nowCompleted = !st.completed
+                  const newStatus = nowCompleted
+                    ? (doneLabel ?? st.status)
+                    : (firstOpenLabel ?? st.status)
+                  return { ...st, completed: nowCompleted, status: newStatus }
+                }),
+                updatedAt: new Date().toISOString(),
+              },
             },
-          },
-        })),
+          }
+        }),
 
       deleteSubtask: (taskId, subtaskId) =>
         set((s) => ({

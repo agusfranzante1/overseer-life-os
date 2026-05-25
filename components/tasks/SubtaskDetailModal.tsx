@@ -24,8 +24,10 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
 
   const [title, setTitle]   = useState(subtask.title)
   const [notes, setNotes]   = useState(subtask.notes ?? '')
+  const [description, setDescription] = useState(subtask.description ?? '')
   const [status, setStatus] = useState(subtask.status || project.statuses[0]?.label || 'To Do')
   const [priority, setPriority] = useState<Priority | ''>(subtask.priority ?? '')
+  const [dueDate, setDueDate] = useState(subtask.dueDate ?? '')
   const [newChildTitle, setNewChildTitle] = useState('')
   const [openChildId, setOpenChildId] = useState<string | null>(null)
 
@@ -33,8 +35,10 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
   useEffect(() => {
     setTitle(subtask.title)
     setNotes(subtask.notes ?? '')
+    setDescription(subtask.description ?? '')
     setStatus(subtask.status || project.statuses[0]?.label || 'To Do')
     setPriority(subtask.priority ?? '')
+    setDueDate(subtask.dueDate ?? '')
   }, [subtask.id])
 
   // Persist any pending changes when this modal unmounts
@@ -43,8 +47,10 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
       updateSubtask(taskId, subtask.id, {
         title: title.trim() || subtask.title,
         notes: notes.trim() || undefined,
+        description: description.trim() || undefined,
         status,
         priority: priority || undefined,
+        dueDate: dueDate || undefined,
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -54,8 +60,10 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
     updateSubtask(taskId, subtask.id, {
       title: title.trim() || subtask.title,
       notes: notes.trim() || undefined,
+      description: description.trim() || undefined,
       status,
       priority: priority || undefined,
+      dueDate: dueDate || undefined,
     })
   }
 
@@ -198,6 +206,41 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Due date — for sub-project deadlines within a project */}
+            <div>
+              <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">Fecha de entrega</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  onBlur={save}
+                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500"
+                />
+                {dueDate && (
+                  <button
+                    onClick={() => { setDueDate(''); updateSubtask(taskId, subtask.id, { dueDate: undefined }) }}
+                    className="text-xs text-zinc-500 hover:text-red-400 transition-colors"
+                  >
+                    quitar
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Description — short context, surfaced in chips/tooltips */}
+            <div>
+              <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">Descripción</label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                onBlur={save}
+                rows={2}
+                placeholder="Contexto corto sobre esta subtarea..."
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 resize-none"
+              />
             </div>
 
             {/* Notes */}

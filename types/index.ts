@@ -33,6 +33,12 @@ export interface Subtask {
   priority?: Priority
   /** ID of parent subtask (for grouping). Only 1 level of nesting allowed. */
   parentId?: string
+  /** Due date (ISO YYYY-MM-DD). Lets the user track deadlines per subtask
+   *  — useful for sub-projects within a project where chunks have their
+   *  own delivery dates. */
+  dueDate?: string
+  /** Optional short description / context, surfaced in the detail modal. */
+  description?: string
 }
 
 export interface Task {
