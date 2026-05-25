@@ -303,7 +303,13 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
           className="border-t border-zinc-800 bg-zinc-900/50 px-3 py-2 overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="ml-7 space-y-1">
+          {/* Removed the old `ml-7` here — subtasks were getting pushed
+              ~28px to the right of the panel's px-3 inner padding, which
+              left an awkward gap that didn't visually belong inside a
+              bordered card. Now they sit flush at the panel's own
+              padding, matching the parent task title's left edge more
+              naturally. */}
+          <div className="space-y-1">
             {subtaskTree.roots.map((root) => {
               const children = subtaskTree.childrenByParent.get(root.id) ?? []
               const doneChildren = children.filter((c) => c.completed).length
@@ -333,6 +339,12 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
                     onDrop={onSubDrop(root.id)}
                     onDragEnd={resetSubDrag}
                   />
+                  {/* Thin divider line between a parent subtask and its
+                      children — makes the hierarchy visually obvious without
+                      the heavy ml-7 indent that lived here before. */}
+                  {hasChildren && !isCollapsed && (
+                    <div className="border-t border-zinc-800/60 ml-5 my-1" />
+                  )}
                   {hasChildren && !isCollapsed && children.map((child) => (
                     <div key={child.id} className="ml-5 flex items-start gap-2">
                       <CornerDownRight className="w-3 h-3 text-zinc-700 mt-1.5 shrink-0" />
@@ -365,7 +377,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
               )
             })}
           </div>
-          <form onSubmit={handleAddSubtask} className="ml-7 mt-2 flex items-center gap-1">
+          <form onSubmit={handleAddSubtask} className="mt-2 flex items-center gap-1">
             <input
               value={newSubtask}
               onChange={(e) => setNewSubtask(e.target.value)}
@@ -387,7 +399,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
           className="border-t border-zinc-800 bg-zinc-900/50 px-3 py-2 overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
-          <form onSubmit={handleAddSubtask} className="ml-7 flex items-center gap-1">
+          <form onSubmit={handleAddSubtask} className="flex items-center gap-1">
             <input
               value={newSubtask}
               onChange={(e) => setNewSubtask(e.target.value)}
