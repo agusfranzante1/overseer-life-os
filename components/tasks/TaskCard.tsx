@@ -348,35 +348,38 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
                   {hasChildren && !isCollapsed && (
                     <div className="border-t border-zinc-800/60 ml-5 my-1" />
                   )}
+                  {/* Child subtask rows. The CornerDownRight arrow used to
+                      live in the wrapper, but it ended up too far from the
+                      child's checkbox. Now the arrow is rendered INSIDE
+                      InlineSubtask (when `isChild`), flush against the
+                      check — see InlineSubtask below. The wrapper just
+                      provides a small horizontal indent for hierarchy. */}
                   {hasChildren && !isCollapsed && children.map((child) => (
-                    <div key={child.id} className="ml-5 flex items-start gap-2">
-                      <CornerDownRight className="w-3 h-3 text-zinc-700 mt-1.5 shrink-0" />
-                      <div className="flex-1">
-                        <InlineSubtask
-                          subtask={child}
-                          hasChildren={false}
-                          isChild
-                          isDragging={dragSubId === child.id}
-                          isOver={overSubId === child.id}
-                          projectStatuses={project.statuses}
-                          onToggle={() => toggleSubtask(task.id, child.id)}
-                          onRename={(nt) => {
-                            const tt = nt.trim()
-                            if (tt && tt !== child.title) updateSubtask(task.id, child.id, { title: tt })
-                          }}
-                          onPriorityChange={(p) => updateSubtask(task.id, child.id, { priority: p || undefined })}
-                          onStatusChange={(s) => updateSubtask(task.id, child.id, { status: s })}
-                          onDueDateChange={(d) => updateSubtask(task.id, child.id, { dueDate: d })}
-                          onDelete={() => deleteSubtask(task.id, child.id)}
-                          onUngroup={() => updateSubtask(task.id, child.id, { parentId: undefined })}
-                          onOpenDetail={() => setDetailSubtaskId(child.id)}
-                          onDragStart={onSubDragStart(child.id, false)}
-                          onDragOver={onSubDragOver(child.id)}
-                          onDragLeave={() => setOverSubId((k) => k === child.id ? null : k)}
-                          onDrop={onSubDrop(child.id)}
-                          onDragEnd={resetSubDrag}
-                        />
-                      </div>
+                    <div key={child.id} className="ml-5">
+                      <InlineSubtask
+                        subtask={child}
+                        hasChildren={false}
+                        isChild
+                        isDragging={dragSubId === child.id}
+                        isOver={overSubId === child.id}
+                        projectStatuses={project.statuses}
+                        onToggle={() => toggleSubtask(task.id, child.id)}
+                        onRename={(nt) => {
+                          const tt = nt.trim()
+                          if (tt && tt !== child.title) updateSubtask(task.id, child.id, { title: tt })
+                        }}
+                        onPriorityChange={(p) => updateSubtask(task.id, child.id, { priority: p || undefined })}
+                        onStatusChange={(s) => updateSubtask(task.id, child.id, { status: s })}
+                        onDueDateChange={(d) => updateSubtask(task.id, child.id, { dueDate: d })}
+                        onDelete={() => deleteSubtask(task.id, child.id)}
+                        onUngroup={() => updateSubtask(task.id, child.id, { parentId: undefined })}
+                        onOpenDetail={() => setDetailSubtaskId(child.id)}
+                        onDragStart={onSubDragStart(child.id, false)}
+                        onDragOver={onSubDragOver(child.id)}
+                        onDragLeave={() => setOverSubId((k) => k === child.id ? null : k)}
+                        onDrop={onSubDrop(child.id)}
+                        onDragEnd={resetSubDrag}
+                      />
                     </div>
                   ))}
                 </div>
@@ -635,22 +638,34 @@ function InlineSubtask({
       }`}
       style={{ cursor: canDrag ? 'grab' : 'default' }}
     >
-      {/* Drag handle — only on hover, hidden by default */}
-      <span className="w-3 shrink-0 flex items-center justify-center">
-        {canDrag && (
-          <GripVertical className="w-3 h-3 text-zinc-700 opacity-0 group-hover:opacity-100 transition-opacity" />
-        )}
-      </span>
-
-      {/* Collapse/expand toggle for parent subtasks */}
-      {hasChildren && onToggleCollapse ? (
-        <button data-interactive onClick={(e) => { e.stopPropagation(); onToggleCollapse() }}
-          title={childrenCollapsed ? 'Expandir' : 'Replegar'}
-          className="shrink-0 text-zinc-500 hover:text-zinc-200">
-          {childrenCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-        </button>
+      {/* Left gutter — three modes:
+            (a) `isChild` → CornerDownRight arrow, flush against the check.
+                Replaces the drag handle + collapse spacer since child
+                subtasks don't need either.
+            (b) parent WITH children → drag handle (hover) + collapse toggle.
+            (c) parent WITHOUT children → drag handle (hover) + empty spacer. */}
+      {isChild ? (
+        <CornerDownRight className="w-3 h-3 text-zinc-700 shrink-0" />
       ) : (
-        <span className="w-3 shrink-0" />
+        <>
+          {/* Drag handle — only on hover, hidden by default */}
+          <span className="w-3 shrink-0 flex items-center justify-center">
+            {canDrag && (
+              <GripVertical className="w-3 h-3 text-zinc-700 opacity-0 group-hover:opacity-100 transition-opacity" />
+            )}
+          </span>
+
+          {/* Collapse/expand toggle for parent subtasks */}
+          {hasChildren && onToggleCollapse ? (
+            <button data-interactive onClick={(e) => { e.stopPropagation(); onToggleCollapse() }}
+              title={childrenCollapsed ? 'Expandir' : 'Replegar'}
+              className="shrink-0 text-zinc-500 hover:text-zinc-200">
+              {childrenCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+          ) : (
+            <span className="w-3 shrink-0" />
+          )}
+        </>
       )}
 
       <button data-interactive onClick={(e) => { e.stopPropagation(); onToggle() }}>
@@ -693,19 +708,21 @@ function InlineSubtask({
           data-interactive
           onClick={(e) => { e.stopPropagation(); setEditing(true) }}
           title="Click para renombrar"
-          className={`flex-1 text-sm text-left px-1.5 py-0.5 rounded hover:bg-zinc-800/60 transition-colors ${
+          className={`flex-1 text-sm text-left px-1.5 py-0.5 rounded hover:bg-zinc-800/60 transition-colors min-w-0 truncate ${
             subtask.completed ? 'line-through text-zinc-500' : 'text-zinc-200'
           } ${hasChildren ? 'font-semibold' : ''}`}
         >
           {subtask.title}
+          {/* Progress chip lives INSIDE the title button so it doesn't
+              push the status/date chips around — keeps every row's right
+              column aligned regardless of whether the subtask has
+              children. */}
+          {progressLabel && (
+            <span className="ml-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 tabular-nums align-middle">
+              {progressLabel}
+            </span>
+          )}
         </button>
-      )}
-
-      {/* Progress for parent subtasks */}
-      {progressLabel && (
-        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 tabular-nums shrink-0">
-          {progressLabel}
-        </span>
       )}
 
       {/* ── Property chips (status + date) ────────────────────────────
