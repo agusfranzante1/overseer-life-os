@@ -348,12 +348,20 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
                   {hasChildren && !isCollapsed && (
                     <div className="border-t border-zinc-800/60 ml-5 my-1" />
                   )}
-                  {/* Child subtask rows. Indented via `ml-8` on the wrapper
-                      so the hierarchy is clearly visible. The arrow lives
-                      INSIDE InlineSubtask (when `isChild`) so it's flush
-                      against the check, not floating in the indent gap. */}
+                  {/* Child subtask rows. Indented via `ml-12` on the
+                      wrapper. Why so much: the child's InlineSubtask
+                      renders only ONE left-gutter element (the arrow) vs
+                      the parent's TWO (handle + collapse spacer). That
+                      internally compresses the child layout by ~24px,
+                      eating into the visual indent. ml-12 compensates so
+                      the child's check sits ~24px to the right of the
+                      parent's, giving a clearly-readable nesting.
+                      The status/date chips still align with the parent's
+                      because they're flex-positioned to the right edge,
+                      which is the same in both rows (ml only shifts the
+                      left side). */}
                   {hasChildren && !isCollapsed && children.map((child) => (
-                    <div key={child.id} className="ml-8">
+                    <div key={child.id} className="ml-12">
                       <InlineSubtask
                         subtask={child}
                         hasChildren={false}
