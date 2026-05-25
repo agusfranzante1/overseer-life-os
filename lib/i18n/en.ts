@@ -2,6 +2,7 @@
 export const en: Record<string, any> = {
   nav: {
     dashboard: 'Dashboard',
+    proyeccion: 'Projection',
     spi: 'SPI',
     calendar: 'Calendar',
     tasks: 'Task Tracker',

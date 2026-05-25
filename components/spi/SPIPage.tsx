@@ -291,6 +291,15 @@ function ActiveSession({
   const checklistDone = Object.values(safeMainChecklist).filter(Boolean).length
   const checklistTotal = Object.keys(safeMainChecklist).length
 
+  // Breadcrumb up to projection — shows "Marzo · Q1 · 2026" linking out.
+  const [y, m] = session.weekStartDate.split('-')
+  const monthKey = `${y}-${m}`
+  const monthN = parseInt(m, 10)
+  const quarterN = monthN <= 3 ? 1 : monthN <= 6 ? 2 : monthN <= 9 ? 3 : 4
+  const monthName = new Date(parseInt(y, 10), monthN - 1, 1)
+    .toLocaleDateString('es-AR', { month: 'long' })
+  const monthLabel = monthName.charAt(0).toUpperCase() + monthName.slice(1)
+
   return (
     <div className="space-y-4">
       {/* Session header */}
@@ -299,6 +308,21 @@ function ActiveSession({
           <div>
             <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-400/70">Sesión de</p>
             <p className="text-base font-semibold text-zinc-200 capitalize">{weekLabel}</p>
+            {/* Projection breadcrumb — links each level to /proyeccion. */}
+            <p className="text-[10px] text-zinc-600 mt-1">
+              Parte de{' '}
+              <a href={`/proyeccion?level=month&period=${monthKey}`} className="text-zinc-400 hover:text-indigo-300 transition-colors">
+                {monthLabel} {y}
+              </a>
+              <span className="text-zinc-700"> · </span>
+              <a href={`/proyeccion?level=quarter&period=${y}-Q${quarterN}`} className="text-zinc-400 hover:text-indigo-300 transition-colors">
+                Q{quarterN} {y}
+              </a>
+              <span className="text-zinc-700"> · </span>
+              <a href={`/proyeccion?level=year&period=${y}`} className="text-zinc-400 hover:text-indigo-300 transition-colors">
+                {y}
+              </a>
+            </p>
             {isClosed && session.score !== undefined && (
               <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1">
                 <Trophy className="w-3 h-3" /> Cerrada · puntuación {session.score}%

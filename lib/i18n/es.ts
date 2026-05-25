@@ -4,6 +4,7 @@ export const es: Translations = {
   // Spanish translations
   nav: {
     dashboard: 'Panel',
+    proyeccion: 'Proyección',
     spi: 'SPI',
     calendar: 'Calendario',
     tasks: 'Tareas',

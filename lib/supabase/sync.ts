@@ -11,6 +11,7 @@ import { useHealthStore } from '@/lib/store/healthStore'
 import { useChatStore } from '@/lib/store/chatStore'
 import { useFoodStore } from '@/lib/store/foodStore'
 import { useSPIStore } from '@/lib/store/spiStore'
+import { useProjectionStore } from '@/lib/store/projectionStore'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ interface SyncState {
   chatInit: boolean
   foodInit: boolean
   spiInit: boolean
+  projectionInit: boolean
 }
 
 const state: SyncState = {
@@ -40,6 +42,7 @@ const state: SyncState = {
   chatInit: false,
   foodInit: false,
   spiInit: false,
+  projectionInit: false,
 }
 
 // ─── Push timers (debounced per domain) ───────────────────────────────────────
@@ -53,6 +56,7 @@ let healthPushTimer: ReturnType<typeof setTimeout> | null = null
 let chatPushTimer: ReturnType<typeof setTimeout> | null = null
 let foodPushTimer: ReturnType<typeof setTimeout> | null = null
 let spiPushTimer: ReturnType<typeof setTimeout> | null = null
+let projectionPushTimer: ReturnType<typeof setTimeout> | null = null
 
 function schedule(
   timer: ReturnType<typeof setTimeout> | null,
@@ -693,6 +697,62 @@ async function pullSPI(): Promise<boolean> {
   return true
 }
 
+// ─── PROYECCIÓN (annual / quarterly / monthly plans) ──────────────────────────
+
+async function pushProjection() {
+  if (!state.userId) return
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { plans } = useProjectionStore.getState()
+
+  const rows = plans.map((plan) => ({
+    id: plan.id,
+    user_id: uid,
+    level: plan.level,
+    period_key: plan.periodKey,
+    created_at: plan.createdAt,
+    updated_at: plan.updatedAt,
+    closed_at: plan.closedAt ?? null,
+    payload: plan,
+  }))
+
+  if (rows.length > 0) await sb.from('projection_plans').upsert(rows)
+  await deleteSurplus(sb, 'projection_plans', uid, rows.map((r) => r.id))
+}
+
+async function pullProjection(): Promise<boolean> {
+  if (!state.userId) return false
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('projection_plans').select('*').eq('user_id', uid)
+    .order('period_key', { ascending: false })
+  if (res.error) { console.error('Projection pull failed', res.error); return false }
+  if ((res.data?.length ?? 0) === 0) return false
+
+  type Row = { payload: unknown }
+  const sanitize = (raw: unknown): import('@/lib/projection/types').ProjectionPlan => {
+    const p = (raw ?? {}) as Partial<import('@/lib/projection/types').ProjectionPlan>
+    return {
+      id: p.id ?? '',
+      level: p.level ?? 'year',
+      periodKey: p.periodKey ?? '',
+      createdAt: p.createdAt ?? new Date().toISOString(),
+      updatedAt: p.updatedAt ?? new Date().toISOString(),
+      closedAt: p.closedAt,
+      values: p.values ?? {},
+      mood: p.mood,
+      score: p.score,
+      notes: p.notes,
+      templateVersion: p.templateVersion ?? 1,
+    }
+  }
+  useProjectionStore.setState({
+    plans: (res.data ?? []).map((r: Row) => sanitize(r.payload)),
+  })
+  return true
+}
+
 // ─── GYM (weight entries + config + routines + sessions) ──────────────────────
 
 async function pushGym() {
@@ -1004,6 +1064,7 @@ function scheduleHealth()     { schedule(healthPushTimer,    pushHealth,    (t) 
 function scheduleChat()       { schedule(chatPushTimer,      pushChat,      (t) => { chatPushTimer = t }) }
 function scheduleFood()       { schedule(foodPushTimer,      pushFood,      (t) => { foodPushTimer = t }) }
 function scheduleSPI()        { schedule(spiPushTimer,       pushSPI,       (t) => { spiPushTimer = t }) }
+function scheduleProjection() { schedule(projectionPushTimer, pushProjection, (t) => { projectionPushTimer = t }) }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
@@ -1061,6 +1122,11 @@ async function initAllDomains() {
     const had = await pullSPI()
     if (!had) await pushSPI().catch((e) => console.error('SPI initial push failed', e))
   }
+  if (!state.projectionInit) {
+    state.projectionInit = true
+    const had = await pullProjection()
+    if (!had) await pushProjection().catch((e) => console.error('Projection initial push failed', e))
+  }
 }
 
 /** Mount once at the app root. Wires all domains for sync. */
@@ -1092,6 +1158,7 @@ export function useSupabaseSync() {
       useChatStore.subscribe(() => { if (state.userId) scheduleChat() })
       useFoodStore.subscribe(() => { if (state.userId) scheduleFood() })
       useSPIStore.subscribe(() => { if (state.userId) scheduleSPI() })
+      useProjectionStore.subscribe(() => { if (state.userId) scheduleProjection() })
     }
 
     // Auth state changes — when the user signs in *after* mount (e.g. from
@@ -1109,6 +1176,7 @@ export function useSupabaseSync() {
       state.chatInit = false
       state.foodInit = false
       state.spiInit = false
+      state.projectionInit = false
       if (newId) {
         initAllDomains().catch((e) => console.error('Init after auth change failed', e))
       }
@@ -1141,3 +1209,5 @@ export async function forceSyncFood()     { await pushFood() }
 export async function forcePullFood()     { return pullFood() }
 export async function forceSyncSPI()      { await pushSPI() }
 export async function forcePullSPI()      { return pullSPI() }
+export async function forceSyncProjection() { await pushProjection() }
+export async function forcePullProjection() { return pullProjection() }
