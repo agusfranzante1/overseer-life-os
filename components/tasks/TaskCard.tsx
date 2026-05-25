@@ -348,14 +348,12 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
                   {hasChildren && !isCollapsed && (
                     <div className="border-t border-zinc-800/60 ml-5 my-1" />
                   )}
-                  {/* Child subtask rows. The CornerDownRight arrow used to
-                      live in the wrapper, but it ended up too far from the
-                      child's checkbox. Now the arrow is rendered INSIDE
-                      InlineSubtask (when `isChild`), flush against the
-                      check — see InlineSubtask below. The wrapper just
-                      provides a small horizontal indent for hierarchy. */}
+                  {/* Child subtask rows. Indented via `ml-8` on the wrapper
+                      so the hierarchy is clearly visible. The arrow lives
+                      INSIDE InlineSubtask (when `isChild`) so it's flush
+                      against the check, not floating in the indent gap. */}
                   {hasChildren && !isCollapsed && children.map((child) => (
-                    <div key={child.id} className="ml-5">
+                    <div key={child.id} className="ml-8">
                       <InlineSubtask
                         subtask={child}
                         hasChildren={false}
@@ -645,7 +643,9 @@ function InlineSubtask({
             (b) parent WITH children → drag handle (hover) + collapse toggle.
             (c) parent WITHOUT children → drag handle (hover) + empty spacer. */}
       {isChild ? (
-        <CornerDownRight className="w-3 h-3 text-zinc-700 shrink-0" />
+        // Negative right margin cancels the gap-1.5 (6px) of the parent
+        // flex container so the arrow visually TOUCHES the check.
+        <CornerDownRight className="w-3 h-3 text-zinc-700 shrink-0 -mr-1.5" />
       ) : (
         <>
           {/* Drag handle — only on hover, hidden by default */}
@@ -708,15 +708,14 @@ function InlineSubtask({
           data-interactive
           onClick={(e) => { e.stopPropagation(); setEditing(true) }}
           title="Click para renombrar"
-          className={`flex-1 text-sm text-left px-1.5 py-0.5 rounded hover:bg-zinc-800/60 transition-colors min-w-0 truncate ${
+          className={`flex-1 text-sm text-left px-1.5 py-0.5 rounded hover:bg-zinc-800/60 transition-colors min-w-0 break-words ${
             subtask.completed ? 'line-through text-zinc-500' : 'text-zinc-200'
           } ${hasChildren ? 'font-semibold' : ''}`}
         >
           {subtask.title}
           {/* Progress chip lives INSIDE the title button so it doesn't
               push the status/date chips around — keeps every row's right
-              column aligned regardless of whether the subtask has
-              children. */}
+              column aligned regardless of whether the subtask has children. */}
           {progressLabel && (
             <span className="ml-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 tabular-nums align-middle">
               {progressLabel}
@@ -784,15 +783,25 @@ function InlineSubtask({
         </button>
       )}
 
-      {/* Action buttons (on hover) */}
+      {/* Action buttons (on hover).
+          The "ungroup" button only makes sense for child subtasks, but we
+          ALWAYS reserve its slot (using `invisible` for non-children) so
+          that every row's action column has the same width. Otherwise the
+          status/date chips end up at slightly different horizontal
+          positions between parent and child rows. */}
       <div className="flex items-center gap-0.5 shrink-0">
-        {isChild && onUngroup && (
-          <button data-interactive onClick={(e) => { e.stopPropagation(); onUngroup() }}
-            title="Sacar del grupo"
-            className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-zinc-200 transition-all text-[11px] px-1">
-            ↶
-          </button>
-        )}
+        <button
+          data-interactive
+          onClick={(e) => { e.stopPropagation(); if (isChild && onUngroup) onUngroup() }}
+          title={isChild && onUngroup ? 'Sacar del grupo' : ''}
+          aria-hidden={!isChild || !onUngroup}
+          tabIndex={!isChild || !onUngroup ? -1 : undefined}
+          className={`text-zinc-600 hover:text-zinc-200 transition-all text-[11px] px-1 ${
+            isChild && onUngroup ? 'opacity-0 group-hover:opacity-100' : 'invisible pointer-events-none'
+          }`}
+        >
+          ↶
+        </button>
         <button
           data-interactive
           onClick={(e) => { e.stopPropagation(); onOpenDetail() }}
