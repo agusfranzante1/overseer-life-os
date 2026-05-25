@@ -1299,23 +1299,40 @@ function BitacoraRow({
         <p className="text-[10px] text-zinc-500 italic mt-0.5 ml-3 line-clamp-2">→ {entry.dominoEffect}</p>
       )}
 
-      {/* Expanded edit mode */}
+      {/* Expanded edit mode. Changes auto-save on each keystroke via
+          onUpdate — the "Listo" button is just a way to collapse the
+          row back to the compact view. Esc does the same thing. */}
       {expanded && (
         <div className="space-y-1.5 mt-1.5 ml-3">
           <textarea
+            autoFocus
             value={entry.situation}
             onChange={(e) => onUpdate({ situation: e.target.value })}
+            onKeyDown={(e) => { if (e.key === 'Escape') setExpanded(false) }}
             rows={2}
             className="w-full text-[11px] bg-zinc-900 border border-zinc-800 rounded px-1.5 py-1 text-zinc-200 focus:outline-none focus:border-fuchsia-500/40 resize-none"
           />
           <textarea
             value={entry.dominoEffect}
             onChange={(e) => onUpdate({ dominoEffect: e.target.value })}
+            onKeyDown={(e) => { if (e.key === 'Escape') setExpanded(false) }}
             placeholder={entry.kind === 'working' ? 'Por qué funciona?' : 'Acción solución'}
             rows={2}
             className="w-full text-[10px] bg-zinc-900 border border-zinc-800 rounded px-1.5 py-1 text-zinc-400 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40 resize-none"
           />
-          <p className="text-[9px] text-zinc-700">{new Date(entry.createdAt).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[9px] text-zinc-700">
+              {new Date(entry.createdAt).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}
+              <span className="ml-1.5 text-zinc-700/60">· auto-guardado</span>
+            </p>
+            <button
+              onClick={() => setExpanded(false)}
+              className="text-[10px] text-zinc-500 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors px-2 py-0.5 rounded flex items-center gap-1"
+              title="Cerrar edición · Esc"
+            >
+              <Check className="w-2.5 h-2.5" /> Listo
+            </button>
+          </div>
         </div>
       )}
     </div>
