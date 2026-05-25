@@ -19,7 +19,7 @@ export function SPIPage() {
   const {
     template, sessions, activeSessionId,
     createOrOpenCurrentWeek, setActiveSession,
-    toggleChecklistItem, updateValue, closeSession,
+    toggleChecklistItem, updateValue, closeSession, deleteSession,
     addTask, updateTask, removeTask, pushTaskToManager,
     updateTemplate, resetTemplate, setSessionLanes,
     bitacoraEntries, addBitacoraEntry, updateBitacoraEntry, removeBitacoraEntry,
@@ -152,6 +152,17 @@ export function SPIPage() {
           onRemoveTask={(taskId) => removeTask(activeSession.id, taskId)}
           onPushTask={(taskId) => pushTaskToManager(activeSession.id, taskId)}
           onCloseRequest={() => setShowClose(true)}
+          onCancelRequest={() => {
+            // If the session has any content, ask before nuking it.
+            // Otherwise (just opened, nothing filled) — silent delete.
+            const hasContent =
+              Object.values(activeSession.mainChecklist ?? {}).some(Boolean) ||
+              Object.keys(activeSession.values ?? {}).length > 0 ||
+              (activeSession.tasks?.length ?? 0) > 0 ||
+              (activeSession.selectedLanes?.length ?? 0) > 0
+            if (hasContent && !confirm('¿Cancelar esta sesión? Vas a perder lo que escribiste en ella.')) return
+            deleteSession(activeSession.id)
+          }}
         />
       )}
 
@@ -244,7 +255,7 @@ function ActiveSession({
   bitacoraEntries, onBitacoraAdd, onBitacoraUpdate, onBitacoraRemove,
   onChecklistToggle, onValueChange, onSetLanes,
   onAddTask, onUpdateTask, onRemoveTask, onPushTask,
-  onCloseRequest,
+  onCloseRequest, onCancelRequest,
 }: {
   session: SPISession
   template: ReturnType<typeof useSPIStore.getState>['template']
@@ -262,6 +273,7 @@ function ActiveSession({
   onRemoveTask: (taskId: string) => void
   onPushTask: (taskId: string) => void
   onCloseRequest: () => void
+  onCancelRequest: () => void
 }) {
   const [showLanePicker, setShowLanePicker] = useState(false)
   const weekLabel = useMemo(() => {
@@ -294,12 +306,21 @@ function ActiveSession({
             )}
           </div>
           {!isClosed && (
-            <button
-              onClick={onCloseRequest}
-              className="px-3 py-1.5 bg-emerald-500/15 border border-emerald-500/40 hover:bg-emerald-500/25 text-emerald-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
-            >
-              <Trophy className="w-3.5 h-3.5" /> Cerrar SPI
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onCancelRequest}
+                title="Descartar esta sesión sin guardarla (no afecta tu streak ni XP)"
+                className="px-2.5 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-red-500/40 hover:text-red-400 text-zinc-500 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
+              >
+                <X className="w-3.5 h-3.5" /> Cancelar
+              </button>
+              <button
+                onClick={onCloseRequest}
+                className="px-3 py-1.5 bg-emerald-500/15 border border-emerald-500/40 hover:bg-emerald-500/25 text-emerald-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
+              >
+                <Trophy className="w-3.5 h-3.5" /> Cerrar SPI
+              </button>
+            </div>
           )}
         </div>
 
