@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Activity, Plus, Trash2, Flame, CheckCircle2, Circle, Trophy, X,
-  ChevronLeft, ChevronRight, TrendingUp, GripVertical, ArrowUpDown, Check,
+  ChevronLeft, ChevronRight, TrendingUp, GripVertical, ArrowUpDown, Check, Minus,
 } from 'lucide-react'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -136,9 +136,12 @@ export function HabitsPage() {
     setShowForm(false)
   }
 
-  const doneToday = habits.filter((h) => h.completedDates.includes(today)).length
-  const totalHabits = habits.length
-  const completionRate = totalHabits > 0 ? Math.round((doneToday / totalHabits) * 100) : 0
+  const doneToday    = habits.filter((h) => h.completedDates.includes(today)).length
+  const skippedToday = habits.filter((h) => (h.skippedDates ?? []).includes(today)).length
+  const totalHabits  = habits.length
+  // Exclude skipped habits from the daily completion denominator.
+  const activeToday  = totalHabits - skippedToday
+  const completionRate = activeToday > 0 ? Math.round((doneToday / activeToday) * 100) : 0
   const bestStreak = habits.reduce((max, h) => Math.max(max, computeStreak(h.completedDates)), 0)
 
   // Week navigation
@@ -336,40 +339,61 @@ export function HabitsPage() {
                   </div>
                 </div>
 
-                {/* Weekly dots — clickable Mon→Sun */}
+                {/* Weekly dots — clickable Mon→Sun. Tri-state cycle on click:
+                    empty → completed (color dot) → skipped (gray dash, N/A)
+                    → empty. Skipped days are excluded from the daily average,
+                    so "no entreno los domingos" doesn't penalize your score. */}
                 <div className={`hidden md:flex items-center gap-1 ${reorderMode ? 'pointer-events-none opacity-40' : ''}`}>
                   {weekDayStrs.map((ds, i) => {
                     const done = habit.completedDates.includes(ds)
+                    const skipped = (habit.skippedDates ?? []).includes(ds)
                     const isToday = ds === today
                     const future = isFutureDate(weekDays[i])
+                    const nextLabel = done ? 'marcar como N/A (no cuenta)'
+                      : skipped ? 'volver a vacío'
+                      : 'marcar como hecho'
                     return (
                       <button key={ds}
                         onClick={() => toggleDate(habit.id, ds)}
                         disabled={reorderMode}
-                        title={`${weekDays[i].toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' })} — click para ${done ? 'desmarcar' : 'marcar'}`}
+                        title={`${weekDays[i].toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' })} — click para ${nextLabel}`}
                         className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all hover:scale-110 ${future ? 'opacity-40' : ''} ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
-                        style={{ backgroundColor: done ? habit.color + '30' : '#18181b' }}>
-                        <div className="rounded-full transition-all"
-                          style={{
-                            width: done ? 14 : 10,
-                            height: done ? 14 : 10,
-                            backgroundColor: done ? habit.color : '#3f3f46',
-                            boxShadow: done ? `0 0 8px ${habit.color}80` : 'none',
-                          }} />
+                        style={{
+                          backgroundColor: done ? habit.color + '30'
+                            : skipped ? '#27272a'   // zinc-800 — neutral
+                            : '#18181b',
+                        }}>
+                        {skipped ? (
+                          <Minus className="w-4 h-4 text-zinc-500" />
+                        ) : (
+                          <div className="rounded-full transition-all"
+                            style={{
+                              width: done ? 14 : 10,
+                              height: done ? 14 : 10,
+                              backgroundColor: done ? habit.color : '#3f3f46',
+                              boxShadow: done ? `0 0 8px ${habit.color}80` : 'none',
+                            }} />
+                        )}
                       </button>
                     )
                   })}
                 </div>
 
-                {/* Mobile fallback: today toggle */}
-                <button onClick={() => toggleDate(habit.id, today)}
-                  disabled={reorderMode}
-                  className={`md:hidden shrink-0 transition-all ${reorderMode ? 'opacity-40 pointer-events-none' : ''}`}
-                  style={{ color: habit.completedDates.includes(today) ? habit.color : '#52525b' }}>
-                  {habit.completedDates.includes(today)
-                    ? <CheckCircle2 className="w-6 h-6" />
-                    : <Circle className="w-6 h-6" />}
-                </button>
+                {/* Mobile fallback: tri-state toggle for today */}
+                {(() => {
+                  const skippedToday = (habit.skippedDates ?? []).includes(today)
+                  const doneTodayHabit = habit.completedDates.includes(today)
+                  return (
+                    <button onClick={() => toggleDate(habit.id, today)}
+                      disabled={reorderMode}
+                      className={`md:hidden shrink-0 transition-all ${reorderMode ? 'opacity-40 pointer-events-none' : ''}`}
+                      style={{ color: doneTodayHabit ? habit.color : skippedToday ? '#71717a' : '#52525b' }}>
+                      {doneTodayHabit ? <CheckCircle2 className="w-6 h-6" />
+                       : skippedToday ? <Minus className="w-6 h-6" />
+                       : <Circle className="w-6 h-6" />}
+                    </button>
+                  )
+                })()}
 
                 {/* Delete — hidden in reorder mode to avoid accidental clicks */}
                 {!reorderMode && (
@@ -452,30 +476,36 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
   const totalDays = daysInMonth(year, monthIdx)
   const today = new Date(); today.setHours(0, 0, 0, 0)
 
-  // Build sets per habit once
+  // Build per-habit sets once — both completed AND skipped, so the chart can
+  // exclude skipped days from the denominator (they don't count for/against).
   const completedSets = useMemo(() => habits.map((h) => new Set(h.completedDates)), [habits])
+  const skippedSets = useMemo(() => habits.map((h) => new Set(h.skippedDates ?? [])), [habits])
   const totalHabits = habits.length
 
-  // For each day of the month (up to today): daily score = (habits done that
-  // day / total habits) * 100. Plus the day-of-week letter so users can
-  // recognize patterns (e.g. "siempre fallo los domingos").
+  // For each day of the month (up to today): daily score =
+  //   completed / (totalHabits − skipped)
+  // Skipped habits are excluded from the average so "no entreno los domingos"
+  // doesn't drag your score down. If ALL habits are skipped that day, the
+  // score is null (no data point rendered).
   const series = useMemo(() => {
     if (totalHabits === 0) return []
     // Argentinian convention: L Ma Mi J V S D, using single letters with
     // duplicate M acceptable since position disambiguates.
     const DAY_LETTERS = ['D', 'L', 'M', 'M', 'J', 'V', 'S']
-    const data: { day: number; date: string; dailyScore: number; dayLetter: string }[] = []
+    const data: { day: number; date: string; dailyScore: number | null; dayLetter: string }[] = []
     for (let day = 1; day <= totalDays; day++) {
       const d = new Date(year, monthIdx, day)
       d.setHours(0, 0, 0, 0)
       if (d.getTime() > today.getTime()) break
       const dateStr = dateToStr(d)
-      const doneCount = completedSets.reduce((acc, s) => acc + (s.has(dateStr) ? 1 : 0), 0)
-      const score = Math.round((doneCount / totalHabits) * 100)
+      const doneCount    = completedSets.reduce((acc, s) => acc + (s.has(dateStr) ? 1 : 0), 0)
+      const skippedCount = skippedSets.reduce((acc, s) => acc + (s.has(dateStr) ? 1 : 0), 0)
+      const denominator = totalHabits - skippedCount
+      const score = denominator > 0 ? Math.round((doneCount / denominator) * 100) : null
       data.push({ day, date: dateStr, dailyScore: score, dayLetter: DAY_LETTERS[d.getDay()] })
     }
     return data
-  }, [completedSets, year, monthIdx, totalDays, today, totalHabits])
+  }, [completedSets, skippedSets, year, monthIdx, totalDays, today, totalHabits])
 
   if (series.length === 0) {
     return (
@@ -485,11 +515,14 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
     )
   }
 
-  // Stats
-  const monthAvg = Math.round(series.reduce((a, b) => a + b.dailyScore, 0) / series.length)
-  const todayScore = series[series.length - 1].dailyScore
-  const perfectDays = series.filter((p) => p.dailyScore === 100).length
-  const zeroDays = series.filter((p) => p.dailyScore === 0).length
+  // Stats — exclude days where dailyScore is null (all habits skipped).
+  const scored = series.filter((s): s is typeof series[number] & { dailyScore: number } => s.dailyScore !== null)
+  const monthAvg = scored.length > 0
+    ? Math.round(scored.reduce((a, b) => a + b.dailyScore, 0) / scored.length)
+    : 0
+  const todayScore = series[series.length - 1].dailyScore ?? 0
+  const perfectDays = scored.filter((p) => p.dailyScore === 100).length
+  const zeroDays    = scored.filter((p) => p.dailyScore === 0).length
 
   // Color the average based on score
   const avgColor = monthAvg >= 75 ? '#10b981' : monthAvg >= 50 ? '#f59e0b' : '#ef4444'

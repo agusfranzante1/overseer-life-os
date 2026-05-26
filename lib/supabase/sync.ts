@@ -555,6 +555,7 @@ async function pushHabits() {
   const rows = habits.map((h, idx) => ({
     id: h.id, user_id: uid, name: h.name, icon: h.icon, color: h.color,
     target_days: h.targetDays, completed_dates: h.completedDates,
+    skipped_dates: h.skippedDates ?? [],
     category: h.category, created_at: h.createdAt,
     sort_order: idx,
   }))
@@ -587,6 +588,7 @@ async function pullHabits(): Promise<boolean> {
       color: h.color as string,
       targetDays: (h.target_days as number[]) ?? [],
       completedDates: (h.completed_dates as string[]) ?? [],
+      skippedDates: (h.skipped_dates as string[]) ?? [],
       category: h.category as string,
       createdAt: h.created_at as string,
     })),

@@ -8,7 +8,12 @@ export interface Habit {
   icon: string
   color: string
   targetDays: number[]      // 0=Sun…6=Sat, empty = every day
-  completedDates: string[]  // 'YYYY-MM-DD'
+  completedDates: string[]  // 'YYYY-MM-DD' — days this habit was DONE
+  /** Days this habit was explicitly SKIPPED (N/A — doesn't count for/against
+   *  the daily average). Use case: "no entreno los domingos", "journal trading
+   *  solo entre semana", etc. A skipped day is excluded from both numerator
+   *  AND denominator when computing daily completion %. */
+  skippedDates?: string[]
   category: string
   createdAt: string
 }
@@ -60,16 +65,31 @@ export const useHabitsStore = create<State>()(
       renameHabit: (id, name) => set((s) => ({
         habits: s.habits.map((h) => h.id === id ? { ...h, name } : h),
       })),
+      /** 3-state cycle per click:
+       *    empty → completed → skipped (N/A) → empty
+       *  Skipped days are stored separately and excluded from averages,
+       *  so "no entreno los domingos" doesn't penalize your streak. */
       toggleDate: (id, date) => set((s) => ({
         habits: s.habits.map((h) => {
           if (h.id !== id) return h
-          const has = h.completedDates.includes(date)
-          return {
-            ...h,
-            completedDates: has
-              ? h.completedDates.filter((d) => d !== date)
-              : [...h.completedDates, date].sort(),
+          const skipped = h.skippedDates ?? []
+          const isDone = h.completedDates.includes(date)
+          const isSkipped = skipped.includes(date)
+
+          if (!isDone && !isSkipped) {
+            // empty → completed
+            return { ...h, completedDates: [...h.completedDates, date].sort() }
           }
+          if (isDone) {
+            // completed → skipped
+            return {
+              ...h,
+              completedDates: h.completedDates.filter((d) => d !== date),
+              skippedDates: [...skipped, date].sort(),
+            }
+          }
+          // skipped → empty
+          return { ...h, skippedDates: skipped.filter((d) => d !== date) }
         }),
       })),
       reorderHabits: (orderedIds) => set((s) => {
@@ -91,6 +111,17 @@ export const useHabitsStore = create<State>()(
         return { habits: reordered }
       }),
     }),
-    { name: 'overseer-habits' }
+    {
+      name: 'overseer-habits',
+      // Defensive: ensure `skippedDates` exists on every habit pulled from
+      // a pre-v2 persisted state (otherwise reads like `h.skippedDates.length`
+      // would crash on old data).
+      onRehydrateStorage: () => (state) => {
+        if (!state || !Array.isArray(state.habits)) return
+        state.habits = state.habits.map((h) =>
+          Array.isArray(h.skippedDates) ? h : { ...h, skippedDates: [] }
+        )
+      },
+    }
   )
 )

@@ -3,6 +3,21 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Settings as SettingsIcon, Bot, Eye, EyeOff, Check, X, Loader2, ExternalLink, AlertCircle, Calendar, Copy, CheckCheck, Link2, Link2Off, Upload, Database, FileJson } from 'lucide-react'
 import { useAppStore } from '@/lib/store/appStore'
+import { useFoodStore } from '@/lib/store/foodStore'
+import { useTasksStore } from '@/lib/store/tasksStore'
+import { useHabitsStore } from '@/lib/store/habitsStore'
+import { useGymStore } from '@/lib/store/gymStore'
+import { useWalletStore } from '@/lib/store/walletStore'
+import { useTradingStore } from '@/lib/store/tradingStore'
+import { useHealthStore } from '@/lib/store/healthStore'
+import { useChatStore } from '@/lib/store/chatStore'
+import { useSPIStore } from '@/lib/store/spiStore'
+import { useProjectionStore } from '@/lib/store/projectionStore'
+import {
+  forceSyncFood, forceSyncTasks, forceSyncHabits, forceSyncGymBasics,
+  forceSyncWallet, forceSyncTrading, forceSyncHealth, forceSyncChat,
+  forceSyncSPI, forceSyncProjection,
+} from '@/lib/supabase/sync'
 
 const ANTHROPIC_MODELS = [
   { id: 'claude-haiku-4-5',       label: 'Claude Haiku 4.5',  hint: 'Más barato y rápido — recomendado para chat/intents' },
@@ -635,23 +650,58 @@ function BackupImportSection() {
     })
   }
 
-  const doImport = () => {
+  const doImport = async () => {
     if (!parsed?.data || selectedKeys.size === 0) return
     setImporting(true)
     try {
+      // Step 1 — write each selected key to localStorage so on next mount
+      // Zustand persist hydrates with the imported data.
       for (const key of selectedKeys) {
         const value = parsed.data[key]
         if (value === undefined) continue
-        // Zustand persist stores strings, but some legacy keys are stored
-        // as plain values (e.g. 'overseer-tasks-view': "list"). Serialize
-        // objects, keep strings/numbers raw.
         const serialized = typeof value === 'string' ? value : JSON.stringify(value)
         localStorage.setItem(key, serialized)
       }
+
+      // Step 2 — for Zustand-backed keys, ALSO update the live store and
+      // push to Supabase BEFORE reloading. Without this, the post-reload
+      // sync would pull the empty cloud state and overwrite our import.
+      // Each entry: hydrate the store in-memory from `value.state` (Zustand
+      // persist wraps as { state, version }), then force-sync to Supabase.
+      await Promise.allSettled(
+        Array.from(selectedKeys).map(async (key) => {
+          const value = parsed.data?.[key] as { state?: unknown } | undefined
+          const state = value && typeof value === 'object' && 'state' in value ? value.state : value
+          if (!state || typeof state !== 'object') return
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const apply = (storeSet: (s: any) => void, syncFn?: () => Promise<void>) => {
+            storeSet(state)
+            return syncFn?.()
+          }
+
+          switch (key) {
+            case 'overseer-food':       return apply(useFoodStore.setState, forceSyncFood)
+            case 'overseer-tasks':      return apply(useTasksStore.setState, forceSyncTasks)
+            case 'overseer-habits':     return apply(useHabitsStore.setState, forceSyncHabits)
+            case 'overseer-gym':        return apply(useGymStore.setState, forceSyncGymBasics)
+            case 'overseer-wallet':     return apply(useWalletStore.setState, forceSyncWallet)
+            case 'overseer-trading':    return apply(useTradingStore.setState, forceSyncTrading)
+            case 'overseer-health':     return apply(useHealthStore.setState, forceSyncHealth)
+            case 'overseer-chat':       return apply(useChatStore.setState, forceSyncChat)
+            case 'overseer-spi':        return apply(useSPIStore.setState, forceSyncSPI)
+            case 'overseer-projection': return apply(useProjectionStore.setState, forceSyncProjection)
+            // Non-synced keys (UI prefs, gcal config) — localStorage write is enough.
+            default: return
+          }
+        })
+      )
+
       setDone(true)
-      // Give the user a moment to read the success message, then reload
-      // so the stores re-hydrate from the new localStorage values.
-      setTimeout(() => window.location.reload(), 1200)
+      // Reload so every store re-hydrates cleanly from the new localStorage.
+      // The Supabase pull that runs post-mount will now see the data we
+      // just pushed, so it won't overwrite anything.
+      setTimeout(() => window.location.reload(), 1500)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al escribir localStorage')
       setImporting(false)
