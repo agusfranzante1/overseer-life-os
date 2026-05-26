@@ -45,6 +45,13 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
   const [overSubId, setOverSubId] = useState<string | null>(null)
   const draggedSubRef = useRef<string | null>(null)
 
+  // ── Inline "add child" state — which parent subtask currently has its
+  //    "+ subtarea" input expanded, plus the in-flight draft text. Resets
+  //    on submit/Esc/blur. Allows adding nested subtasks without opening
+  //    the subtask detail modal. ──
+  const [addingChildTo, setAddingChildTo] = useState<string | null>(null)
+  const [childDraft, setChildDraft] = useState('')
+
   // ── Collapse state per parent subtask (parent id → collapsed?) ──
   const [collapsedParents, setCollapsedParents] = useState<Set<string>>(new Set())
   const toggleParentCollapse = (parentId: string) => {
@@ -388,6 +395,65 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
                       />
                     </div>
                   ))}
+
+                  {/* "+ subtarea" shortcut — lets the user nest a new
+                      child subtask without opening the detail modal.
+                      Indented to the child level (ml-12) so it visually
+                      lives alongside the existing children. Subtle by
+                      default; brightens on hover. Hidden when the parent
+                      is collapsed (otherwise it'd float orphaned). */}
+                  {!isCollapsed && addingChildTo !== root.id && (
+                    <button
+                      onClick={() => { setAddingChildTo(root.id); setChildDraft('') }}
+                      className="ml-12 w-[calc(100%-3rem)] text-left text-[11px] text-zinc-700 hover:text-indigo-300 hover:bg-indigo-500/5 px-2 py-1 rounded transition-colors flex items-center gap-1.5 opacity-60 hover:opacity-100 group-only:opacity-100"
+                      title={`Agregar subtarea dentro de "${root.title}"`}
+                    >
+                      <CornerDownRight className="w-2.5 h-2.5" />
+                      <Plus className="w-2.5 h-2.5" />
+                      <span>subtarea</span>
+                    </button>
+                  )}
+                  {!isCollapsed && addingChildTo === root.id && (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault()
+                        const t = childDraft.trim()
+                        if (!t) { setAddingChildTo(null); return }
+                        addSubtask(task.id, t, root.id)
+                        setChildDraft('')
+                        // Keep the input open so the user can rapid-fire
+                        // multiple children. Esc closes it.
+                      }}
+                      className="ml-12 flex items-center gap-1.5 px-2 py-1"
+                    >
+                      <CornerDownRight className="w-2.5 h-2.5 text-zinc-600 shrink-0" />
+                      <input
+                        autoFocus
+                        value={childDraft}
+                        onChange={(e) => setChildDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          e.stopPropagation()
+                          if (e.key === 'Escape') { setAddingChildTo(null); setChildDraft('') }
+                        }}
+                        onBlur={() => {
+                          // Close the input if it's empty (user clicked away
+                          // without typing). Keep it open if there's content
+                          // so blurred-but-typed values don't get lost.
+                          if (!childDraft.trim()) setAddingChildTo(null)
+                        }}
+                        placeholder="Nueva subtarea…"
+                        className="flex-1 bg-transparent border-b border-indigo-500/40 focus:border-indigo-500 outline-none text-[11px] text-zinc-200 placeholder:text-zinc-700 py-0.5"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { setAddingChildTo(null); setChildDraft('') }}
+                        title="Cerrar"
+                        className="text-zinc-600 hover:text-zinc-300 text-[10px]"
+                      >
+                        Esc
+                      </button>
+                    </form>
+                  )}
                 </div>
               )
             })}
