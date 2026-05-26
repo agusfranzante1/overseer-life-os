@@ -9,16 +9,37 @@ import { PRIORITY_COLORS, IMPACT_COLORS } from '@/lib/utils/constants'
 import { format } from 'date-fns'
 import Link from 'next/link'
 
+/** Parse a YYYY-MM-DD string in LOCAL time (avoids the UTC-roll-back bug
+ *  where new Date('2026-05-27') becomes 2026-05-26 21:00 in UTC-3). */
+function parseLocalDate(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  dt.setHours(0, 0, 0, 0)
+  return dt
+}
+
+function startOfTodayLocal(): Date {
+  const t = new Date()
+  t.setHours(0, 0, 0, 0)
+  return t
+}
+
 function isOverdue(task: Task): boolean {
   if (!task.dueDate) return false
-  return new Date(task.dueDate) < new Date(new Date().toDateString())
+  return parseLocalDate(task.dueDate).getTime() < startOfTodayLocal().getTime()
 }
 
 function isToday(task: Task): boolean {
   if (task.scheduledFor === 'today') return true
   if (!task.dueDate) return false
-  const today = new Date().toISOString().split('T')[0]
-  return task.dueDate === today
+  return parseLocalDate(task.dueDate).getTime() === startOfTodayLocal().getTime()
+}
+
+function isDueTomorrow(task: Task): boolean {
+  if (!task.dueDate) return false
+  const tomorrow = startOfTodayLocal()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  return parseLocalDate(task.dueDate).getTime() === tomorrow.getTime()
 }
 
 export function TodayTaskList() {
@@ -53,6 +74,7 @@ export function TodayTaskList() {
             todayTasks.map((task, i) => {
               const proj = projects[task.projectId]
               const overdue = isOverdue(task)
+              const dueTomorrow = isDueTomorrow(task)
               return (
                 <motion.div
                   key={task.id}
@@ -77,6 +99,12 @@ export function TodayTaskList() {
                       {overdue && (
                         <span className="flex items-center gap-1 text-xs text-red-400">
                           <AlertCircle className="w-3 h-3" /> {t('tasks.overdue')}
+                        </span>
+                      )}
+                      {dueTomorrow && (
+                        <span className="flex items-center gap-1 text-xs text-red-400">
+                          <AlertCircle className="w-3 h-3" />
+                          <span className="text-[10px] font-medium opacity-80">→ Mañana</span>
                         </span>
                       )}
                     </div>

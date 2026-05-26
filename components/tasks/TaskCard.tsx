@@ -33,7 +33,25 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
 
   const isDone = project.statuses.find((s) => s.label === task.status)?.countsAsDone
   const completedSubtasks = task.subtasks.filter((s) => s.completed).length
-  const isOverdue = task.dueDate && new Date(task.dueDate) < new Date(new Date().toDateString())
+
+  // Due-date state — computed in LOCAL time to avoid the timezone bug
+  // where `new Date('2026-05-27')` is parsed as UTC midnight, which
+  // becomes the previous day in UTC-3 (AR). The old `< toDateString()`
+  // check was firing the alert one day early for that reason.
+  const dueState: 'overdue' | 'today' | 'tomorrow' | 'future' | null = (() => {
+    if (!task.dueDate) return null
+    const [y, m, d] = task.dueDate.split('-').map(Number)
+    const due = new Date(y, m - 1, d); due.setHours(0, 0, 0, 0)
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
+    if (due.getTime() < today.getTime()) return 'overdue'
+    if (due.getTime() === today.getTime()) return 'today'
+    if (due.getTime() === tomorrow.getTime()) return 'tomorrow'
+    return 'future'
+  })()
+  const isOverdue = dueState === 'overdue'
+  const isDueTomorrow = dueState === 'tomorrow'
+
   const isHighPriority = task.priority === 'high' || task.priority === 'urgent'
   const isUrgent = task.priority === 'urgent'
 
@@ -246,11 +264,20 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
                 fgColor={PRIORITY_COLORS[task.priority]}
                 renderLabel={() => t(`tasks.priorities.${task.priority}`)}
               />
-              {task.dueDate && (
-                <span className={`text-xs ${isOverdue ? 'text-red-400' : 'text-zinc-500'}`}>
-                  {isOverdue ? '⚠️ ' : ''}{format(new Date(task.dueDate), 'MMM d')}
-                </span>
-              )}
+              {task.dueDate && (() => {
+                // Parse date in LOCAL time (avoids UTC roll-back bug).
+                const [y, m, d] = task.dueDate.split('-').map(Number)
+                const localDue = new Date(y, m - 1, d)
+                const color = isOverdue || isDueTomorrow ? 'text-red-400' : 'text-zinc-500'
+                return (
+                  <span className={`text-xs ${color} flex items-center gap-1`}>
+                    {isOverdue ? '⚠️ ' : ''}{format(localDue, 'MMM d')}
+                    {isDueTomorrow && (
+                      <span className="text-[10px] font-medium text-red-400/80">→ Mañana</span>
+                    )}
+                  </span>
+                )
+              })()}
               {task.subtasks.length > 0 && (
                 <span className="text-xs text-zinc-500">
                   {completedSubtasks}/{task.subtasks.length}
@@ -396,16 +423,17 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
                     </div>
                   ))}
 
-                  {/* "+ subtarea" shortcut — lets the user nest a new
-                      child subtask without opening the detail modal.
-                      Indented to the child level (ml-12) so it visually
-                      lives alongside the existing children. Subtle by
-                      default; brightens on hover. Hidden when the parent
-                      is collapsed (otherwise it'd float orphaned). */}
-                  {!isCollapsed && addingChildTo !== root.id && (
+                  {/* "+ subtarea" shortcut — only shown for subtask1 that
+                      ALREADY has at least one child. Once you've added the
+                      first child via the "..." menu (SubtaskDetailModal),
+                      the subtask is considered a "sub-project" and the
+                      inline shortcut appears here for rapid-fire additions.
+                      This keeps the visual list of flat subtask1's clean —
+                      we don't pollute every row with a "+ subtarea" CTA. */}
+                  {hasChildren && !isCollapsed && addingChildTo !== root.id && (
                     <button
                       onClick={() => { setAddingChildTo(root.id); setChildDraft('') }}
-                      className="ml-12 w-[calc(100%-3rem)] text-left text-[11px] text-zinc-700 hover:text-indigo-300 hover:bg-indigo-500/5 px-2 py-1 rounded transition-colors flex items-center gap-1.5 opacity-60 hover:opacity-100 group-only:opacity-100"
+                      className="ml-12 w-[calc(100%-3rem)] text-left text-[11px] text-zinc-700 hover:text-indigo-300 hover:bg-indigo-500/5 px-2 py-1 rounded transition-colors flex items-center gap-1.5 opacity-60 hover:opacity-100"
                       title={`Agregar subtarea dentro de "${root.title}"`}
                     >
                       <CornerDownRight className="w-2.5 h-2.5" />
@@ -413,7 +441,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
                       <span>subtarea</span>
                     </button>
                   )}
-                  {!isCollapsed && addingChildTo === root.id && (
+                  {hasChildren && !isCollapsed && addingChildTo === root.id && (
                     <form
                       onSubmit={(e) => {
                         e.preventDefault()
