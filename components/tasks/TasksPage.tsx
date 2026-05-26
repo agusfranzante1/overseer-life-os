@@ -797,7 +797,11 @@ export function TasksPage() {
           </div>
         </div>
 
-        {newTaskProjectId && (
+        {/* Top-of-page form — only relevant in SINGLE-project view (when
+            `activeProject` is set). In All-Projects view we have a per-project
+            form rendered at the bottom of each section's list, so showing it
+            here too would render TWO inputs for the same action. */}
+        {newTaskProjectId && activeProject && (
           <div className="mb-4">
             <NewTaskForm
               projectId={newTaskProjectId}
