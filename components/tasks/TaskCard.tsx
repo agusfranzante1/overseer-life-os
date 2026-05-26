@@ -809,8 +809,8 @@ function InlineSubtask({
         <button
           data-interactive
           onClick={(e) => { e.stopPropagation(); setEditing(true) }}
-          title="Click para renombrar"
-          className={`flex-1 text-sm text-left px-1.5 py-0.5 rounded hover:bg-zinc-800/60 transition-colors min-w-0 break-words ${
+          title={`Click para renombrar · ${subtask.title}`}
+          className={`flex-1 text-sm text-left px-1.5 py-0.5 rounded hover:bg-zinc-800/60 transition-colors min-w-0 truncate ${
             subtask.completed ? 'line-through text-zinc-500' : 'text-zinc-200'
           } ${hasChildren ? 'font-semibold' : ''}`}
         >
@@ -855,12 +855,15 @@ function InlineSubtask({
         className="sr-only"
         tabIndex={-1}
       />
+      {/* Date chip — hidden on mobile (<sm) to keep the title row legible
+          on narrow screens. The date is still editable from the subtask
+          detail modal (...) and from desktop. */}
       {subtask.dueDate ? (
         <button
           data-interactive
           onClick={(e) => { e.stopPropagation(); openDatePicker() }}
           title={`Vence: ${dueDateFull} — click para cambiar`}
-          className="shrink-0 flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border transition-all hover:bg-zinc-800"
+          className="hidden sm:flex shrink-0 items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border transition-all hover:bg-zinc-800"
           style={{ color: dueStateColor, borderColor: `${dueStateColor}40` }}
         >
           <Calendar className="w-2.5 h-2.5" />
@@ -879,7 +882,7 @@ function InlineSubtask({
           data-interactive
           onClick={(e) => { e.stopPropagation(); openDatePicker() }}
           title="Agregar fecha de entrega"
-          className="shrink-0 text-zinc-700 hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-all p-0.5"
+          className="hidden sm:inline-flex shrink-0 text-zinc-700 hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-all p-0.5"
         >
           <Calendar className="w-3 h-3" />
         </button>
