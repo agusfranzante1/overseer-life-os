@@ -897,7 +897,13 @@ export function TasksPage() {
                       {expanded ? <ChevronDown className="w-3.5 h-3.5 text-zinc-600" /> : <ChevronRight className="w-3.5 h-3.5 text-zinc-600" />}
                     </button>
                     <button
-                      onClick={() => setNewTaskProjectId(proj.id)}
+                      onClick={() => {
+                        // Form lives inside the expanded section now (at the
+                        // bottom). If the project is collapsed, expand it
+                        // first or the form would be hidden.
+                        if (!expanded) toggleExpand(proj.id)
+                        setNewTaskProjectId(proj.id)
+                      }}
                       title={`Agregar tarea a ${proj.name}`}
                       className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-zinc-500 hover:text-indigo-300 hover:bg-indigo-500/10 transition-colors opacity-60 group-hover/section:opacity-100"
                       style={{ borderColor: `${proj.color}40` }}
@@ -907,17 +913,9 @@ export function TasksPage() {
                     </button>
                   </div>
 
-                  {newTaskProjectId === proj.id && (
-                    <div className="mb-3">
-                      <NewTaskForm
-                        projectId={proj.id}
-                        statuses={proj.statuses}
-                        onAdd={handleAddTask}
-                        onClose={() => setNewTaskProjectId(null)}
-                        t={t}
-                      />
-                    </div>
-                  )}
+                  {/* Form moved BELOW the task list — see inside AnimatePresence.
+                      Used to render here at the top which was visually
+                      confusing (new tasks actually get appended to the end). */}
 
                   <AnimatePresence>
                     {expanded && (
@@ -928,13 +926,25 @@ export function TasksPage() {
                         className="space-y-2 overflow-hidden"
                       >
                         {projTasks.length === 0 ? (
-                          <button
-                            onClick={() => setNewTaskProjectId(proj.id)}
-                            className="w-full text-left text-xs text-zinc-600 hover:text-indigo-300 hover:bg-indigo-500/5 pl-5 py-2 rounded-lg transition-colors flex items-center gap-2"
-                          >
-                            <Plus className="w-3 h-3" />
-                            {t('tasks.noTasks')} — agregar una
-                          </button>
+                          // Empty-state "agregar una" button OR the form
+                          // itself if the user already clicked it.
+                          newTaskProjectId === proj.id ? (
+                            <NewTaskForm
+                              projectId={proj.id}
+                              statuses={proj.statuses}
+                              onAdd={handleAddTask}
+                              onClose={() => setNewTaskProjectId(null)}
+                              t={t}
+                            />
+                          ) : (
+                            <button
+                              onClick={() => setNewTaskProjectId(proj.id)}
+                              className="w-full text-left text-xs text-zinc-600 hover:text-indigo-300 hover:bg-indigo-500/5 pl-5 py-2 rounded-lg transition-colors flex items-center gap-2"
+                            >
+                              <Plus className="w-3 h-3" />
+                              {t('tasks.noTasks')} — agregar una
+                            </button>
+                          )
                         ) : (
                           <>
                             {projTasks.map((task) => (
@@ -945,11 +955,20 @@ export function TasksPage() {
                                 onClick={() => setSelectedTask(task)}
                               />
                             ))}
-                            {/* Subtle "+ nueva tarea" footer per project, only
-                                when the form isn't already open. Notion-style
-                                affordance — visible but doesn't compete with
-                                the task cards visually. */}
-                            {newTaskProjectId !== proj.id && (
+                            {/* The "add new task" affordance lives at the
+                                BOTTOM of each project's list — matches where
+                                the task actually ends up after creation.
+                                Toggles between the subtle footer button and
+                                the actual NewTaskForm in the same slot. */}
+                            {newTaskProjectId === proj.id ? (
+                              <NewTaskForm
+                                projectId={proj.id}
+                                statuses={proj.statuses}
+                                onAdd={handleAddTask}
+                                onClose={() => setNewTaskProjectId(null)}
+                                t={t}
+                              />
+                            ) : (
                               <button
                                 onClick={() => setNewTaskProjectId(proj.id)}
                                 className="w-full text-left text-xs text-zinc-600 hover:text-indigo-300 hover:bg-indigo-500/5 px-3 py-2 rounded-lg transition-colors flex items-center gap-2 opacity-50 hover:opacity-100"
