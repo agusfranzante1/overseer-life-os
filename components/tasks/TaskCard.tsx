@@ -199,8 +199,11 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
                 </span>
               </div>
             )}
-            {/* Title */}
-            <div className="flex items-center gap-2">
+            {/* Title row — `min-w-0` is critical here: without it the inner
+                flex child (the title button) inherits min-width: auto and
+                stops respecting truncate, so long titles push the row wider
+                than its container. */}
+            <div className="flex items-center gap-2 min-w-0">
               {editingTitle ? (
                 <input
                   data-interactive
@@ -247,8 +250,12 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
               )}
             </div>
 
-            {/* Badges row */}
-            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+            {/* Badges row — `flex-nowrap` + `overflow-hidden` keeps every
+                TaskCard exactly the same height regardless of how many
+                badges or how long the status label is. Badges that don't
+                fit just get clipped on the right; the user can open the
+                task to see everything in detail. */}
+            <div className="flex flex-nowrap items-center gap-1.5 mt-1.5 overflow-hidden min-w-0">
               <InlineSelectBadge
                 value={task.status}
                 options={project.statuses.map((s) => ({ value: s.label, label: s.label, color: s.color }))}
