@@ -16,7 +16,7 @@ import type { SPITemplate } from './types'
  *  prefixes (see spiStore onRehydrateStorage).
  */
 export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
-  version: 3,
+  version: 4,
 
   mainChecklist: [
     { key: 'aaa', label: 'Ejecutar Protocolo de Control [AAA]' },
@@ -108,15 +108,11 @@ export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
       key: 'que_buscamos',
       laneKey: 'estrategico',
       emoji: '🔍',
-      title: 'Qué buscamos?',
-      intro: 'Izamos las velas del barco. Repensamos a dónde queremos llegar para luego determinar los recursos que tenemos.',
+      title: 'Qué buscás esta semana?',
+      intro: 'Las metas trimestre/mes ya viven en Proyección y se muestran en el panel de arriba — acá enfocá lo SEMANAL específico que sale de esas anclas.',
       fields: [
-        { key: 'meta_pro_q', label: 'Meta Profesional · trimestre', type: 'text' },
-        { key: 'meta_pro_mes', label: 'Meta Profesional · mes', type: 'text' },
-        { key: 'meta_pro_sem', label: 'Meta Profesional · semana', type: 'text' },
-        { key: 'meta_per_q', label: 'Meta Personal · trimestre', type: 'text' },
-        { key: 'meta_per_mes', label: 'Meta Personal · mes', type: 'text' },
-        { key: 'meta_per_sem', label: 'Meta Personal · semana', type: 'text' },
+        { key: 'meta_pro_sem', label: 'Meta Profesional · esta semana', type: 'text', hint: 'Qué movimiento concreto vas a hacer estos 7 días que alinea con tu trimestre/mes.' },
+        { key: 'meta_per_sem', label: 'Meta Personal · esta semana', type: 'text', hint: 'Igual, pero del lado personal/salud/relaciones.' },
       ],
     },
     {

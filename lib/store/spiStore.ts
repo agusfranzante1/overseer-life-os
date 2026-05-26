@@ -458,11 +458,21 @@ export const useSPIStore = create<SPIState>()(
           const hasV1Split = sections.some((sec) => sec.key === 'aaa_emocional' || sec.key === 'aaa_tactico')
           const hasV1Bitacora = sections.some((sec) => sec.key === 'bitacora')
           const hasV2Aaa = sections.some((sec) => sec.key === 'aaa' && (sec.subsections?.length ?? 0) > 0)
-          const isV3 = !!state.template?.lanes && sections.some((sec) => !!sec.laneKey)
+          const isV3OrLater = !!state.template?.lanes && sections.some((sec) => !!sec.laneKey)
 
-          if (!isV3 && (hasV1Split || hasV1Bitacora || hasV2Aaa)) {
-            // Bundled-default upgrade path. Custom user templates wouldn't
-            // match any of these shapes — leave them alone.
+          if (!isV3OrLater && (hasV1Split || hasV1Bitacora || hasV2Aaa)) {
+            // Bundled-default upgrade path from v1/v2. Custom user templates
+            // wouldn't match any of these shapes — leave them alone.
+            state.template = DEFAULT_SPI_TEMPLATE
+          }
+
+          // v3 → v4 upgrade: the strategic-lane "que_buscamos" section
+          // dropped the 4 quarter/month fields (those live in Proyección
+          // now). Detect a v3 default template and bump to v4 default.
+          const isV3 = (state.template?.version ?? 0) === 3
+          const queBuscamos = sections.find((sec) => sec.key === 'que_buscamos')
+          const hasOldQueBuscamos = queBuscamos?.fields?.some((f) => f.key === 'meta_pro_q' || f.key === 'meta_per_q')
+          if (isV3 && hasOldQueBuscamos) {
             state.template = DEFAULT_SPI_TEMPLATE
           }
 

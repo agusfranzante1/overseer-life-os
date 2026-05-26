@@ -12,8 +12,10 @@ import {
 } from 'recharts'
 import { useSPIStore } from '@/lib/store/spiStore'
 import { useTasksStore } from '@/lib/store/tasksStore'
+import { useProjectionStore } from '@/lib/store/projectionStore'
 import type { SPISection, SectionField, SPISession, SPITask } from '@/lib/spi/types'
 import { titleForLevel, type SessionXP } from '@/lib/spi/gamification'
+import { quarterOfMonthKey, monthOfSpiWeek, labelForPeriod } from '@/lib/projection/period'
 
 export function SPIPage() {
   const {
@@ -27,6 +29,7 @@ export function SPIPage() {
   } = useSPIStore()
   const projectsById = useTasksStore((s) => s.projects)
   const taskMap = useTasksStore((s) => s.tasks)
+  const projectionPlans = useProjectionStore((s) => s.plans)
 
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
@@ -140,6 +143,7 @@ export function SPIPage() {
           template={template}
           projectsById={projectsById}
           taskMap={taskMap}
+          projectionPlans={projectionPlans}
           bitacoraEntries={bitacoraEntries}
           onBitacoraAdd={addBitacoraEntry}
           onBitacoraUpdate={updateBitacoraEntry}
@@ -251,7 +255,7 @@ function EmptyState({
 // ACTIVE SESSION
 // ─────────────────────────────────────────────────────────────────────
 function ActiveSession({
-  session, template, projectsById, taskMap,
+  session, template, projectsById, taskMap, projectionPlans,
   bitacoraEntries, onBitacoraAdd, onBitacoraUpdate, onBitacoraRemove,
   onChecklistToggle, onValueChange, onSetLanes,
   onAddTask, onUpdateTask, onRemoveTask, onPushTask,
@@ -261,6 +265,7 @@ function ActiveSession({
   template: ReturnType<typeof useSPIStore.getState>['template']
   projectsById: ReturnType<typeof useTasksStore.getState>['projects']
   taskMap: ReturnType<typeof useTasksStore.getState>['tasks']
+  projectionPlans: ReturnType<typeof useProjectionStore.getState>['plans']
   bitacoraEntries: import('@/lib/spi/types').BitacoraEntry[]
   onBitacoraAdd: (e: Omit<import('@/lib/spi/types').BitacoraEntry, 'id' | 'createdAt' | 'updatedAt'>) => string
   onBitacoraUpdate: (id: string, patch: Partial<import('@/lib/spi/types').BitacoraEntry>) => void
@@ -433,6 +438,15 @@ function ActiveSession({
                 </h3>
                 <div className="flex-1 h-px" style={{ background: `${lane.color}30` }} />
               </div>
+              {/* In the strategic lane, surface year/quarter/month anchors
+                  from Proyección up top so the user doesn't have to re-write
+                  them every week — they only fill the weekly variation. */}
+              {lane.key === 'estrategico' && (
+                <ProjectionContext
+                  weekStartDate={session.weekStartDate}
+                  plans={projectionPlans}
+                />
+              )}
               {laneSections.map((section) => (
                 <Section
                   key={section.key}
@@ -1556,5 +1570,168 @@ function EvolutionChart({ sessions }: { sessions: SPISession[] }) {
         </ResponsiveContainer>
       </div>
     </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// PROJECTION CONTEXT — read-only summary of year/quarter/month plans
+// for the period containing this SPI week. Shown at the top of the
+// strategic lane so the user doesn't re-type meta_pro_q/mes every week.
+// ─────────────────────────────────────────────────────────────────────
+function ProjectionContext({
+  weekStartDate, plans,
+}: {
+  weekStartDate: string
+  plans: ReturnType<typeof useProjectionStore.getState>['plans']
+}) {
+  // Derive the parent period keys from the session's Saturday.
+  const monthKey = monthOfSpiWeek(weekStartDate)
+  const quarterKey = quarterOfMonthKey(monthKey)
+  const yearKey = monthKey.slice(0, 4)
+
+  const yearPlan = plans.find((p) => p.level === 'year' && p.periodKey === yearKey)
+  const quarterPlan = plans.find((p) => p.level === 'quarter' && p.periodKey === quarterKey)
+  const monthPlan = plans.find((p) => p.level === 'month' && p.periodKey === monthKey)
+
+  // Pluck the most meaningful fields from each plan. If a user customized
+  // their projection template, some fields may not exist — they're optional.
+  const yearGoal = yearPlan?.values?.identidad?.una_cosa
+    || yearPlan?.values?.metas_anuales?.profesional_1
+  const yearPersona = yearPlan?.values?.identidad?.persona
+
+  const quarterBattle = quarterPlan?.values?.alineacion?.una_batalla
+  const quarterObjectives = [
+    quarterPlan?.values?.objetivos_q?.objetivo_1,
+    quarterPlan?.values?.objetivos_q?.objetivo_2,
+    quarterPlan?.values?.objetivos_q?.objetivo_3,
+  ].filter(Boolean) as string[]
+
+  const monthFocus = monthPlan?.values?.alineacion_m?.foco_mes
+  const monthProjects = [
+    monthPlan?.values?.proyectos_m?.proyecto_1,
+    monthPlan?.values?.proyectos_m?.proyecto_2,
+    monthPlan?.values?.proyectos_m?.proyecto_3,
+    monthPlan?.values?.proyectos_m?.proyecto_4,
+  ].filter(Boolean) as string[]
+
+  const allEmpty = !yearGoal && !yearPersona && !quarterBattle && quarterObjectives.length === 0 && !monthFocus && monthProjects.length === 0
+  const nothingExists = !yearPlan && !quarterPlan && !monthPlan
+
+  return (
+    <div className="bg-gradient-to-br from-blue-950/30 to-indigo-950/20 border border-blue-500/20 rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] font-mono uppercase tracking-wider text-blue-300/80">
+          📐 Contexto desde Proyección
+        </p>
+        <a
+          href="/proyeccion"
+          className="text-[10px] text-blue-300/60 hover:text-blue-200 transition-colors"
+          title="Editar planes anual / trimestral / mensual"
+        >
+          editar →
+        </a>
+      </div>
+
+      {nothingExists ? (
+        <div className="text-xs text-zinc-500 italic">
+          Todavía no armaste tus planes de proyección.{' '}
+          <a href="/proyeccion" className="text-blue-300 hover:text-blue-200 underline decoration-blue-500/30">
+            Empezá por el año
+          </a>
+          {' '}para que aparezcan acá las anclas estratégicas cada semana.
+        </div>
+      ) : allEmpty ? (
+        <div className="text-xs text-zinc-500 italic">
+          Tus planes existen pero están vacíos en los campos clave (meta principal del año, batalla del Q, foco del mes).{' '}
+          <a href="/proyeccion" className="text-blue-300 hover:text-blue-200 underline decoration-blue-500/30">
+            Completalos
+          </a>
+          {' '}para verlos acá.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          {/* YEAR */}
+          <ContextCard
+            emoji="🦅"
+            label={`Año ${yearKey}`}
+            href={`/proyeccion?level=year&period=${yearKey}`}
+            exists={!!yearPlan}
+          >
+            {yearGoal && (
+              <p><span className="text-blue-300/60">Meta:</span> {yearGoal}</p>
+            )}
+            {yearPersona && (
+              <p className="mt-1"><span className="text-blue-300/60">Persona:</span> {yearPersona}</p>
+            )}
+          </ContextCard>
+
+          {/* QUARTER */}
+          <ContextCard
+            emoji="🎯"
+            label={labelForPeriod(quarterKey)}
+            href={`/proyeccion?level=quarter&period=${quarterKey}`}
+            exists={!!quarterPlan}
+          >
+            {quarterBattle && (
+              <p><span className="text-blue-300/60">Batalla:</span> {quarterBattle}</p>
+            )}
+            {quarterObjectives.length > 0 && (
+              <ul className="mt-1 space-y-0.5">
+                {quarterObjectives.slice(0, 3).map((o, i) => (
+                  <li key={i} className="line-clamp-2">{i + 1}. {o}</li>
+                ))}
+              </ul>
+            )}
+          </ContextCard>
+
+          {/* MONTH */}
+          <ContextCard
+            emoji="📆"
+            label={labelForPeriod(monthKey)}
+            href={`/proyeccion?level=month&period=${monthKey}`}
+            exists={!!monthPlan}
+          >
+            {monthFocus && (
+              <p><span className="text-blue-300/60">Foco:</span> {monthFocus}</p>
+            )}
+            {monthProjects.length > 0 && (
+              <ul className="mt-1 space-y-0.5">
+                {monthProjects.slice(0, 4).map((p, i) => (
+                  <li key={i} className="line-clamp-2">• {p}</li>
+                ))}
+              </ul>
+            )}
+          </ContextCard>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ContextCard({
+  emoji, label, href, exists, children,
+}: {
+  emoji: string
+  label: string
+  href: string
+  exists: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <a
+      href={href}
+      className={`block bg-zinc-950/60 border rounded-lg p-2.5 hover:border-blue-500/40 transition-all ${
+        exists ? 'border-zinc-800' : 'border-zinc-900 opacity-50'
+      }`}
+      title={exists ? 'Click para editar en Proyección' : 'Click para crear plan en Proyección'}
+    >
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="text-sm">{emoji}</span>
+        <span className="text-[10px] font-mono uppercase tracking-wider text-blue-300/80 capitalize">{label}</span>
+      </div>
+      <div className="text-[11px] text-zinc-300 leading-snug">
+        {exists ? children : <span className="italic text-zinc-600">— sin plan —</span>}
+      </div>
+    </a>
   )
 }
