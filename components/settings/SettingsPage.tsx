@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Settings as SettingsIcon, Bot, Eye, EyeOff, Check, X, Loader2, ExternalLink, AlertCircle, Calendar, Copy, CheckCheck, Link2, Link2Off } from 'lucide-react'
+import { Settings as SettingsIcon, Bot, Eye, EyeOff, Check, X, Loader2, ExternalLink, AlertCircle, Calendar, Copy, CheckCheck, Link2, Link2Off, Upload, Database, FileJson } from 'lucide-react'
 import { useAppStore } from '@/lib/store/appStore'
 
 const ANTHROPIC_MODELS = [
@@ -564,6 +564,192 @@ export function SettingsPage() {
 
       <GoogleCalendarSection />
       <HealthWebhookSection />
+      <BackupImportSection />
     </motion.div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// BACKUP IMPORT — restore selected keys from an overseer-backup-*.json
+// ─────────────────────────────────────────────────────────────────────
+
+/** Human-readable labels per known localStorage key. Anything not in
+ *  this map still gets restored if checked, just shown by raw key. */
+const KEY_LABELS: Record<string, { label: string; hint?: string }> = {
+  'overseer-food':    { label: 'Alimentación', hint: 'Etapas (déficit/manten./volumen) + comidas + lista de compras + costos fijos' },
+  'overseer-tasks':   { label: 'Tareas y proyectos' },
+  'overseer-habits':  { label: 'Hábitos' },
+  'overseer-gym':     { label: 'Gym (rutinas + sesiones + peso corporal)' },
+  'overseer-wallet':  { label: 'Billetera' },
+  'overseer-trading': { label: 'Trading' },
+  'overseer-health':  { label: 'Salud (steps, sueño)' },
+  'overseer-gcal':    { label: 'Google Calendar (config)' },
+  'overseer-chat':    { label: 'Chat history' },
+  'overseer-spi':     { label: 'SPI · sesiones + bitácora + plantilla' },
+  'overseer-projection': { label: 'Proyección · planes anual/trimestral/mensual' },
+}
+
+interface BackupShape {
+  exportedAt?: string
+  version?: number
+  data?: Record<string, unknown>
+}
+
+function BackupImportSection() {
+  const [parsed, setParsed] = useState<BackupShape | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [fileName, setFileName] = useState<string>('')
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
+  const [importing, setImporting] = useState(false)
+  const [done, setDone] = useState(false)
+
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setError(null)
+    setDone(false)
+    const file = e.target.files?.[0]
+    if (!file) return
+    setFileName(file.name)
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const json = JSON.parse(String(reader.result)) as BackupShape
+        if (!json.data || typeof json.data !== 'object') {
+          throw new Error('No tiene la forma de un backup de Overseer (falta `data`).')
+        }
+        setParsed(json)
+        // Por default no selecciono nada — el usuario elige qué pisar.
+        setSelectedKeys(new Set())
+      } catch (err) {
+        setParsed(null)
+        setError(err instanceof Error ? err.message : 'JSON inválido')
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  const toggleKey = (k: string) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(k)) next.delete(k); else next.add(k)
+      return next
+    })
+  }
+
+  const doImport = () => {
+    if (!parsed?.data || selectedKeys.size === 0) return
+    setImporting(true)
+    try {
+      for (const key of selectedKeys) {
+        const value = parsed.data[key]
+        if (value === undefined) continue
+        // Zustand persist stores strings, but some legacy keys are stored
+        // as plain values (e.g. 'overseer-tasks-view': "list"). Serialize
+        // objects, keep strings/numbers raw.
+        const serialized = typeof value === 'string' ? value : JSON.stringify(value)
+        localStorage.setItem(key, serialized)
+      }
+      setDone(true)
+      // Give the user a moment to read the success message, then reload
+      // so the stores re-hydrate from the new localStorage values.
+      setTimeout(() => window.location.reload(), 1200)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al escribir localStorage')
+      setImporting(false)
+    }
+  }
+
+  const availableKeys = parsed?.data ? Object.keys(parsed.data).sort() : []
+
+  return (
+    <section className="bg-zinc-900/50 rounded-2xl p-4 sm:p-6 border border-zinc-800">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1 flex items-center gap-2">
+        <Database className="w-3.5 h-3.5" /> Importar backup
+      </h2>
+      <p className="text-xs text-zinc-500 mb-4">
+        Cargá un archivo <code className="text-zinc-400">overseer-backup-YYYY-MM-DD.json</code> y elegí qué partes restaurar.
+        Las claves que selecciones <span className="text-amber-400">pisan</span> los datos actuales en este browser.
+      </p>
+
+      <label className="flex items-center gap-3 px-3 py-2.5 bg-zinc-950 border border-dashed border-zinc-700 hover:border-indigo-500/40 rounded-lg cursor-pointer transition-colors mb-3">
+        <Upload className="w-4 h-4 text-zinc-500" />
+        <span className="text-sm text-zinc-400">
+          {fileName ? <span className="text-zinc-200">{fileName}</span> : 'Seleccionar archivo .json'}
+        </span>
+        <input type="file" accept=".json,application/json" onChange={onFile} className="hidden" />
+      </label>
+
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 mb-3 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+          <span className="text-xs text-red-300">{error}</span>
+        </div>
+      )}
+
+      {parsed && availableKeys.length > 0 && (
+        <>
+          {parsed.exportedAt && (
+            <p className="text-[10px] text-zinc-600 mb-2 font-mono">
+              Backup del {new Date(parsed.exportedAt).toLocaleString('es-AR')}
+            </p>
+          )}
+
+          <div className="space-y-1.5 mb-4 max-h-72 overflow-y-auto pr-1">
+            {availableKeys.map((key) => {
+              const meta = KEY_LABELS[key]
+              const checked = selectedKeys.has(key)
+              const value = parsed.data?.[key]
+              const sizeHint = typeof value === 'string'
+                ? `${value.length} chars`
+                : `${(JSON.stringify(value)?.length ?? 0).toLocaleString()} chars`
+              return (
+                <label key={key}
+                  className={`flex items-start gap-2 px-2.5 py-2 rounded border transition-colors cursor-pointer ${
+                    checked ? 'bg-indigo-500/10 border-indigo-500/40' : 'bg-zinc-950 border-zinc-800 hover:border-zinc-700'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleKey(key)}
+                    className="mt-0.5 accent-indigo-500 shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-zinc-200">
+                      {meta?.label ?? <code className="text-zinc-400">{key}</code>}
+                    </p>
+                    {meta?.hint && <p className="text-[10px] text-zinc-500 mt-0.5">{meta.hint}</p>}
+                    <p className="text-[10px] text-zinc-700 mt-0.5 font-mono">
+                      <FileJson className="w-2.5 h-2.5 inline mr-1" />
+                      {key} · {sizeHint}
+                    </p>
+                  </div>
+                </label>
+              )
+            })}
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] text-zinc-500">
+              {selectedKeys.size > 0
+                ? <span className="text-indigo-300">{selectedKeys.size} clave{selectedKeys.size === 1 ? '' : 's'} seleccionada{selectedKeys.size === 1 ? '' : 's'}</span>
+                : <span>Seleccioná al menos una clave para restaurar.</span>}
+            </p>
+            <button
+              onClick={doImport}
+              disabled={selectedKeys.size === 0 || importing}
+              className="px-3 py-2 bg-indigo-500/15 border border-indigo-500/40 hover:bg-indigo-500/25 disabled:opacity-40 disabled:cursor-not-allowed text-indigo-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
+            >
+              {done ? (
+                <><Check className="w-3.5 h-3.5" /> Restaurado · recargando...</>
+              ) : importing ? (
+                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Restaurando...</>
+              ) : (
+                <><Upload className="w-3.5 h-3.5" /> Restaurar selección</>
+              )}
+            </button>
+          </div>
+        </>
+      )}
+    </section>
   )
 }
