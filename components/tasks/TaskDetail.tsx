@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Task, Project, Priority } from '@/types'
 import { useTasksStore } from '@/lib/store/tasksStore'
@@ -19,14 +19,53 @@ const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 export function TaskDetail({ task, project, onClose }: Props) {
   const { updateTask, addSubtask, toggleSubtask, deleteSubtask, updateSubtask, moveTask, projects } = useTasksStore()
   const { t } = useTranslation()
-  // ── CRITICAL: read the task LIVE from the store, not from the prop.
-  // The `task` prop is a snapshot captured at click-time by TasksPage.
-  // If we render from the snapshot, any updateTask we fire here ends up
-  // saved in the store but the displayed value never refreshes — so the
-  // user thinks "it didn't save" even though it did. Reading live also
-  // means edits done in another tab show up immediately.
+  // Read the task LIVE from the store so edits reflect immediately.
   const liveTask = useTasksStore((s) => (task ? s.tasks[task.id] : undefined))
   const effective = liveTask ?? task
+
+  // ── Buffered local state for the text inputs ──
+  // We use local state for the VISIBLE value (so cursor position is
+  // stable and the user always sees exactly what they typed), and mirror
+  // every change to the store. Refs hold the latest values so a final
+  // commit-on-unmount can fire even if React batched a pending change.
+  const [titleBuf, setTitleBuf] = useState(effective?.title ?? '')
+  const [descBuf,  setDescBuf]  = useState(effective?.description ?? '')
+  const [notesBuf, setNotesBuf] = useState(effective?.notes ?? '')
+  const titleRef = useRef(titleBuf)
+  const descRef  = useRef(descBuf)
+  const notesRef = useRef(notesBuf)
+  const taskIdRef = useRef(task?.id)
+  titleRef.current = titleBuf
+  descRef.current  = descBuf
+  notesRef.current = notesBuf
+  taskIdRef.current = effective?.id
+
+  // When the user navigates to a DIFFERENT task, re-seed the buffers
+  // from the new task's stored values. Identity-only check (task.id)
+  // — we don't want to overwrite while the user is typing on the
+  // current task.
+  useEffect(() => {
+    setTitleBuf(effective?.title ?? '')
+    setDescBuf(effective?.description ?? '')
+    setNotesBuf(effective?.notes ?? '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task?.id])
+
+  // Final safety net: when this component unmounts, commit any text
+  // that might still be in the buffer but not yet persisted (e.g. if
+  // the modal closed in the same React tick as a keystroke).
+  useEffect(() => {
+    return () => {
+      const id = taskIdRef.current
+      if (!id) return
+      updateTask(id, {
+        title: titleRef.current,
+        description: descRef.current || undefined,
+        notes: notesRef.current || undefined,
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const [newSubtask, setNewSubtask] = useState('')
   const [openSubtaskId, setOpenSubtaskId] = useState<string | null>(null)
@@ -35,9 +74,9 @@ export function TaskDetail({ task, project, onClose }: Props) {
   if (!effective || !project) return null
 
   // Aliases used below so the JSX reads naturally.
-  const editTitle = effective.title
-  const editDesc  = effective.description ?? ''
-  const editNotes = effective.notes ?? ''
+  const editTitle = titleBuf
+  const editDesc  = descBuf
+  const editNotes = notesBuf
 
   const handleAddSubtask = (e: React.FormEvent) => {
     e.preventDefault()
@@ -77,11 +116,8 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 value={editTitle}
                 onChange={(e) => {
                   const v = e.target.value
-                  // Write straight to the store on every keystroke —
-                  // no local mirror state. The textarea's value comes
-                  // from the live store via `editTitle = effective.title`,
-                  // so the user sees their text appear correctly.
-                  updateTask(effective.id, { title: v })
+                  setTitleBuf(v)                                 // visible buffer
+                  updateTask(effective.id, { title: v })          // persist to store
                   // Resize as the user types
                   e.currentTarget.style.height = 'auto'
                   e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px'
@@ -240,8 +276,8 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 value={editDesc}
                 onChange={(e) => {
                   const v = e.target.value
-                  // Live-store write (no local mirror).
-                  updateTask(effective.id, { description: v })
+                  setDescBuf(v)                                  // visible buffer
+                  updateTask(effective.id, { description: v })   // persist to store
                 }}
                 rows={3}
                 placeholder="Optional description..."
@@ -291,8 +327,8 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 value={editNotes}
                 onChange={(e) => {
                   const v = e.target.value
-                  // Live-store write (no local mirror).
-                  updateTask(effective.id, { notes: v })
+                  setNotesBuf(v)                                 // visible buffer
+                  updateTask(effective.id, { notes: v })         // persist to store
                 }}
                 rows={3}
                 placeholder="Notes..."

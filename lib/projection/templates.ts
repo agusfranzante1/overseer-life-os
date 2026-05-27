@@ -147,9 +147,9 @@ const TRES_CAPAS_SECTION: SPISection = {
  *  best moment to do this in depth. */
 export const QUARTER_TEMPLATE: ProjectionTemplate = {
   level: 'quarter',
-  version: 3,
+  version: 4,
   title: 'Plan Trimestral',
-  intro: 'El trimestre es donde la visión anual se vuelve operativa. Trabajamos sobre las 2 áreas principales que elegiste al inicio del año — cada una se desglosa en 3 sub-metas para los próximos 3 meses.',
+  intro: 'Las 2 áreas principales del año bajan acá automáticamente (arriba). Acá solo definís la alineación estratégica y, si ya cerraste un Q antes, sus aprendizajes.',
   sections: [
     // Cascade FROM annual principales — special block, no fields (renders
     // dynamically based on the parent annual plan).
@@ -162,46 +162,10 @@ export const QUARTER_TEMPLATE: ProjectionTemplate = {
     {
       key: 'alineacion',
       emoji: '🧭',
-      title: 'Otras notas estratégicas',
+      title: 'Notas estratégicas',
       defaultCollapsed: true,
       fields: [
         { key: 'una_batalla', label: 'La UNA batalla principal del trimestre', type: 'textarea', hint: '¿Cuál es el frente donde más vas a empujar?' },
-      ],
-    },
-    {
-      key: 'objetivos_q',
-      emoji: '🎯',
-      title: 'Objetivos del trimestre',
-      intro: '3 objetivos grandes — específicos, medibles, dateados al cierre del Q.',
-      fields: [
-        { key: 'objetivo_1', label: 'Objetivo #1', type: 'textarea' },
-        { key: 'objetivo_2', label: 'Objetivo #2', type: 'textarea' },
-        { key: 'objetivo_3', label: 'Objetivo #3', type: 'textarea' },
-        { key: 'metricas', label: 'Métricas a trackear semanalmente', type: 'textarea', hint: 'KPIs concretos. Ej: clientes nuevos, peso corporal, horas de deep work...' },
-      ],
-    },
-    {
-      key: 'enfoque_mensual',
-      emoji: '📆',
-      title: 'Distribución por mes',
-      intro: 'Pre-asigná un tema/foco a cada mes del trimestre para no llegar al mes 3 corriendo.',
-      fields: [
-        { key: 'mes_1', label: 'Mes 1 — foco principal', type: 'textarea', placeholder: 'Qué energía/proyectos dominan este mes' },
-        { key: 'mes_2', label: 'Mes 2 — foco principal', type: 'textarea' },
-        { key: 'mes_3', label: 'Mes 3 — foco principal (cierre)', type: 'textarea', hint: 'Típicamente el mes de cierre/entrega.' },
-      ],
-    },
-    // 3-layer breakdown — for diving deep into the trimester's hardest goal
-    TRES_CAPAS_SECTION,
-    {
-      key: 'sistema_q',
-      emoji: '⚙️',
-      title: 'Sistema operativo del trimestre',
-      defaultCollapsed: true,
-      fields: [
-        { key: 'rutinas', label: 'Rutinas fijas / block times', type: 'textarea', hint: 'Lo que va al calendario sí o sí estos 3 meses.' },
-        { key: 'compromisos', label: 'Compromisos externos / eventos importantes', type: 'textarea' },
-        { key: 'no_quiero', label: '¿Qué NO quiero hacer en este trimestre?', type: 'textarea', hint: 'Cosas que estarías tentado a aceptar pero te desvían.' },
       ],
     },
     {

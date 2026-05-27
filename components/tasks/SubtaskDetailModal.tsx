@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Trash2, Plus, CheckCircle2 } from 'lucide-react'
 import { Priority, Subtask, Project } from '@/types'
@@ -31,6 +31,28 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
   const [newChildTitle, setNewChildTitle] = useState('')
   const [openChildId, setOpenChildId] = useState<string | null>(null)
 
+  // ── Refs that always hold the LATEST values ──
+  // Critical because the cleanup useEffect below runs with empty deps.
+  // Without refs, the cleanup would capture INITIAL closures of `title`,
+  // `notes`, etc., and on unmount it would write the OLD values back —
+  // overwriting whatever the user just typed. THIS WAS THE BUG.
+  const titleRef = useRef(title)
+  const notesRef = useRef(notes)
+  const descRef  = useRef(description)
+  const statusRef = useRef(status)
+  const priorityRef = useRef(priority)
+  const dueDateRef = useRef(dueDate)
+  const taskIdRef = useRef(taskId)
+  const subtaskIdRef = useRef(subtask.id)
+  titleRef.current = title
+  notesRef.current = notes
+  descRef.current  = description
+  statusRef.current = status
+  priorityRef.current = priority
+  dueDateRef.current = dueDate
+  taskIdRef.current = taskId
+  subtaskIdRef.current = subtask.id
+
   // Re-sync local state when the user navigates between subtasks
   useEffect(() => {
     setTitle(subtask.title)
@@ -39,18 +61,21 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
     setStatus(subtask.status || project.statuses[0]?.label || 'To Do')
     setPriority(subtask.priority ?? '')
     setDueDate(subtask.dueDate ?? '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subtask.id])
 
-  // Persist any pending changes when this modal unmounts
+  // Persist any pending changes when this modal unmounts. Uses refs so
+  // we read the LATEST values, not stale ones captured by the closure.
   useEffect(() => {
     return () => {
-      updateSubtask(taskId, subtask.id, {
-        title: title.trim() || subtask.title,
-        notes: notes.trim() || undefined,
-        description: description.trim() || undefined,
-        status,
-        priority: priority || undefined,
-        dueDate: dueDate || undefined,
+      const latestTitle = titleRef.current
+      updateSubtask(taskIdRef.current, subtaskIdRef.current, {
+        title: latestTitle.trim() || latestTitle,
+        notes: notesRef.current.trim() || undefined,
+        description: descRef.current.trim() || undefined,
+        status: statusRef.current,
+        priority: priorityRef.current || undefined,
+        dueDate: dueDateRef.current || undefined,
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -129,7 +154,12 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
                 }}
                 value={title}
                 onChange={(e) => {
-                  setTitle(e.target.value)
+                  const v = e.target.value
+                  setTitle(v)
+                  // Persist on every keystroke too — belt + suspenders
+                  // (the unmount cleanup also commits, but this catches
+                  // any edge case where the cleanup might not fire).
+                  updateSubtask(taskId, subtask.id, { title: v })
                   e.currentTarget.style.height = 'auto'
                   e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px'
                 }}

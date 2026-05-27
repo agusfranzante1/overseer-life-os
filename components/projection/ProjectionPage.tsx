@@ -101,38 +101,18 @@ export function ProjectionPage() {
           }}
         />
       )}
-      {activeLevel === 'quarter' && (
-        <LevelView
-          level="quarter"
-          periodKey={quarterKey}
-          onShift={(delta) => setQuarterKey((k) => shiftPeriod(k, delta))}
-          onGoToToday={() => setQuarterKey(currentQuarterKey())}
-          plan={findPlan('quarter', quarterKey)}
+      {(activeLevel === 'quarter' || activeLevel === 'month') && (
+        <PlanList
+          level={activeLevel}
+          allPlans={plans}
+          spiSessions={spiSessions}
           getOrCreatePlan={getOrCreatePlan}
           updateValue={updateValue}
           closePlan={closePlan}
           reopenPlan={reopenPlan}
-          relatedPlans={plans}
-          spiSessions={spiSessions}
           onJumpToChild={(level, periodKey) => {
             if (level === 'month') { setMonthKey(periodKey); setActiveLevel('month') }
           }}
-        />
-      )}
-      {activeLevel === 'month' && (
-        <LevelView
-          level="month"
-          periodKey={monthKey}
-          onShift={(delta) => setMonthKey((k) => shiftPeriod(k, delta))}
-          onGoToToday={() => setMonthKey(currentMonthKey())}
-          plan={findPlan('month', monthKey)}
-          getOrCreatePlan={getOrCreatePlan}
-          updateValue={updateValue}
-          closePlan={closePlan}
-          reopenPlan={reopenPlan}
-          relatedPlans={plans}
-          spiSessions={spiSessions}
-          onJumpToChild={() => { /* week → handled via direct SPI link */ }}
         />
       )}
     </div>
@@ -154,6 +134,238 @@ function LevelTab({ active, onClick, icon, label }: { active: boolean; onClick: 
     >
       <span>{icon}</span> {label}
     </button>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// PLAN LIST — for quarter / month levels.
+// Renders a stack of plan cards: the CURRENT period card (always shown,
+// expanded by default, "En Progreso" badge) on top, then any previously
+// CLOSED plans for that level, collapsed, with "Done" badges.
+// When the user crosses the next period boundary (e.g. enters Q3 after
+// Q2), the previous current plan becomes part of the history list and
+// a new current card appears at the top automatically.
+// ─────────────────────────────────────────────────────────────────────
+function PlanList({
+  level, allPlans, spiSessions,
+  getOrCreatePlan, updateValue, closePlan, reopenPlan, onJumpToChild,
+}: {
+  level: 'quarter' | 'month'
+  allPlans: ProjectionPlan[]
+  spiSessions: ReturnType<typeof useSPIStore.getState>['sessions']
+  getOrCreatePlan: (level: ProjectionLevel, periodKey: string) => string
+  updateValue: (planId: string, sectionKey: string, fieldKey: string, value: string) => void
+  closePlan: (planId: string, args: { mood?: number; notes?: string }) => void
+  reopenPlan: (planId: string) => void
+  onJumpToChild: (level: ProjectionLevel, periodKey: string) => void
+}) {
+  const currentKey = level === 'quarter' ? currentQuarterKey() : currentMonthKey()
+
+  // Build the visible periods list: current (always) + any closed plans
+  // for past periods (newest first). Future periods are NOT shown — they
+  // appear automatically when their start date arrives.
+  const periods = useMemo(() => {
+    const list: { key: string; plan: ProjectionPlan | null; isCurrent: boolean }[] = []
+    const currentPlan = allPlans.find((p) => p.level === level && p.periodKey === currentKey) ?? null
+    list.push({ key: currentKey, plan: currentPlan, isCurrent: true })
+    const closedPast = allPlans
+      .filter((p) => p.level === level && p.periodKey !== currentKey && !!p.closedAt)
+      .sort((a, b) => b.periodKey.localeCompare(a.periodKey))
+    for (const p of closedPast) list.push({ key: p.periodKey, plan: p, isCurrent: false })
+    return list
+  }, [level, currentKey, allPlans])
+
+  const template = ALL_TEMPLATES[level]
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-[10px] font-mono uppercase tracking-wider text-indigo-400/70">
+          {template.title}
+        </p>
+        <p className="text-xs text-zinc-500 mt-0.5">
+          {level === 'quarter'
+            ? 'Tu trimestre actual está abierto. Cuando lo cerrás, queda guardado abajo en el historial.'
+            : 'Tu mes actual está abierto. Cuando lo cerrás, queda guardado abajo en el historial.'}
+        </p>
+      </div>
+
+      {periods.map((p) => (
+        <PlanCard
+          key={p.key}
+          level={level}
+          periodKey={p.key}
+          plan={p.plan}
+          status={p.isCurrent ? 'in_progress' : 'done'}
+          allPlans={allPlans}
+          spiSessions={spiSessions}
+          getOrCreatePlan={getOrCreatePlan}
+          updateValue={updateValue}
+          closePlan={closePlan}
+          reopenPlan={reopenPlan}
+          onJumpToChild={onJumpToChild}
+        />
+      ))}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// PLAN CARD — collapsible card with status badge that wraps a single
+// plan's content. Expanded by default for the current period; closed
+// past periods default to collapsed.
+// ─────────────────────────────────────────────────────────────────────
+function PlanCard({
+  level, periodKey, plan, status,
+  allPlans, spiSessions,
+  getOrCreatePlan, updateValue, closePlan, reopenPlan, onJumpToChild,
+}: {
+  level: 'quarter' | 'month'
+  periodKey: string
+  plan: ProjectionPlan | null
+  status: 'in_progress' | 'done'
+  allPlans: ProjectionPlan[]
+  spiSessions: ReturnType<typeof useSPIStore.getState>['sessions']
+  getOrCreatePlan: (level: ProjectionLevel, periodKey: string) => string
+  updateValue: (planId: string, sectionKey: string, fieldKey: string, value: string) => void
+  closePlan: (planId: string, args: { mood?: number; notes?: string }) => void
+  reopenPlan: (planId: string) => void
+  onJumpToChild: (level: ProjectionLevel, periodKey: string) => void
+}) {
+  // Past closed plans default collapsed; current period default expanded.
+  const [expanded, setExpanded] = useState(status === 'in_progress')
+  const template = ALL_TEMPLATES[level]
+  const [showClose, setShowClose] = useState(false)
+
+  const ctx = useMemo(
+    () => buildHierarchyContext(level, periodKey, allPlans, spiSessions),
+    [level, periodKey, allPlans, spiSessions]
+  )
+
+  const badge = status === 'in_progress'
+    ? { label: 'En Progreso', cls: 'bg-blue-500/15 border-blue-500/40 text-blue-300' }
+    : { label: 'Done',        cls: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' }
+
+  return (
+    <div className={`rounded-xl border overflow-hidden transition-colors ${
+      status === 'in_progress' ? 'bg-zinc-950/60 border-indigo-500/30' : 'bg-zinc-950/40 border-zinc-800'
+    }`}>
+      {/* Header — always clickable to expand/collapse */}
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full px-5 py-3 flex items-center gap-3 text-left hover:bg-zinc-900/40 transition-colors"
+      >
+        <span className="text-lg shrink-0">{level === 'quarter' ? '🎯' : '📆'}</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-base font-semibold text-zinc-100 capitalize truncate">
+            {labelForPeriod(periodKey)}
+          </p>
+          {plan?.score !== undefined && status === 'done' && (
+            <p className="text-[10px] text-zinc-500 mt-0.5">
+              Cerrado · puntuación {plan.score}%
+            </p>
+          )}
+        </div>
+        <span className={`text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border ${badge.cls}`}>
+          {badge.label}
+        </span>
+        {expanded ? <ChevronDown className="w-4 h-4 text-zinc-500" /> : <ChevronRight className="w-4 h-4 text-zinc-500" />}
+      </button>
+
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-zinc-800/60 p-5 space-y-4">
+              {/* Top action row: close / reopen */}
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-zinc-500 italic leading-relaxed flex-1">{template.intro}</p>
+                {plan?.closedAt ? (
+                  <button
+                    onClick={() => reopenPlan(plan.id)}
+                    className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+                    title="Reabrir para seguir editando"
+                  >
+                    reabrir
+                  </button>
+                ) : plan ? (
+                  <button
+                    onClick={() => setShowClose(true)}
+                    className="px-3 py-1.5 bg-emerald-500/15 border border-emerald-500/40 hover:bg-emerald-500/25 text-emerald-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 shrink-0"
+                  >
+                    <Trophy className="w-3.5 h-3.5" /> Cerrar
+                  </button>
+                ) : null}
+              </div>
+
+              {/* Mini-calendar — only for the CURRENT quarter */}
+              {level === 'quarter' && status === 'in_progress' && (
+                <QuarterMiniCalendar quarterKey={periodKey} />
+              )}
+
+              {/* Empty state — only on the current period if not started */}
+              {!plan && status === 'in_progress' && (
+                <div className="bg-zinc-950/40 border border-zinc-800 rounded-2xl p-6 text-center">
+                  <Target className="w-8 h-8 text-indigo-400/70 mx-auto mb-2" />
+                  <p className="text-sm font-semibold text-zinc-200 mb-1">
+                    No empezaste este {level === 'quarter' ? 'trimestre' : 'mes'} todavía
+                  </p>
+                  <p className="text-xs text-zinc-500 mb-4 max-w-md mx-auto">
+                    Se guarda automático en cada cambio.
+                  </p>
+                  <button
+                    onClick={() => getOrCreatePlan(level, periodKey)}
+                    className="px-4 py-2 bg-indigo-500/15 border border-indigo-500/40 hover:bg-indigo-500/25 text-indigo-300 rounded-lg text-sm font-semibold transition-all"
+                  >
+                    Empezar plan
+                  </button>
+                </div>
+              )}
+
+              {/* Sections */}
+              {plan && template.sections.map((section) => (
+                <Section
+                  key={section.key}
+                  section={section}
+                  plan={plan}
+                  onValueChange={(secKey, fieldKey, value) => updateValue(plan.id, secKey, fieldKey, value)}
+                />
+              ))}
+
+              {/* Cascade from annual is rendered inside Section via the
+                  special 'principal_cascade' key — no extra wiring here. */}
+
+              {/* Child periods overview (only for current quarter — past
+                  quarters' children are visible by clicking the month directly) */}
+              {plan && status === 'in_progress' && ctx.children.length > 0 && (
+                <ChildrenOverview
+                  level={level}
+                  children={ctx.children}
+                  onJump={onJumpToChild}
+                />
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showClose && plan && (
+          <ClosePlanModal
+            label={labelForPeriod(periodKey)}
+            onClose={() => setShowClose(false)}
+            onConfirm={({ mood, notes }) => {
+              closePlan(plan.id, { mood, notes })
+              setShowClose(false)
+            }}
+          />
+        )}
+      </AnimatePresence>
+    </div>
   )
 }
 
