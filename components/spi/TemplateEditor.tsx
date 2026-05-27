@@ -28,6 +28,7 @@ const FIELD_TYPE_LABELS: Record<SectionFieldType, string> = {
   text: 'Texto corto',
   textarea: 'Texto largo',
   select: 'Lista desplegable',
+  score: 'Puntuación 0-100',
   checklist: 'Checklist',
 }
 
