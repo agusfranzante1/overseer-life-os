@@ -13,6 +13,8 @@ import { ALL_TEMPLATES, WHEEL_AREAS } from '@/lib/projection/templates'
 import {
   ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip as RechartsTooltip,
 } from 'recharts'
+import { Sparkles, Dices, Loader2 } from 'lucide-react'
+import { getAiHeaders } from '@/lib/ai/headers'
 import {
   currentYearKey, currentQuarterKey, currentMonthKey,
   quarterMonths, yearOfQuarter, yearOfMonth, quarterOfMonthKey,
@@ -539,10 +541,201 @@ function Section({
               {section.key === 'wheel_of_life' && (
                 <WheelOfLifeChart values={plan.values[section.key] ?? {}} />
               )}
+              {/* Special render: cascade block — for quarter/month plans.
+                  Reads the parent level's principales/sub-goals and lets
+                  the user write 3 sub-goals per principal area at THIS level.
+                  Has an "AI desglosar" button per area to auto-fill. */}
+              {section.key === 'principal_cascade' && (
+                <PrincipalCascadeBlock
+                  plan={plan}
+                  onValueChange={onValueChange}
+                />
+              )}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+/** Cascade block — renders the 2 principal areas with their parent goal
+ *  (from annual or quarter) and 3 sub-goal inputs for this level + an
+ *  "AI desglosar" button per area that proposes 3 sub-goals.
+ *
+ *  Data model: sub-goals are stored under
+ *    plan.values.principal_cascade.{areaKey}_sub1 / _sub2 / _sub3
+ *  Annual principales are READ-ONLY from the annual plan (live, no
+ *  snapshot yet — that's a future feature). */
+function PrincipalCascadeBlock({
+  plan, onValueChange,
+}: {
+  plan: ProjectionPlan
+  onValueChange: (sectionKey: string, fieldKey: string, value: string) => void
+}) {
+  const allPlans = useProjectionStore((s) => s.plans)
+  const [busyArea, setBusyArea] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  // Resolve principales + parent goals from the level above.
+  const { principalKeys, parentGoals, parentLevelLabel } = useMemo(() => {
+    if (plan.level === 'quarter') {
+      // Read from annual plan of the same year.
+      const year = plan.periodKey.split('-Q')[0]
+      const annualPlan = allPlans.find((p) => p.level === 'year' && p.periodKey === year)
+      const principalesCsv = annualPlan?.values?.metas_anuales?.principales ?? ''
+      const keys = principalesCsv.split(',').filter(Boolean)
+      const goals: Record<string, string> = {}
+      for (const k of keys) {
+        goals[k] = (annualPlan?.values?.metas_anuales?.[k] ?? '').trim()
+      }
+      return { principalKeys: keys, parentGoals: goals, parentLevelLabel: `Anual ${year}` }
+    }
+    if (plan.level === 'month') {
+      // Read from THIS month's parent quarter plan.
+      const [year, monthStr] = plan.periodKey.split('-')
+      const monthNum = parseInt(monthStr, 10)
+      const qNum = monthNum <= 3 ? 1 : monthNum <= 6 ? 2 : monthNum <= 9 ? 3 : 4
+      const quarterKey = `${year}-Q${qNum}`
+      const quarterPlan = allPlans.find((p) => p.level === 'quarter' && p.periodKey === quarterKey)
+      // Quarter's principales are inherited from annual.
+      const annualPlan = allPlans.find((p) => p.level === 'year' && p.periodKey === year)
+      const principalesCsv = annualPlan?.values?.metas_anuales?.principales ?? ''
+      const keys = principalesCsv.split(',').filter(Boolean)
+      // Parent goal at month level = concatenated quarter sub-goals.
+      const goals: Record<string, string> = {}
+      for (const k of keys) {
+        const subs = [1, 2, 3]
+          .map((i) => quarterPlan?.values?.principal_cascade?.[`${k}_sub${i}`] ?? '')
+          .filter((s) => s.trim().length > 0)
+        goals[k] = subs.length > 0 ? subs.map((s, i) => `${i + 1}. ${s}`).join('\n') : ''
+      }
+      return { principalKeys: keys, parentGoals: goals, parentLevelLabel: `Trimestral ${quarterKey}` }
+    }
+    return { principalKeys: [], parentGoals: {}, parentLevelLabel: '' }
+  }, [plan, allPlans])
+
+  const areaLabel = (key: string) => WHEEL_AREAS.find((a) => a.key === key)?.label ?? key
+
+  const callDesglosar = async (areaKey: string) => {
+    setError(null)
+    setBusyArea(areaKey)
+    try {
+      const headers = getAiHeaders()
+      if (!headers) {
+        setError('La IA está desactivada en Settings. Activala para usar el desglose automático.')
+        setBusyArea(null)
+        return
+      }
+      const res = await fetch('/api/ai/projection-breakdown', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          parentGoal: parentGoals[areaKey],
+          level: plan.level,  // 'quarter' or 'month'
+          context: `Área: ${areaLabel(areaKey)}. Nivel padre: ${parentLevelLabel}.`,
+        }),
+      })
+      const json = await res.json()
+      if (!json.ok || !Array.isArray(json.subgoals)) {
+        setError(json.error ?? 'No se generaron sub-metas')
+        setBusyArea(null)
+        return
+      }
+      // Apply to all 3 slots — overwrites previous AI/manual content.
+      const subs: string[] = json.subgoals
+      for (let i = 0; i < 3; i++) {
+        onValueChange('principal_cascade', `${areaKey}_sub${i + 1}`, subs[i] ?? '')
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error de red')
+    } finally {
+      setBusyArea(null)
+    }
+  }
+
+  if (principalKeys.length === 0) {
+    return (
+      <div className="bg-zinc-950/60 border border-amber-500/20 rounded-xl p-4 text-center">
+        <p className="text-xs text-amber-300/80">
+          Todavía no elegiste tus 2 áreas principales del año.
+        </p>
+        <p className="text-[10px] text-zinc-500 mt-1">
+          Volvé al plan <span className="text-zinc-300">Anual</span> y marcá 2 áreas en la sección "Metas del año".
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-xs text-red-300">
+          {error}
+        </div>
+      )}
+      {principalKeys.map((areaKey) => {
+        const parent = parentGoals[areaKey] || '— sin meta en el nivel superior —'
+        const subs = [1, 2, 3].map((i) => plan.values.principal_cascade?.[`${areaKey}_sub${i}`] ?? '')
+        const isBusy = busyArea === areaKey
+        return (
+          <div key={areaKey} className="bg-zinc-950/60 border border-amber-500/20 rounded-xl overflow-hidden">
+            {/* Header con el área */}
+            <div className="px-4 py-3 bg-amber-500/5 border-b border-amber-500/20 flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-amber-400">⭐</span>
+                <span className="text-sm font-semibold text-amber-200">{areaLabel(areaKey)}</span>
+                <span className="text-[10px] font-mono text-zinc-600 uppercase">
+                  desglose {plan.level === 'quarter' ? 'trimestral' : 'mensual'}
+                </span>
+              </div>
+              <button
+                onClick={() => callDesglosar(areaKey)}
+                disabled={isBusy || !parentGoals[areaKey]}
+                title={!parentGoals[areaKey] ? 'No hay meta padre para desglosar' : 'Desglosar con IA (tirá los dados otra vez para variar)'}
+                className="text-[10px] font-semibold text-amber-300 hover:text-amber-200 hover:bg-amber-500/15 disabled:opacity-40 disabled:cursor-not-allowed px-2 py-1 rounded transition-colors flex items-center gap-1.5"
+              >
+                {isBusy ? (
+                  <><Loader2 className="w-3 h-3 animate-spin" /> Desglosando...</>
+                ) : subs.some((s) => s.trim()) ? (
+                  <><Dices className="w-3 h-3" /> Tirar dados</>
+                ) : (
+                  <><Sparkles className="w-3 h-3" /> Desglosar con IA</>
+                )}
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              {/* Parent goal (read-only) */}
+              <div>
+                <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-1">
+                  Meta padre · {parentLevelLabel}
+                </p>
+                <p className="text-xs text-zinc-300 whitespace-pre-wrap bg-zinc-900/60 border border-zinc-800 rounded px-2.5 py-2">
+                  {parent}
+                </p>
+              </div>
+              {/* 3 sub-goal inputs */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                  3 sub-metas para este {plan.level === 'quarter' ? 'trimestre' : 'mes'}
+                </p>
+                {[0, 1, 2].map((idx) => (
+                  <div key={idx} className="flex items-start gap-2">
+                    <span className="text-[10px] font-mono text-zinc-600 mt-2 w-4 shrink-0">{idx + 1}.</span>
+                    <textarea
+                      value={subs[idx]}
+                      onChange={(e) => onValueChange('principal_cascade', `${areaKey}_sub${idx + 1}`, e.target.value)}
+                      placeholder={`Sub-meta ${idx + 1}...`}
+                      rows={2}
+                      className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-amber-500/40 resize-y"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }

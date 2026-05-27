@@ -147,17 +147,24 @@ const TRES_CAPAS_SECTION: SPISection = {
  *  best moment to do this in depth. */
 export const QUARTER_TEMPLATE: ProjectionTemplate = {
   level: 'quarter',
-  version: 2,
+  version: 3,
   title: 'Plan Trimestral',
-  intro: 'El trimestre es donde la visión anual se vuelve operativa. Definí 1-3 batallas grandes y cómo se conectan con los meses que vienen.',
+  intro: 'El trimestre es donde la visión anual se vuelve operativa. Trabajamos sobre las 2 áreas principales que elegiste al inicio del año — cada una se desglosa en 3 sub-metas para los próximos 3 meses.',
   sections: [
+    // Cascade FROM annual principales — special block, no fields (renders
+    // dynamically based on the parent annual plan).
+    {
+      key: 'principal_cascade',
+      emoji: '🎯',
+      title: 'Tus 2 áreas principales · desglose trimestral',
+      intro: 'De las 2 áreas que marcaste como principales en el plan anual, cada una se baja a 3 sub-metas para este trimestre. Podés escribirlas a mano o usar la IA para que las proponga.',
+    },
     {
       key: 'alineacion',
       emoji: '🧭',
-      title: 'Alineación con el año',
-      intro: 'Acordate de tus metas anuales y mirá cuáles tocan acá.',
+      title: 'Otras notas estratégicas',
+      defaultCollapsed: true,
       fields: [
-        { key: 'metas_anuales_q', label: '¿Qué metas anuales tocan este trimestre?', type: 'textarea', hint: 'Releé tu plan anual y traé acá las metas que avanzás en estos 3 meses.' },
         { key: 'una_batalla', label: 'La UNA batalla principal del trimestre', type: 'textarea', hint: '¿Cuál es el frente donde más vas a empujar?' },
       ],
     },
@@ -216,16 +223,23 @@ export const QUARTER_TEMPLATE: ProjectionTemplate = {
  *  Filled at the start of each month. */
 export const MONTH_TEMPLATE: ProjectionTemplate = {
   level: 'month',
-  version: 2,
+  version: 3,
   title: 'Plan Mensual',
-  intro: 'El mes es donde se concretan los objetivos del trimestre. Definí 3-4 proyectos grandes, los eventos importantes, y los bloques que activás.',
+  intro: 'El mes es la bisagra entre el trimestre y la semana. Cada sub-meta del trimestre se baja a 3 sub-metas mensuales para esas 2 áreas principales.',
   sections: [
+    // Cascade FROM quarter sub-goals
+    {
+      key: 'principal_cascade',
+      emoji: '🎯',
+      title: 'Tus 2 áreas principales · desglose mensual',
+      intro: 'Las sub-metas trimestrales de cada área se desglosan ahora en 3 sub-metas para este mes. Lo más concreto posible — para que la semana ya tenga tareas claras.',
+    },
     {
       key: 'alineacion_m',
       emoji: '🧭',
-      title: 'Alineación con el trimestre',
+      title: 'Otras notas del mes',
+      defaultCollapsed: true,
       fields: [
-        { key: 'objetivos_q', label: '¿Qué objetivos del trimestre tocan este mes?', type: 'textarea' },
         { key: 'foco_mes', label: 'Foco principal del mes (1 frase)', type: 'text', hint: 'La idea-fuerza que ordena las 4 semanas.' },
       ],
     },

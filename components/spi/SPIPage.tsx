@@ -1596,8 +1596,30 @@ function ProjectionContext({
   // Pluck the most meaningful fields from each plan. If a user customized
   // their projection template, some fields may not exist — they're optional.
   const yearGoal = yearPlan?.values?.identidad?.una_cosa
-    || yearPlan?.values?.metas_anuales?.profesional_1
+    || yearPlan?.values?.metas_anuales?.profesional
+    || yearPlan?.values?.metas_anuales?.profesional_principal  // legacy
   const yearPersona = yearPlan?.values?.identidad?.persona
+
+  // ── Principal areas (cascade) ──
+  // Read from annual plan, then surface the monthly sub-goals as the
+  // most actionable view (one level above the weekly SPI).
+  const principalesCsv = yearPlan?.values?.metas_anuales?.principales ?? ''
+  const principalKeys = principalesCsv.split(',').filter(Boolean)
+  type CascadeItem = { areaKey: string; areaLabel: string; subgoals: string[] }
+  const monthCascade: CascadeItem[] = principalKeys.map((k) => {
+    const subs = [1, 2, 3]
+      .map((i) => monthPlan?.values?.principal_cascade?.[`${k}_sub${i}`] ?? '')
+      .filter((s) => s.trim().length > 0)
+    return {
+      areaKey: k,
+      areaLabel: ({
+        fisica: 'Salud Física', mental: 'Salud Mental', emocional: 'Salud Emocional',
+        espiritual: 'Conexión Espiritual', relaciones: 'Relaciones Personales',
+        profesional: 'Profesional', financiera: 'Salud Financiera', legado: 'Propósito / Legado',
+      } as Record<string, string>)[k] ?? k,
+      subgoals: subs,
+    }
+  }).filter((c) => c.subgoals.length > 0)
 
   const quarterBattle = quarterPlan?.values?.alineacion?.una_batalla
   const quarterObjectives = [
@@ -1614,7 +1636,8 @@ function ProjectionContext({
     monthPlan?.values?.proyectos_m?.proyecto_4,
   ].filter(Boolean) as string[]
 
-  const allEmpty = !yearGoal && !yearPersona && !quarterBattle && quarterObjectives.length === 0 && !monthFocus && monthProjects.length === 0
+  const allEmpty = !yearGoal && !yearPersona && !quarterBattle && quarterObjectives.length === 0
+    && !monthFocus && monthProjects.length === 0 && monthCascade.length === 0
   const nothingExists = !yearPlan && !quarterPlan && !monthPlan
 
   return (
@@ -1702,6 +1725,35 @@ function ProjectionContext({
               </ul>
             )}
           </ContextCard>
+        </div>
+      )}
+
+      {/* Principal areas cascade — surfaces the 2 principal areas' monthly
+          sub-goals so the user can derive this week's tasks from them.
+          Only renders when the user has actually filled cascade sub-goals
+          for the current month. */}
+      {monthCascade.length > 0 && (
+        <div className="mt-2 border-t border-blue-500/20 pt-3">
+          <p className="text-[10px] font-mono uppercase tracking-wider text-amber-300/80 mb-2 flex items-center gap-1.5">
+            ⭐ Áreas principales · sub-metas de este mes
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {monthCascade.map((c) => (
+              <div key={c.areaKey} className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-2.5">
+                <p className="text-[11px] font-semibold text-amber-200 mb-1">{c.areaLabel}</p>
+                <ul className="space-y-1">
+                  {c.subgoals.map((s, i) => (
+                    <li key={i} className="text-[11px] text-zinc-300 line-clamp-3">
+                      <span className="text-amber-400/60 font-mono">{i + 1}.</span> {s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-zinc-600 italic mt-2">
+            De acá salen las tareas concretas de esta semana — pensá qué pasos darían cada sub-meta esta semana.
+          </p>
         </div>
       )}
     </div>
