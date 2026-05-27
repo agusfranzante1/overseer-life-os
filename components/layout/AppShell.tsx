@@ -21,9 +21,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useSupabaseSync()
 
-  // Auto-purge completed tasks once per app load, then again whenever the user
-  // crosses a day boundary in their selected TZ (set a timeout for next
-  // midnight in that TZ).
+  // Auto-purge completed tasks. Three triggers, layered for robustness:
+  //   1. On mount (immediately) — covers most refreshes/visits
+  //   2. Delayed re-run 10s later — catches tasks hydrated FROM Supabase
+  //      after the initial mount (the sync is async; if we only purge
+  //      at t=0 we'd miss anything not yet pulled from cloud)
+  //   3. Recursive midnight scheduler — re-arms itself each day so the
+  //      purge keeps happening even if the user never refreshes
+  //   4. Periodic safety net every 30min for the same reason
   useEffect(() => {
     if (!autoPurgeCompletedTasks) return
 
@@ -32,11 +37,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       archiveCompletedBefore(todayKey, timezone)
     }
 
+    // Trigger #1 — immediately on mount.
     runPurge()
 
-    // Compute ms until the next midnight in the user's TZ. We probe minute
-    // by minute (cheap) up to 26h and find when the date key changes — that's
-    // the next day boundary in this TZ.
+    // Trigger #2 — re-run 10s later to catch tasks pulled from Supabase
+    // AFTER the initial mount. Without this, the initial purge runs against
+    // a still-empty store and silently does nothing.
+    const lateStartTimer = setTimeout(runPurge, 10_000)
+
+    // Trigger #3 — recursive midnight scheduler.
+    // Computes ms until the next day boundary in the user's TZ, fires
+    // runPurge there, and re-arms for the FOLLOWING night. Previously this
+    // was a one-shot setTimeout — tasks completed multiple nights ago in a
+    // long-lived tab would never get archived.
     const msUntilNextMidnight = () => {
       const now = new Date()
       const todayKey = todayKeyInTz(timezone)
@@ -56,8 +69,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return 60 * 60_000 // fallback: 1h
     }
 
-    const timer = setTimeout(runPurge, msUntilNextMidnight())
-    return () => clearTimeout(timer)
+    let midnightTimer: ReturnType<typeof setTimeout> | null = null
+    const scheduleNextMidnight = () => {
+      midnightTimer = setTimeout(() => {
+        runPurge()
+        scheduleNextMidnight()  // re-arm for tomorrow
+      }, msUntilNextMidnight())
+    }
+    scheduleNextMidnight()
+
+    // Trigger #4 — safety net every 30min. Catches edge cases where the
+    // tab was backgrounded across midnight (browsers throttle setTimeout
+    // when tabs are inactive) or the user toggled offline/online.
+    const safetyInterval = setInterval(runPurge, 30 * 60_000)
+
+    return () => {
+      clearTimeout(lateStartTimer)
+      if (midnightTimer) clearTimeout(midnightTimer)
+      clearInterval(safetyInterval)
+    }
   }, [timezone, autoPurgeCompletedTasks, archiveCompletedBefore])
 
   const isAuthPage = AUTH_PATHS.some((p) => pathname?.startsWith(p))

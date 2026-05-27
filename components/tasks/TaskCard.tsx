@@ -32,7 +32,12 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
   useEffect(() => { if (!editingTitle) setTitleDraft(task.title) }, [task.title, editingTitle])
 
   const isDone = project.statuses.find((s) => s.label === task.status)?.countsAsDone
-  const completedSubtasks = task.subtasks.filter((s) => s.completed).length
+  // Archived subtasks are hidden from all counters and the tree below.
+  // They live in task.subtasks with archivedAt set; the auto-purge sends
+  // them there one day after completion (same contract as tasks).
+  const visibleSubtasks = task.subtasks.filter((s) => !s.archivedAt)
+  const completedSubtasks = visibleSubtasks.filter((s) => s.completed).length
+  const archivedSubtasksCount = task.subtasks.length - visibleSubtasks.length
 
   // Due-date state — computed in LOCAL time to avoid the timezone bug
   // where `new Date('2026-05-27')` is parsed as UTC midnight, which
@@ -55,8 +60,8 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
   const isHighPriority = task.priority === 'high' || task.priority === 'urgent'
   const isUrgent = task.priority === 'urgent'
 
-  const urgentSubs = task.subtasks.filter((s) => s.priority === 'urgent')
-  const highSubs = task.subtasks.filter((s) => s.priority === 'high')
+  const urgentSubs = visibleSubtasks.filter((s) => s.priority === 'urgent' && !s.completed)
+  const highSubs = visibleSubtasks.filter((s) => s.priority === 'high' && !s.completed)
 
   // ── Drag-and-drop state for subtask nesting ──
   const [dragSubId, setDragSubId] = useState<string | null>(null)
@@ -84,9 +89,10 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
   const [detailSubtaskId, setDetailSubtaskId] = useState<string | null>(null)
   const detailSubtask = task.subtasks.find((s) => s.id === detailSubtaskId) ?? null
 
-  // Build tree: roots + children grouped by parentId
+  // Build tree: roots + children grouped by parentId. Archived subtasks
+  // are excluded so the tree only renders what's still active.
   const subtaskTree = useMemo(() => {
-    const sorted = [...task.subtasks].sort((a, b) => a.order - b.order)
+    const sorted = [...visibleSubtasks].sort((a, b) => a.order - b.order)
     const roots = sorted.filter((s) => !s.parentId)
     const childrenByParent = new Map<string, Subtask[]>()
     for (const s of sorted) {
@@ -96,7 +102,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
       }
     }
     return { roots, childrenByParent }
-  }, [task.subtasks])
+  }, [visibleSubtasks])
 
   const handleAddSubtask = (e: React.FormEvent) => {
     e.preventDefault()
@@ -295,16 +301,16 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
                   </span>
                 )
               })()}
-              {task.subtasks.length > 0 && (
+              {visibleSubtasks.length > 0 && (
                 <span className="text-xs text-zinc-500">
-                  {completedSubtasks}/{task.subtasks.length}
+                  {completedSubtasks}/{visibleSubtasks.length}
                 </span>
               )}
             </div>
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
-            {task.subtasks.length > 0 && (
+            {visibleSubtasks.length > 0 && (
               <button
                 data-interactive
                 onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
@@ -332,11 +338,11 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
           </div>
         </div>
 
-        {task.subtasks.length > 0 && (
+        {visibleSubtasks.length > 0 && (
           <div className="mt-2 ml-7">
             <div className="h-0.5 bg-zinc-800 rounded-full overflow-hidden">
               <motion.div
-                animate={{ width: `${(completedSubtasks / task.subtasks.length) * 100}%` }}
+                animate={{ width: `${(completedSubtasks / visibleSubtasks.length) * 100}%` }}
                 className="h-full bg-indigo-500 rounded-full"
                 transition={{ duration: 0.5 }}
               />
@@ -346,7 +352,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
       </div>
 
       {/* Subtasks expanded — TREE rendering */}
-      {expanded && task.subtasks.length > 0 && (
+      {expanded && visibleSubtasks.length > 0 && (
         <motion.div
           initial={{ height: 0 }}
           animate={{ height: 'auto' }}
@@ -517,7 +523,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
         </motion.div>
       )}
 
-      {expanded && task.subtasks.length === 0 && (
+      {expanded && visibleSubtasks.length === 0 && (
         <motion.div
           initial={{ height: 0 }}
           animate={{ height: 'auto' }}
@@ -791,20 +797,27 @@ function InlineSubtask({
         <CheckCircle2 className={`w-4 h-4 transition-colors ${subtask.completed ? 'text-emerald-400' : 'text-zinc-600 hover:text-zinc-400'}`} />
       </button>
 
-      {/* Priority dot — click to cycle */}
-      <button
-        data-interactive
-        onClick={(e) => {
-          e.stopPropagation()
-          const cycle: (Priority | '')[] = ['', 'low', 'medium', 'high', 'urgent']
-          const idx = cycle.indexOf(subtask.priority ?? '')
-          const next = cycle[(idx + 1) % cycle.length]
-          onPriorityChange(next as Priority | '')
-        }}
-        title={subtask.priority ? `Prioridad: ${subtask.priority}` : 'Sin prioridad — click para asignar'}
-        className="shrink-0 w-2 h-2 rounded-full transition-colors"
-        style={{ background: prioColor ?? '#3f3f46' }}
-      />
+      {/* Priority dot — click to cycle. Hidden once the subtask is
+          completed (same reasoning as the parent task's priority chip:
+          a finished item shouldn't visually scream "urgent" anymore). */}
+      {!subtask.completed && (
+        <button
+          data-interactive
+          onClick={(e) => {
+            e.stopPropagation()
+            const cycle: (Priority | '')[] = ['', 'low', 'medium', 'high', 'urgent']
+            const idx = cycle.indexOf(subtask.priority ?? '')
+            const next = cycle[(idx + 1) % cycle.length]
+            onPriorityChange(next as Priority | '')
+          }}
+          title={subtask.priority ? `Prioridad: ${subtask.priority}` : 'Sin prioridad — click para asignar'}
+          className="shrink-0 w-2 h-2 rounded-full transition-colors"
+          style={{ background: prioColor ?? '#3f3f46' }}
+        />
+      )}
+      {/* Reserve the same width when hidden so the row layout stays
+          consistent between completed and non-completed subtasks. */}
+      {subtask.completed && <span className="shrink-0 w-2" />}
 
       {editing ? (
         <input

@@ -33,6 +33,14 @@ export interface Subtask {
   priority?: Priority
   /** ID of parent subtask (for grouping). Only 1 level of nesting allowed. */
   parentId?: string
+  /** Timestamp when this subtask was marked complete. Mirrors the
+   *  parent Task contract — used by the auto-archive purge to decide
+   *  when to send a completed subtask to the trash. */
+  completedAt?: string
+  /** Timestamp when archived (sent to papelera). Subtasks behave like
+   *  tasks: completed → live one more day → archived. The UI filters
+   *  archived subtasks out of the tree by default. */
+  archivedAt?: string
   /** Due date (ISO YYYY-MM-DD). Lets the user track deadlines per subtask
    *  — useful for sub-projects within a project where chunks have their
    *  own delivery dates. */

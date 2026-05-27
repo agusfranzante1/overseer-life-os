@@ -265,17 +265,38 @@ export const useTasksStore = create<TasksState>()(
         set((s) => {
           const tasks = { ...s.tasks }
           for (const t of Object.values(tasks)) {
-            if (t.archivedAt) continue                  // already in archive
             const proj = s.projects[t.projectId]
             if (!proj) continue
-            const statusDef = proj.statuses.find((st) => st.label === t.status)
-            if (!statusDef?.countsAsDone) continue
-            if (!t.completedAt) continue
-            const completedKey = dateKeyInTz(new Date(t.completedAt), timezone)
-            if (completedKey < todayKey) {
-              tasks[t.id] = { ...t, archivedAt: nowIso }
+
+            // ── Subtasks: archive any subtask whose completedAt rolled
+            // over the day boundary, regardless of whether the parent task
+            // is done. They behave like mini-tasks: complete → live one
+            // more day → trash. The archived ones stay in the parent's
+            // subtasks array (with archivedAt set) so they can be
+            // recovered, but the UI hides them by default.
+            const updatedSubs = (t.subtasks ?? []).map((st) => {
+              if (st.archivedAt) return st
+              if (!st.completed || !st.completedAt) return st
+              const stKey = dateKeyInTz(new Date(st.completedAt), timezone)
+              if (stKey >= todayKey) return st
               archived++
+              return { ...st, archivedAt: nowIso }
+            })
+            const subsChanged = updatedSubs.some((st, i) => st !== t.subtasks?.[i])
+
+            // ── Parent task: original logic — archive once it's done.
+            if (!t.archivedAt) {
+              const statusDef = proj.statuses.find((st) => st.label === t.status)
+              if (statusDef?.countsAsDone && t.completedAt) {
+                const completedKey = dateKeyInTz(new Date(t.completedAt), timezone)
+                if (completedKey < todayKey) {
+                  tasks[t.id] = { ...t, subtasks: updatedSubs, archivedAt: nowIso }
+                  archived++
+                  continue
+                }
+              }
             }
+            if (subsChanged) tasks[t.id] = { ...t, subtasks: updatedSubs }
           }
           return { tasks }
         })
@@ -453,18 +474,35 @@ export const useTasksStore = create<TasksState>()(
       },
 
       updateSubtask: (taskId, subtaskId, patch) =>
-        set((s) => ({
+        set((s) => {
+          const task = s.tasks[taskId]
+          const proj = s.projects[task?.projectId]
+          return {
           tasks: {
             ...s.tasks,
             [taskId]: {
               ...s.tasks[taskId],
-              subtasks: s.tasks[taskId].subtasks.map((st) =>
-                st.id === subtaskId ? { ...st, ...patch } : st
-              ),
+              subtasks: s.tasks[taskId].subtasks.map((st) => {
+                if (st.id !== subtaskId) return st
+                let completedPatch: Partial<typeof st> = {}
+                // If the status changed, mirror Task: stamp/clear completedAt
+                // when transitioning across the countsAsDone boundary.
+                if (typeof patch.status === 'string' && patch.status !== st.status) {
+                  const newStatusDef = proj?.statuses.find((sd) => sd.label === patch.status)
+                  const oldStatusDef = proj?.statuses.find((sd) => sd.label === st.status)
+                  if (newStatusDef?.countsAsDone && !oldStatusDef?.countsAsDone) {
+                    completedPatch = { completed: true, completedAt: new Date().toISOString() }
+                  } else if (!newStatusDef?.countsAsDone && oldStatusDef?.countsAsDone) {
+                    completedPatch = { completed: false, completedAt: undefined }
+                  }
+                }
+                return { ...st, ...patch, ...completedPatch }
+              }),
               updatedAt: new Date().toISOString(),
             },
           },
-        })),
+          }
+        }),
 
       toggleSubtask: (taskId, subtaskId) =>
         set((s) => {
@@ -477,6 +515,7 @@ export const useTasksStore = create<TasksState>()(
           const doneLabel = proj?.statuses.find((st) => st.countsAsDone)?.label
           const firstOpenLabel = proj?.statuses.find((st) => !st.countsAsDone)?.label
             ?? proj?.statuses[0]?.label
+          const nowIso = new Date().toISOString()
           return {
             tasks: {
               ...s.tasks,
@@ -488,9 +527,17 @@ export const useTasksStore = create<TasksState>()(
                   const newStatus = nowCompleted
                     ? (doneLabel ?? st.status)
                     : (firstOpenLabel ?? st.status)
-                  return { ...st, completed: nowCompleted, status: newStatus }
+                  return {
+                    ...st,
+                    completed: nowCompleted,
+                    status: newStatus,
+                    // Mirror the Task contract: stamp completedAt when
+                    // checking, clear it when unchecking. The auto-purge
+                    // uses this to decide when to archive.
+                    completedAt: nowCompleted ? nowIso : undefined,
+                  }
                 }),
-                updatedAt: new Date().toISOString(),
+                updatedAt: nowIso,
               },
             },
           }
