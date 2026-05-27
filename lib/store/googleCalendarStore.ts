@@ -25,6 +25,11 @@ export interface GEvent {
   allDay: boolean
   htmlLink?: string
   colorId?: string  // 1..11 per-event override (Google Calendar palette)
+  /** Set when this event is an INSTANCE of a recurring series. Holds the
+   *  id of the master recurring event (without the date suffix). Used by
+   *  the UI to offer "this event only" vs "all events in the series"
+   *  when editing/moving a recurring instance. */
+  recurringEventId?: string
 }
 
 // Standard Google Calendar event color palette (matches the colors users see in calendar.google.com)
@@ -98,7 +103,19 @@ interface State {
   disconnect: () => Promise<void>
 
   createEvent: (input: Omit<GEvent, 'id'>) => Promise<void>
-  updateEvent: (id: string, calendarId: string, patch: Partial<Omit<GEvent, 'id' | 'calendarId'>>) => Promise<void>
+  /** Patch a Google Calendar event.
+   *  - For one-off events, omit `applyToSeries`.
+   *  - For RECURRING instances, set `applyToSeries: true` AND pass the
+   *    master id in `recurringEventId` to propagate the change to all
+   *    occurrences. The API computes the delta automatically. */
+  updateEvent: (
+    id: string,
+    calendarId: string,
+    patch: Partial<Omit<GEvent, 'id' | 'calendarId'>> & {
+      applyToSeries?: boolean
+      recurringEventId?: string
+    }
+  ) => Promise<void>
   deleteEvent: (id: string, calendarId: string) => Promise<void>
 }
 

@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from '@/hooks/useTranslation'
 import { useTasksStore } from '@/lib/store/tasksStore'
@@ -31,6 +31,11 @@ export function CalendarPage() {
   const [showEventModal, setShowEventModal] = useState<{ mode: 'create' | 'edit'; event?: GEvent; date?: Date; startHour?: number } | null>(null)
   const [banner, setBanner] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [mounted, setMounted] = useState(false)
+  // When the user drag-drops a RECURRING event, we ask "this only" vs
+  // "all in series" via this dialog before firing the API.
+  const [moveScopePrompt, setMoveScopePrompt] = useState<{
+    ev: GEvent; newStart: string; newEnd: string
+  } | null>(null)
 
   const goPrev = () => setCurrentDate(view === 'month' ? subMonths(currentDate, 1) : subWeeks(currentDate, 1))
   const goNext = () => setCurrentDate(view === 'month' ? addMonths(currentDate, 1) : addWeeks(currentDate, 1))
@@ -319,6 +324,19 @@ export function CalendarPage() {
             hideEnd={gcal.hideEnd}
             onEventClick={(ev) => setShowEventModal({ mode: 'edit', event: ev })}
             onCreateAt={(date, hour) => setShowEventModal({ mode: 'create', date, startHour: hour })}
+            onEventMove={async (ev, newStart, newEnd) => {
+              if (ev.recurringEventId) {
+                // Recurring → ask which scope before firing the API.
+                setMoveScopePrompt({ ev, newStart, newEnd })
+                return
+              }
+              // One-off → patch directly.
+              try {
+                await gcal.updateEvent(ev.id, ev.calendarId, { start: newStart, end: newEnd })
+              } catch (e) {
+                setBanner({ kind: 'error', text: e instanceof Error ? e.message : 'No se pudo mover' })
+              }
+            }}
           />
         )}
 
@@ -482,10 +500,19 @@ export function CalendarPage() {
               try {
                 if (showEventModal.mode === 'create') {
                   await gcal.createEvent(data)
+                  setShowEventModal(null)
                 } else if (showEventModal.event) {
-                  await gcal.updateEvent(showEventModal.event.id, showEventModal.event.calendarId, data)
+                  const ev = showEventModal.event
+                  // For recurring events, route through the scope prompt
+                  // so the user explicitly picks "this only" vs "series".
+                  if (ev.recurringEventId) {
+                    setShowEventModal(null)
+                    setMoveScopePrompt({ ev, newStart: data.start, newEnd: data.end })
+                    return
+                  }
+                  await gcal.updateEvent(ev.id, ev.calendarId, data)
+                  setShowEventModal(null)
                 }
-                setShowEventModal(null)
               } catch (e) {
                 setBanner({ kind: 'error', text: `Error: ${e instanceof Error ? e.message : 'unknown'}` })
               }
@@ -501,6 +528,76 @@ export function CalendarPage() {
               }
             }}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Recurring move-scope prompt — appears when the user drag-drops
+          an event that's an instance of a recurring series. Mirrors
+          Google Calendar's "this event / all events" choice. */}
+      <AnimatePresence>
+        {moveScopePrompt && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setMoveScopePrompt(null)}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-5"
+            >
+              <h3 className="text-sm font-bold text-white mb-1">
+                Mover "{moveScopePrompt.ev.summary}"
+              </h3>
+              <p className="text-xs text-zinc-500 mb-4">
+                Este es un evento recurrente. ¿Querés cambiar solo esta instancia o toda la serie?
+              </p>
+              <div className="space-y-2">
+                <button
+                  onClick={async () => {
+                    const { ev, newStart, newEnd } = moveScopePrompt
+                    setMoveScopePrompt(null)
+                    try {
+                      await gcal.updateEvent(ev.id, ev.calendarId, { start: newStart, end: newEnd })
+                      setBanner({ kind: 'success', text: 'Movido solo este evento.' })
+                    } catch (e) {
+                      setBanner({ kind: 'error', text: e instanceof Error ? e.message : 'Falló' })
+                    }
+                  }}
+                  className="w-full text-left px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-200 transition-colors"
+                >
+                  📌 Solo este evento
+                  <p className="text-[10px] text-zinc-500 mt-0.5">Crea una excepción. Los demás de la serie no cambian.</p>
+                </button>
+                <button
+                  onClick={async () => {
+                    const { ev, newStart, newEnd } = moveScopePrompt
+                    setMoveScopePrompt(null)
+                    try {
+                      await gcal.updateEvent(ev.id, ev.calendarId, {
+                        start: newStart, end: newEnd,
+                        applyToSeries: true,
+                        recurringEventId: ev.recurringEventId,
+                      })
+                      setBanner({ kind: 'success', text: 'Movida toda la serie.' })
+                    } catch (e) {
+                      setBanner({ kind: 'error', text: e instanceof Error ? e.message : 'Falló' })
+                    }
+                  }}
+                  className="w-full text-left px-3 py-2.5 bg-indigo-500/15 border border-indigo-500/40 hover:bg-indigo-500/25 rounded-lg text-sm text-indigo-300 transition-colors"
+                >
+                  🔁 Toda la serie
+                  <p className="text-[10px] text-indigo-400/70 mt-0.5">Aplica el mismo desplazamiento a todos los eventos futuros y pasados de la serie.</p>
+                </button>
+                <button
+                  onClick={() => setMoveScopePrompt(null)}
+                  className="w-full px-3 py-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </motion.div>
@@ -718,12 +815,38 @@ interface WeekViewProps {
   hideEnd: number
   onEventClick: (ev: GEvent) => void
   onCreateAt: (date: Date, hour: number) => void
+  /** Called when the user finishes drag-and-dropping an event.
+   *  Receives the event, the new ISO start, and the new ISO end
+   *  (both in local time with offset). The parent decides whether
+   *  to fire the PATCH directly or prompt for series-vs-instance. */
+  onEventMove?: (ev: GEvent, newStart: string, newEnd: string) => void
 }
 
-function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, setSelectedDay, hideNight, hideStart, hideEnd, onEventClick, onCreateAt }: WeekViewProps) {
+function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, setSelectedDay, hideNight, hideStart, hideEnd, onEventClick, onCreateAt, onEventMove }: WeekViewProps) {
   const weekStart = startOfWeek(anchor, { weekStartsOn: 1 })
   const weekEnd   = endOfWeek(anchor, { weekStartsOn: 1 })
   const days = eachDayOfInterval({ start: weekStart, end: weekEnd })
+
+  // ── Drag-and-drop state for event rescheduling ──
+  // While dragging: track which event, its original Y, and the live
+  // vertical offset in pixels. We render a ghost overlay at the
+  // proposed new position so the user has clear feedback.
+  const [dragState, setDragState] = useState<{
+    evId: string
+    originalTop: number
+    originalHeight: number
+    offsetY: number
+    proposedStart: Date
+    proposedEnd: Date
+  } | null>(null)
+  const dragInfoRef = useRef<{
+    ev: GEvent
+    dayStart: Date
+    pointerStartY: number
+    originalTop: number
+    originalHeight: number
+    durationMin: number
+  } | null>(null)
 
   // Live red line for "now"
   const [now, setNow] = useState(() => new Date())
@@ -970,8 +1093,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                   </div>
                 )}
 
-                {/* Events — GCal-style: more rounded, slightly bigger
-                    padding, sharper sans typography (no mono on times). */}
+                {/* Events — GCal-style + drag-to-reschedule support. */}
                 {dayEvents.map((ev) => {
                   const layout = eventLayout(ev, dayStart, dayEnd)
                   if (!layout) return null
@@ -979,25 +1101,119 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                   const cal = calendarById.get(ev.calendarId)
                   const color = resolveEventColor(ev, cal?.backgroundColor)
                   const fg = contrastText(color)
+                  const isBeingDragged = dragState?.evId === ev.id
+                  // While dragging, render at proposed position. Otherwise
+                  // at the computed layout position.
+                  const visualTop = isBeingDragged
+                    ? Math.max(0, dragState.originalTop + dragState.offsetY)
+                    : top
                   return (
-                    <button key={ev.id} onClick={(e) => { e.stopPropagation(); onEventClick(ev) }}
-                      className="absolute left-1 right-1 rounded-lg px-1.5 py-1 text-left overflow-hidden hover:brightness-110 transition-all z-10"
+                    <div
+                      key={ev.id}
+                      role="button"
+                      tabIndex={0}
+                      onPointerDown={(e) => {
+                        // Only start a drag on primary button. Click-without-move
+                        // still fires onEventClick (we use a small threshold).
+                        if (e.button !== 0 || !onEventMove) return
+                        const target = e.currentTarget
+                        target.setPointerCapture(e.pointerId)
+                        const startY = e.clientY
+                        const evStart = parseISO(ev.start)
+                        const evEnd = parseISO(ev.end)
+                        const durationMin = (evEnd.getTime() - evStart.getTime()) / 60_000
+                        dragInfoRef.current = {
+                          ev,
+                          dayStart,
+                          pointerStartY: startY,
+                          originalTop: top,
+                          originalHeight: height,
+                          durationMin,
+                        }
+                        // Don't actually start the drag state until they
+                        // move > 4px — that way a quick click still opens
+                        // the edit modal as before.
+                      }}
+                      onPointerMove={(e) => {
+                        const info = dragInfoRef.current
+                        if (!info || info.ev.id !== ev.id) return
+                        const offsetY = e.clientY - info.pointerStartY
+                        if (!dragState && Math.abs(offsetY) < 4) return  // below threshold
+                        // Snap to 15-min increments.
+                        const minPerPx = 60 / HOUR_PX
+                        const deltaMinRaw = offsetY * minPerPx
+                        const deltaMin = Math.round(deltaMinRaw / 15) * 15
+                        const snappedOffsetY = deltaMin / minPerPx
+                        const baseStart = parseISO(ev.start)
+                        const newStart = new Date(baseStart.getTime() + deltaMin * 60_000)
+                        const newEnd = new Date(newStart.getTime() + info.durationMin * 60_000)
+                        setDragState({
+                          evId: ev.id,
+                          originalTop: info.originalTop,
+                          originalHeight: info.originalHeight,
+                          offsetY: snappedOffsetY,
+                          proposedStart: newStart,
+                          proposedEnd: newEnd,
+                        })
+                      }}
+                      onPointerUp={(e) => {
+                        const info = dragInfoRef.current
+                        dragInfoRef.current = null
+                        try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
+                        if (dragState && dragState.evId === ev.id && info && onEventMove) {
+                          // Commit the move. Build ISO with explicit local
+                          // offset so Google receives the wall-clock the
+                          // user picked (same trick as the create modal).
+                          const toLocalISO = (d: Date) => {
+                            const pad = (n: number) => String(n).padStart(2, '0')
+                            const offsetMin = -d.getTimezoneOffset()
+                            const sign = offsetMin >= 0 ? '+' : '-'
+                            const absMin = Math.abs(offsetMin)
+                            const offH = pad(Math.floor(absMin / 60))
+                            const offM = pad(absMin % 60)
+                            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00${sign}${offH}:${offM}`
+                          }
+                          onEventMove(ev, toLocalISO(dragState.proposedStart), toLocalISO(dragState.proposedEnd))
+                          setDragState(null)
+                        } else {
+                          // No drag happened — treat as click.
+                          onEventClick(ev)
+                          setDragState(null)
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          onEventClick(ev)
+                        }
+                      }}
+                      className={`absolute left-1 right-1 rounded-lg px-1.5 py-1 text-left overflow-hidden transition-all z-10 cursor-grab active:cursor-grabbing ${
+                        isBeingDragged ? 'opacity-90 shadow-2xl scale-[1.02] z-30' : 'hover:brightness-110'
+                      }`}
                       style={{
-                        top, height,
+                        top: visualTop, height,
                         background: color,
                         color: fg,
                         minHeight: 18,
-                        // Subtle inset border like GCal events
-                        boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.06)',
+                        boxShadow: isBeingDragged
+                          ? '0 8px 24px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(0,0,0,0.06)'
+                          : 'inset 0 0 0 1px rgba(0,0,0,0.06)',
+                        touchAction: 'none',  // prevent mobile scrolling while dragging
                       }}
-                      title={`${ev.summary}\n${format(parseISO(ev.start), 'HH:mm')} – ${format(parseISO(ev.end), 'HH:mm')}`}>
-                      <p className="text-[11px] font-medium truncate leading-tight">{ev.summary}</p>
+                      title={`${ev.summary}\n${format(parseISO(ev.start), 'HH:mm')} – ${format(parseISO(ev.end), 'HH:mm')}${ev.recurringEventId ? '\n(recurrente · arrastrá para reagendar)' : ''}`}
+                    >
+                      <p className="text-[11px] font-medium truncate leading-tight">
+                        {ev.summary}
+                        {ev.recurringEventId && <span className="ml-1 opacity-70">↻</span>}
+                      </p>
                       {height > 30 && (
                         <p className="text-[10px] opacity-90 truncate leading-tight mt-0.5">
-                          {format(parseISO(ev.start), 'HH:mm')} – {format(parseISO(ev.end), 'HH:mm')}
+                          {isBeingDragged && dragState
+                            ? `${format(dragState.proposedStart, 'HH:mm')} – ${format(dragState.proposedEnd, 'HH:mm')}`
+                            : `${format(parseISO(ev.start), 'HH:mm')} – ${format(parseISO(ev.end), 'HH:mm')}`}
                         </p>
                       )}
-                    </button>
+                    </div>
                   )
                 })}
               </div>

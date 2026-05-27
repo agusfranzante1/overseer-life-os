@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
       id: string; calendarId: string; summary: string; description?: string
       location?: string; start: string; end: string; allDay: boolean
       htmlLink?: string; colorId?: string
+      recurringEventId?: string
     }
 
     const events: EventOut[] = []
@@ -80,6 +81,10 @@ export async function GET(req: NextRequest) {
           allDay: !ev.start?.dateTime,
           htmlLink: ev.htmlLink ?? undefined,
           colorId: ev.colorId ?? undefined,
+          // Master id of the recurring series this event is an instance of.
+          // Undefined for one-off events. The UI uses this to detect when
+          // to offer the "this/all" choice on edit/move.
+          recurringEventId: ev.recurringEventId ?? undefined,
         })
       }
     })
