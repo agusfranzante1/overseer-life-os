@@ -547,8 +547,30 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
     if (!summary.trim() || !calendarId) return
     setSaving(true)
     try {
-      const startISO = allDay ? startDate : `${startDate}T${startTime}:00`
-      const endISO   = allDay ? endDate   : `${endDate}T${endTime}:00`
+      // BUG FIX: previously we sent "YYYY-MM-DDTHH:mm:00" with no timezone
+      // offset. Google Calendar interprets such strings in the calendar's
+      // default timezone, NOT the user's. If the calendar's TZ is
+      // Europe/Madrid (the default for many synced calendars) but the
+      // user lives in Argentina, picking "13:00" would be saved as 13:00
+      // Madrid time = 08:00 Buenos Aires → visually the event jumps 5h.
+      //
+      // Fix: build the ISO with the user's LOCAL offset appended (e.g.
+      // "...T13:00:00-03:00") so Google knows exactly what wall-clock
+      // time the user meant regardless of the calendar's TZ.
+      const toLocalISO = (dateStr: string, timeStr: string) => {
+        const [y, m, d] = dateStr.split('-').map(Number)
+        const [hh, mm] = timeStr.split(':').map(Number)
+        const dt = new Date(y, m - 1, d, hh, mm, 0)
+        const offsetMin = -dt.getTimezoneOffset()
+        const sign = offsetMin >= 0 ? '+' : '-'
+        const absMin = Math.abs(offsetMin)
+        const offH = String(Math.floor(absMin / 60)).padStart(2, '0')
+        const offM = String(absMin % 60).padStart(2, '0')
+        return `${dateStr}T${timeStr}:00${sign}${offH}:${offM}`
+      }
+
+      const startISO = allDay ? startDate : toLocalISO(startDate, startTime)
+      const endISO   = allDay ? endDate   : toLocalISO(endDate, endTime)
       await onSave({
         calendarId,
         summary: summary.trim(),
