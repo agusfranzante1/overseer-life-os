@@ -91,8 +91,20 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
 
   // Build tree: roots + children grouped by parentId. Archived subtasks
   // are excluded so the tree only renders what's still active.
+  //
+  // Sort order: COMPLETED first (grouped at the top), incomplete below.
+  // Within each group, preserve the original order so manual rearranging
+  // is still respected. This keeps the active "to-do" items in the lower
+  // half where the user is actively working, and the completed ones
+  // stacked together up top instead of mixed in between.
   const subtaskTree = useMemo(() => {
-    const sorted = [...visibleSubtasks].sort((a, b) => a.order - b.order)
+    const sorted = [...visibleSubtasks].sort((a, b) => {
+      // Primary: completed first (true=1 sorts before false=0 when we
+      // invert the boolean → completed gets a lower value → comes first)
+      if (a.completed !== b.completed) return a.completed ? -1 : 1
+      // Secondary: respect the user's manual order within each group
+      return a.order - b.order
+    })
     const roots = sorted.filter((s) => !s.parentId)
     const childrenByParent = new Map<string, Subtask[]>()
     for (const s of sorted) {
