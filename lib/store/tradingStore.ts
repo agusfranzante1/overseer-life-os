@@ -39,6 +39,12 @@ export interface PropFirmRules {
   minPayoutDays?: number                // days you must trade before requesting payout
   payoutSplitPct?: number               // trader's split, e.g. 80
   payoutRulesNote?: string
+  /** Some prop firms (e.g. Apex) charge a one-time "activation fee" when
+   *  you pass the evaluation and the funded account is issued. Others
+   *  (e.g. Topstep) don't charge anything extra. When set, the user gets
+   *  prompted for the exact paid amount when moving an account from
+   *  `evaluation` → `funded`. Set to 0 if the firm doesn't charge one. */
+  activationFeeDefault?: number
 }
 
 export interface PropFirm {
@@ -55,7 +61,11 @@ export interface Account {
   firmId: string
   alias: string                  // user label
   accountSize: number            // initial balance (e.g. 50000)
-  evaluationCost: number         // what user paid
+  evaluationCost: number         // what user paid for the evaluation
+  /** What the user paid as the one-time activation fee when transitioning
+   *  from evaluation → funded. 0 (or undefined) for firms that don't
+   *  charge one. Adds to the total cost of operating this account. */
+  activationFee?: number
   status: AccountStatus
   startDate: string              // YYYY-MM-DD
   closedDate?: string
@@ -176,6 +186,7 @@ const DEFAULT_FIRMS: PropFirm[] = [
       profitTargetPct: 6, minTradingDays: 5,
       consistencyRulePct: 50, payoutFreqDays: 14, minPayoutDays: 7,
       payoutSplitPct: 100,
+      activationFeeDefault: 0,  // Topstep no cobra activation fee
     },
     createdAt: todayISO(),
   },
@@ -187,6 +198,7 @@ const DEFAULT_FIRMS: PropFirm[] = [
       profitTargetPct: 6, minTradingDays: 5,
       consistencyRulePct: 50, payoutFreqDays: 14,
       payoutSplitPct: 90,
+      activationFeeDefault: 0,  // TPT no cobra activation fee
     },
     createdAt: todayISO(),
   },
@@ -197,6 +209,7 @@ const DEFAULT_FIRMS: PropFirm[] = [
       profitTargetPct: 6, minTradingDays: 7,
       consistencyRulePct: 30, payoutFreqDays: 14,
       payoutSplitPct: 90,
+      activationFeeDefault: 130,  // Apex cobra ~USD 130 al fondearte
     },
     createdAt: todayISO(),
   },

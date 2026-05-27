@@ -175,7 +175,11 @@ function ResumenTab({ period }: { period: Period }) {
   const filteredTrades = useMemo(() => filterByPeriod(trades, period), [trades, period])
 
   const stats = useMemo(() => {
-    const invested = accounts.reduce((s, a) => s + a.evaluationCost, 0)
+    // Total invested = evaluation cost + activation fee (when applicable).
+    // The activation fee is what you pay when transitioning from
+    // evaluation → funded (firms like Apex charge it; others don't).
+    // Including it gives the user's REAL net P&L.
+    const invested = accounts.reduce((s, a) => s + a.evaluationCost + (a.activationFee ?? 0), 0)
     const withdrawn = payouts.reduce((s, p) => s + p.amount, 0)
     const netPnL = withdrawn - invested
     const roi = invested > 0 ? (netPnL / invested) * 100 : null
@@ -787,11 +791,33 @@ function AccountEditor({ firms, existing, onSave, onCancel }: {
   const [status, setStatus] = useState<Account['status']>(existing?.status ?? 'evaluation')
   const [startDate, setStartDate] = useState(existing?.startDate ?? new Date().toISOString().slice(0, 10))
   const [mode, setMode] = useState<AccountMode>(existing?.mode ?? 'conservative')
+
+  // Activation fee — pre-fill with the firm's default (Apex: 130, others: 0).
+  // The user can override the amount or set 0 if the firm didn't charge them.
+  const selectedFirm = firms.find((f) => f.id === firmId)
+  const [activationFee, setActivationFee] = useState(
+    existing?.activationFee?.toString()
+      ?? selectedFirm?.rules.activationFeeDefault?.toString()
+      ?? '0'
+  )
+  // When the user changes firm AND the current activation fee is the
+  // old firm's default (or empty), bump it to the new firm's default.
+  useEffect(() => {
+    if (existing?.activationFee !== undefined) return  // don't override when editing
+    const def = firms.find((f) => f.id === firmId)?.rules.activationFeeDefault ?? 0
+    setActivationFee(String(def))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firmId])
+
   const save = () => {
     if (!alias.trim() || !firmId) return
+    const parsedActivation = parseFloat(activationFee) || 0
     onSave({ firmId, alias: alias.trim(),
       accountSize: parseFloat(accountSize) || 0,
       evaluationCost: parseFloat(evaluationCost) || 0,
+      // Only persist activationFee if the account is funded/paid_out — for
+      // evaluation/failed it shouldn't apply (you only pay it after passing).
+      activationFee: (status === 'funded' || status === 'paid_out') ? parsedActivation : undefined,
       status, startDate, mode })
   }
   return (
@@ -826,6 +852,15 @@ function AccountEditor({ firms, existing, onSave, onCancel }: {
             <option value="paid_out">Cobrada</option><option value="failed">Liquidada</option>
           </select>
         </Field>
+        {/* Activation fee — only relevant when funded/paid_out. Pre-filled
+            with the firm's default (Apex: 130, others: 0). User can override. */}
+        {(status === 'funded' || status === 'paid_out') && (
+          <Field label={`Activation fee ($)${selectedFirm?.rules.activationFeeDefault ? ` · ${selectedFirm.name}` : ''}`}>
+            <input type="number" value={activationFee} onChange={(e) => setActivationFee(e.target.value)}
+              placeholder={selectedFirm?.rules.activationFeeDefault?.toString() ?? '0'}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm text-white tabular-nums focus:outline-none focus:border-emerald-500" />
+          </Field>
+        )}
         <Field label="Fecha inicio">
           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
             className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-emerald-500" />
@@ -1808,7 +1843,9 @@ function LaboratorioTab() {
     for (const s of firmStats) {
       const firmAccts = accounts.filter((a) => a.firmId === s.firm.id)
       const avgCost = firmAccts.length > 0
-        ? firmAccts.reduce((sum, a) => sum + a.evaluationCost, 0) / firmAccts.length
+        // Include activation fee in the avg-cost so affordability estimates
+        // reflect the REAL cost of getting funded with this firm.
+        ? firmAccts.reduce((sum, a) => sum + a.evaluationCost + (a.activationFee ?? 0), 0) / firmAccts.length
         : 150 // default assumption
       if (avgCost <= 0) continue
       const affordableAccounts = Math.floor(budget / avgCost)
