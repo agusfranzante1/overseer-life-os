@@ -411,9 +411,66 @@ export function TasksPage() {
     if (typeof window !== 'undefined') localStorage.setItem('overseer-tasks-projects-collapsed', next ? '1' : '0')
   }
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({})
+  // ── Filter selections — PERSISTED to localStorage so they survive
+  // page reloads / nav. The "general" set applies to the All-Projects
+  // view; per-project sets are keyed by project id so each project
+  // remembers its own filters independently. Clearing via the "limpiar"
+  // button writes nulls back to the same key.
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
   const [priorityFilter, setPriorityFilter] = useState<string | null>(null)
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
+
+  // Restore filters from localStorage on mount + whenever the user
+  // switches between projects (or to/from the All-Projects view).
+  const filterStorageKey = (() => {
+    if (selectedProjectId === ARCHIVE_SENTINEL) return null  // archive view: no filters
+    return selectedProjectId
+      ? `overseer-tasks-filters:project:${selectedProjectId}`
+      : 'overseer-tasks-filters:all'
+  })()
+
+  // `loadedKey` tracks which key's filters we've finished loading for.
+  // It prevents a race condition: when the key changes (e.g. navigating
+  // between projects), the persist effect can fire BEFORE the load
+  // effect's setState has propagated — which would overwrite the new
+  // key's stored filters with the previous key's values. We skip the
+  // persist until loadedKey === filterStorageKey.
+  const [loadedKey, setLoadedKey] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!filterStorageKey || typeof window === 'undefined') {
+      setStatusFilter(null); setPriorityFilter(null); setCategoryFilter(null)
+      setLoadedKey(null)
+      return
+    }
+    try {
+      const raw = localStorage.getItem(filterStorageKey)
+      if (!raw) {
+        setStatusFilter(null); setPriorityFilter(null); setCategoryFilter(null)
+      } else {
+        const parsed = JSON.parse(raw) as { status?: string | null; priority?: string | null; category?: string | null }
+        setStatusFilter(parsed.status ?? null)
+        setPriorityFilter(parsed.priority ?? null)
+        setCategoryFilter(parsed.category ?? null)
+      }
+    } catch {
+      setStatusFilter(null); setPriorityFilter(null); setCategoryFilter(null)
+    }
+    setLoadedKey(filterStorageKey)
+  }, [filterStorageKey])
+
+  // Persist filter selections whenever they change — gated by loadedKey.
+  useEffect(() => {
+    if (loadedKey !== filterStorageKey) return  // load hasn't finished for this key
+    if (!filterStorageKey || typeof window === 'undefined') return
+    try {
+      localStorage.setItem(filterStorageKey, JSON.stringify({
+        status: statusFilter,
+        priority: priorityFilter,
+        category: categoryFilter,
+      }))
+    } catch { /* ignore quota errors */ }
+  }, [loadedKey, filterStorageKey, statusFilter, priorityFilter, categoryFilter])
 
   const projectList = Object.values(projects).filter((p) => !p.archived)
   const inArchiveView = selectedProjectId === ARCHIVE_SENTINEL
