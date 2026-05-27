@@ -7,6 +7,7 @@ import {
   Telescope, ChevronLeft, ChevronRight, ChevronDown, Calendar, Target,
   Trophy, X, RotateCcw, ArrowRight, Infinity as InfinityIcon,
 } from 'lucide-react'
+import { SPIPage } from '@/components/spi/SPIPage'
 import { useProjectionStore } from '@/lib/store/projectionStore'
 import { useSPIStore } from '@/lib/store/spiStore'
 import { ALL_TEMPLATES, WHEEL_AREAS } from '@/lib/projection/templates'
@@ -31,12 +32,28 @@ export function ProjectionPage() {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
-  // Active tab + active periods per level. We track each separately so
-  // navigating between tabs preserves where the user was.
-  const [activeLevel, setActiveLevel] = useState<ProjectionLevel>('year')
+  // Active tab — now includes 'week' which renders the embedded weekly
+  // SPI page. The active tab is REMEMBERED across visits via localStorage
+  // so the user lands wherever they left off (annual / quarter / month / weekly).
+  const [activeLevel, setActiveLevel] = useState<ProjectionLevel | 'week'>('year')
   const [yearKey, setYearKey] = useState(() => currentYearKey())
   const [quarterKey, setQuarterKey] = useState(() => currentQuarterKey())
   const [monthKey, setMonthKey] = useState(() => currentMonthKey())
+
+  // Hydrate from localStorage once on mount (client-only to avoid SSR mismatch)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('overseer-spi-active-tab')
+      if (saved === 'year' || saved === 'quarter' || saved === 'month' || saved === 'week') {
+        setActiveLevel(saved)
+      }
+    } catch { /* ignore */ }
+  }, [])
+  // Persist whenever it changes
+  useEffect(() => {
+    if (!mounted) return
+    try { localStorage.setItem('overseer-spi-active-tab', activeLevel) } catch { /* ignore */ }
+  }, [activeLevel, mounted])
 
   // Honor `?level=X&period=Y` query params so breadcrumb links from /spi
   // (e.g. /proyeccion?level=quarter&period=2026-Q1) drop the user into
@@ -44,9 +61,9 @@ export function ProjectionPage() {
   const searchParams = useSearchParams()
   useEffect(() => {
     if (!mounted) return
-    const lvl = searchParams.get('level') as ProjectionLevel | null
+    const lvl = searchParams.get('level') as ProjectionLevel | 'week' | null
     const period = searchParams.get('period')
-    if (lvl === 'year' || lvl === 'quarter' || lvl === 'month') {
+    if (lvl === 'year' || lvl === 'quarter' || lvl === 'month' || lvl === 'week') {
       setActiveLevel(lvl)
       if (period) {
         if (lvl === 'year')    setYearKey(period)
@@ -63,22 +80,21 @@ export function ProjectionPage() {
       {/* ── Header ──────────────────────────────────────────────── */}
       <header>
         <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
-          <Telescope className="w-6 h-6 text-indigo-400" />
-          Proyección
+          <InfinityIcon className="w-6 h-6 text-fuchsia-400" />
+          SPI
         </h1>
         <p className="text-xs text-zinc-500 mt-1 max-w-xl">
-          La vista de águila: año, trimestre, mes. Lo táctico de cada semana sucede en{' '}
-          <Link href="/spi" className="text-fuchsia-400 hover:text-fuchsia-300 underline decoration-fuchsia-500/30">
-            ♾️ SPI
-          </Link>.
+          Sistema de Progreso Infinito · de la visión anual al sábado. Elegí la escala
+          en la que querés trabajar ahora.
         </p>
       </header>
 
       {/* ── Level tabs ──────────────────────────────────────────── */}
-      <div className="flex items-center gap-1 bg-zinc-950/60 border border-zinc-800 rounded-xl p-1 w-fit">
+      <div className="flex items-center gap-1 bg-zinc-950/60 border border-zinc-800 rounded-xl p-1 w-fit flex-wrap">
         <LevelTab active={activeLevel === 'year'}    onClick={() => setActiveLevel('year')}    icon="🦅" label="Anual" />
         <LevelTab active={activeLevel === 'quarter'} onClick={() => setActiveLevel('quarter')} icon="🎯" label="Trimestral" />
         <LevelTab active={activeLevel === 'month'}   onClick={() => setActiveLevel('month')}   icon="📆" label="Mensual" />
+        <LevelTab active={activeLevel === 'week'}    onClick={() => setActiveLevel('week')}    icon="♾️" label="Semanal" />
       </div>
 
       {/* ── Active level content ────────────────────────────────── */}
@@ -114,6 +130,16 @@ export function ProjectionPage() {
             if (level === 'month') { setMonthKey(periodKey); setActiveLevel('month') }
           }}
         />
+      )}
+      {activeLevel === 'week' && (
+        // Embedded weekly SPI page — same component as /spi but rendered
+        // inside the unified projection view. The internal header of
+        // SPIPage stays for now (shows ♾️ + streak + history + template
+        // editor), giving you the full weekly experience without the
+        // separate sidebar entry.
+        <div className="-mx-4 -mt-2">
+          <SPIPage />
+        </div>
       )}
     </div>
   )

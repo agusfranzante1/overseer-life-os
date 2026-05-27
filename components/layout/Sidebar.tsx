@@ -23,8 +23,10 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard',  icon: LayoutDashboard, key: 'dashboard' },
-  { href: '/proyeccion', icon: Telescope,       key: 'proyeccion' },
-  { href: '/spi',        icon: InfinityIcon,    key: 'spi' },
+  // SPI ahora es UNA sola entrada — la pestaña de proyección contiene
+  // adentro las 4 vistas (anual / trimestral / mensual / semanal).
+  // El route /spi sigue vivo para backward-compat pero no aparece en el sidebar.
+  { href: '/proyeccion', icon: InfinityIcon,    key: 'spi' },
   { href: '/tasks',      icon: CheckSquare,     key: 'tasks' },
   { href: '/calendar',  icon: Calendar,        key: 'calendar' },
   { href: '/money',     icon: WalletCards,     key: 'money' },
