@@ -9,7 +9,10 @@ import {
 } from 'lucide-react'
 import { useProjectionStore } from '@/lib/store/projectionStore'
 import { useSPIStore } from '@/lib/store/spiStore'
-import { ALL_TEMPLATES } from '@/lib/projection/templates'
+import { ALL_TEMPLATES, WHEEL_AREAS } from '@/lib/projection/templates'
+import {
+  ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip as RechartsTooltip,
+} from 'recharts'
 import {
   currentYearKey, currentQuarterKey, currentMonthKey,
   quarterMonths, yearOfQuarter, yearOfMonth, quarterOfMonthKey,
@@ -494,10 +497,105 @@ function Section({
                   onChange={(v) => onValueChange(section.key, field.key, v)}
                 />
               ))}
+              {/* Subsections (recursive) — used by the 3-layer breakdown */}
+              {section.subsections?.map((sub) => (
+                <div key={sub.key} className="ml-2">
+                  <Section
+                    section={sub}
+                    plan={plan}
+                    onValueChange={onValueChange}
+                  />
+                </div>
+              ))}
+              {/* Special render: Wheel of Life radar chart, only for
+                  this specific section key. Visualizes the score fields
+                  the user just filled with sliders above. */}
+              {section.key === 'wheel_of_life' && (
+                <WheelOfLifeChart values={plan.values[section.key] ?? {}} />
+              )}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+/** Wheel-of-Life radar chart. Reads the score values stored in the
+ *  wheel_of_life section and renders them as a polar/radar shape so the
+ *  user can SEE where their life is leaning today before setting goals.
+ *  Avg of the scored areas shown as a headline number. */
+function WheelOfLifeChart({ values }: { values: Record<string, string> }) {
+  const data = WHEEL_AREAS.map((area) => ({
+    area: area.label,
+    score: values[area.key] === '' || values[area.key] === undefined
+      ? 0
+      : Math.max(0, Math.min(100, parseInt(values[area.key], 10) || 0)),
+    isRated: values[area.key] !== '' && values[area.key] !== undefined,
+  }))
+
+  const rated = data.filter((d) => d.isRated)
+  const avg = rated.length > 0
+    ? Math.round(rated.reduce((acc, d) => acc + d.score, 0) / rated.length)
+    : 0
+  const lowest = rated.length > 0
+    ? rated.reduce((min, d) => d.score < min.score ? d : min, rated[0])
+    : null
+
+  if (rated.length === 0) {
+    return (
+      <div className="bg-zinc-950/60 border border-zinc-800 rounded-xl p-6 text-center text-xs text-zinc-600 italic">
+        Puntuá al menos un área para ver el gráfico.
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-zinc-950/60 border border-indigo-500/20 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <p className="text-[10px] font-mono uppercase tracking-wider text-indigo-300">
+          🎯 Tu rueda hoy · {rated.length}/{WHEEL_AREAS.length} áreas puntuadas
+        </p>
+        <div className="flex items-center gap-3 text-[10px]">
+          <span className="text-zinc-500">
+            promedio <span className="text-indigo-300 font-mono tabular-nums">{avg}</span>
+          </span>
+          {lowest && (
+            <span className="text-zinc-500">
+              más bajo <span className="text-red-400 font-mono">{lowest.area} · {lowest.score}</span>
+            </span>
+          )}
+        </div>
+      </div>
+      <div style={{ width: '100%', height: 280 }}>
+        <ResponsiveContainer>
+          <RadarChart data={data} margin={{ top: 8, right: 24, bottom: 8, left: 24 }}>
+            <PolarGrid stroke="#3f3f46" />
+            <PolarAngleAxis
+              dataKey="area"
+              tick={{ fontSize: 10, fill: '#a1a1aa' }}
+            />
+            <PolarRadiusAxis
+              angle={90} domain={[0, 100]}
+              tick={{ fontSize: 8, fill: '#52525b' }}
+              tickCount={6}
+            />
+            <Radar
+              name="Hoy" dataKey="score"
+              stroke="#6366f1" fill="#6366f1" fillOpacity={0.3}
+              strokeWidth={2}
+              dot={{ r: 3, fill: '#818cf8' }}
+            />
+            <RechartsTooltip
+              contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }}
+              formatter={(v: number) => [`${v}/100`, 'Puntuación']}
+            />
+          </RadarChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="text-[10px] text-zinc-600 italic text-center mt-2">
+        Las áreas más bajas son las que más mueven la aguja si las subís este año.
+      </p>
     </div>
   )
 }
@@ -519,6 +617,11 @@ function Field({
           rows={3}
           className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-indigo-500/40 resize-y"
         />
+      ) : field.type === 'score' ? (
+        // 0-100 slider. Value is stored as a string so it fits the existing
+        // values shape (Record<string, Record<string, string>>). Empty
+        // string = not yet rated.
+        <ScoreSlider value={value} onChange={onChange} />
       ) : (
         <input
           value={value}
@@ -529,6 +632,44 @@ function Field({
       )}
       {field.epigraph && (
         <p className="text-[10px] text-zinc-600 italic mt-1.5">{field.epigraph}</p>
+      )}
+    </div>
+  )
+}
+
+/** 0-100 slider for "score" fields (used in the Wheel of Life section).
+ *  Color graduates green → amber → red so the user can spot weak areas
+ *  fast. Empty value renders as a neutral "—" until first interaction. */
+function ScoreSlider({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const numericValue = value === '' ? 50 : Math.max(0, Math.min(100, parseInt(value, 10) || 0))
+  const isUnset = value === ''
+  const color = isUnset ? '#52525b'
+    : numericValue >= 75 ? '#10b981'   // emerald
+    : numericValue >= 50 ? '#f59e0b'   // amber
+    : '#ef4444'                          // red
+  return (
+    <div className="flex items-center gap-3">
+      <input
+        type="range" min={0} max={100} step={5}
+        value={numericValue}
+        onChange={(e) => onChange(e.target.value)}
+        className="flex-1 accent-indigo-500"
+        style={{ accentColor: color }}
+      />
+      <span
+        className="text-sm font-mono tabular-nums w-12 text-right transition-colors"
+        style={{ color }}
+      >
+        {isUnset ? '—' : numericValue}
+      </span>
+      {!isUnset && (
+        <button
+          onClick={() => onChange('')}
+          title="Limpiar"
+          className="text-[10px] text-zinc-700 hover:text-zinc-400"
+        >
+          reset
+        </button>
       )}
     </div>
   )

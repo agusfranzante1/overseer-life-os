@@ -2,10 +2,17 @@ import type { ProjectionTemplate } from './types'
 
 /** Annual template — sets the tone for the year.
  *  Heavy reflection, identity-level, long-horizon.
- *  Filled once at year start, revisited mid-year for course correction. */
+ *  Filled once at year start, revisited mid-year for course correction.
+ *
+ *  v2 changes:
+ *    - Simplified `metas_anuales`: only ONE primary goal per area (no
+ *      "secundaria" — the user explicitly wants just one main goal).
+ *    - NEW `wheel_of_life` section: 8 life areas scored 0-100, rendered
+ *      as sliders + a radar chart so the user can visualize where they
+ *      are RIGHT NOW across all dimensions before defining annual goals. */
 export const ANNUAL_TEMPLATE: ProjectionTemplate = {
   level: 'year',
-  version: 1,
+  version: 2,
   title: 'Visión Anual',
   intro: 'El año es el horizonte largo. Acá definís quién querés ser, qué pilares activar y qué grandes metas perseguir. Lo trimestral, mensual y semanal salen de acá.',
   sections: [
@@ -20,17 +27,33 @@ export const ANNUAL_TEMPLATE: ProjectionTemplate = {
         { key: 'una_cosa', label: 'Si solo lograras UNA cosa este año, ¿cuál sería?', type: 'textarea', hint: 'La que si la cumplís, hizo que el año valiera la pena.' },
       ],
     },
+
+    // ─── Wheel of Life — scored radar across the main life areas ─────────
+    {
+      key: 'wheel_of_life',
+      emoji: '🎯',
+      title: 'Rueda de la vida · ¿dónde estás hoy?',
+      intro: 'Puntuá cada área del 0 al 100 según cómo la sentís HOY. No es un objetivo — es un diagnóstico. El gráfico de abajo te muestra dónde está la energía y dónde necesitás apuntar este año.',
+      fields: [
+        { key: 'fisica',       label: 'Salud Física',           type: 'score', hint: 'Energía, fuerza, entrenamiento, descanso.' },
+        { key: 'mental',       label: 'Salud Mental',           type: 'score', hint: 'Claridad, foco, descanso cognitivo.' },
+        { key: 'emocional',    label: 'Salud Emocional',        type: 'score', hint: 'Cómo manejás tus emociones, autorregulación.' },
+        { key: 'espiritual',   label: 'Conexión Espiritual',    type: 'score', hint: 'Sentido de algo más grande, prácticas internas.' },
+        { key: 'relaciones',   label: 'Relaciones Personales',  type: 'score', hint: 'Familia, pareja, amigos, vínculos cercanos.' },
+        { key: 'profesional',  label: 'Profesional / Carrera',  type: 'score', hint: 'Trabajo, propósito vocacional, ejecución.' },
+        { key: 'financiera',   label: 'Salud Financiera',       type: 'score', hint: 'Ingresos, ahorro, gestión, sostenibilidad.' },
+        { key: 'legado',       label: 'Propósito / Legado',     type: 'score', hint: 'Aporte al mundo, contribución, juego infinito.' },
+      ],
+    },
+
     {
       key: 'metas_anuales',
       emoji: '🎯',
       title: 'Metas del año',
-      intro: 'Las metas grandes — profesionales y personales. Cada trimestre va a tomar un pedazo de esto.',
+      intro: 'Una sola meta principal por área — sin "secundarias" para no diluir el foco. Cada trimestre va a tomar un pedazo de esto.',
       fields: [
-        { key: 'profesional_1', label: 'Meta Profesional · principal', type: 'textarea', hint: 'Específica, medible. Ej: "USD 10k MRR en mi servicio".' },
-        { key: 'profesional_2', label: 'Meta Profesional · secundaria (opcional)', type: 'textarea' },
-        { key: 'personal_1', label: 'Meta Personal · principal', type: 'textarea', hint: 'Ej: "Correr una media maratón sub-2hs", "Hablar inglés con fluidez".' },
-        { key: 'personal_2', label: 'Meta Personal · secundaria (opcional)', type: 'textarea' },
-        { key: 'salud_finanzas', label: 'Metas de salud y finanzas', type: 'textarea' },
+        { key: 'profesional_principal', label: 'Meta Profesional · principal', type: 'textarea', hint: 'Específica, medible. Ej: "USD 10k MRR en mi servicio".' },
+        { key: 'personal_principal',    label: 'Meta Personal · principal',    type: 'textarea', hint: 'Ej: "Correr una media maratón sub-2hs", "Hablar inglés con fluidez".' },
       ],
     },
     {
@@ -69,12 +92,56 @@ export const ANNUAL_TEMPLATE: ProjectionTemplate = {
   ],
 }
 
+/** Three-layer breakdown section — used in both quarterly and monthly
+ *  templates to deep-dive a CHALLENGING objective. Maps to the user's
+ *  Notion exercise: ver la realidad sin filtro → cambiar el diálogo
+ *  interno → diseñar el plan desde compasión y claridad. */
+const TRES_CAPAS_SECTION = {
+  key: 'desgranar_retador',
+  emoji: '🧩',
+  title: 'Objetivo retador · desgranarlo en 3 capas',
+  intro: 'Cuando hay un objetivo grande que se siente difícil, lo bajamos por capas. Primera capa: ver la realidad. Segunda capa: cambiar el diálogo. Tercera capa: diseñar el plan con compasión.',
+  defaultCollapsed: true,
+  subsections: [
+    {
+      key: 'capa_1',
+      emoji: '1️⃣',
+      title: 'Primera capa · ver la realidad',
+      fields: [
+        { key: 'objetivo_retador', label: '¿Cuál es el objetivo más retador que tenés ahora mismo?', type: 'textarea' },
+        { key: 'mirando_reojo', label: '¿Qué parte de la situación real estás mirando de reojo, en lugar de mirarla de frente?', type: 'textarea' },
+        { key: 'interpretacion', label: '¿Qué argumentación estás usando que NO es la situación, sino una interpretación de ella?', type: 'textarea' },
+      ],
+    },
+    {
+      key: 'capa_2',
+      emoji: '2️⃣',
+      title: 'Segunda capa · diálogo interno',
+      fields: [
+        { key: 'como_te_hablas', label: '¿Cómo te hablás a vos mismo cuando las cosas no van como esperabas?', type: 'textarea', hint: 'Escribilo LITERAL. Las frases exactas que aparecen en tu cabeza.' },
+        { key: 'a_alguien_querido', label: 'Ahora escribí qué le dirías a alguien que querés en ese mismo momento.', type: 'textarea', hint: 'Las mismas palabras, el mismo tono que usarías con esa persona.' },
+        { key: 'que_cambia', label: '¿Qué cambia si empezás a usar ese segundo tono con vos mismo?', type: 'textarea' },
+      ],
+    },
+    {
+      key: 'capa_3',
+      emoji: '3️⃣',
+      title: 'Tercera capa · el plan desde claridad',
+      fields: [
+        { key: 'plan_honesto', label: 'Sin historia, sin juicio, con compasión radical — ¿cuál es el plan honesto de cómo lograrías este objetivo?', type: 'textarea', hint: 'Un plan que lleva esfuerzo, contempla desafíos, no cree que todo debe llegar fácil — pero está diseñado para los momentos difíciles.' },
+        { key: 'recursos_actuales', label: '¿Cuáles son los recursos con los que YA contás para este objetivo?', type: 'textarea' },
+        { key: 'pieza_domino', label: 'Una acción de compromiso (la pieza dominó) durante 21 días', type: 'textarea', hint: 'La acción mínima sostenida que destraba todo el resto.' },
+      ],
+    },
+  ],
+} as const
+
 /** Quarterly template — turn vision into 3-month focus.
  *  Filled at the start of each Q. The first month of the quarter is the
  *  best moment to do this in depth. */
 export const QUARTER_TEMPLATE: ProjectionTemplate = {
   level: 'quarter',
-  version: 1,
+  version: 2,
   title: 'Plan Trimestral',
   intro: 'El trimestre es donde la visión anual se vuelve operativa. Definí 1-3 batallas grandes y cómo se conectan con los meses que vienen.',
   sections: [
@@ -111,6 +178,8 @@ export const QUARTER_TEMPLATE: ProjectionTemplate = {
         { key: 'mes_3', label: 'Mes 3 — foco principal (cierre)', type: 'textarea', hint: 'Típicamente el mes de cierre/entrega.' },
       ],
     },
+    // 3-layer breakdown — for diving deep into the trimester's hardest goal
+    TRES_CAPAS_SECTION,
     {
       key: 'sistema_q',
       emoji: '⚙️',
@@ -141,7 +210,7 @@ export const QUARTER_TEMPLATE: ProjectionTemplate = {
  *  Filled at the start of each month. */
 export const MONTH_TEMPLATE: ProjectionTemplate = {
   level: 'month',
-  version: 1,
+  version: 2,
   title: 'Plan Mensual',
   intro: 'El mes es donde se concretan los objetivos del trimestre. Definí 3-4 proyectos grandes, los eventos importantes, y los bloques que activás.',
   sections: [
@@ -166,6 +235,8 @@ export const MONTH_TEMPLATE: ProjectionTemplate = {
         { key: 'proyecto_4', label: 'Proyecto #4 (opcional)', type: 'textarea' },
       ],
     },
+    // 3-layer breakdown — for diving deep into the month's hardest objective
+    TRES_CAPAS_SECTION,
     {
       key: 'eventos_m',
       emoji: '📅',
@@ -216,3 +287,17 @@ export const ALL_TEMPLATES: Record<'year' | 'quarter' | 'month', ProjectionTempl
   quarter: QUARTER_TEMPLATE,
   month: MONTH_TEMPLATE,
 }
+
+/** Wheel-of-Life areas — exported so the radar chart can pull labels/keys
+ *  from a single source of truth. Must match the field keys in the
+ *  `wheel_of_life` section above. */
+export const WHEEL_AREAS: { key: string; label: string }[] = [
+  { key: 'fisica',      label: 'Física' },
+  { key: 'mental',      label: 'Mental' },
+  { key: 'emocional',   label: 'Emocional' },
+  { key: 'espiritual',  label: 'Espiritual' },
+  { key: 'relaciones',  label: 'Relaciones' },
+  { key: 'profesional', label: 'Profesional' },
+  { key: 'financiera',  label: 'Financiera' },
+  { key: 'legado',      label: 'Legado' },
+]

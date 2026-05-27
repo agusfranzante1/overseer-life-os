@@ -32,7 +32,7 @@ export interface SPITask {
   movedToProjectId?: string
 }
 
-export type SectionFieldType = 'text' | 'textarea' | 'select' | 'checklist'
+export type SectionFieldType = 'text' | 'textarea' | 'select' | 'checklist' | 'score'
 
 export interface SectionField {
   key: string
