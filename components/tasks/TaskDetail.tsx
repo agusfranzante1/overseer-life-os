@@ -77,14 +77,20 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 }}
                 value={editTitle}
                 onChange={(e) => {
-                  setEditTitle(e.target.value)
+                  const v = e.target.value
+                  setEditTitle(v)
+                  // Persist on EVERY keystroke (not just on blur). The
+                  // old onBlur-only approach lost edits whenever the user
+                  // closed the modal via the X button or backdrop click
+                  // — the modal unmounts before the blur event fires,
+                  // so the save never ran.
+                  updateTask(task.id, { title: v })
                   // Resize as the user types
                   e.currentTarget.style.height = 'auto'
                   e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px'
                 }}
-                onBlur={save}
                 onKeyDown={(e) => {
-                  // Enter saves; Shift+Enter inserts a newline if you really need one
+                  // Enter just blurs (no special save needed — already saved on every keystroke).
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
                     e.currentTarget.blur()
@@ -235,8 +241,12 @@ export function TaskDetail({ task, project, onClose }: Props) {
               <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">{t('tasks.description')}</label>
               <textarea
                 value={editDesc}
-                onChange={(e) => setEditDesc(e.target.value)}
-                onBlur={save}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setEditDesc(v)
+                  // Save every keystroke — same reasoning as the title.
+                  updateTask(task.id, { description: v })
+                }}
                 rows={3}
                 placeholder="Optional description..."
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 resize-none"
@@ -283,8 +293,12 @@ export function TaskDetail({ task, project, onClose }: Props) {
               <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">{t('tasks.notes')}</label>
               <textarea
                 value={editNotes}
-                onChange={(e) => setEditNotes(e.target.value)}
-                onBlur={save}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setEditNotes(v)
+                  // Save every keystroke — same reasoning as the title.
+                  updateTask(task.id, { notes: v })
+                }}
                 rows={3}
                 placeholder="Notes..."
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 resize-none"
