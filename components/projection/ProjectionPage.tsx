@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -266,6 +266,13 @@ function LevelView({
 
         <p className="text-xs text-zinc-500 italic leading-relaxed">{template.intro}</p>
       </div>
+
+      {/* Mini-calendar — only on quarter view, shows the 3 months side
+          by side with today highlighted. Helps the user place themselves
+          in time while filling the quarter plan. */}
+      {level === 'quarter' && (
+        <QuarterMiniCalendar quarterKey={periodKey} />
+      )}
 
       {/* If no plan yet — empty state with start CTA */}
       {!plan && (
@@ -555,6 +562,128 @@ function Section({
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// QUARTER MINI CALENDAR — 3 months side-by-side, today highlighted.
+// Helps you locate yourself in time while filling the quarter plan.
+// ─────────────────────────────────────────────────────────────────────
+
+/** ISO week number for a given local date. */
+function getIsoWeek(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7))
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86_400_000) + 1) / 7)
+}
+
+/** Generate the 6-row × 7-col grid for one calendar month, Monday-first.
+ *  Each cell carries date + flags for the renderer. */
+function buildMonthGrid(year: number, monthIdx: number): {
+  weeks: { weekNo: number; days: { date: Date; inMonth: boolean }[] }[]
+} {
+  // Find the Monday that starts the week containing day 1.
+  const firstOfMonth = new Date(year, monthIdx, 1)
+  const dayOfWeek = (firstOfMonth.getDay() + 6) % 7  // 0 = Monday
+  const gridStart = new Date(firstOfMonth)
+  gridStart.setDate(firstOfMonth.getDate() - dayOfWeek)
+
+  const weeks: ReturnType<typeof buildMonthGrid>['weeks'] = []
+  for (let w = 0; w < 6; w++) {
+    const weekRow: { date: Date; inMonth: boolean }[] = []
+    let weekNo = 0
+    for (let d = 0; d < 7; d++) {
+      const date = new Date(gridStart)
+      date.setDate(gridStart.getDate() + w * 7 + d)
+      if (d === 0) weekNo = getIsoWeek(date)
+      weekRow.push({ date, inMonth: date.getMonth() === monthIdx })
+    }
+    weeks.push({ weekNo, days: weekRow })
+    // Stop early if next week starts past the month AND we already covered
+    // the last day — keeps the grid 4-6 rows depending on month layout.
+    const lastDayThisRow = weekRow[6].date
+    if (lastDayThisRow.getMonth() > monthIdx && w >= 3) break
+    if (lastDayThisRow.getMonth() !== monthIdx && lastDayThisRow.getFullYear() > year && w >= 3) break
+  }
+  return { weeks }
+}
+
+const MONTH_NAMES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+]
+
+function QuarterMiniCalendar({ quarterKey }: { quarterKey: string }) {
+  // Parse 'YYYY-QN' → year + first month index (0-based).
+  const [yearStr, qStr] = quarterKey.split('-Q')
+  const year = parseInt(yearStr, 10)
+  const q = parseInt(qStr, 10)
+  if (Number.isNaN(year) || Number.isNaN(q)) return null
+  const firstMonthIdx = (q - 1) * 3
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const isSameYMD = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate()
+
+  return (
+    <div className="bg-zinc-950/40 border border-zinc-800 rounded-xl p-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {[0, 1, 2].map((offset) => {
+          const monthIdx = firstMonthIdx + offset
+          const monthYear = year + Math.floor(monthIdx / 12)
+          const realMonthIdx = monthIdx % 12
+          const grid = buildMonthGrid(monthYear, realMonthIdx)
+          return (
+            <div key={monthIdx}>
+              <p className="text-xs font-semibold text-zinc-200 mb-2">
+                {MONTH_NAMES[realMonthIdx]}{monthYear !== year && ` ${monthYear}`}
+              </p>
+              {/* Weekday headers (Spanish Mon-Sun, X for Wednesday) */}
+              <div className="grid grid-cols-[24px_repeat(7,1fr)] gap-y-0.5 mb-1">
+                <span />
+                {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d) => (
+                  <span key={d} className="text-[10px] text-zinc-500 text-center font-medium">{d}</span>
+                ))}
+              </div>
+              {/* Weeks */}
+              <div className="grid grid-cols-[24px_repeat(7,1fr)] gap-y-0.5">
+                {grid.weeks.map((week, wi) => (
+                  <React.Fragment key={wi}>
+                    <span className="text-[9px] text-zinc-600 bg-zinc-900/60 rounded text-center font-mono leading-6">
+                      {week.weekNo}
+                    </span>
+                    {week.days.map((cell, di) => {
+                      const isToday = isSameYMD(cell.date, today)
+                      const isWeekend = di >= 5
+                      let textCls = 'text-zinc-200'
+                      if (!cell.inMonth) textCls = 'text-zinc-700'
+                      else if (isWeekend) textCls = 'text-red-400'
+                      return (
+                        <div key={di} className="text-center relative">
+                          {isToday ? (
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-500 text-white text-[11px] font-semibold">
+                              {cell.date.getDate()}
+                            </span>
+                          ) : (
+                            <span className={`inline-block text-[11px] leading-6 ${textCls}`}>
+                              {cell.date.getDate()}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

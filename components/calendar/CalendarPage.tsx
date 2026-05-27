@@ -790,24 +790,47 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
   }
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden flex flex-col" style={{ maxHeight: 'calc(100vh - 160px)' }}>
-      {/* Header row */}
-      <div className="grid border-b border-zinc-800 shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
+    // GCal-look outer container — slightly lighter than zinc-900, no big
+    // rounded corners (GCal's panel is more flat), softer border.
+    <div
+      className="border border-zinc-800/60 rounded-xl overflow-hidden flex flex-col"
+      style={{
+        maxHeight: 'calc(100vh - 160px)',
+        backgroundColor: '#1f1f1f',
+        fontFamily: 'Roboto, "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+      }}
+    >
+      {/* Header row — GCal style: day abbreviation small + colored circle
+          around today's number, larger and bolder numbers. */}
+      <div className="grid border-b border-zinc-800/60 shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
         <div /> {/* empty corner */}
         {days.map((day) => {
           const selected = selectedDay && isSameDay(day, selectedDay)
           const today = isToday(day)
           return (
             <button key={day.toISOString()} onClick={() => setSelectedDay(day)}
-              className={`py-2.5 text-center transition-colors border-l border-zinc-800 ${
-                selected ? 'bg-indigo-600/10' : 'hover:bg-zinc-800/40'
+              className={`pt-2 pb-1 text-center transition-colors border-l border-zinc-800/60 ${
+                selected ? 'bg-zinc-800/40' : 'hover:bg-zinc-800/30'
               }`}>
-              <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+              <p className={`text-[11px] font-medium uppercase tracking-wide mb-0.5 ${
+                today ? 'text-blue-400' : 'text-zinc-400'
+              }`}>
                 {format(day, 'EEE')}
               </p>
-              <p className={`text-lg font-bold ${today ? 'text-indigo-400' : selected ? 'text-white' : 'text-zinc-300'}`}>
-                {format(day, 'd')}
-              </p>
+              {/* Today gets a filled circle behind the number, GCal style. */}
+              <div className="flex items-center justify-center">
+                <span
+                  className={`inline-flex items-center justify-center w-9 h-9 rounded-full text-xl font-normal transition-all ${
+                    today
+                      ? 'bg-blue-500 text-white'
+                      : selected
+                        ? 'bg-zinc-700 text-white'
+                        : 'text-zinc-200 hover:bg-zinc-800/60'
+                  }`}
+                >
+                  {format(day, 'd')}
+                </span>
+              </div>
             </button>
           )
         })}
@@ -815,16 +838,16 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
 
       {/* All-day strip */}
       {[...allDayEventsByDay.values()].some((arr) => arr.length > 0) || days.some((d) => (tasksByDay.get(format(d, 'yyyy-MM-dd')) ?? []).length > 0) ? (
-        <div className="grid border-b border-zinc-800 shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
+        <div className="grid border-b border-zinc-800/60 shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
           <div className="flex items-center justify-end pr-2">
-            <span className="text-[9px] font-mono uppercase tracking-wider text-zinc-600">all-day</span>
+            <span className="text-[11px] text-zinc-400">GMT-03</span>
           </div>
           {days.map((day) => {
             const dateKey = format(day, 'yyyy-MM-dd')
             const allDay = allDayEventsByDay.get(dateKey) ?? []
             const dayTasks = tasksByDay.get(dateKey) ?? []
             return (
-              <div key={dateKey} className="border-l border-zinc-800 p-1 min-h-[34px] space-y-0.5">
+              <div key={dateKey} className="border-l border-zinc-800/60 p-1 min-h-[34px] space-y-0.5">
                 {allDay.map((ev) => {
                   const cal = calendarById.get(ev.calendarId)
                   const color = resolveEventColor(ev, cal?.backgroundColor)
@@ -832,8 +855,12 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                   return (
                     <button key={ev.id} onClick={() => onEventClick(ev)}
                       title={ev.summary}
-                      className="w-full text-[10px] px-1.5 py-0.5 rounded truncate text-left font-semibold hover:brightness-110 transition-all"
-                      style={{ backgroundColor: color, color: fg }}>
+                      className="w-full text-[11px] px-1.5 py-0.5 rounded-md truncate text-left font-medium hover:brightness-110 transition-all"
+                      style={{
+                        backgroundColor: color,
+                        color: fg,
+                        boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.06)',
+                      }}>
                       {ev.summary}
                     </button>
                   )
@@ -842,7 +869,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                   const proj = (projects as Record<string, { color: string; name: string } | undefined>)[tsk.projectId]
                   return (
                     <div key={tsk.id}
-                      className="w-full text-[10px] px-1.5 py-0.5 rounded truncate text-left border-l-2"
+                      className="w-full text-[11px] px-1.5 py-0.5 rounded-md truncate text-left border-l-2"
                       style={{
                         backgroundColor: (proj?.color ?? '#6366f1') + '15',
                         color: proj?.color ?? '#6366f1',
@@ -870,15 +897,17 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
         }
       }}>
         <div className="grid relative" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
-          {/* Hours column */}
-          <div className="border-r border-zinc-800">
+          {/* Hours column — GCal-style: time labels in lighter zinc-300,
+              non-mono sans, slightly larger, no quote marks. */}
+          <div className="border-r border-zinc-800/60">
             {visibleHours.map((h, idx) => {
               const prevVisible = idx > 0 ? visibleHours[idx - 1] : -1
               const gapBefore = h !== prevVisible + 1 && idx > 0
               return (
-                <div key={h} className={`text-right pr-2 text-[9px] font-mono text-zinc-600 relative ${gapBefore ? 'border-t border-dashed border-zinc-700' : ''}`}
+                <div key={h}
+                  className={`text-right pr-2 text-[11px] text-zinc-300 relative ${gapBefore ? 'border-t border-dashed border-zinc-700' : ''}`}
                   style={{ height: HOUR_PX }}>
-                  <span className="absolute -top-1.5 right-2">{String(h).padStart(2, '0')}:00</span>
+                  <span className="absolute -top-2 right-2 tracking-tight">{String(h).padStart(2, '0')}:00</span>
                   {gapBefore && (
                     <span className="absolute -top-2.5 left-1 text-[8px] text-zinc-700">↕ oculto</span>
                   )}
@@ -899,14 +928,14 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
             const nowOffset = isNowDay && !nowHidden ? fractionalToY(nowHourF) : null
 
             return (
-              <div key={dateKey} className="relative border-l border-zinc-800" style={{ height: HOUR_PX * visibleHours.length }}>
-                {/* Hour cells (clickable to create) — only visible hours */}
+              <div key={dateKey} className="relative border-l border-zinc-800/60" style={{ height: HOUR_PX * visibleHours.length }}>
+                {/* Hour cells (clickable to create) — GCal uses blue hover. */}
                 {visibleHours.map((h, idx) => (
                   <button key={h} onClick={() => onCreateAt(day, h)}
-                    className="absolute left-0 right-0 hover:bg-indigo-500/5 transition-colors border-b border-zinc-800/60 group"
+                    className="absolute left-0 right-0 hover:bg-blue-500/5 transition-colors border-b border-zinc-800/40 group"
                     style={{ top: idx * HOUR_PX, height: HOUR_PX }}
                     title={`Crear evento a las ${String(h).padStart(2, '0')}:00`}>
-                    <span className="opacity-0 group-hover:opacity-100 absolute top-1 right-1 text-[10px] text-indigo-400 font-mono">+ {String(h).padStart(2, '0')}:00</span>
+                    <span className="opacity-0 group-hover:opacity-100 absolute top-1 right-1 text-[10px] text-blue-400">+ {String(h).padStart(2, '0')}:00</span>
                   </button>
                 ))}
 
@@ -919,7 +948,8 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                   </div>
                 )}
 
-                {/* Events */}
+                {/* Events — GCal-style: more rounded, slightly bigger
+                    padding, sharper sans typography (no mono on times). */}
                 {dayEvents.map((ev) => {
                   const layout = eventLayout(ev, dayStart, dayEnd)
                   if (!layout) return null
@@ -929,17 +959,19 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                   const fg = contrastText(color)
                   return (
                     <button key={ev.id} onClick={(e) => { e.stopPropagation(); onEventClick(ev) }}
-                      className="absolute left-1 right-1 rounded-md p-1.5 text-left overflow-hidden hover:brightness-110 transition-all z-10 shadow-sm"
+                      className="absolute left-1 right-1 rounded-lg px-1.5 py-1 text-left overflow-hidden hover:brightness-110 transition-all z-10"
                       style={{
                         top, height,
                         background: color,
                         color: fg,
                         minHeight: 18,
+                        // Subtle inset border like GCal events
+                        boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.06)',
                       }}
                       title={`${ev.summary}\n${format(parseISO(ev.start), 'HH:mm')} – ${format(parseISO(ev.end), 'HH:mm')}`}>
-                      <p className="text-[10px] font-bold truncate">{ev.summary}</p>
+                      <p className="text-[11px] font-medium truncate leading-tight">{ev.summary}</p>
                       {height > 30 && (
-                        <p className="text-[9px] font-mono opacity-90 truncate">
+                        <p className="text-[10px] opacity-90 truncate leading-tight mt-0.5">
                           {format(parseISO(ev.start), 'HH:mm')} – {format(parseISO(ev.end), 'HH:mm')}
                         </p>
                       )}

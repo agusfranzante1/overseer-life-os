@@ -32,13 +32,29 @@ export async function GET(req: NextRequest) {
 
     const calendar = google.calendar({ version: 'v3', auth })
 
-    const results = await Promise.allSettled(
-      calendarIds.map((id) =>
-        calendar.events.list({
-          calendarId: id, timeMin, timeMax,
-          singleEvents: true, orderBy: 'startTime', maxResults: 250,
+    // For each calendar, page through ALL events in the time window.
+    // Without this, calendars with many recurring events (e.g. "Personal"
+    // with daily wake-up/trading/lunch entries) hit the 2500-item per-page
+    // cap with past events and never return future ones.
+    const fetchAllPages = async (calendarId: string) => {
+      const all: import('googleapis').calendar_v3.Schema$Event[] = []
+      let pageToken: string | undefined
+      let safety = 0  // hard cap on iterations so a bad token never loops forever
+      do {
+        const res = await calendar.events.list({
+          calendarId, timeMin, timeMax,
+          singleEvents: true, orderBy: 'startTime',
+          maxResults: 2500, pageToken,
         })
-      )
+        if (res.data.items) all.push(...res.data.items)
+        pageToken = res.data.nextPageToken ?? undefined
+        safety++
+      } while (pageToken && safety < 20)
+      return { data: { items: all } }
+    }
+
+    const results = await Promise.allSettled(
+      calendarIds.map((id) => fetchAllPages(id))
     )
 
     type EventOut = {
