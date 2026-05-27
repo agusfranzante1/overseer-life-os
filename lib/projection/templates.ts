@@ -1,4 +1,4 @@
-import type { ProjectionTemplate } from './types'
+import type { ProjectionTemplate, SPISection } from './types'
 
 /** Annual template — sets the tone for the year.
  *  Heavy reflection, identity-level, long-horizon.
@@ -96,7 +96,7 @@ export const ANNUAL_TEMPLATE: ProjectionTemplate = {
  *  templates to deep-dive a CHALLENGING objective. Maps to the user's
  *  Notion exercise: ver la realidad sin filtro → cambiar el diálogo
  *  interno → diseñar el plan desde compasión y claridad. */
-const TRES_CAPAS_SECTION = {
+const TRES_CAPAS_SECTION: SPISection = {
   key: 'desgranar_retador',
   emoji: '🧩',
   title: 'Objetivo retador · desgranarlo en 3 capas',
@@ -134,7 +134,7 @@ const TRES_CAPAS_SECTION = {
       ],
     },
   ],
-} as const
+}
 
 /** Quarterly template — turn vision into 3-month focus.
  *  Filled at the start of each Q. The first month of the quarter is the
