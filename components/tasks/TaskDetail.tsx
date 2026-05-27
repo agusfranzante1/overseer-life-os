@@ -19,31 +19,30 @@ const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 export function TaskDetail({ task, project, onClose }: Props) {
   const { updateTask, addSubtask, toggleSubtask, deleteSubtask, updateSubtask, moveTask, projects } = useTasksStore()
   const { t } = useTranslation()
-  const [editTitle, setEditTitle] = useState('')
-  const [editDesc, setEditDesc] = useState('')
-  const [editNotes, setEditNotes] = useState('')
+  // ── CRITICAL: read the task LIVE from the store, not from the prop.
+  // The `task` prop is a snapshot captured at click-time by TasksPage.
+  // If we render from the snapshot, any updateTask we fire here ends up
+  // saved in the store but the displayed value never refreshes — so the
+  // user thinks "it didn't save" even though it did. Reading live also
+  // means edits done in another tab show up immediately.
+  const liveTask = useTasksStore((s) => (task ? s.tasks[task.id] : undefined))
+  const effective = liveTask ?? task
+
   const [newSubtask, setNewSubtask] = useState('')
   const [openSubtaskId, setOpenSubtaskId] = useState<string | null>(null)
   const [showMoveMenu, setShowMoveMenu] = useState(false)
 
-  useEffect(() => {
-    if (task) {
-      setEditTitle(task.title)
-      setEditDesc(task.description ?? '')
-      setEditNotes(task.notes ?? '')
-    }
-  }, [task?.id])
+  if (!effective || !project) return null
 
-  if (!task || !project) return null
-
-  const save = () => {
-    updateTask(task.id, { title: editTitle, description: editDesc, notes: editNotes })
-  }
+  // Aliases used below so the JSX reads naturally.
+  const editTitle = effective.title
+  const editDesc  = effective.description ?? ''
+  const editNotes = effective.notes ?? ''
 
   const handleAddSubtask = (e: React.FormEvent) => {
     e.preventDefault()
     if (!newSubtask.trim()) return
-    addSubtask(task.id, newSubtask.trim())
+    addSubtask(effective.id, newSubtask.trim())
     setNewSubtask('')
   }
 
@@ -78,13 +77,11 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 value={editTitle}
                 onChange={(e) => {
                   const v = e.target.value
-                  setEditTitle(v)
-                  // Persist on EVERY keystroke (not just on blur). The
-                  // old onBlur-only approach lost edits whenever the user
-                  // closed the modal via the X button or backdrop click
-                  // — the modal unmounts before the blur event fires,
-                  // so the save never ran.
-                  updateTask(task.id, { title: v })
+                  // Write straight to the store on every keystroke —
+                  // no local mirror state. The textarea's value comes
+                  // from the live store via `editTitle = effective.title`,
+                  // so the user sees their text appear correctly.
+                  updateTask(effective.id, { title: v })
                   // Resize as the user types
                   e.currentTarget.style.height = 'auto'
                   e.currentTarget.style.height = e.currentTarget.scrollHeight + 'px'
@@ -134,7 +131,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                             disabled={isCurrent}
                             onClick={() => {
                               if (isCurrent) return
-                              moveTask(task.id, p.id)
+                              moveTask(effective.id, p.id)
                               setShowMoveMenu(false)
                             }}
                             className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
@@ -164,11 +161,11 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 {project.statuses.map((s) => (
                   <button
                     key={s.id}
-                    onClick={() => updateTask(task.id, { status: s.label })}
+                    onClick={() => updateTask(effective.id, { status: s.label })}
                     className={`text-xs px-3 py-1.5 rounded-lg border transition-all font-medium ${
-                      task.status === s.label ? 'border-current' : 'border-zinc-700 text-zinc-500 hover:border-zinc-500'
+                      effective.status === s.label ? 'border-current' : 'border-zinc-700 text-zinc-500 hover:border-zinc-500'
                     }`}
-                    style={task.status === s.label ? {
+                    style={effective.status === s.label ? {
                       backgroundColor: s.color + '20',
                       borderColor: s.color,
                       color: s.color,
@@ -188,11 +185,11 @@ export function TaskDetail({ task, project, onClose }: Props) {
                   {PRIORITIES.map((p) => (
                     <button
                       key={p}
-                      onClick={() => updateTask(task.id, { priority: p })}
+                      onClick={() => updateTask(effective.id, { priority: p })}
                       className={`text-xs px-2 py-1.5 rounded-lg text-left transition-all border ${
-                        task.priority === p ? 'border-current' : 'border-transparent text-zinc-500 hover:bg-zinc-800'
+                        effective.priority === p ? 'border-current' : 'border-transparent text-zinc-500 hover:bg-zinc-800'
                       }`}
-                      style={task.priority === p ? {
+                      style={effective.priority === p ? {
                         backgroundColor: PRIORITY_COLORS[p] + '20',
                         borderColor: PRIORITY_COLORS[p],
                         color: PRIORITY_COLORS[p],
@@ -212,9 +209,9 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 {(['today', 'tomorrow'] as const).map((day) => (
                   <button
                     key={day}
-                    onClick={() => updateTask(task.id, { scheduledFor: day })}
+                    onClick={() => updateTask(effective.id, { scheduledFor: day })}
                     className={`text-xs px-3 py-1.5 rounded-lg border transition-all ${
-                      task.scheduledFor === day
+                      effective.scheduledFor === day
                         ? 'border-indigo-500 bg-indigo-500/20 text-indigo-400'
                         : 'border-zinc-700 text-zinc-500 hover:border-zinc-500'
                     }`}
@@ -230,8 +227,8 @@ export function TaskDetail({ task, project, onClose }: Props) {
               <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">{t('tasks.dueDate')}</label>
               <input
                 type="date"
-                value={task.dueDate ?? ''}
-                onChange={(e) => updateTask(task.id, { dueDate: e.target.value || undefined })}
+                value={effective.dueDate ?? ''}
+                onChange={(e) => updateTask(effective.id, { dueDate: e.target.value || undefined })}
                 className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 w-full"
               />
             </div>
@@ -243,9 +240,8 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 value={editDesc}
                 onChange={(e) => {
                   const v = e.target.value
-                  setEditDesc(v)
-                  // Save every keystroke — same reasoning as the title.
-                  updateTask(task.id, { description: v })
+                  // Live-store write (no local mirror).
+                  updateTask(effective.id, { description: v })
                 }}
                 rows={3}
                 placeholder="Optional description..."
@@ -257,18 +253,18 @@ export function TaskDetail({ task, project, onClose }: Props) {
             <div>
               <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">{t('tasks.subtasks')}</label>
               <div className="space-y-1.5 mb-2">
-                {task.subtasks.filter((s) => !s.parentId).map((sub) => (
+                {effective.subtasks.filter((s) => !s.parentId).map((sub) => (
                   <SubtaskRow
                     key={sub.id}
                     title={sub.title}
                     completed={sub.completed}
-                    onToggle={() => toggleSubtask(task.id, sub.id)}
+                    onToggle={() => toggleSubtask(effective.id, sub.id)}
                     onRename={(newTitle) => {
                       const t = newTitle.trim()
-                      if (t && t !== sub.title) updateSubtask(task.id, sub.id, { title: t })
+                      if (t && t !== sub.title) updateSubtask(effective.id, sub.id, { title: t })
                     }}
                     onOpenDetail={() => setOpenSubtaskId(sub.id)}
-                    onDelete={() => deleteSubtask(task.id, sub.id)}
+                    onDelete={() => deleteSubtask(effective.id, sub.id)}
                   />
                 ))}
               </div>
@@ -295,9 +291,8 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 value={editNotes}
                 onChange={(e) => {
                   const v = e.target.value
-                  setEditNotes(v)
-                  // Save every keystroke — same reasoning as the title.
-                  updateTask(task.id, { notes: v })
+                  // Live-store write (no local mirror).
+                  updateTask(effective.id, { notes: v })
                 }}
                 rows={3}
                 placeholder="Notes..."
@@ -309,14 +304,14 @@ export function TaskDetail({ task, project, onClose }: Props) {
 
         {/* Nested subtask detail modal */}
         {openSubtaskId && (() => {
-          const sub = task.subtasks.find((s) => s.id === openSubtaskId)
+          const sub = effective.subtasks.find((s) => s.id === openSubtaskId)
           if (!sub) return null
           return (
             <SubtaskDetailModal
-              taskId={task.id}
+              taskId={effective.id}
               subtask={sub}
               project={project}
-              parentTitle={task.title}
+              parentTitle={effective.title}
               onClose={() => setOpenSubtaskId(null)}
             />
           )
