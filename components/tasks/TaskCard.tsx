@@ -234,7 +234,9 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
                 </button>
               )}
 
-              {(urgentSubs.length > 0 || highSubs.length > 0) && (
+              {/* Urgent/high subtask flag — same reasoning as the priority
+                  badge above: hide once the parent task is done. */}
+              {!isDone && (urgentSubs.length > 0 || highSubs.length > 0) && (
                 <span title={
                   urgentSubs.length > 0
                     ? `${urgentSubs.length} subtarea${urgentSubs.length > 1 ? 's' : ''} urgente${urgentSubs.length > 1 ? 's' : ''}`
@@ -263,15 +265,23 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
                 bgColor={(project.statuses.find((s) => s.label === task.status)?.color ?? '#6b7280') + '20'}
                 fgColor={project.statuses.find((s) => s.label === task.status)?.color ?? '#6b7280'}
               />
-              <InlineSelectBadge
-                value={task.priority}
-                options={PRIORITIES.map((p) => ({ value: p, label: t(`tasks.priorities.${p}`), color: PRIORITY_COLORS[p] }))}
-                onChange={(v) => updateTask(task.id, { priority: v as Priority })}
-                bgColor={PRIORITY_COLORS[task.priority] + '15'}
-                fgColor={PRIORITY_COLORS[task.priority]}
-                renderLabel={() => t(`tasks.priorities.${task.priority}`)}
-              />
-              {task.dueDate && (() => {
+              {/* Priority badge — hidden once the task is done so the user
+                  doesn't see "Urgente" + "Done" at the same time (visually
+                  confusing while waiting for the auto-archive). The data
+                  is preserved; if the user un-completes the task, the
+                  badge comes back. Same for the date/overdue indicator —
+                  irrelevant once the task is finished. */}
+              {!isDone && (
+                <InlineSelectBadge
+                  value={task.priority}
+                  options={PRIORITIES.map((p) => ({ value: p, label: t(`tasks.priorities.${p}`), color: PRIORITY_COLORS[p] }))}
+                  onChange={(v) => updateTask(task.id, { priority: v as Priority })}
+                  bgColor={PRIORITY_COLORS[task.priority] + '15'}
+                  fgColor={PRIORITY_COLORS[task.priority]}
+                  renderLabel={() => t(`tasks.priorities.${task.priority}`)}
+                />
+              )}
+              {!isDone && task.dueDate && (() => {
                 // Parse date in LOCAL time (avoids UTC roll-back bug).
                 const [y, m, d] = task.dueDate.split('-').map(Number)
                 const localDue = new Date(y, m - 1, d)
