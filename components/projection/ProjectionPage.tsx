@@ -489,14 +489,21 @@ function Section({
               {section.intro && (
                 <p className="text-xs text-zinc-400 italic leading-relaxed">{section.intro}</p>
               )}
-              {section.fields?.map((field) => (
-                <Field
-                  key={field.key}
-                  field={field}
-                  value={plan.values[section.key]?.[field.key] ?? ''}
-                  onChange={(v) => onValueChange(section.key, field.key, v)}
-                />
-              ))}
+              {section.fields?.map((field) => {
+                // For metas_anuales, decorate each field's label with a ★
+                // when it's selected as a principal goal. The selector
+                // itself lives below the fields (see the special block).
+                const isPrincipal = section.key === 'metas_anuales'
+                  && (plan.values[section.key]?.principales ?? '').split(',').filter(Boolean).includes(field.key)
+                return (
+                  <Field
+                    key={field.key}
+                    field={isPrincipal ? { ...field, label: `⭐ ${field.label}` } : field}
+                    value={plan.values[section.key]?.[field.key] ?? ''}
+                    onChange={(v) => onValueChange(section.key, field.key, v)}
+                  />
+                )
+              })}
               {/* Subsections (recursive) — used by the 3-layer breakdown */}
               {section.subsections?.map((sub) => (
                 <div key={sub.key} className="ml-2">
@@ -513,10 +520,95 @@ function Section({
               {section.key === 'wheel_of_life' && (
                 <WheelOfLifeChart values={plan.values[section.key] ?? {}} />
               )}
+              {/* Special render: "2 metas principales" picker. Shown after
+                  the area metas so the user fills first, then picks. */}
+              {section.key === 'metas_anuales' && (
+                <PrincipalGoalsPicker
+                  values={plan.values[section.key] ?? {}}
+                  onChange={(principalesCsv) => onValueChange(section.key, 'principales', principalesCsv)}
+                />
+              )}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+/** "Elegí 2 metas principales" picker — rendered below the metas section.
+ *  The selection is stored as a comma-separated list of area keys under
+ *  values.metas_anuales.principales so it persists with the rest of the
+ *  plan without needing schema changes. Limit: 2 selected at a time;
+ *  clicking a 3rd auto-removes the oldest. */
+function PrincipalGoalsPicker({
+  values, onChange,
+}: { values: Record<string, string>; onChange: (csv: string) => void }) {
+  const principales = (values.principales ?? '').split(',').filter(Boolean)
+
+  const toggle = (areaKey: string) => {
+    if (principales.includes(areaKey)) {
+      onChange(principales.filter((k) => k !== areaKey).join(','))
+    } else {
+      // Max 2 — when adding a 3rd, drop the oldest.
+      const next = principales.length >= 2
+        ? [...principales.slice(1), areaKey]
+        : [...principales, areaKey]
+      onChange(next.join(','))
+    }
+  }
+
+  return (
+    <div className="bg-zinc-950/60 border border-amber-500/20 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <p className="text-[10px] font-mono uppercase tracking-wider text-amber-300">
+          ⭐ Metas principales · elegí 2 para enfocar este año
+        </p>
+        <span className="text-[10px] font-mono text-zinc-600">
+          {principales.length}/2 seleccionadas
+        </span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {WHEEL_AREAS.map((area) => {
+          const filled = (values[area.key] ?? '').trim().length > 0
+          const isPrincipal = principales.includes(area.key)
+          const disabled = !filled && !isPrincipal
+          return (
+            <button
+              key={area.key}
+              onClick={() => toggle(area.key)}
+              disabled={disabled}
+              title={disabled
+                ? `Completá la meta de ${area.label} primero`
+                : isPrincipal
+                  ? 'Click para quitar de principales'
+                  : 'Click para marcar como principal'}
+              className={`text-left p-2.5 rounded-lg border transition-all ${
+                isPrincipal
+                  ? 'bg-amber-500/15 border-amber-500/50 text-amber-200'
+                  : disabled
+                    ? 'bg-zinc-900/30 border-zinc-800/50 text-zinc-700 cursor-not-allowed'
+                    : 'bg-zinc-900 border-zinc-800 hover:border-amber-500/30 text-zinc-300'
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                {isPrincipal && <span className="text-amber-400">⭐</span>}
+                <span className="text-xs font-semibold truncate">{area.label}</span>
+              </div>
+              {filled ? (
+                <p className="text-[10px] text-zinc-500 mt-1 line-clamp-2">
+                  {values[area.key]}
+                </p>
+              ) : (
+                <p className="text-[10px] text-zinc-700 italic mt-1">— sin meta cargada —</p>
+              )}
+            </button>
+          )
+        })}
+      </div>
+      <p className="text-[10px] text-zinc-600 italic mt-3">
+        Las 2 que marques son las que se trabajan activamente este año. Las demás quedan como referencia/aspiración.
+      </p>
     </div>
   )
 }
