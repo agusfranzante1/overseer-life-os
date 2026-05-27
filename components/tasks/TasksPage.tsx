@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTasksStore } from '@/lib/store/tasksStore'
@@ -423,6 +423,40 @@ export function TasksPage() {
   const getProjectTasks = (projectId: string) => {
     return Object.values(tasks).filter((t) => t.projectId === projectId && !t.archivedAt)
   }
+
+  /** Project list re-sorted for the All-Projects view: projects with the
+   *  most-urgent open task float to the top. This way a project with an
+   *  URGENT or HIGH task never gets stuck at the bottom where you might
+   *  miss it. Tiebreaker: existing project order (drag-and-drop).
+   *
+   *  Priority rank (higher = more urgent):
+   *    urgent → 3 · high → 2 · medium → 1 · low / undefined → 0
+   *  Done tasks are excluded — a completed urgent task doesn't bump
+   *  the project anymore. */
+  const PRIO_RANK: Record<string, number> = { urgent: 3, high: 2, medium: 1, low: 0 }
+  const projectListSortedByUrgency = useMemo(() => {
+    const projectMaxPriority = new Map<string, number>()
+    for (const p of projectList) {
+      let maxRank = -1
+      const projTasks = getProjectTasks(p.id)
+      for (const t of projTasks) {
+        const statusDef = p.statuses.find((st) => st.label === t.status)
+        if (statusDef?.countsAsDone) continue
+        const rank = PRIO_RANK[t.priority] ?? 0
+        if (rank > maxRank) maxRank = rank
+      }
+      projectMaxPriority.set(p.id, maxRank)
+    }
+    // Stable sort: keep original index as tiebreaker so user's manual
+    // ordering is preserved within the same urgency tier.
+    const indexed = projectList.map((p, i) => ({ p, i, urgency: projectMaxPriority.get(p.id) ?? -1 }))
+    indexed.sort((a, b) => {
+      if (b.urgency !== a.urgency) return b.urgency - a.urgency
+      return a.i - b.i
+    })
+    return indexed.map((x) => x.p)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectList, tasks])
 
   // All archived tasks across projects, sorted newest-first by completedAt
   const archivedTasks = Object.values(tasks)
@@ -864,8 +898,10 @@ export function TasksPage() {
         ) : (
           // All projects grouped view — apply filters and sort PER project so
           // the toolbar controls actually take effect in the cross-project view.
+          // Projects are ordered by HIGHEST priority of any open task they
+          // contain so urgent stuff floats to the top and never gets buried.
           <div className="space-y-6">
-            {projectList.map((proj) => {
+            {projectListSortedByUrgency.map((proj) => {
               const projStatusOrder = new Map(proj.statuses.map((s, i) => [s.label, i]))
               const projTasks = sortTasks(
                 getProjectTasks(proj.id).filter(passesFilters),
