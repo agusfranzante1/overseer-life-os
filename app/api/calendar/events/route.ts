@@ -65,9 +65,23 @@ export async function GET(req: NextRequest) {
     }
 
     const events: EventOut[] = []
+    // Track per-calendar errors so the client can decide whether to trust
+    // the (possibly partial / empty) events array or keep its cache.
+    // Previously these were silently dropped — if a transient token issue
+    // killed ALL calendars at once, the client received {ok:true,events:[]}
+    // and happily wiped its cache with nothing.
+    const errors: { calendarId: string; message: string }[] = []
+    let successfulCalendars = 0
+
     results.forEach((r, idx) => {
       const calId = calendarIds[idx]
-      if (r.status !== 'fulfilled') return
+      if (r.status !== 'fulfilled') {
+        const message = r.reason instanceof Error ? r.reason.message : String(r.reason ?? 'unknown')
+        errors.push({ calendarId: calId, message })
+        console.error(`[calendar/events] fetch failed for ${calId}:`, message)
+        return
+      }
+      successfulCalendars++
       for (const ev of r.value.data.items ?? []) {
         const startDt = ev.start?.dateTime ?? ev.start?.date
         const endDt = ev.end?.dateTime ?? ev.end?.date
@@ -90,7 +104,18 @@ export async function GET(req: NextRequest) {
     })
 
     events.sort((a, b) => a.start.localeCompare(b.start))
-    return NextResponse.json({ ok: true, events })
+
+    // If EVERY requested calendar failed, signal it as a hard error so the
+    // client keeps its cached events instead of replacing them with [].
+    if (calendarIds.length > 0 && successfulCalendars === 0) {
+      return NextResponse.json({
+        ok: false,
+        error: `Todos los calendarios fallaron: ${errors.map((e) => e.message).join(' · ')}`,
+        errors,
+      }, { status: 502 })
+    }
+
+    return NextResponse.json({ ok: true, events, errors })
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : 'unknown' }, { status: 500 })
   }

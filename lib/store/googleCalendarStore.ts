@@ -2,6 +2,18 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+/** Surface a Google Calendar failure via the same toast mechanism used by
+ *  Supabase sync errors (AppShell listens to this event). Logged-only errors
+ *  are too easy to miss — events disappearing is a serious "what just happened"
+ *  moment that deserves a visible toast. */
+function reportGcalError(message: string) {
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(new CustomEvent('overseer-sync-error', { detail: { message, at: Date.now() } }))
+    } catch { /* noop */ }
+  }
+}
+
 export interface GCalendar {
   id: string
   summary: string
@@ -172,6 +184,17 @@ export const useGoogleCalendarStore = create<State>()(
           const j = await r.json()
           if (!j.ok) throw new Error(j.error ?? 'load_failed')
           const calendars: GCalendar[] = j.calendars ?? []
+          // Defensive: if Google returned an EMPTY calendars array but we
+          // previously had some, that's a transient glitch — don't wipe.
+          // Without this guard, a single bad response could clear visibleIds
+          // and cascade into the events store being wiped too.
+          const prev = get().calendars
+          if (calendars.length === 0 && prev.length > 0) {
+            console.warn('[gcal] loadCalendars returned 0 but cache had', prev.length, '— keeping cache')
+            reportGcalError('Google Calendar: la lista de calendarios vino vacía. Manteniendo cache.')
+            set({ loading: false })
+            return
+          }
           // Filter stale visibleIds (could be from a previous Google account) to only those that
           // still exist. If none survive, auto-select primary OR first calendar as fallback.
           let visibleIds = get().visibleIds.filter((id) => calendars.some((c) => c.id === id))
@@ -181,7 +204,10 @@ export const useGoogleCalendarStore = create<State>()(
           }
           set({ calendars, visibleIds, loading: false })
         } catch (e) {
-          set({ loading: false, error: e instanceof Error ? e.message : 'unknown' })
+          const msg = e instanceof Error ? e.message : 'unknown'
+          console.error('[gcal] loadCalendars failed, keeping cache:', msg)
+          reportGcalError(`Google Calendar (calendars): ${msg}`)
+          set({ loading: false, error: msg })
         }
       },
 
@@ -196,7 +222,7 @@ export const useGoogleCalendarStore = create<State>()(
       })),
 
       loadEvents: async () => {
-        const { visibleIds } = get()
+        const { visibleIds, events: cachedEvents } = get()
         if (visibleIds.length === 0) {
           set({ events: [], lastFetchedAt: Date.now() })
           return
@@ -205,10 +231,40 @@ export const useGoogleCalendarStore = create<State>()(
         try {
           const r = await fetch(`/api/calendar/events?calendars=${visibleIds.join(',')}`, { cache: 'no-store' })
           const j = await r.json()
-          if (!j.ok) throw new Error(j.error ?? 'fetch_failed')
-          set({ events: j.events, lastFetchedAt: Date.now(), loading: false })
+          if (!j.ok) {
+            // ALL calendars failed (HTTP 502 from our route). Keep the cached
+            // events so the user doesn't suddenly see a blank calendar — they
+            // can still see what they had until the issue clears.
+            const msg = j.error ?? 'fetch_failed'
+            console.error('[gcal] loadEvents failed, keeping cache:', msg)
+            reportGcalError(`Google Calendar: ${msg}`)
+            set({ loading: false, error: msg })
+            return
+          }
+          // Partial failure: some calendars came back but others errored.
+          // Keep their events but surface a warning so the user knows.
+          if (Array.isArray(j.errors) && j.errors.length > 0) {
+            const summary = j.errors.map((e: { calendarId: string; message: string }) => `${e.calendarId}: ${e.message}`).join(' · ')
+            console.warn('[gcal] partial fetch errors:', summary)
+            reportGcalError(`Google Calendar: ${j.errors.length} calendario(s) fallaron — ${summary}`)
+          }
+          // Extra safety: if the API returned an EMPTY events array but we
+          // previously had events AND there were no errors reported, that's
+          // suspicious. Don't wipe — let the next successful fetch resolve it.
+          // (This protects against a Google API that returns 200/empty during
+          // transient glitches.)
+          if ((j.events?.length ?? 0) === 0 && cachedEvents.length > 0 && (!j.errors || j.errors.length === 0)) {
+            console.warn('[gcal] API returned 0 events but cache had', cachedEvents.length, '— keeping cache to avoid spurious wipe')
+            set({ loading: false, lastFetchedAt: Date.now() })
+            return
+          }
+          set({ events: j.events ?? [], lastFetchedAt: Date.now(), loading: false })
         } catch (e) {
-          set({ loading: false, error: e instanceof Error ? e.message : 'unknown' })
+          // Network error, JSON parse error, etc — keep the cache and surface.
+          const msg = e instanceof Error ? e.message : 'unknown'
+          console.error('[gcal] loadEvents threw, keeping cache:', msg)
+          reportGcalError(`Google Calendar: ${msg}`)
+          set({ loading: false, error: msg })
         }
       },
 

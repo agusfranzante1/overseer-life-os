@@ -199,7 +199,16 @@ export function CalendarPage() {
           )}
 
           {gcal.connected && (
-            <button onClick={() => gcal.loadEvents()} title="Refrescar eventos"
+            <button
+              onClick={async () => {
+                // Force-reload both calendars AND events. If the user is here
+                // because events vanished, this is the manual "try again now"
+                // button. Reload calendars first so visibleIds gets refreshed
+                // against the actual remote list.
+                await gcal.loadCalendars()
+                await gcal.loadEvents()
+              }}
+              title="Refrescar calendarios y eventos"
               className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors">
               <RefreshCw className={`w-4 h-4 ${gcal.loading ? 'animate-spin' : ''}`} />
             </button>
