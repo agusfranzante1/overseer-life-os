@@ -1020,13 +1020,14 @@ async function pushFood() {
   if (!state.userId) return
   const sb = getSupabaseBrowser()
   const uid = state.userId!
-  const { stages, shopping, fixedCosts, currentStageId } = useFoodStore.getState()
+  const { stages, shopping, fixedCosts, currentStageId, notes } = useFoodStore.getState()
 
   await sb.from('food_data').upsert(
     {
       user_id: uid,
       stages, shopping, fixed_costs: fixedCosts,
       current_stage_id: currentStageId || null,
+      notes: notes ?? '',
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'user_id' }
@@ -1051,6 +1052,7 @@ async function pullFood(): Promise<boolean> {
     shopping: (d.shopping as import('@/lib/store/foodStore').ShoppingCategory[]) ?? [],
     fixedCosts: (d.fixed_costs as import('@/lib/store/foodStore').FixedCost[]) ?? [],
     currentStageId: (d.current_stage_id as string) ?? '',
+    notes: (d.notes as string) ?? '',
   })
   return true
 }

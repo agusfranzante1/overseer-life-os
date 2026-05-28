@@ -375,6 +375,7 @@ create table if not exists public.food_data (
   current_stage_id text,
   shopping jsonb not null default '[]'::jsonb,
   fixed_costs jsonb not null default '[]'::jsonb,
+  notes text not null default '',
   updated_at timestamptz default now()
 );
 alter table public.food_data enable row level security;

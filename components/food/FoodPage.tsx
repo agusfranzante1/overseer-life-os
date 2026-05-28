@@ -3,6 +3,7 @@ import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Utensils, ShoppingCart, Wallet, Plus, Trash2, ExternalLink, Settings,
+  StickyNote, ChevronDown, ChevronRight,
 } from 'lucide-react'
 import {
   useFoodStore, sumMealMacros, sumStageMacros, categoryTotal,
@@ -77,6 +78,9 @@ function DietaTab() {
 
   return (
     <div className="space-y-6">
+      {/* Notas / memo libre para la dieta */}
+      <DietNotesCard />
+
       {/* Stage tabs */}
       <div className="flex flex-wrap gap-2">
         {stages.map((s) => (
@@ -108,6 +112,64 @@ function DietaTab() {
 
       {/* Meals */}
       <StageMealsTable stage={stage} />
+    </div>
+  )
+}
+
+function DietNotesCard() {
+  const notes = useFoodStore((s) => s.notes)
+  const setNotes = useFoodStore((s) => s.setNotes)
+  const [open, setOpen] = useState<boolean>(() => (notes?.trim().length ?? 0) > 0)
+
+  const hasContent = (notes?.trim().length ?? 0) > 0
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800/40 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <StickyNote className="w-4 h-4 text-amber-400" />
+          <span className="text-sm font-bold text-zinc-200">Notas</span>
+          {hasContent && !open && (
+            <span className="text-[10px] font-mono uppercase tracking-wider text-amber-400/70 ml-1">
+              · contiene apuntes
+            </span>
+          )}
+        </div>
+        {open ? (
+          <ChevronDown className="w-4 h-4 text-zinc-500" />
+        ) : (
+          <ChevronRight className="w-4 h-4 text-zinc-500" />
+        )}
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-4">
+              <textarea
+                value={notes ?? ''}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Apuntes de tu dieta: recordatorios, sustituciones, suplementación, lo que sea…"
+                rows={5}
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-amber-500/60 resize-y"
+              />
+              <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-600 mt-1.5">
+                Se guarda automáticamente
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

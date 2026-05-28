@@ -243,8 +243,10 @@ interface State {
   currentStageId: string
   shopping: ShoppingCategory[]
   fixedCosts: FixedCost[]
+  notes: string
 
   setCurrentStage: (id: string) => void
+  setNotes: (notes: string) => void
 
   // Stage / meals / items
   updateStage: (id: string, patch: Partial<Stage>) => void
@@ -275,8 +277,10 @@ export const useFoodStore = create<State>()(
       currentStageId: '',
       shopping: [],
       fixedCosts: [],
+      notes: '',
 
       setCurrentStage: (id) => set({ currentStageId: id }),
+      setNotes: (notes) => set({ notes }),
 
       updateStage: (id, patch) => set((s) => ({
         stages: s.stages.map((st) => st.id === id ? { ...st, ...patch } : st),
