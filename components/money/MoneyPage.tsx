@@ -364,6 +364,65 @@ function WalletCard({ wallet, selected, onClick, onRequestDelete }: { wallet: Wa
   )
 }
 
+// ─── Edit Wallet Modal — change name, icon and color ─────────────────────────
+function EditWalletModal({ wallet, onClose }: { wallet: Wallet; onClose: () => void }) {
+  const { updateWallet } = useWalletStore()
+  const [name, setName] = useState(wallet.name)
+  const [color, setColor] = useState(wallet.color)
+  const [icon, setIcon] = useState(wallet.icon)
+
+  // If the current color isn't in the preset palette (e.g. you imported
+  // a wallet with a custom color), we still want to show it as selected.
+  const allColors = WALLET_COLORS.includes(color) ? WALLET_COLORS : [color, ...WALLET_COLORS]
+
+  const submit = () => {
+    const patch: Partial<Wallet> = {}
+    const n = name.trim()
+    if (n && n !== wallet.name) patch.name = n
+    if (color !== wallet.color) patch.color = color
+    if (icon !== wallet.icon) patch.icon = icon
+    if (Object.keys(patch).length > 0) updateWallet(wallet.id, patch)
+    onClose()
+  }
+
+  return (
+    <Modal title="Editar billetera" onClose={onClose}>
+      <div className="space-y-4">
+        <Field label="Nombre">
+          <input value={name} onChange={e => setName(e.target.value)} className={INPUT} />
+        </Field>
+        <Field label="Ícono">
+          <div className="flex flex-wrap gap-2">
+            {WALLET_ICONS.map(ic => (
+              <button key={ic} onClick={() => setIcon(ic)}
+                className={`w-9 h-9 rounded-xl text-lg flex items-center justify-center transition-all ${icon === ic ? 'ring-2 ring-indigo-500 bg-indigo-500/20' : 'bg-zinc-800 hover:bg-zinc-700'}`}>
+                {ic}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Field label="Color">
+          <div className="flex flex-wrap gap-2">
+            {allColors.map(c => (
+              <button key={c} onClick={() => setColor(c)}
+                className={`w-7 h-7 rounded-full transition-transform ${color === c ? 'ring-2 ring-white ring-offset-1 ring-offset-zinc-900 scale-110' : ''}`}
+                style={{ background: c }} />
+            ))}
+          </div>
+          <p className="text-[10px] text-zinc-500 mt-2">
+            Previsualización:
+            <span className="ml-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border align-middle"
+              style={{ background: color + '18', borderColor: color + '40', color }}>
+              <span>{icon}</span> <span className="font-bold">{name || wallet.name}</span>
+            </span>
+          </p>
+        </Field>
+        <button onClick={submit} className={BTN_PRIMARY}>Guardar cambios</button>
+      </div>
+    </Modal>
+  )
+}
+
 // ─── Wallet Detail ─────────────────────────────────────────────────────────────
 function WalletDetail({ walletId, onTransaction }: {
   walletId: string
@@ -371,17 +430,36 @@ function WalletDetail({ walletId, onTransaction }: {
 }) {
   const { wallets, currencies, transactions, addCurrencyToWallet, removeCurrencyFromWallet } = useWalletStore()
   const wallet = wallets.find(w => w.id === walletId)
+  const [showEdit, setShowEdit] = useState(false)
   if (!wallet) return null
 
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
       <div className="px-5 py-4 border-b border-zinc-800 flex items-center gap-3">
-        <span className="text-2xl">{wallet.icon}</span>
-        <div>
+        <button
+          onClick={() => setShowEdit(true)}
+          title="Cambiar ícono / color / nombre"
+          className="text-2xl hover:scale-110 transition-transform"
+        >
+          {wallet.icon}
+        </button>
+        <div className="flex-1 min-w-0">
           <p className="font-bold text-white">{wallet.name}</p>
           <p className="text-xs text-zinc-500">{wallet.currencyCodes.join(' · ')}</p>
         </div>
+        <button
+          onClick={() => setShowEdit(true)}
+          title="Editar billetera"
+          className="text-xs px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 border border-zinc-700 transition-colors flex items-center gap-1.5"
+        >
+          <span className="w-3 h-3 rounded-full border border-zinc-600" style={{ background: wallet.color }} />
+          Editar
+        </button>
       </div>
+
+      <AnimatePresence>
+        {showEdit && <EditWalletModal wallet={wallet} onClose={() => setShowEdit(false)} />}
+      </AnimatePresence>
 
       {wallet.currencyCodes.map(code => {
         const cur = currencies.find(c => c.code === code)

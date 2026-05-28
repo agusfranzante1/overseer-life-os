@@ -219,37 +219,76 @@ function CategoryCard({
   onQuickStart: (exerciseKey: string) => void
 }) {
   const exs = exercisesByCategory(category.key)
+  const [hover, setHover] = useState(false)
   return (
-    <div className="rounded-2xl border transition-all hover:shadow-lg overflow-hidden"
-      style={{ background: category.color + '0A', borderColor: category.color + '30' }}>
-      <button onClick={onClick} className="w-full text-left p-4 hover:bg-zinc-900/30 transition-colors">
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="rounded-2xl border-2 transition-all duration-200 overflow-hidden cursor-pointer"
+      style={{
+        background: hover ? category.color + '22' : category.color + '08',
+        borderColor: hover ? category.color + '90' : category.color + '30',
+        boxShadow: hover ? `0 10px 30px -10px ${category.color}55, inset 0 1px 0 ${category.color}30` : 'none',
+        transform: hover ? 'translateY(-2px)' : 'translateY(0)',
+      }}
+    >
+      <button onClick={onClick} className="w-full text-left p-4 transition-colors">
         <div className="flex items-start justify-between gap-2 mb-1">
-          <span className="text-xl">{category.emoji}</span>
-          <span className="text-[10px] font-mono text-zinc-500">
+          <span className="text-2xl transition-transform duration-200" style={{ transform: hover ? 'scale(1.15) rotate(-4deg)' : 'scale(1)' }}>
+            {category.emoji}
+          </span>
+          <span className="text-[10px] font-mono"
+            style={{ color: hover ? category.color : '#71717a' }}>
             {sessionCount} {sessionCount === 1 ? 'sesión' : 'sesiones'}
           </span>
         </div>
-        <h3 className="text-base font-bold text-zinc-100 mb-1">{category.title}</h3>
-        <p className="text-[11px] text-zinc-400 italic leading-relaxed">{category.tagline}</p>
+        <h3 className="text-base font-bold mb-1 transition-colors"
+          style={{ color: hover ? category.color : '#f4f4f5' }}>
+          {category.title}
+        </h3>
+        <p className="text-[11px] text-zinc-300 italic leading-relaxed">{category.tagline}</p>
       </button>
-      <div className="border-t px-3 py-2 flex flex-wrap gap-1.5" style={{ borderColor: category.color + '20' }}>
+      <div className="border-t-2 px-3 py-2 flex flex-wrap gap-1.5"
+        style={{ borderColor: category.color + (hover ? '50' : '20') }}>
         {exs.slice(0, 3).map((ex) => (
-          <button key={ex.key}
+          <QuickStartChip key={ex.key} ex={ex} accent={category.color}
             onClick={(e) => { e.stopPropagation(); onQuickStart(ex.key) }}
-            title={`Iniciar: ${ex.title}`}
-            className="text-[10px] px-2 py-1 rounded border bg-zinc-900/60 border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors flex items-center gap-1"
-          >
-            <Plus className="w-2.5 h-2.5" /> {ex.emoji} {ex.title.length > 24 ? ex.title.slice(0, 22) + '…' : ex.title}
-          </button>
+          />
         ))}
         {exs.length > 3 && (
           <button onClick={onClick}
-            className="text-[10px] px-2 py-1 rounded text-zinc-500 hover:text-zinc-300 flex items-center gap-0.5">
+            className="text-[10px] px-2 py-1 rounded transition-colors flex items-center gap-0.5"
+            style={{ color: hover ? category.color : '#71717a' }}>
             +{exs.length - 3} más <ChevronRight className="w-2.5 h-2.5" />
           </button>
         )}
       </div>
     </div>
+  )
+}
+
+/** Small chip used inside CategoryCard for quick-start. Bright on hover
+ *  with the category accent so it pops over the dark bg. */
+function QuickStartChip({
+  ex, accent, onClick,
+}: { ex: LabExercise; accent: string; onClick: (e: React.MouseEvent) => void }) {
+  const [chipHover, setChipHover] = useState(false)
+  return (
+    <button
+      onMouseEnter={() => setChipHover(true)}
+      onMouseLeave={() => setChipHover(false)}
+      onClick={onClick}
+      title={`Iniciar: ${ex.title}`}
+      className="text-[10px] px-2 py-1 rounded-md border transition-all duration-150 flex items-center gap-1 font-medium"
+      style={{
+        background: chipHover ? accent + '30' : 'rgba(24, 24, 27, 0.6)',
+        borderColor: chipHover ? accent + 'AA' : '#3f3f46',
+        color: chipHover ? '#ffffff' : '#a1a1aa',
+        transform: chipHover ? 'translateY(-1px)' : 'translateY(0)',
+      }}
+    >
+      <Plus className="w-2.5 h-2.5" /> {ex.emoji} {ex.title.length > 24 ? ex.title.slice(0, 22) + '…' : ex.title}
+    </button>
   )
 }
 
@@ -342,10 +381,19 @@ function ExerciseRow({
   onLaunch: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  const [hover, setHover] = useState(false)
   return (
-    <div className="bg-zinc-950/40 border border-zinc-800 rounded-xl overflow-hidden">
+    <div className="rounded-xl overflow-hidden border-2 transition-all duration-150"
+      style={{
+        background: hover || expanded ? accent + '12' : 'rgba(9, 9, 11, 0.4)',
+        borderColor: hover || expanded ? accent + '70' : '#27272a',
+        boxShadow: hover ? `0 4px 16px -4px ${accent}40` : 'none',
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
       <button onClick={() => setExpanded((v) => !v)}
-        className="w-full px-4 py-3 flex items-start gap-3 text-left hover:bg-zinc-900/30 transition-colors">
+        className="w-full px-4 py-3 flex items-start gap-3 text-left transition-colors">
         <span className="text-xl shrink-0">{exercise.emoji}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -400,37 +448,56 @@ function SessionRow({ session, onOpen }: { session: LabSession; onOpen: () => vo
   const cat = findCategory(session.categoryKey)
   const isClosed = session.status === 'closed'
   const isArchived = session.status === 'archived'
+  const [hover, setHover] = useState(false)
 
   // Format updatedAt → "hace X días" minimal
   const days = Math.floor((Date.now() - new Date(session.updatedAt).getTime()) / 86400000)
   const ago = days === 0 ? 'hoy' : days === 1 ? 'ayer' : `hace ${days}d`
 
+  // Accent color: category color if available, fallback to status palette.
+  const accent = cat?.color ?? (isClosed ? '#10b981' : isArchived ? '#71717a' : '#3b82f6')
+
   return (
-    <button onClick={onOpen}
-      className={`w-full text-left rounded-xl border p-3 flex items-center gap-3 transition-all ${
-        isClosed
-          ? 'bg-emerald-500/5 border-emerald-500/20 hover:border-emerald-500/40'
-          : isArchived
-            ? 'bg-zinc-900/40 border-zinc-800 opacity-60 hover:opacity-100'
-            : 'bg-zinc-950/40 border-blue-500/30 hover:border-blue-500/50'
-      }`}>
-      <span className="text-lg shrink-0">{ex?.emoji ?? '🧪'}</span>
+    <button
+      onClick={onOpen}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="w-full text-left rounded-xl border-2 p-3 flex items-center gap-3 transition-all duration-150 group"
+      style={{
+        background: hover ? accent + '1A' : isClosed ? accent + '08' : isArchived ? 'rgba(24,24,27,0.4)' : 'rgba(9,9,11,0.4)',
+        borderColor: hover ? accent + 'AA' : isClosed ? accent + '30' : isArchived ? '#27272a' : accent + '40',
+        opacity: isArchived && !hover ? 0.6 : 1,
+        boxShadow: hover ? `0 4px 16px -4px ${accent}50` : 'none',
+        transform: hover ? 'translateX(2px)' : 'translateX(0)',
+      }}
+    >
+      <span className="text-lg shrink-0 transition-transform" style={{ transform: hover ? 'scale(1.15)' : 'scale(1)' }}>
+        {ex?.emoji ?? '🧪'}
+      </span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-semibold text-zinc-100 truncate">{session.title}</p>
+          <p className="text-sm font-semibold truncate transition-colors"
+            style={{ color: hover ? '#ffffff' : '#f4f4f5' }}>
+            {session.title}
+          </p>
           {cat && (
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border text-zinc-400"
-              style={{ borderColor: cat.color + '40', color: cat.color, background: cat.color + '10' }}>
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border"
+              style={{ borderColor: cat.color + (hover ? '80' : '40'), color: cat.color, background: cat.color + (hover ? '25' : '10') }}>
               {cat.emoji} {cat.title}
             </span>
           )}
         </div>
-        <p className="text-[11px] text-zinc-500 mt-0.5 truncate">
+        <p className="text-[11px] text-zinc-400 mt-0.5 truncate">
           {ex?.title ?? '(ejercicio eliminado)'} · {ago}
           {isClosed && session.outcome && ' · ✅ outcome guardado'}
         </p>
       </div>
-      <ChevronRight className="w-4 h-4 text-zinc-600" />
+      <ChevronRight className="w-4 h-4 transition-all"
+        style={{
+          color: hover ? accent : '#52525b',
+          transform: hover ? 'translateX(3px)' : 'translateX(0)',
+        }}
+      />
     </button>
   )
 }

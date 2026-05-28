@@ -102,7 +102,9 @@ interface State {
   loadEvents: () => Promise<void>
   disconnect: () => Promise<void>
 
-  createEvent: (input: Omit<GEvent, 'id'>) => Promise<void>
+  /** Create an event. If `recurrence` (array of RRULE strings) is included
+   *  in `input`, Google creates a recurring series. */
+  createEvent: (input: Omit<GEvent, 'id'> & { recurrence?: string[] }) => Promise<void>
   /** Patch a Google Calendar event.
    *  - For one-off events, omit `applyToSeries`.
    *  - For RECURRING instances, set `applyToSeries: true` AND pass the
@@ -116,7 +118,13 @@ interface State {
       recurringEventId?: string
     }
   ) => Promise<void>
-  deleteEvent: (id: string, calendarId: string) => Promise<void>
+  /** Delete an event. Pass `scope='series'` + `recurringEventId` to remove
+   *  the entire recurring series (otherwise only this instance is deleted). */
+  deleteEvent: (
+    id: string,
+    calendarId: string,
+    opts?: { scope?: 'instance' | 'series'; recurringEventId?: string }
+  ) => Promise<void>
 }
 
 export const useGoogleCalendarStore = create<State>()(
@@ -231,8 +239,13 @@ export const useGoogleCalendarStore = create<State>()(
         await get().loadEvents()
       },
 
-      deleteEvent: async (id, calendarId) => {
-        const r = await fetch(`/api/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`, {
+      deleteEvent: async (id, calendarId, opts) => {
+        const qs = new URLSearchParams({ calendarId })
+        if (opts?.scope === 'series' && opts.recurringEventId) {
+          qs.set('scope', 'series')
+          qs.set('recurringEventId', opts.recurringEventId)
+        }
+        const r = await fetch(`/api/calendar/events/${encodeURIComponent(id)}?${qs.toString()}`, {
           method: 'DELETE',
         })
         const j = await r.json()

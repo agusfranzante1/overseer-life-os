@@ -102,9 +102,12 @@ export async function POST(req: NextRequest) {
     const { auth, error } = await getAuth(req)
     if (!auth) return NextResponse.json({ ok: false, error }, { status: 401 })
 
-    const { calendarId, summary, description, location, start, end, allDay } = await req.json() as {
+    const { calendarId, summary, description, location, start, end, allDay, recurrence } = await req.json() as {
       calendarId: string; summary: string; description?: string
       location?: string; start: string; end: string; allDay?: boolean
+      // Optional RRULE array (e.g. ['RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR']).
+      // When present, Google creates a recurring series instead of a one-off.
+      recurrence?: string[]
     }
 
     if (!calendarId || !summary || !start || !end) {
@@ -118,6 +121,7 @@ export async function POST(req: NextRequest) {
         summary, description, location,
         start: allDay ? { date: start.slice(0, 10) } : { dateTime: start },
         end:   allDay ? { date: end.slice(0, 10)   } : { dateTime: end },
+        ...(recurrence && recurrence.length > 0 ? { recurrence } : {}),
       },
     })
     return NextResponse.json({ ok: true, event: res.data })

@@ -29,13 +29,25 @@ export function CalendarPage() {
   const view: ViewMode = gcal.view
   const setView = (v: ViewMode) => gcal.setView(v)
   const [showEventModal, setShowEventModal] = useState<{ mode: 'create' | 'edit'; event?: GEvent; date?: Date; startHour?: number } | null>(null)
-  const [banner, setBanner] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
+  const [banner, setBanner] = useState<{ kind: 'success' | 'error' | 'loading'; text: string } | null>(null)
+  /** Auto-dismiss success/error banners after a few seconds so they don't
+   *  linger forever. Loading banners stay until they're replaced. */
+  useEffect(() => {
+    if (!banner) return
+    if (banner.kind === 'loading') return
+    const id = setTimeout(() => setBanner(null), banner.kind === 'success' ? 2500 : 5000)
+    return () => clearTimeout(id)
+  }, [banner])
   const [mounted, setMounted] = useState(false)
   // When the user drag-drops a RECURRING event, we ask "this only" vs
   // "all in series" via this dialog before firing the API.
   const [moveScopePrompt, setMoveScopePrompt] = useState<{
     ev: GEvent; newStart: string; newEnd: string
   } | null>(null)
+
+  // Same idea but for DELETE — when deleting a recurring instance we ask
+  // whether to delete just this occurrence or the whole series.
+  const [deleteScopePrompt, setDeleteScopePrompt] = useState<{ ev: GEvent } | null>(null)
 
   const goPrev = () => setCurrentDate(view === 'month' ? subMonths(currentDate, 1) : subWeeks(currentDate, 1))
   const goNext = () => setCurrentDate(view === 'month' ? addMonths(currentDate, 1) : addWeeks(currentDate, 1))
@@ -213,7 +225,8 @@ export function CalendarPage() {
         </div>
       </div>
 
-      {/* Banner */}
+      {/* Banner — success / error / loading. Loading shows a spinner and
+          stays until replaced (no auto-dismiss, no close button). */}
       <AnimatePresence>
         {banner && (
           <motion.div
@@ -221,14 +234,22 @@ export function CalendarPage() {
             className={`mb-4 flex items-center gap-3 px-4 py-3 rounded-xl border ${
               banner.kind === 'success'
                 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                : 'bg-red-500/10 border-red-500/30 text-red-300'
+                : banner.kind === 'error'
+                  ? 'bg-red-500/10 border-red-500/30 text-red-300'
+                  : 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300'
             }`}
           >
-            <AlertCircle className="w-4 h-4" />
+            {banner.kind === 'loading' ? (
+              <span className="w-4 h-4 rounded-full border-2 border-indigo-300/30 border-t-indigo-300 animate-spin" />
+            ) : (
+              <AlertCircle className="w-4 h-4" />
+            )}
             <span className="text-sm">{banner.text}</span>
-            <button onClick={() => setBanner(null)} className="ml-auto opacity-50 hover:opacity-100">
-              <X className="w-4 h-4" />
-            </button>
+            {banner.kind !== 'loading' && (
+              <button onClick={() => setBanner(null)} className="ml-auto opacity-50 hover:opacity-100">
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -486,7 +507,9 @@ export function CalendarPage() {
         )}
       </div>
 
-      {/* Event modal */}
+      {/* Event modal — close immediately on save/delete, surface status
+          through the banner above so the user gets feedback while the
+          Google API call is in flight. */}
       <AnimatePresence>
         {showEventModal && (
           <EventModal
@@ -496,38 +519,114 @@ export function CalendarPage() {
             startHour={showEventModal.startHour}
             calendars={gcal.calendars}
             onClose={() => setShowEventModal(null)}
-            onSave={async (data) => {
-              try {
-                if (showEventModal.mode === 'create') {
-                  await gcal.createEvent(data)
+            onSave={(data) => {
+              const isCreate = showEventModal.mode === 'create'
+              if (isCreate) {
+                setShowEventModal(null)
+                setBanner({
+                  kind: 'loading',
+                  text: data.recurrence && data.recurrence.length > 0
+                    ? `Creando serie "${data.summary}"…`
+                    : `Creando "${data.summary}"…`,
+                })
+                gcal.createEvent(data)
+                  .then(() => setBanner({ kind: 'success', text: 'Evento creado ✓' }))
+                  .catch((e) => setBanner({ kind: 'error', text: `Error: ${e instanceof Error ? e.message : 'unknown'}` }))
+                return
+              }
+              if (showEventModal.event) {
+                const ev = showEventModal.event
+                // For recurring events, route through the scope prompt
+                // so the user explicitly picks "this only" vs "series".
+                if (ev.recurringEventId) {
                   setShowEventModal(null)
-                } else if (showEventModal.event) {
-                  const ev = showEventModal.event
-                  // For recurring events, route through the scope prompt
-                  // so the user explicitly picks "this only" vs "series".
-                  if (ev.recurringEventId) {
-                    setShowEventModal(null)
-                    setMoveScopePrompt({ ev, newStart: data.start, newEnd: data.end })
-                    return
-                  }
-                  await gcal.updateEvent(ev.id, ev.calendarId, data)
-                  setShowEventModal(null)
+                  setMoveScopePrompt({ ev, newStart: data.start, newEnd: data.end })
+                  return
                 }
-              } catch (e) {
-                setBanner({ kind: 'error', text: `Error: ${e instanceof Error ? e.message : 'unknown'}` })
+                setShowEventModal(null)
+                setBanner({ kind: 'loading', text: `Guardando "${data.summary}"…` })
+                gcal.updateEvent(ev.id, ev.calendarId, data)
+                  .then(() => setBanner({ kind: 'success', text: 'Evento actualizado ✓' }))
+                  .catch((e) => setBanner({ kind: 'error', text: `Error: ${e instanceof Error ? e.message : 'unknown'}` }))
               }
             }}
-            onDelete={async () => {
+            onDelete={() => {
               if (!showEventModal.event) return
-              if (!confirm(`¿Eliminar "${showEventModal.event.summary}"?`)) return
-              try {
-                await gcal.deleteEvent(showEventModal.event.id, showEventModal.event.calendarId)
+              const ev = showEventModal.event
+              // Recurring → route to the scope prompt instead of confirm().
+              if (ev.recurringEventId) {
                 setShowEventModal(null)
-              } catch (e) {
-                setBanner({ kind: 'error', text: `Error: ${e instanceof Error ? e.message : 'unknown'}` })
+                setDeleteScopePrompt({ ev })
+                return
               }
+              if (!confirm(`¿Eliminar "${ev.summary}"?`)) return
+              setShowEventModal(null)
+              setBanner({ kind: 'loading', text: `Eliminando "${ev.summary}"…` })
+              gcal.deleteEvent(ev.id, ev.calendarId)
+                .then(() => setBanner({ kind: 'success', text: 'Evento eliminado ✓' }))
+                .catch((e) => setBanner({ kind: 'error', text: `Error: ${e instanceof Error ? e.message : 'unknown'}` }))
             }}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Recurring DELETE-scope prompt — "this event or whole series?" */}
+      <AnimatePresence>
+        {deleteScopePrompt && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setDeleteScopePrompt(null)}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm bg-zinc-900 border border-red-500/30 rounded-2xl shadow-2xl p-5"
+            >
+              <h3 className="text-sm font-bold text-white mb-1">
+                Eliminar &quot;{deleteScopePrompt.ev.summary}&quot;
+              </h3>
+              <p className="text-xs text-zinc-500 mb-4">
+                Este evento es recurrente. ¿Qué querés eliminar?
+              </p>
+              <div className="space-y-2">
+                <button
+                  onClick={() => {
+                    const ev = deleteScopePrompt.ev
+                    setDeleteScopePrompt(null)
+                    setBanner({ kind: 'loading', text: `Eliminando este evento…` })
+                    gcal.deleteEvent(ev.id, ev.calendarId)
+                      .then(() => setBanner({ kind: 'success', text: 'Evento eliminado ✓' }))
+                      .catch((e) => setBanner({ kind: 'error', text: e instanceof Error ? e.message : 'Falló' }))
+                  }}
+                  className="w-full text-left px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-200 transition-colors"
+                >
+                  📌 Solo este evento
+                  <p className="text-[10px] text-zinc-500 mt-0.5">Crea una excepción. Los demás de la serie no se tocan.</p>
+                </button>
+                <button
+                  onClick={() => {
+                    const ev = deleteScopePrompt.ev
+                    setDeleteScopePrompt(null)
+                    setBanner({ kind: 'loading', text: `Eliminando toda la serie…` })
+                    gcal.deleteEvent(ev.id, ev.calendarId, { scope: 'series', recurringEventId: ev.recurringEventId })
+                      .then(() => setBanner({ kind: 'success', text: 'Serie eliminada ✓' }))
+                      .catch((e) => setBanner({ kind: 'error', text: e instanceof Error ? e.message : 'Falló' }))
+                  }}
+                  className="w-full text-left px-3 py-2.5 bg-red-500/15 border border-red-500/40 hover:bg-red-500/25 rounded-lg text-sm text-red-300 transition-colors"
+                >
+                  🔁 Toda la serie
+                  <p className="text-[10px] text-red-400/70 mt-0.5">Borra todos los eventos pasados y futuros de la serie.</p>
+                </button>
+                <button
+                  onClick={() => setDeleteScopePrompt(null)}
+                  className="w-full px-3 py-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -554,15 +653,13 @@ export function CalendarPage() {
               </p>
               <div className="space-y-2">
                 <button
-                  onClick={async () => {
+                  onClick={() => {
                     const { ev, newStart, newEnd } = moveScopePrompt
                     setMoveScopePrompt(null)
-                    try {
-                      await gcal.updateEvent(ev.id, ev.calendarId, { start: newStart, end: newEnd })
-                      setBanner({ kind: 'success', text: 'Movido solo este evento.' })
-                    } catch (e) {
-                      setBanner({ kind: 'error', text: e instanceof Error ? e.message : 'Falló' })
-                    }
+                    setBanner({ kind: 'loading', text: `Moviendo este evento…` })
+                    gcal.updateEvent(ev.id, ev.calendarId, { start: newStart, end: newEnd })
+                      .then(() => setBanner({ kind: 'success', text: 'Movido solo este evento ✓' }))
+                      .catch((e) => setBanner({ kind: 'error', text: e instanceof Error ? e.message : 'Falló' }))
                   }}
                   className="w-full text-left px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-200 transition-colors"
                 >
@@ -570,19 +667,17 @@ export function CalendarPage() {
                   <p className="text-[10px] text-zinc-500 mt-0.5">Crea una excepción. Los demás de la serie no cambian.</p>
                 </button>
                 <button
-                  onClick={async () => {
+                  onClick={() => {
                     const { ev, newStart, newEnd } = moveScopePrompt
                     setMoveScopePrompt(null)
-                    try {
-                      await gcal.updateEvent(ev.id, ev.calendarId, {
-                        start: newStart, end: newEnd,
-                        applyToSeries: true,
-                        recurringEventId: ev.recurringEventId,
-                      })
-                      setBanner({ kind: 'success', text: 'Movida toda la serie.' })
-                    } catch (e) {
-                      setBanner({ kind: 'error', text: e instanceof Error ? e.message : 'Falló' })
-                    }
+                    setBanner({ kind: 'loading', text: `Moviendo toda la serie…` })
+                    gcal.updateEvent(ev.id, ev.calendarId, {
+                      start: newStart, end: newEnd,
+                      applyToSeries: true,
+                      recurringEventId: ev.recurringEventId,
+                    })
+                      .then(() => setBanner({ kind: 'success', text: 'Serie movida ✓' }))
+                      .catch((e) => setBanner({ kind: 'error', text: e instanceof Error ? e.message : 'Falló' }))
                   }}
                   className="w-full text-left px-3 py-2.5 bg-indigo-500/15 border border-indigo-500/40 hover:bg-indigo-500/25 rounded-lg text-sm text-indigo-300 transition-colors"
                 >
@@ -613,8 +708,34 @@ interface EventModalProps {
   startHour?: number
   calendars: GCalendar[]
   onClose: () => void
-  onSave: (data: Omit<GEvent, 'id'>) => Promise<void>
-  onDelete: () => Promise<void>
+  /** Fire-and-forget: parent closes the modal + shows a banner. The modal
+   *  itself doesn't need to await this. */
+  onSave: (data: Omit<GEvent, 'id'> & { recurrence?: string[] }) => void
+  onDelete: () => void
+}
+
+/** UI options for the recurrence selector. The 'custom' option isn't
+ *  implemented yet — keep the picker simple for v1. */
+type RecurrenceMode = 'none' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'yearly'
+
+const RECURRENCE_OPTIONS: { value: RecurrenceMode; label: string }[] = [
+  { value: 'none',     label: 'No se repite' },
+  { value: 'daily',    label: 'Cada día' },
+  { value: 'weekdays', label: 'Días de semana (L-V)' },
+  { value: 'weekly',   label: 'Cada semana' },
+  { value: 'monthly',  label: 'Cada mes' },
+  { value: 'yearly',   label: 'Cada año' },
+]
+
+function buildRecurrenceRule(mode: RecurrenceMode): string[] | undefined {
+  switch (mode) {
+    case 'daily':    return ['RRULE:FREQ=DAILY']
+    case 'weekdays': return ['RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR']
+    case 'weekly':   return ['RRULE:FREQ=WEEKLY']
+    case 'monthly':  return ['RRULE:FREQ=MONTHLY']
+    case 'yearly':   return ['RRULE:FREQ=YEARLY']
+    default:         return undefined
+  }
 }
 
 function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, onDelete }: EventModalProps) {
@@ -638,11 +759,12 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
   const [startTime, setStartTime] = useState(event && !event.allDay ? format(parseISO(event.start), 'HH:mm') : defaultStart)
   const [endDate, setEndDate] = useState(event ? format(parseISO(event.end), 'yyyy-MM-dd') : baseDateStr)
   const [endTime, setEndTime] = useState(event && !event.allDay ? format(parseISO(event.end), 'HH:mm') : defaultEnd)
-  const [saving, setSaving] = useState(false)
+  // Recurrence — only editable on CREATE for now. Editing an existing
+  // event's recurrence rule via UI is more invasive (changes the master).
+  const [recurrence, setRecurrence] = useState<RecurrenceMode>('none')
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!summary.trim() || !calendarId) return
-    setSaving(true)
     try {
       // BUG FIX: previously we sent "YYYY-MM-DDTHH:mm:00" with no timezone
       // offset. Google Calendar interprets such strings in the calendar's
@@ -668,7 +790,8 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
 
       const startISO = allDay ? startDate : toLocalISO(startDate, startTime)
       const endISO   = allDay ? endDate   : toLocalISO(endDate, endTime)
-      await onSave({
+      const recurrenceRule = mode === 'create' ? buildRecurrenceRule(recurrence) : undefined
+      onSave({
         calendarId,
         summary: summary.trim(),
         description: description.trim() || undefined,
@@ -676,9 +799,11 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
         start: startISO,
         end: endISO,
         allDay,
+        ...(recurrenceRule ? { recurrence: recurrenceRule } : {}),
       })
-    } finally {
-      setSaving(false)
+    } catch {
+      // Errors are surfaced via banner by the parent — modal is already
+      // closed by the time async failures arrive.
     }
   }
 
@@ -747,6 +872,29 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
             </div>
           </div>
 
+          {/* Recurrencia — solo editable al crear. En edit mostramos un
+              hint si el evento ya es parte de una serie. */}
+          {mode === 'create' ? (
+            <div>
+              <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Repetir</label>
+              <select value={recurrence} onChange={(e) => setRecurrence(e.target.value as RecurrenceMode)}
+                className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                {RECURRENCE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              {recurrence !== 'none' && (
+                <p className="text-[10px] text-indigo-400/80 mt-1">
+                  ↻ Se va a crear como serie recurrente.
+                </p>
+              )}
+            </div>
+          ) : event?.recurringEventId ? (
+            <div className="text-[10px] text-indigo-400/80 px-3 py-2 rounded-lg border border-indigo-500/20 bg-indigo-500/5">
+              ↻ Este evento es parte de una serie recurrente. Al guardar te vamos a preguntar si los cambios aplican solo a este evento o a toda la serie.
+            </div>
+          ) : null}
+
           <div>
             <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Ubicación (opcional)</label>
             <input value={location} onChange={(e) => setLocation(e.target.value)}
@@ -778,9 +926,9 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
             className="ml-auto px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-semibold transition-colors">
             Cancelar
           </button>
-          <button onClick={handleSave} disabled={saving || !summary.trim() || !calendarId}
+          <button onClick={handleSave} disabled={!summary.trim() || !calendarId}
             className="px-4 py-2 rounded-lg bg-indigo-500/15 border border-indigo-500/30 hover:bg-indigo-500/25 disabled:opacity-40 disabled:cursor-not-allowed text-indigo-400 text-sm font-bold transition-colors">
-            {saving ? 'Guardando…' : 'Guardar'}
+            Guardar
           </button>
         </div>
       </motion.div>

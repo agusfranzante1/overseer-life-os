@@ -99,7 +99,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }
 }
 
-// DELETE /api/calendar/events/<id>?calendarId=<id>
+// DELETE /api/calendar/events/<id>?calendarId=<id>&scope=instance|series&recurringEventId=<masterId>
+//
+// scope='series' + recurringEventId → deletes the MASTER, removing every
+// occurrence (past + future). Anything else deletes just the instance.
 export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const auth = await getAuth(req)
@@ -108,11 +111,19 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     const { id } = await ctx.params
     const url = new URL(req.url)
     const calendarId = url.searchParams.get('calendarId')
+    const scope = url.searchParams.get('scope')  // 'series' | null
+    const recurringEventId = url.searchParams.get('recurringEventId')
     if (!calendarId) return NextResponse.json({ ok: false, error: 'missing_calendarId' }, { status: 400 })
 
     const calendar = google.calendar({ version: 'v3', auth })
+    if (scope === 'series' && recurringEventId) {
+      // Delete the entire series by removing the master event.
+      await calendar.events.delete({ calendarId, eventId: recurringEventId })
+      return NextResponse.json({ ok: true, scope: 'series' })
+    }
+    // Default: just this instance (creates a Google "deleted exception").
     await calendar.events.delete({ calendarId, eventId: id })
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, scope: 'instance' })
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : 'unknown' }, { status: 500 })
   }
