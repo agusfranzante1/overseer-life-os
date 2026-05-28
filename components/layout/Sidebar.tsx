@@ -41,11 +41,29 @@ const NAV_ITEMS: NavItem[] = [
 
 const DEFAULT_ORDER = NAV_ITEMS.map((n) => n.key)
 
-export function Sidebar() {
+export function Sidebar({
+  mobileOpen = false,
+  onMobileClose,
+}: {
+  mobileOpen?: boolean
+  onMobileClose?: () => void
+} = {}) {
   const { sidebarCollapsed, toggleSidebar, language, setLanguage, navOrder, setNavOrder } = useAppStore()
   const { t } = useTranslation()
   const pathname = usePathname()
   const router = useRouter()
+
+  // Detect mobile (<sm). On mobile we IGNORE the collapsed state — when the
+  // drawer is open we always want the full sidebar (icons + labels), since
+  // a 64px icon-rail in an overlay would feel useless.
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)')
+    const update = () => setIsMobile(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
 
   const handleLogout = async () => {
     if (!hasSupabaseConfig()) return
@@ -110,25 +128,46 @@ export function Sidebar() {
     setOverKey(null)
   }
 
-  // ── Width: collapsed = icon rail (64px), expanded = full (220px) ──
-  const width = sidebarCollapsed ? 64 : 220
+  // ── Width: collapsed = icon rail (64px), expanded = full (220px).
+  // On mobile we always render at 260px (full drawer width) regardless
+  // of the persisted `sidebarCollapsed` preference.
+  const desktopWidth = sidebarCollapsed ? 64 : 220
+  const width = isMobile ? 260 : desktopWidth
+  // Same idea for the "collapsed UI mode" — only honored on desktop. On
+  // mobile, drawer is always full so the user sees icons + labels.
+  const showLabels = isMobile || !sidebarCollapsed
+
+  // Auto-close the mobile drawer when a nav link is tapped so it feels
+  // like a normal app drawer (open → pick → close).
+  const handleNavClick = () => {
+    if (isMobile && onMobileClose) onMobileClose()
+  }
 
   return (
     <motion.aside
       animate={{ width }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="relative flex flex-col h-screen bg-zinc-900 border-r border-zinc-800 shrink-0 z-20 overflow-hidden"
+      className={`
+        flex flex-col h-screen bg-zinc-900 border-r border-zinc-800 shrink-0 overflow-hidden
+        fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-out
+        ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
+        sm:relative sm:translate-x-0 sm:z-20
+      `}
     >
-      {/* Top bar: collapse button + logo (+ edit toggle when expanded) */}
-      <div className={`flex items-center gap-2 ${sidebarCollapsed ? 'px-2 justify-center' : 'px-3'} py-4 border-b border-zinc-800`}>
+      {/* Top bar: menu button (collapse on desktop / close drawer on mobile)
+          + logo + edit toggle when labels are visible. */}
+      <div className={`flex items-center gap-2 ${showLabels ? 'px-3' : 'px-2 justify-center'} py-4 border-b border-zinc-800`}>
         <button
-          onClick={toggleSidebar}
-          title={sidebarCollapsed ? 'Expandir' : 'Colapsar'}
+          onClick={() => {
+            if (isMobile && onMobileClose) onMobileClose()
+            else toggleSidebar()
+          }}
+          title={isMobile ? 'Cerrar menú' : sidebarCollapsed ? 'Expandir' : 'Colapsar'}
           className="shrink-0 w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
         >
           <Menu className="w-4 h-4" />
         </button>
-        {!sidebarCollapsed && (
+        {showLabels && (
           <>
             <Image src="/logo.png" alt="Overseer" width={32} height={32} className="shrink-0 rounded-lg" />
             <span className="font-bold text-white text-sm tracking-wider uppercase whitespace-nowrap flex-1 truncate">
@@ -149,7 +188,7 @@ export function Sidebar() {
 
       {/* Edit-mode toolbar (only when expanded) */}
       <AnimatePresence>
-        {editMode && !sidebarCollapsed && (
+        {editMode && showLabels && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
@@ -172,14 +211,14 @@ export function Sidebar() {
       </AnimatePresence>
 
       {/* Nav */}
-      <nav className={`flex-1 py-4 space-y-1 overflow-y-auto ${sidebarCollapsed ? 'px-2' : 'px-2'}`}>
+      <nav className="flex-1 py-4 space-y-1 overflow-y-auto px-2">
         {orderedNav.map(({ href, icon: Icon, key }) => {
           const active = pathname === href || (href === '/dashboard' && pathname === '/')
           const isDragging = dragKey === key
           const isOver = overKey === key && dragKey !== key
 
-          // Edit mode (only when expanded): render as draggable div
-          if (editMode && !sidebarCollapsed) {
+          // Edit mode (only when labels are visible): render as draggable div
+          if (editMode && showLabels) {
             return (
               <div
                 key={href}
@@ -207,20 +246,26 @@ export function Sidebar() {
             )
           }
 
-          // Normal: <Link>. Collapsed → icon only with tooltip. Expanded → icon + label.
+          // Normal: <Link>. Icon-only with tooltip when labels hidden, icon
+          // + label otherwise. On mobile, tapping also closes the drawer.
           return (
-            <Link key={href} href={href} title={sidebarCollapsed ? t(`nav.${key}`) : undefined}>
+            <Link
+              key={href}
+              href={href}
+              title={!showLabels ? t(`nav.${key}`) : undefined}
+              onClick={handleNavClick}
+            >
               <motion.div
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.97 }}
-                className={`flex items-center gap-3 ${sidebarCollapsed ? 'justify-center px-2' : 'px-3'} py-2.5 rounded-lg cursor-pointer transition-colors ${
+                className={`flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2.5 rounded-lg cursor-pointer transition-colors ${
                   active
                     ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
                     : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
                 }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
-                {!sidebarCollapsed && (
+                {showLabels && (
                   <span className="text-sm font-medium whitespace-nowrap">
                     {t(`nav.${key}`)}
                   </span>
@@ -233,17 +278,17 @@ export function Sidebar() {
 
       {/* Bottom actions — timezone + language toggle + logout */}
       <div className="border-t border-zinc-800 p-2 space-y-1">
-        <TimezoneButton collapsed={sidebarCollapsed} />
+        <TimezoneButton collapsed={!showLabels} />
 
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.97 }}
           onClick={toggleLang}
-          title={sidebarCollapsed ? (language === 'en' ? 'English' : 'Español') : undefined}
-          className={`w-full flex items-center gap-3 ${sidebarCollapsed ? 'justify-center px-2' : 'px-3'} py-2.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors`}
+          title={!showLabels ? (language === 'en' ? 'English' : 'Español') : undefined}
+          className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors`}
         >
           <Globe className="w-4 h-4 shrink-0" />
-          {!sidebarCollapsed && (
+          {showLabels && (
             <span className="text-sm font-medium whitespace-nowrap">
               {language === 'en' ? '🇬🇧 English' : '🇦🇷 Español'}
             </span>
@@ -255,11 +300,11 @@ export function Sidebar() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.97 }}
             onClick={handleLogout}
-            title={sidebarCollapsed ? 'Cerrar sesión' : undefined}
-            className={`w-full flex items-center gap-3 ${sidebarCollapsed ? 'justify-center px-2' : 'px-3'} py-2.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors`}
+            title={!showLabels ? 'Cerrar sesión' : undefined}
+            className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors`}
           >
             <LogOut className="w-4 h-4 shrink-0" />
-            {!sidebarCollapsed && (
+            {showLabels && (
               <span className="text-sm font-medium whitespace-nowrap">Cerrar sesión</span>
             )}
           </motion.button>

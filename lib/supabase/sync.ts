@@ -68,7 +68,20 @@ function schedule(
   setTimer: (t: ReturnType<typeof setTimeout>) => void,
 ) {
   if (timer) clearTimeout(timer)
-  setTimer(setTimeout(() => fn().catch((e) => console.error('Sync push failed', e)), 1500))
+  setTimer(setTimeout(() => fn().catch((e) => reportSyncError(`Sync push failed: ${e?.message ?? e}`)), 1500))
+}
+
+/** Surface a sync failure to the user. Previously these were `console.error`
+ *  only — invisible unless devtools were open. Now we ALSO fire a browser
+ *  CustomEvent the UI subscribes to (see `useSyncErrors` hook) so users get
+ *  a real toast and can fix the underlying issue (usually a missing migration). */
+function reportSyncError(message: string) {
+  console.error('[sync]', message)
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(new CustomEvent('overseer-sync-error', { detail: { message, at: Date.now() } }))
+    } catch { /* noop */ }
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -268,12 +281,30 @@ async function pushWallet() {
     transactions: d.transactions, deleted_at: d.deletedAt,
   }))
 
-  // Upserts
+  // Upserts — check each result and surface failures loudly so the user
+  // doesn't lose data silently (this was happening when migration_phase2
+  // hadn't been run and the PK was wrong on wallet_currencies).
   if (currencyRows.length > 0) {
-    await sb.from('wallet_currencies').upsert(currencyRows, { onConflict: 'user_id,code' })
+    const r = await sb.from('wallet_currencies').upsert(currencyRows, { onConflict: 'user_id,code' })
+    if (r.error) {
+      // Most likely cause: PK on wallet_currencies is still `code` only
+      // (pre-migration_phase2.sql). The onConflict 'user_id,code' needs
+      // a composite UNIQUE/PK to match. Run migration_wallet_currencies_pk.sql.
+      reportSyncError(
+        `wallet_currencies upsert failed: ${r.error.message}. ` +
+        `Likely missing PK migration — run supabase/migration_wallet_currencies_pk.sql.`
+      )
+      throw r.error
+    }
   }
-  if (walletRows.length > 0) await sb.from('wallets').upsert(walletRows)
-  if (txRows.length > 0)     await sb.from('wallet_transactions').upsert(txRows)
+  if (walletRows.length > 0) {
+    const r = await sb.from('wallets').upsert(walletRows)
+    if (r.error) { reportSyncError(`wallets upsert failed: ${r.error.message}`); throw r.error }
+  }
+  if (txRows.length > 0) {
+    const r = await sb.from('wallet_transactions').upsert(txRows)
+    if (r.error) { reportSyncError(`wallet_transactions upsert failed: ${r.error.message}`); throw r.error }
+  }
 
   // Distribution as singleton JSONB (wallet_config table from migration_phase2.sql)
   await sb.from('wallet_config').upsert(

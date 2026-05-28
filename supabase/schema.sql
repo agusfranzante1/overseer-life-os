@@ -127,11 +127,15 @@ create policy "subtasks: own" on public.subtasks for all using (auth.uid() = use
 -- WALLET
 -- ---------------------------------------------------------------------------
 create table if not exists public.wallet_currencies (
-  code text primary key,
+  -- PK compuesto: cada usuario tiene SU propio set de divisas. Si fuera
+  -- sólo `code`, dos usuarios no podrían tener ambos "USD" — y el sync
+  -- (upsert con onConflict='user_id,code') fallaría silenciosamente.
+  code text not null,
   user_id uuid not null references auth.users(id) on delete cascade,
   symbol text not null,
   name text not null,
-  color text not null
+  color text not null,
+  primary key (user_id, code)
 );
 create index if not exists idx_currencies_user on public.wallet_currencies(user_id);
 alter table public.wallet_currencies enable row level security;

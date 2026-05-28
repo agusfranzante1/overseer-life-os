@@ -148,9 +148,10 @@ export function CalendarPage() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="p-4">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="p-3 sm:p-4">
+      {/* Header — stacks vertically on mobile so the action row gets full
+          width instead of squeezing next to the title. */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-3">
         <div>
           <h1 className="text-xl font-bold text-white">{t('calendar.title')}</h1>
           <p className="text-zinc-500 text-sm">
@@ -163,7 +164,7 @@ export function CalendarPage() {
                 })()}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* View toggle */}
           <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
             <button onClick={() => setView('month')}
