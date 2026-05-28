@@ -1051,11 +1051,11 @@ export function TasksPage() {
           </div>
         </div>
 
-        {/* Top-of-page form — only relevant in SINGLE-project view (when
-            `activeProject` is set). In All-Projects view we have a per-project
-            form rendered at the bottom of each section's list, so showing it
-            here too would render TWO inputs for the same action. */}
-        {newTaskProjectId && activeProject && (
+        {/* Top-of-page form — ONLY for the single-project KANBAN view.
+            In list view the form lives at the bottom of the task list now
+            (next to the inline "+ Nueva tarea" trigger). In All-Projects view
+            it lives inside each project section. */}
+        {newTaskProjectId && activeProject && viewMode === 'kanban' && (
           <div className="mb-4">
             <NewTaskForm
               projectId={newTaskProjectId}
@@ -1083,7 +1083,11 @@ export function TasksPage() {
               onTaskClick={(t) => setSelectedTask(t)}
             />
           ) : (
-            // Single project list view
+            // Single project list view — same affordance as the All-Projects
+            // sections: an always-visible "+ Nueva tarea en X" trigger at the
+            // bottom. Tapping it swaps to the inline NewTaskForm in the same
+            // slot. Removes the friction of having to scroll all the way up
+            // to the top "+ tarea" button.
             <div className="space-y-2">
               {displayedTasks.length === 0 ? (
                 <div className="text-center py-12 text-zinc-600">
@@ -1098,6 +1102,28 @@ export function TasksPage() {
                     onClick={() => setSelectedTask(task)}
                   />
                 ))
+              )}
+              {/* Bottom inline add — mirrors the per-project section pattern
+                  used in the All-Projects view. When the user taps the top
+                  "+ tarea" button, the same newTaskProjectId state opens the
+                  form here too (we only render ONE form at a time, prioritizing
+                  the bottom slot which is what the user actually expects). */}
+              {newTaskProjectId === activeProject.id ? (
+                <NewTaskForm
+                  projectId={activeProject.id}
+                  statuses={activeProject.statuses}
+                  onAdd={handleAddTask}
+                  onClose={() => setNewTaskProjectId(null)}
+                  t={t}
+                />
+              ) : (
+                <button
+                  onClick={() => setNewTaskProjectId(activeProject.id)}
+                  className="w-full text-left text-xs text-zinc-600 hover:text-indigo-300 hover:bg-indigo-500/5 active:bg-indigo-500/10 px-3 py-2.5 rounded-lg transition-colors flex items-center gap-2 opacity-60 hover:opacity-100 border border-dashed border-zinc-800 hover:border-indigo-500/40"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Nueva tarea en {activeProject.name}
+                </button>
               )}
             </div>
           )

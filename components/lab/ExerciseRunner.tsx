@@ -273,10 +273,11 @@ function StepBlock({
   accent: string
   disabled?: boolean
 }) {
-  // Auto-expand the first step; rest start collapsed if the session is fresh,
-  // but expanded if there's already content inside.
-  const hasContent = !!session.values[step.key] && Object.values(session.values[step.key]).some((v) => v && v.trim().length > 0)
-  const [open, setOpen] = useState(index === 0 || hasContent)
+  // Always start collapsed — consistent with SPI/Proyección sections, the
+  // user wants everything closed by default and only opens what they need.
+  // (Previously the first step auto-expanded; that was inconsistent with
+  // the rest of the app.)
+  const [open, setOpen] = useState(false)
 
   return (
     <div className="bg-zinc-950/40 border border-zinc-800 rounded-xl">

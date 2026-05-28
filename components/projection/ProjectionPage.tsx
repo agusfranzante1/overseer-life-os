@@ -877,7 +877,10 @@ function Section({
   plan: ProjectionPlan
   onValueChange: (sectionKey: string, fieldKey: string, value: string) => void
 }) {
-  const [open, setOpen] = useState(!section.defaultCollapsed)
+  // Always start COLLAPSED — the user explicitly asked for everything to
+  // be closed by default across all Proyección tabs (Vista de Águila,
+  // Anual, Trimestre, Mes). They open what they need, when they need it.
+  const [open, setOpen] = useState(false)
   return (
     <div className="bg-zinc-950/40 border border-zinc-800 rounded-xl">
       <button

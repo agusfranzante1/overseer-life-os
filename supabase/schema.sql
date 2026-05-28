@@ -386,6 +386,18 @@ alter table public.food_data enable row level security;
 create policy "food_data: own" on public.food_data for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- ---------------------------------------------------------------------------
+-- APP PREFERENCES (singleton — sidebar order, language, timezone, schedule,
+-- AI settings, etc. Sincronizado entre dispositivos.)
+-- ---------------------------------------------------------------------------
+create table if not exists public.app_preferences (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  payload jsonb not null default '{}'::jsonb,
+  updated_at timestamptz default now()
+);
+alter table public.app_preferences enable row level security;
+create policy "app_preferences: own" on public.app_preferences for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- ---------------------------------------------------------------------------
 -- HEALTH
 -- ---------------------------------------------------------------------------
 create table if not exists public.health_snapshots (

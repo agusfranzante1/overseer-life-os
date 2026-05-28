@@ -13,6 +13,7 @@ import { useFoodStore } from '@/lib/store/foodStore'
 import { useSPIStore } from '@/lib/store/spiStore'
 import { useProjectionStore } from '@/lib/store/projectionStore'
 import { useLabStore } from '@/lib/store/labStore'
+import { useAppStore } from '@/lib/store/appStore'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ interface SyncState {
   spiInit: boolean
   projectionInit: boolean
   labInit: boolean
+  appPrefsInit: boolean
 }
 
 const state: SyncState = {
@@ -46,6 +48,7 @@ const state: SyncState = {
   spiInit: false,
   projectionInit: false,
   labInit: false,
+  appPrefsInit: false,
 }
 
 // ─── Push timers (debounced per domain) ───────────────────────────────────────
@@ -61,6 +64,7 @@ let foodPushTimer: ReturnType<typeof setTimeout> | null = null
 let spiPushTimer: ReturnType<typeof setTimeout> | null = null
 let projectionPushTimer: ReturnType<typeof setTimeout> | null = null
 let labPushTimer: ReturnType<typeof setTimeout> | null = null
+let appPrefsPushTimer: ReturnType<typeof setTimeout> | null = null
 
 function schedule(
   timer: ReturnType<typeof setTimeout> | null,
@@ -849,6 +853,86 @@ async function pullLab(): Promise<boolean> {
   return true
 }
 
+// ─── APP PREFERENCES (sidebar nav order, language, timezone, schedule, etc.) ─
+//
+// Singleton row per user. The payload is a flexible JSONB blob that mirrors
+// the cross-device-relevant subset of useAppStore. Ephemeral UI state
+// (sidebarCollapsed, activeSection, chatOpen, etc.) is INTENTIONALLY excluded
+// so that a "collapsed" preference on a laptop doesn't override a "showing"
+// preference on a phone.
+
+/** The subset of appStore that gets synced. Adding a field here = it syncs;
+ *  removing it = it stays device-local. */
+type AppPrefsPayload = {
+  language?: import('@/types').Language
+  timezone?: string
+  autoPurgeCompletedTasks?: boolean
+  idealSchedule?: import('@/lib/store/appStore').ScheduleSlot extends infer _ ? Record<string, import('@/lib/store/appStore').ScheduleSlot> : never
+  scheduleOrder?: string[]
+  dayTypes?: import('@/types').DayTypeConfig[]
+  navOrder?: string[]
+  aiProvider?: 'off' | 'ollama' | 'anthropic'
+  anthropicApiKey?: string
+  anthropicModel?: string
+  metrics?: import('@/types').MetricEntry
+}
+
+async function pushAppPrefs() {
+  if (!state.userId) return
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const s = useAppStore.getState()
+  const payload: AppPrefsPayload = {
+    language: s.language,
+    timezone: s.timezone,
+    autoPurgeCompletedTasks: s.autoPurgeCompletedTasks,
+    idealSchedule: s.idealSchedule,
+    scheduleOrder: s.scheduleOrder,
+    dayTypes: s.dayTypes,
+    navOrder: s.navOrder,
+    aiProvider: s.aiProvider,
+    anthropicApiKey: s.anthropicApiKey,
+    anthropicModel: s.anthropicModel,
+    metrics: s.metrics,
+  }
+  const r = await sb.from('app_preferences').upsert(
+    { user_id: uid, payload, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id' },
+  )
+  if (r.error) {
+    reportSyncError(`app_preferences upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_app_preferences.sql.`)
+    throw r.error
+  }
+}
+
+async function pullAppPrefs(): Promise<boolean> {
+  if (!state.userId) return false
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const res = await sb.from('app_preferences').select('*').eq('user_id', uid).maybeSingle()
+  if (res.error) { console.error('App prefs pull failed', res.error); return false }
+  if (!res.data) return false
+  const p = ((res.data as { payload: unknown }).payload ?? {}) as AppPrefsPayload
+  // Merge: only overwrite fields actually present in the remote payload.
+  // Anything missing stays at the local/default value — important for
+  // forward/backward compat as we evolve the payload shape.
+  useAppStore.setState((prev) => ({
+    ...prev,
+    ...(p.language !== undefined ? { language: p.language } : {}),
+    ...(p.timezone !== undefined ? { timezone: p.timezone } : {}),
+    ...(p.autoPurgeCompletedTasks !== undefined ? { autoPurgeCompletedTasks: p.autoPurgeCompletedTasks } : {}),
+    ...(p.idealSchedule !== undefined ? { idealSchedule: p.idealSchedule } : {}),
+    ...(p.scheduleOrder !== undefined ? { scheduleOrder: p.scheduleOrder } : {}),
+    ...(p.dayTypes !== undefined ? { dayTypes: p.dayTypes } : {}),
+    ...(p.navOrder !== undefined ? { navOrder: p.navOrder } : {}),
+    ...(p.aiProvider !== undefined ? { aiProvider: p.aiProvider } : {}),
+    ...(p.anthropicApiKey !== undefined ? { anthropicApiKey: p.anthropicApiKey } : {}),
+    ...(p.anthropicModel !== undefined ? { anthropicModel: p.anthropicModel } : {}),
+    ...(p.metrics !== undefined ? { metrics: p.metrics } : {}),
+  }))
+  return true
+}
+
 // ─── GYM (weight entries + config + routines + sessions) ──────────────────────
 
 async function pushGym() {
@@ -1164,6 +1248,7 @@ function scheduleFood()       { schedule(foodPushTimer,      pushFood,      (t) 
 function scheduleSPI()        { schedule(spiPushTimer,       pushSPI,       (t) => { spiPushTimer = t }) }
 function scheduleProjection() { schedule(projectionPushTimer, pushProjection, (t) => { projectionPushTimer = t }) }
 function scheduleLab()        { schedule(labPushTimer,        pushLab,        (t) => { labPushTimer = t }) }
+function scheduleAppPrefs()   { schedule(appPrefsPushTimer,   pushAppPrefs,   (t) => { appPrefsPushTimer = t }) }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
@@ -1231,6 +1316,11 @@ async function initAllDomains() {
     const had = await pullLab()
     if (!had) await pushLab().catch((e) => console.error('Lab initial push failed', e))
   }
+  if (!state.appPrefsInit) {
+    state.appPrefsInit = true
+    const had = await pullAppPrefs()
+    if (!had) await pushAppPrefs().catch((e) => console.error('App prefs initial push failed', e))
+  }
 }
 
 /** Mount once at the app root. Wires all domains for sync. */
@@ -1264,6 +1354,7 @@ export function useSupabaseSync() {
       useSPIStore.subscribe(() => { if (state.userId) scheduleSPI() })
       useProjectionStore.subscribe(() => { if (state.userId) scheduleProjection() })
       useLabStore.subscribe(() => { if (state.userId) scheduleLab() })
+      useAppStore.subscribe(() => { if (state.userId) scheduleAppPrefs() })
     }
 
     // Auth state changes — when the user signs in *after* mount (e.g. from
@@ -1283,6 +1374,7 @@ export function useSupabaseSync() {
       state.spiInit = false
       state.projectionInit = false
       state.labInit = false
+      state.appPrefsInit = false
       if (newId) {
         initAllDomains().catch((e) => console.error('Init after auth change failed', e))
       }
@@ -1319,3 +1411,5 @@ export async function forceSyncProjection() { await pushProjection() }
 export async function forcePullProjection() { return pullProjection() }
 export async function forceSyncLab()      { await pushLab() }
 export async function forcePullLab()      { return pullLab() }
+export async function forceSyncAppPrefs() { await pushAppPrefs() }
+export async function forcePullAppPrefs() { return pullAppPrefs() }

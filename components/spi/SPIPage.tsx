@@ -835,7 +835,11 @@ function Section({
   parentKey: string
   onValueChange: (sectionKey: string, fieldKey: string, value: string) => void
 }) {
-  const [open, setOpen] = useState(!section.defaultCollapsed)
+  // Always start COLLAPSED — the user explicitly asked for everything to
+  // be closed by default in every SPI/Proyección view (Vista de Águila,
+  // Anual, Trimestre, Mes, Semanal). They open what they need, when they
+  // need it, instead of scrolling past a wall of empty fields.
+  const [open, setOpen] = useState(false)
   const fullKey = parentKey ? `${parentKey}.${section.key}` : section.key
 
   return (

@@ -227,7 +227,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex-1 overflow-y-auto pb-20">
           {children}
         </div>
-        <ChatBox />
+        {/* ChatBox — scoped to the gym page only. Elsewhere it was eating
+            screen estate and competing with primary actions. The gym is
+            the page where the user actually uses it (logging sets / asking
+            for routine advice). */}
+        {pathname?.startsWith('/gym') && <ChatBox />}
 
         {/* Sync error toast — sticky bottom-right, only when sync push fails.
             Click X to dismiss. Tells the user EXACTLY what to do (most common
