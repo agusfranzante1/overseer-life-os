@@ -519,66 +519,163 @@ function WalletDetail({ walletId, onTransaction }: {
   )
 }
 
-// ─── Cash Flow Table ───────────────────────────────────────────────────────────
+// ─── Cash Flow Tables — ONE per currency ─────────────────────────────────────
+// Renders a stack of per-currency cash flow tables. Each table shows the 12
+// months of the year + a "Total" column with the annual roll-up so you don't
+// have to mentally add the row.
+//
+// Only renders a table for currencies that actually have movements (≥1 income
+// or expense in the year) — keeps the UI focused on what you use.
 function CashFlowTable() {
   const { transactions, currencies } = useWalletStore()
-  const [selectedCurrency, setSelectedCurrency] = useState('USD')
   const year = new Date().getFullYear()
-  const currentMonth = new Date().getMonth() // 0-indexed
 
-  const monthlyData = useMemo(
-    () => getMonthlyTotals(selectedCurrency, year, transactions),
-    [transactions, selectedCurrency, year]
-  )
-  const cur = currencies.find(c => c.code === selectedCurrency)
+  // Decide which currencies to show — those with at least one transaction
+  // this year. If a user has 5 currencies but only uses 2, the other 3
+  // would be empty noise.
+  const activeCurrencies = useMemo(() => {
+    const codesWithMovement = new Set(
+      transactions
+        .filter((t) => t.date?.startsWith(String(year)))
+        .flatMap((t) => [t.currencyCode, t.toCurrencyCode].filter(Boolean) as string[])
+    )
+    return currencies.filter((c) => codesWithMovement.has(c.code))
+  }, [transactions, currencies, year])
+
+  if (activeCurrencies.length === 0) {
+    return (
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center">
+        <p className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2">Flujo de Caja {year}</p>
+        <p className="text-xs text-zinc-600 italic">
+          Sin movimientos este año todavía. Registrá un ingreso o egreso para ver el flujo por divisa.
+        </p>
+      </div>
+    )
+  }
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-      <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
-        <p className="text-xs font-bold uppercase tracking-wider text-zinc-400">Flujo de Caja {year}</p>
-        <select value={selectedCurrency} onChange={e => setSelectedCurrency(e.target.value)}
-          className="text-xs bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-zinc-300 focus:outline-none">
-          {currencies.map(c => <option key={c.code} value={c.code}>{c.symbol} {c.code}</option>)}
-        </select>
+    <div className="space-y-4">
+      <p className="text-xs font-bold uppercase tracking-wider text-zinc-400 px-1">
+        Flujo de Caja {year} · {activeCurrencies.length} {activeCurrencies.length === 1 ? 'divisa' : 'divisas'}
+      </p>
+      {activeCurrencies.map((cur) => (
+        <CurrencyCashFlowTable key={cur.code} currency={cur} year={year} transactions={transactions} />
+      ))}
+    </div>
+  )
+}
+
+/** One cash flow table for a single currency. Includes Ingresos / Egresos /
+ *  Balance rows + a Total column at the right showing the year roll-up. */
+function CurrencyCashFlowTable({
+  currency, year, transactions,
+}: {
+  currency: Currency
+  year: number
+  transactions: ReturnType<typeof useWalletStore.getState>['transactions']
+}) {
+  const currentMonth = new Date().getMonth()
+  const isCurrentYear = year === new Date().getFullYear()
+
+  const monthlyData = useMemo(
+    () => getMonthlyTotals(currency.code, year, transactions),
+    [currency.code, year, transactions]
+  )
+
+  // Annual totals — sum across the 12 months for the right-most "Total" col.
+  const totals = useMemo(() => {
+    const income  = monthlyData.reduce((s, m) => s + m.income, 0)
+    const expense = monthlyData.reduce((s, m) => s + m.expense, 0)
+    return { income, expense, balance: income - expense }
+  }, [monthlyData])
+
+  return (
+    <div className="bg-zinc-900 border rounded-2xl overflow-hidden"
+      style={{ borderColor: currency.color + '40' }}>
+      {/* Per-currency header — color-tinted so each table is easy to scan */}
+      <div className="px-5 py-3 border-b flex items-center justify-between gap-3 flex-wrap"
+        style={{ background: currency.color + '0F', borderColor: currency.color + '30' }}>
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full" style={{ background: currency.color }} />
+          <span className="text-sm font-bold" style={{ color: currency.color }}>
+            {currency.symbol} {currency.code}
+          </span>
+          <span className="text-xs text-zinc-500">· {currency.name}</span>
+        </div>
+        {/* Headline annual balance for this currency */}
+        <div className="flex items-center gap-3 text-[10px] font-mono uppercase tracking-wider">
+          <span className="text-zinc-500">↑ <span className="text-emerald-400 tabular-nums">{currency.symbol}{fmt(totals.income)}</span></span>
+          <span className="text-zinc-500">↓ <span className="text-red-400 tabular-nums">{currency.symbol}{fmt(totals.expense)}</span></span>
+          <span className="text-zinc-500">
+            = <span className="tabular-nums font-bold"
+              style={{ color: totals.balance > 0 ? '#10b981' : totals.balance < 0 ? '#ef4444' : '#71717a' }}>
+              {currency.symbol}{fmt(totals.balance)}
+            </span>
+          </span>
+        </div>
       </div>
+
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-zinc-800">
               <th className="text-left px-4 py-2.5 text-zinc-500 font-semibold w-24 uppercase tracking-wider">Concepto</th>
               {MONTHS.map((m, i) => (
-                <th key={m} className={`px-3 py-2.5 text-center font-semibold uppercase tracking-wider ${i === currentMonth ? 'text-indigo-400' : 'text-zinc-500'}`}>
+                <th key={m}
+                  className={`px-3 py-2.5 text-center font-semibold uppercase tracking-wider ${
+                    isCurrentYear && i === currentMonth ? 'text-indigo-400' : 'text-zinc-500'
+                  }`}>
                   {m}
                 </th>
               ))}
+              <th className="px-3 py-2.5 text-center font-semibold uppercase tracking-wider text-zinc-300 border-l border-zinc-800 bg-zinc-800/40">
+                Total
+              </th>
             </tr>
           </thead>
           <tbody>
             {[
               { label: 'Ingresos', key: 'income' as const, color: '#10b981' },
               { label: 'Egresos',  key: 'expense' as const, color: '#ef4444' },
-            ].map(({ label, key, color }) => (
-              <tr key={key} className="border-b border-zinc-800/50">
-                <td className="px-4 py-2.5 font-semibold" style={{ color }}>{label}</td>
-                {monthlyData.map((m, i) => (
-                  <td key={i} className={`px-3 py-2.5 text-center tabular-nums font-mono ${i === currentMonth ? 'bg-indigo-500/5' : ''}`}
-                    style={{ color: m[key] > 0 ? color : '#52525b' }}>
-                    {m[key] > 0 ? fmt(m[key]) : '—'}
+            ].map(({ label, key, color }) => {
+              const annualForRow = totals[key]
+              return (
+                <tr key={key} className="border-b border-zinc-800/50">
+                  <td className="px-4 py-2.5 font-semibold" style={{ color }}>{label}</td>
+                  {monthlyData.map((m, i) => (
+                    <td key={i}
+                      className={`px-3 py-2.5 text-center tabular-nums font-mono ${
+                        isCurrentYear && i === currentMonth ? 'bg-indigo-500/5' : ''
+                      }`}
+                      style={{ color: m[key] > 0 ? color : '#52525b' }}>
+                      {m[key] > 0 ? fmt(m[key]) : '—'}
+                    </td>
+                  ))}
+                  <td className="px-3 py-2.5 text-center tabular-nums font-mono font-bold border-l border-zinc-800 bg-zinc-800/40"
+                    style={{ color: annualForRow > 0 ? color : '#52525b' }}>
+                    {annualForRow > 0 ? fmt(annualForRow) : '—'}
                   </td>
-                ))}
-              </tr>
-            ))}
+                </tr>
+              )
+            })}
             <tr className="bg-zinc-800/30">
               <td className="px-4 py-2.5 font-bold text-zinc-300">Balance</td>
               {monthlyData.map((m, i) => {
                 const bal = m.income - m.expense
                 return (
-                  <td key={i} className={`px-3 py-2.5 text-center tabular-nums font-bold font-mono ${i === currentMonth ? 'bg-indigo-500/5' : ''}`}
+                  <td key={i}
+                    className={`px-3 py-2.5 text-center tabular-nums font-bold font-mono ${
+                      isCurrentYear && i === currentMonth ? 'bg-indigo-500/5' : ''
+                    }`}
                     style={{ color: bal > 0 ? '#10b981' : bal < 0 ? '#ef4444' : '#52525b' }}>
                     {bal !== 0 ? fmt(bal) : '—'}
                   </td>
                 )
               })}
+              <td className="px-3 py-2.5 text-center tabular-nums font-black font-mono border-l border-zinc-800 bg-zinc-800/60"
+                style={{ color: totals.balance > 0 ? '#10b981' : totals.balance < 0 ? '#ef4444' : '#71717a' }}>
+                {totals.balance !== 0 ? fmt(totals.balance) : '—'}
+              </td>
             </tr>
           </tbody>
         </table>
