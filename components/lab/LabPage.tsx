@@ -1,10 +1,10 @@
 'use client'
 import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FlaskConical, Plus, ChevronRight, ChevronDown, Trophy, Search } from 'lucide-react'
+import { FlaskConical, Plus, ChevronRight, ChevronDown, Trophy, Search, Sparkles, Check, X, Wand2, RotateCcw, Trash2 } from 'lucide-react'
 import { useLabStore } from '@/lib/store/labStore'
 import { LAB_CATEGORIES, exercisesByCategory, findCategory, findExercise } from '@/lib/lab/templates'
-import type { LabCategory, LabExercise, LabSession } from '@/lib/lab/types'
+import type { LabCategory, LabExercise, LabSession, LabBelief } from '@/lib/lab/types'
 import { ExerciseRunner } from './ExerciseRunner'
 
 type View =
@@ -49,6 +49,23 @@ export function LabPage() {
     if (id) setView({ kind: 'session', sessionId: id })
   }
 
+  // Launches the Reencuadre exercise pre-filled with the belief text, and
+  // links the session back to the belief so the runner can offer "marcar
+  // creencia como resuelta" on close.
+  const handleLaunchWithBelief = (beliefId: string, beliefText: string) => {
+    const dd = new Date().getDate().toString().padStart(2, '0')
+    const mm = (new Date().getMonth() + 1).toString().padStart(2, '0')
+    const id = createSession({
+      exerciseKey: 'reencuadre-complejo',
+      title: `Reencuadre · "${beliefText.slice(0, 40)}${beliefText.length > 40 ? '…' : ''}" · ${dd}/${mm}`,
+      linkedBeliefId: beliefId,
+      initialValues: {
+        __root: { pensamiento_inicial: beliefText },
+      },
+    })
+    if (id) setView({ kind: 'session', sessionId: id })
+  }
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
       {/* Header */}
@@ -87,6 +104,7 @@ export function LabPage() {
           categoryKey={view.categoryKey}
           sessions={sessions.filter((s) => s.categoryKey === view.categoryKey)}
           onLaunch={handleLaunch}
+          onLaunchWithBelief={handleLaunchWithBelief}
           onOpenSession={(id) => setView({ kind: 'session', sessionId: id })}
           onBack={() => setView({ kind: 'home' })}
         />
@@ -292,14 +310,343 @@ function QuickStartChip({
   )
 }
 
+// ─── BELIEFS LIST ────────────────────────────────────────────────────────────
+//
+// First-class catalog of beliefs the user has detected. Renders ABOVE the
+// exercises in the Creencias category. Three sections (collapsible):
+//   • 🔴 Detectadas — to work on
+//   • 🟡 En proceso — currently being reframed
+//   • ✅ Resueltas — closed with an insight
+//
+// Each row has a "Trabajar con Reencuadre" CTA that launches the Reencuadre
+// exercise pre-filled with the belief text and linked back to the belief.
+
+function BeliefsList({ accent, onWorkOn }: {
+  accent: string
+  onWorkOn: (beliefId: string, beliefText: string) => void
+}) {
+  const beliefs = useLabStore((s) => s.beliefs)
+  const addBelief = useLabStore((s) => s.addBelief)
+  const setBeliefStatus = useLabStore((s) => s.setBeliefStatus)
+  const updateBelief = useLabStore((s) => s.updateBelief)
+  const removeBelief = useLabStore((s) => s.removeBelief)
+
+  const [draft, setDraft] = useState('')
+  const [showResolved, setShowResolved] = useState(false)
+
+  const myBeliefs = useMemo(() =>
+    beliefs.filter((b) => b.categoryKey === 'creencias'),
+    [beliefs]
+  )
+  const detected = myBeliefs.filter((b) => b.status === 'open')
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  const working = myBeliefs.filter((b) => b.status === 'working')
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  const resolved = myBeliefs.filter((b) => b.status === 'resolved')
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+
+  const handleAdd = () => {
+    const t = draft.trim()
+    if (!t) return
+    addBelief(t)
+    setDraft('')
+  }
+
+  return (
+    <section className="rounded-2xl border p-4 sm:p-5"
+      style={{ background: accent + '0D', borderColor: accent + '40' }}>
+      <div className="flex items-center gap-2 mb-1">
+        <Sparkles className="w-4 h-4" style={{ color: accent }} />
+        <h3 className="text-sm font-bold" style={{ color: accent }}>Tus Creencias</h3>
+        <span className="text-[10px] font-mono text-zinc-500 ml-auto">
+          {detected.length} · {working.length} · {resolved.length}
+        </span>
+      </div>
+      <p className="text-[11px] text-zinc-400 italic leading-relaxed mb-3">
+        Catálogo de las creencias que vas detectando. Agregalas a mano abajo, o
+        usá el <strong className="text-zinc-300">Diagnóstico de Creencias</strong> para que te las
+        despierte un cuestionario guiado. Para trabajar una, tocá &quot;Reencuadre&quot; y se abre el
+        ejercicio con la frase pre-cargada.
+      </p>
+
+      {/* Quick add */}
+      <form
+        onSubmit={(e) => { e.preventDefault(); handleAdd() }}
+        className="flex items-stretch gap-1.5 mb-4"
+      >
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder='Escribí una creencia… ej: "el dinero es difícil"'
+          enterKeyHint="done"
+          autoComplete="off"
+          className="flex-1 min-w-0 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-zinc-600"
+        />
+        <button type="submit"
+          disabled={!draft.trim()}
+          className="shrink-0 px-3 py-2 rounded-lg text-xs font-bold text-white disabled:opacity-40 transition-colors flex items-center gap-1"
+          style={{
+            background: accent + (draft.trim() ? '' : '80'),
+          }}
+        >
+          <Plus className="w-3.5 h-3.5" /> Agregar
+        </button>
+      </form>
+
+      {/* Detected */}
+      {detected.length > 0 && (
+        <BeliefGroup
+          title="🔴 Detectadas"
+          subtitle="Para trabajar con Reencuadre"
+          beliefs={detected}
+          accent={accent}
+          onWorkOn={onWorkOn}
+          onResolve={(id, insight) => setBeliefStatus(id, 'resolved', insight)}
+          onSetWorking={(id) => setBeliefStatus(id, 'working')}
+          onEdit={(id, text) => updateBelief(id, { text })}
+          onRemove={removeBelief}
+        />
+      )}
+
+      {/* Working */}
+      {working.length > 0 && (
+        <BeliefGroup
+          title="🟡 En proceso"
+          subtitle="Trabajándolas activamente"
+          beliefs={working}
+          accent={accent}
+          onWorkOn={onWorkOn}
+          onResolve={(id, insight) => setBeliefStatus(id, 'resolved', insight)}
+          onSetOpen={(id) => setBeliefStatus(id, 'open')}
+          onEdit={(id, text) => updateBelief(id, { text })}
+          onRemove={removeBelief}
+        />
+      )}
+
+      {/* Resolved — collapsed by default */}
+      {resolved.length > 0 && (
+        <div className="mt-4">
+          <button onClick={() => setShowResolved((v) => !v)}
+            className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-emerald-400 hover:text-emerald-300 transition-colors">
+            {showResolved ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            ✅ Resueltas · {resolved.length}
+          </button>
+          <AnimatePresence initial={false}>
+            {showResolved && (
+              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden">
+                <div className="pt-2">
+                  <BeliefGroup
+                    title=""
+                    subtitle=""
+                    beliefs={resolved}
+                    accent={accent}
+                    onWorkOn={onWorkOn}
+                    onReopen={(id) => setBeliefStatus(id, 'open')}
+                    onEdit={(id, text) => updateBelief(id, { text })}
+                    onRemove={removeBelief}
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {myBeliefs.length === 0 && (
+        <div className="text-center py-4 text-[11px] text-zinc-600 italic border border-dashed border-zinc-800 rounded-lg">
+          Tu catálogo está vacío. Empezá agregando una arriba o corré el Diagnóstico.
+        </div>
+      )}
+    </section>
+  )
+}
+
+function BeliefGroup({
+  title, subtitle, beliefs, accent,
+  onWorkOn, onResolve, onSetWorking, onSetOpen, onReopen, onEdit, onRemove,
+}: {
+  title: string
+  subtitle: string
+  beliefs: LabBelief[]
+  accent: string
+  onWorkOn: (id: string, text: string) => void
+  onResolve?: (id: string, insight: string) => void
+  onSetWorking?: (id: string) => void
+  onSetOpen?: (id: string) => void
+  onReopen?: (id: string) => void
+  onEdit: (id: string, text: string) => void
+  onRemove: (id: string) => void
+}) {
+  return (
+    <div className="space-y-1.5 mt-3">
+      {title && (
+        <div className="flex items-baseline gap-2 mb-1">
+          <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-400">{title}</p>
+          {subtitle && <p className="text-[10px] text-zinc-600">{subtitle}</p>}
+        </div>
+      )}
+      {beliefs.map((b) => (
+        <BeliefRow key={b.id} belief={b} accent={accent}
+          onWorkOn={onWorkOn}
+          onResolve={onResolve}
+          onSetWorking={onSetWorking}
+          onSetOpen={onSetOpen}
+          onReopen={onReopen}
+          onEdit={onEdit}
+          onRemove={onRemove}
+        />
+      ))}
+    </div>
+  )
+}
+
+function BeliefRow({
+  belief, accent,
+  onWorkOn, onResolve, onSetWorking, onSetOpen, onReopen, onEdit, onRemove,
+}: {
+  belief: LabBelief
+  accent: string
+  onWorkOn: (id: string, text: string) => void
+  onResolve?: (id: string, insight: string) => void
+  onSetWorking?: (id: string) => void
+  onSetOpen?: (id: string) => void
+  onReopen?: (id: string) => void
+  onEdit: (id: string, text: string) => void
+  onRemove: (id: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(belief.text)
+  const [showResolveForm, setShowResolveForm] = useState(false)
+  const [insightDraft, setInsightDraft] = useState('')
+
+  const isResolved = belief.status === 'resolved'
+
+  return (
+    <div className="rounded-lg border bg-zinc-900/60 p-2.5"
+      style={{ borderColor: isResolved ? '#10b98140' : '#27272a' }}>
+      <div className="flex items-start gap-2">
+        {/* Status dot */}
+        <span className="mt-1.5 w-2 h-2 rounded-full shrink-0"
+          style={{
+            background: belief.status === 'open' ? '#ef4444'
+                      : belief.status === 'working' ? '#eab308'
+                      : '#10b981',
+          }}
+        />
+
+        <div className="flex-1 min-w-0">
+          {editing ? (
+            <input
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={() => { onEdit(belief.id, draft.trim() || belief.text); setEditing(false) }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { onEdit(belief.id, draft.trim() || belief.text); setEditing(false) }
+                if (e.key === 'Escape') { setDraft(belief.text); setEditing(false) }
+              }}
+              className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200 focus:outline-none focus:border-zinc-500"
+            />
+          ) : (
+            <button onClick={() => setEditing(true)} className="text-sm text-zinc-200 text-left leading-snug break-words hover:text-zinc-100">
+              {belief.text}
+            </button>
+          )}
+          {belief.insight && (
+            <p className="text-[10px] text-emerald-400/90 italic mt-1 leading-relaxed">
+              💡 {belief.insight}
+            </p>
+          )}
+        </div>
+
+        {/* Quick actions */}
+        <div className="flex items-center gap-1 shrink-0">
+          {!isResolved && (
+            <button
+              onClick={() => onWorkOn(belief.id, belief.text)}
+              title="Abrir Reencuadre con esta creencia pre-cargada"
+              className="text-[10px] px-2 py-1 rounded-md font-semibold text-white transition-colors flex items-center gap-1"
+              style={{ background: accent }}
+            >
+              <Wand2 className="w-3 h-3" /> Reencuadre
+            </button>
+          )}
+          {belief.status === 'open' && onSetWorking && (
+            <button onClick={() => onSetWorking(belief.id)} title="Marcar como en proceso"
+              className="p-1.5 rounded text-yellow-400 hover:bg-yellow-500/10">
+              <Sparkles className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {belief.status === 'working' && onSetOpen && (
+            <button onClick={() => onSetOpen(belief.id)} title="Volver a detectada"
+              className="p-1.5 rounded text-zinc-400 hover:bg-zinc-800">
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {!isResolved && onResolve && (
+            <button onClick={() => setShowResolveForm((v) => !v)} title="Marcar como resuelta"
+              className="p-1.5 rounded text-emerald-400 hover:bg-emerald-500/10">
+              <Check className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {isResolved && onReopen && (
+            <button onClick={() => onReopen(belief.id)} title="Reabrir"
+              className="p-1.5 rounded text-zinc-400 hover:bg-zinc-800">
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button onClick={() => { if (confirm(`¿Borrar la creencia "${belief.text}"?`)) onRemove(belief.id) }}
+            title="Borrar"
+            className="p-1.5 rounded text-zinc-600 hover:text-red-400 hover:bg-red-500/10">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Inline resolve form */}
+      <AnimatePresence>
+        {showResolveForm && onResolve && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden mt-2">
+            <div className="flex items-stretch gap-1.5 pt-2 border-t border-zinc-800">
+              <input
+                autoFocus
+                value={insightDraft}
+                onChange={(e) => setInsightDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { onResolve(belief.id, insightDraft.trim()); setShowResolveForm(false); setInsightDraft('') }
+                  if (e.key === 'Escape') { setShowResolveForm(false); setInsightDraft('') }
+                }}
+                placeholder="Insight final (opcional) — qué te llevás de esto"
+                className="flex-1 min-w-0 bg-zinc-950 border border-emerald-500/40 rounded px-2 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-emerald-500"
+              />
+              <button onClick={() => { onResolve(belief.id, insightDraft.trim()); setShowResolveForm(false); setInsightDraft('') }}
+                className="shrink-0 px-2 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold">
+                Resolver
+              </button>
+              <button onClick={() => { setShowResolveForm(false); setInsightDraft('') }}
+                className="shrink-0 px-2 py-1.5 text-zinc-500 hover:text-zinc-300">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 // ─── CATEGORY VIEW ───────────────────────────────────────────────────────────
 
 function CategoryView({
-  categoryKey, sessions, onLaunch, onOpenSession, onBack,
+  categoryKey, sessions, onLaunch, onLaunchWithBelief, onOpenSession, onBack,
 }: {
   categoryKey: string
   sessions: LabSession[]
   onLaunch: (exerciseKey: string) => void
+  onLaunchWithBelief: (beliefId: string, beliefText: string) => void
   onOpenSession: (id: string) => void
   onBack: () => void
 }) {
@@ -332,6 +679,14 @@ function CategoryView({
           <span className="text-emerald-400">{closedCount} cerradas</span>
         </div>
       </div>
+
+      {/* Tu lista de Creencias — solo en el pabellón de creencias. Vive
+          arriba de los ejercicios para que sea el FIRST CLASS citizen del
+          pabellón: agregás creencias acá (a mano o desde el Diagnóstico),
+          y desde acá las lanzás al Reencuadre con un click. */}
+      {categoryKey === 'creencias' && (
+        <BeliefsList accent={category.color} onWorkOn={onLaunchWithBelief} />
+      )}
 
       {/* Exercises */}
       <section>

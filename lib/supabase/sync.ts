@@ -801,8 +801,9 @@ async function pushLab() {
   if (!state.userId) return
   const sb = getSupabaseBrowser()
   const uid = state.userId!
-  const { sessions } = useLabStore.getState()
+  const { sessions, beliefs } = useLabStore.getState()
 
+  // ─── Sessions ──
   const rows = sessions.map((sess) => ({
     id: sess.id,
     user_id: uid,
@@ -818,6 +819,28 @@ async function pushLab() {
 
   if (rows.length > 0) await sb.from('lab_sessions').upsert(rows)
   await deleteSurplus(sb, 'lab_sessions', uid, rows.map((r) => r.id))
+
+  // ─── Beliefs ──
+  const beliefRows = beliefs.map((b) => ({
+    id: b.id,
+    user_id: uid,
+    category_key: b.categoryKey,
+    text: b.text,
+    status: b.status,
+    created_at: b.createdAt,
+    updated_at: b.updatedAt,
+    resolved_at: b.resolvedAt ?? null,
+    insight: b.insight ?? null,
+    linked_session_ids: b.linkedSessionIds ?? [],
+  }))
+  if (beliefRows.length > 0) {
+    const r = await sb.from('lab_beliefs').upsert(beliefRows)
+    if (r.error) {
+      reportSyncError(`lab_beliefs upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_lab_beliefs.sql.`)
+      throw r.error
+    }
+  }
+  await deleteSurplus(sb, 'lab_beliefs', uid, beliefRows.map((r) => r.id))
 }
 
 async function pullLab(): Promise<boolean> {
@@ -825,10 +848,42 @@ async function pullLab(): Promise<boolean> {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
-  const res = await sb.from('lab_sessions').select('*').eq('user_id', uid)
-    .order('updated_at', { ascending: false })
-  if (res.error) { console.error('Lab pull failed', res.error); return false }
-  if ((res.data?.length ?? 0) === 0) return false
+  // Run both in parallel — they're independent tables.
+  const [sessionRes, beliefRes] = await Promise.all([
+    sb.from('lab_sessions').select('*').eq('user_id', uid).order('updated_at', { ascending: false }),
+    sb.from('lab_beliefs').select('*').eq('user_id', uid).order('updated_at', { ascending: false }),
+  ])
+
+  if (sessionRes.error) { console.error('Lab sessions pull failed', sessionRes.error); return false }
+  // Beliefs table is optional — if the migration isn't run yet, we get an
+  // error but don't fail the whole pull. Just warn and continue with empty.
+  let beliefs: import('@/lib/lab/types').LabBelief[] = []
+  if (beliefRes.error) {
+    console.warn('Lab beliefs pull failed (run migration_lab_beliefs.sql):', beliefRes.error)
+  } else {
+    type BeliefRow = {
+      id: string; category_key: string; text: string
+      status: import('@/lib/lab/types').LabBeliefStatus
+      created_at: string; updated_at: string
+      resolved_at: string | null; insight: string | null
+      linked_session_ids: string[] | null
+    }
+    beliefs = ((beliefRes.data as BeliefRow[] | null) ?? []).map((r) => ({
+      id: r.id,
+      categoryKey: r.category_key,
+      text: r.text,
+      status: r.status,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      resolvedAt: r.resolved_at ?? undefined,
+      insight: r.insight ?? undefined,
+      linkedSessionIds: r.linked_session_ids ?? [],
+    }))
+  }
+
+  const hasSessions = (sessionRes.data?.length ?? 0) > 0
+  const hasBeliefs = beliefs.length > 0
+  if (!hasSessions && !hasBeliefs) return false
 
   type LabRow = { payload: unknown }
   const sanitize = (raw: unknown): import('@/lib/lab/types').LabSession => {
@@ -845,10 +900,12 @@ async function pullLab(): Promise<boolean> {
       values: p.values ?? {},
       outcome: p.outcome,
       spiSessionId: p.spiSessionId,
+      linkedBeliefId: p.linkedBeliefId,
     }
   }
   useLabStore.setState({
-    sessions: (res.data ?? []).map((r: LabRow) => sanitize(r.payload)),
+    sessions: (sessionRes.data ?? []).map((r: LabRow) => sanitize(r.payload)),
+    beliefs,
   })
   return true
 }

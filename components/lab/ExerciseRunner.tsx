@@ -188,6 +188,7 @@ export function ExerciseRunner({
           index={idx}
           totalSteps={exercise.steps!.length}
           session={session}
+          exerciseKey={exercise.key}
           onValueChange={(stepKey, fieldKey, value) => updateValue(session.id, stepKey, fieldKey, value)}
           accent={category.color}
           disabled={isArchived}
@@ -263,12 +264,15 @@ function StatusBadge({ status }: { status: LabSession['status'] }) {
 }
 
 function StepBlock({
-  step, index, totalSteps, session, onValueChange, accent, disabled,
+  step, index, totalSteps, session, exerciseKey, onValueChange, accent, disabled,
 }: {
   step: NonNullable<ReturnType<typeof findExercise>>['steps'] extends (infer S)[] | undefined ? S : never
   index: number
   totalSteps: number
   session: LabSession
+  /** The parent exercise's key — used to render exercise-specific actions
+   *  inside specific steps (e.g. "transfer to beliefs list" in diagnostico). */
+  exerciseKey: string
   onValueChange: (stepKey: string, fieldKey: string, value: string) => void
   accent: string
   disabled?: boolean
@@ -311,10 +315,67 @@ function StepBlock({
                   disabled={disabled}
                 />
               ))}
+
+              {/* Exercise-specific actions — Diagnóstico's "captura" step
+                  gets a button to bulk-transfer detected beliefs to the
+                  Creencias list in one click. */}
+              {exerciseKey === 'diagnostico-creencias' && step.key === 'captura' && (
+                <TransferToBeliefsAction
+                  accent={accent}
+                  text={session.values[step.key]?.detectadas ?? ''}
+                  disabled={disabled}
+                />
+              )}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+function TransferToBeliefsAction({ accent, text, disabled }: {
+  accent: string
+  text: string
+  disabled?: boolean
+}) {
+  const addBeliefsFromText = useLabStore((s) => s.addBeliefsFromText)
+  const [transferred, setTransferred] = useState<number | null>(null)
+
+  const trimmedText = text.trim()
+  const lineCount = trimmedText.length === 0 ? 0 : trimmedText.split('\n').filter((l) => l.trim().length > 0).length
+
+  const handleTransfer = () => {
+    if (lineCount === 0) return
+    const added = addBeliefsFromText(trimmedText)
+    setTransferred(added)
+    setTimeout(() => setTransferred(null), 3000)
+  }
+
+  return (
+    <div className="bg-zinc-950/60 border border-dashed rounded-lg p-3" style={{ borderColor: accent + '60' }}>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold" style={{ color: accent }}>
+            📥 Llevá las creencias a tu lista
+          </p>
+          <p className="text-[11px] text-zinc-500 mt-0.5">
+            {lineCount === 0
+              ? 'Escribí arriba (una por línea) para activar la transferencia automática.'
+              : `${lineCount} línea${lineCount === 1 ? '' : 's'} detectada${lineCount === 1 ? '' : 's'} — se van como creencias nuevas a "Tus Creencias".`}
+          </p>
+        </div>
+        <button
+          onClick={handleTransfer}
+          disabled={disabled || lineCount === 0}
+          className="shrink-0 px-3 py-2 rounded-lg text-xs font-bold text-white disabled:opacity-40 transition-colors"
+          style={{ background: accent }}
+        >
+          {transferred !== null
+            ? `✓ ${transferred} agregada${transferred === 1 ? '' : 's'}`
+            : 'Agregar a Mi Lista'}
+        </button>
+      </div>
     </div>
   )
 }

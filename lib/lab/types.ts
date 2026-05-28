@@ -45,6 +45,9 @@ export interface LabExerciseStep {
   title: string
   intro?: string
   fields: SectionField[]
+  /** When true, this step starts COLLAPSED in the runner. Useful for
+   *  optional/advanced steps that the user may want to skip. */
+  defaultCollapsed?: boolean
 }
 
 /** Un ejercicio del laboratorio (estático). Puede tener:
@@ -71,6 +74,34 @@ export interface LabExercise {
   isQuick?: boolean
 }
 
+/** Estado de una creencia en el catálogo del usuario. */
+export type LabBeliefStatus = 'open' | 'working' | 'resolved'
+
+/** Una creencia detectada por el usuario.
+ *  Vive como ENTIDAD DE PRIMERA CLASE en el laboratorio (no como una sesión
+ *  de ejercicio), persistida en su propia tabla / array de la store. Esto
+ *  permite que el usuario la lance al ejercicio de Reencuadre con un click
+ *  y la marque como "trabajada" o "resuelta" desde la lista.
+ *
+ *  Hoy vive solo en categoryKey='creencias', pero el campo está para que
+ *  podamos extender el patrón a "emociones a regular", "pensamientos a
+ *  refinar", etc. más adelante. */
+export interface LabBelief {
+  id: string
+  categoryKey: string
+  /** El texto de la creencia, en frase corta. */
+  text: string
+  status: LabBeliefStatus
+  createdAt: string
+  updatedAt: string
+  resolvedAt?: string
+  /** Opcional — la insight con la que te quedaste al resolverla. */
+  insight?: string
+  /** Ids de las sesiones del lab que trabajaron sobre esta creencia.
+   *  Útil para mostrar "trabajaste 2 reencuadres sobre esto" como historial. */
+  linkedSessionIds?: string[]
+}
+
 /** Una sesión del usuario corriendo un ejercicio. */
 export interface LabSession {
   id: string
@@ -91,4 +122,9 @@ export interface LabSession {
    *  spi_sessions row. Sirve para mostrar el link de vuelta y para que
    *  el SPI semanal pueda mostrar las sesiones de lab linkeadas. */
   spiSessionId?: string
+  /** Si esta sesión fue lanzada desde la lista de Creencias para trabajar
+   *  una creencia específica, este es el id de la `LabBelief`. Permite
+   *  marcar automáticamente la creencia como "working" cuando se abre y
+   *  ofrecer un botón "resolver creencia" al cerrar. */
+  linkedBeliefId?: string
 }
