@@ -25,16 +25,15 @@ import type { ProjectionLevel, ProjectionPlan, SPISection, SectionField } from '
 
 export function ProjectionPage() {
   const {
-    plans, getOrCreatePlan, updateValue, closePlan, reopenPlan, findPlan,
+    plans, getOrCreatePlan, updateValue, closePlan, reopenPlan, findPlan, setSelectedLanes,
   } = useProjectionStore()
   const spiSessions = useSPIStore((s) => s.sessions)
 
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
-  // Active tab — now includes 'week' which renders the embedded weekly
-  // SPI page. The active tab is REMEMBERED across visits via localStorage
-  // so the user lands wherever they left off (annual / quarter / month / weekly).
+  // Active tab — includes 'eagle' (Vista de Águila, on-demand) and 'week'
+  // (embedded weekly SPI). Persisted across visits via localStorage.
   const [activeLevel, setActiveLevel] = useState<ProjectionLevel | 'week'>('year')
   const [yearKey, setYearKey] = useState(() => currentYearKey())
   const [quarterKey, setQuarterKey] = useState(() => currentQuarterKey())
@@ -44,7 +43,7 @@ export function ProjectionPage() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem('overseer-spi-active-tab')
-      if (saved === 'year' || saved === 'quarter' || saved === 'month' || saved === 'week') {
+      if (saved === 'eagle' || saved === 'year' || saved === 'quarter' || saved === 'month' || saved === 'week') {
         setActiveLevel(saved)
       }
     } catch { /* ignore */ }
@@ -63,7 +62,7 @@ export function ProjectionPage() {
     if (!mounted) return
     const lvl = searchParams.get('level') as ProjectionLevel | 'week' | null
     const period = searchParams.get('period')
-    if (lvl === 'year' || lvl === 'quarter' || lvl === 'month' || lvl === 'week') {
+    if (lvl === 'eagle' || lvl === 'year' || lvl === 'quarter' || lvl === 'month' || lvl === 'week') {
       setActiveLevel(lvl)
       if (period) {
         if (lvl === 'year')    setYearKey(period)
@@ -91,13 +90,23 @@ export function ProjectionPage() {
 
       {/* ── Level tabs ──────────────────────────────────────────── */}
       <div className="flex items-center gap-1 bg-zinc-950/60 border border-zinc-800 rounded-xl p-1 w-fit flex-wrap">
-        <LevelTab active={activeLevel === 'year'}    onClick={() => setActiveLevel('year')}    icon="🦅" label="Anual" />
+        <LevelTab active={activeLevel === 'eagle'}   onClick={() => setActiveLevel('eagle')}   icon="🦅" label="Vista de Águila" />
+        <LevelTab active={activeLevel === 'year'}    onClick={() => setActiveLevel('year')}    icon="📅" label="Anual" />
         <LevelTab active={activeLevel === 'quarter'} onClick={() => setActiveLevel('quarter')} icon="🎯" label="Trimestral" />
         <LevelTab active={activeLevel === 'month'}   onClick={() => setActiveLevel('month')}   icon="📆" label="Mensual" />
         <LevelTab active={activeLevel === 'week'}    onClick={() => setActiveLevel('week')}    icon="♾️" label="Semanal" />
       </div>
 
       {/* ── Active level content ────────────────────────────────── */}
+      {activeLevel === 'eagle' && (
+        <EagleView
+          plan={findPlan('eagle', 'current')}
+          getOrCreatePlan={getOrCreatePlan}
+          updateValue={updateValue}
+          setSelectedLanes={setSelectedLanes}
+          onGoToAnnual={() => setActiveLevel('year')}
+        />
+      )}
       {activeLevel === 'year' && (
         <LevelView
           level="year"
@@ -391,6 +400,166 @@ function PlanCard({
           />
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// EAGLE VIEW — Vista de Águila (on-demand reflection workspace)
+//
+// Singleton plan (periodKey='current'). Renders:
+//   1. Wheel of Life (always, on top)
+//   2. Lane picker chips (toggle which carriles render below)
+//   3. Lane-filtered sections (Profundo / Estratégico / Reflexivo / Táctico)
+//   4. CTA to jump to Anual when the user feels the exam is ready
+//
+// No close / mood / score — this is conversation-only. The user can
+// reset (delete) the plan to start a fresh exam.
+// ─────────────────────────────────────────────────────────────────────
+function EagleView({
+  plan, getOrCreatePlan, updateValue, setSelectedLanes, onGoToAnnual,
+}: {
+  plan: ProjectionPlan | null
+  getOrCreatePlan: (level: ProjectionLevel, periodKey: string) => string
+  updateValue: (planId: string, sectionKey: string, fieldKey: string, value: string) => void
+  setSelectedLanes: (planId: string, lanes: string[]) => void
+  onGoToAnnual: () => void
+}) {
+  const template = ALL_TEMPLATES.eagle
+  const allLaneKeys = useMemo(() => (template.lanes ?? []).map((l) => l.key), [template.lanes])
+  // Empty selectedLanes means "show all" — friendlier default for a workspace
+  // that the user might revisit. Explicit toggle lets them focus on 1 lane.
+  const selected = plan?.selectedLanes && plan.selectedLanes.length > 0
+    ? plan.selectedLanes
+    : allLaneKeys
+
+  const toggleLane = (laneKey: string) => {
+    if (!plan) return
+    const isOn = selected.includes(laneKey)
+    let next: string[]
+    if (isOn) {
+      next = selected.filter((k) => k !== laneKey)
+      // If user just turned off the last lane, reset to "all visible".
+      if (next.length === 0) next = []
+    } else {
+      next = [...selected, laneKey]
+      // If all lanes selected, store as empty (= "show all" default).
+      if (next.length === allLaneKeys.length) next = []
+    }
+    setSelectedLanes(plan.id, next)
+  }
+
+  // Filter sections: always-shown (no laneKey) + sections in active lanes.
+  const visibleSections = useMemo(() => {
+    return template.sections.filter((sec) => {
+      if (!sec.laneKey) return true
+      return selected.includes(sec.laneKey)
+    })
+  }, [template.sections, selected])
+
+  return (
+    <div className="space-y-4">
+      {/* Intro / header */}
+      <div className="bg-zinc-950/60 border border-indigo-500/20 rounded-2xl p-5">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+          <div>
+            <p className="text-[10px] font-mono uppercase tracking-wider text-indigo-400/70">
+              {template.title}
+            </p>
+            <p className="text-base font-semibold text-zinc-100">
+              Examen on-demand · workspace
+            </p>
+          </div>
+          {plan && (
+            <button
+              onClick={onGoToAnnual}
+              className="px-3 py-1.5 bg-amber-500/15 border border-amber-500/40 hover:bg-amber-500/25 text-amber-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
+              title="Pasar a la pestaña Anual para escribir las metas en limpio"
+            >
+              Llevar a Anual <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-zinc-500 italic leading-relaxed">{template.intro}</p>
+      </div>
+
+      {/* Empty state */}
+      {!plan && (
+        <div className="bg-zinc-950/40 border border-zinc-800 rounded-2xl p-8 text-center">
+          <span className="text-3xl block mb-2">🦅</span>
+          <p className="text-sm font-semibold text-zinc-200 mb-1">No abriste tu Vista de Águila todavía</p>
+          <p className="text-xs text-zinc-500 mb-5 max-w-md mx-auto">
+            Empezá puntuando tu Rueda de la Vida, después elegí los carriles que necesites
+            para ordenar la conversación interna que te lleva a las metas anuales.
+          </p>
+          <button
+            onClick={() => getOrCreatePlan('eagle', 'current')}
+            className="px-4 py-2 bg-indigo-500/15 border border-indigo-500/40 hover:bg-indigo-500/25 text-indigo-300 rounded-lg text-sm font-semibold transition-all"
+          >
+            Abrir examen
+          </button>
+        </div>
+      )}
+
+      {/* Lane picker — only when a plan exists */}
+      {plan && template.lanes && template.lanes.length > 0 && (
+        <div className="bg-zinc-950/40 border border-zinc-800 rounded-xl p-3">
+          <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-2">
+            Carriles · click para enfocar
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {template.lanes.map((lane) => {
+              const isActive = selected.includes(lane.key)
+              return (
+                <button
+                  key={lane.key}
+                  onClick={() => toggleLane(lane.key)}
+                  title={lane.description}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+                    isActive ? 'text-zinc-100' : 'text-zinc-500 border-zinc-800 bg-zinc-900 hover:border-zinc-700'
+                  }`}
+                  style={isActive ? {
+                    background: lane.color + '22',
+                    borderColor: lane.color + '66',
+                    color: lane.color,
+                  } : {}}
+                >
+                  <span>{lane.emoji}</span> {lane.title}
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-[10px] text-zinc-600 italic mt-2">
+            Si todos están activos = ves todo. Apagá los que no necesites hoy para enfocar la sesión.
+          </p>
+        </div>
+      )}
+
+      {/* Sections */}
+      {plan && visibleSections.map((section) => (
+        <Section
+          key={section.key}
+          section={section}
+          plan={plan}
+          onValueChange={(secKey, fieldKey, value) => updateValue(plan.id, secKey, fieldKey, value)}
+        />
+      ))}
+
+      {/* Bottom CTA — repeated for fluidity at the end of the exam */}
+      {plan && (
+        <div className="bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/30 rounded-2xl p-5 text-center">
+          <p className="text-sm font-semibold text-zinc-200 mb-1">¿Listo para escribir las metas en limpio?</p>
+          <p className="text-xs text-zinc-500 mb-3 max-w-md mx-auto">
+            Lo que escribiste en el Borrador queda guardado acá. Ahora abrí Anual y pasalo en limpio mirando estos textos como guía.
+          </p>
+          <button
+            onClick={onGoToAnnual}
+            className="px-4 py-2 bg-amber-500/20 border border-amber-500/40 hover:bg-amber-500/30 text-amber-300 rounded-lg text-sm font-semibold transition-all inline-flex items-center gap-2"
+          >
+            Llevar a Anual <ArrowRight className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

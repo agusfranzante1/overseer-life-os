@@ -31,6 +31,8 @@ interface ProjectionState {
   getOrCreatePlan: (level: ProjectionLevel, periodKey: string) => string
   /** Update a single field value. */
   updateValue: (planId: string, sectionKey: string, fieldKey: string, value: string) => void
+  /** Replace the selectedLanes array for a plan (used by Vista de Águila). */
+  setSelectedLanes: (planId: string, lanes: string[]) => void
   /** Mark plan as "closed" with mood/notes. Reopenable later by passing closedAt=null. */
   closePlan: (planId: string, args: { mood?: number; notes?: string }) => void
   reopenPlan: (planId: string) => void
@@ -67,6 +69,17 @@ export const useProjectionStore = create<ProjectionState>()(
                 ...p.values,
                 [sectionKey]: { ...(p.values[sectionKey] ?? {}), [fieldKey]: value },
               },
+            }
+          ),
+        })),
+
+      setSelectedLanes: (planId, lanes) =>
+        set((s) => ({
+          plans: s.plans.map((p) =>
+            p.id !== planId ? p : {
+              ...p,
+              updatedAt: new Date().toISOString(),
+              selectedLanes: lanes,
             }
           ),
         })),

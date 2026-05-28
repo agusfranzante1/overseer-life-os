@@ -6,6 +6,7 @@ export const es: Translations = {
     dashboard: 'Panel',
     proyeccion: 'Proyección',
     spi: 'SPI',
+    lab: 'Laboratorio',
     calendar: 'Calendario',
     tasks: 'Tareas',
     money: 'Billetera',

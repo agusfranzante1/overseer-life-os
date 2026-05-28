@@ -4,6 +4,7 @@ export const en: Record<string, any> = {
     dashboard: 'Dashboard',
     proyeccion: 'Projection',
     spi: 'SPI',
+    lab: 'Lab',
     calendar: 'Calendar',
     tasks: 'Task Tracker',
     money: 'Wallet',

@@ -12,11 +12,12 @@
  *  (a canonical string per period) to enable trivial lookup.
  */
 
-import type { SPISection, SectionField } from '@/lib/spi/types'
+import type { SPISection, SectionField, SPILane } from '@/lib/spi/types'
 
-export type ProjectionLevel = 'year' | 'quarter' | 'month'
+export type ProjectionLevel = 'eagle' | 'year' | 'quarter' | 'month'
 
 /** Period key encoding (string-sortable, locale-independent):
+ *    eagle:   'current' (singleton, on-demand reflection workspace)
  *    year:    'YYYY'        e.g. '2026'
  *    quarter: 'YYYY-QN'     e.g. '2026-Q1'
  *    month:   'YYYY-MM'     e.g. '2026-03'
@@ -45,11 +46,15 @@ export interface ProjectionPlan {
   notes?: string
   /** Template version snapshot for backward compat. */
   templateVersion: number
+  /** For plans whose template has `lanes` (currently only 'eagle'): which
+   *  thematic lanes the user has selected to display. Empty / undefined =
+   *  show all lanes. Sections without `laneKey` render regardless. */
+  selectedLanes?: string[]
 }
 
-/** A template for one projection level — same shape as SPITemplate but
- *  without the lane system (projection is more strategic, doesn't need
- *  the "Saturday picker" UX). */
+/** A template for one projection level — same shape as SPITemplate.
+ *  The optional `lanes` field is only used by 'eagle' so the user can
+ *  pick which thematic lanes to focus on during the reflection. */
 export interface ProjectionTemplate {
   level: ProjectionLevel
   version: number
@@ -58,6 +63,9 @@ export interface ProjectionTemplate {
   /** Short prose shown at the top — sets the tone of the level. */
   intro: string
   sections: SPISection[]
+  /** Optional thematic lanes (currently only on 'eagle'). When present,
+   *  the user can pick which lanes to render via plan.selectedLanes. */
+  lanes?: SPILane[]
 }
 
-export type { SPISection, SectionField }
+export type { SPISection, SectionField, SPILane }

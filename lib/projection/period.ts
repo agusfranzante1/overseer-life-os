@@ -64,10 +64,12 @@ export function monthOfSpiWeek(weekStartDate: string): string {
 }
 
 /** Human-readable label for any period key.
+ *  'current' (eagle) → 'Vista de Águila · workspace'
  *  '2026' → '2026'
  *  '2026-Q1' → 'Q1 2026 · Ene-Mar'
  *  '2026-03' → 'Marzo 2026' */
 export function labelForPeriod(periodKey: string): string {
+  if (periodKey === 'current') return 'Vista de Águila'
   // Year
   if (/^\d{4}$/.test(periodKey)) return periodKey
   // Quarter

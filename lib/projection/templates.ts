@@ -1,20 +1,210 @@
-import type { ProjectionTemplate, SPISection } from './types'
+import type { ProjectionTemplate, SPISection, SPILane } from './types'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EAGLE / VISTA DE ÁGUILA — on-demand reflection workspace.
+//
+// "Antes de Anual" en la UI. No tiene cadencia — abrís cuando querés hacer
+// un examen profundo. Usa el sistema de carriles del SPI semanal pero las
+// secciones están orientadas a DESCUBRIR qué metas anuales valen la pena.
+//
+// Es solo conversación / guía. Las metas finales se escriben en Anual
+// mirando lo que sale de acá (no hay cascada automática).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const EAGLE_LANES: SPILane[] = [
+  {
+    key: 'profundo',
+    emoji: '🧘',
+    title: 'Profundo',
+    description: 'Identidad. Quién querés ser cuando termine el año.',
+    color: '#a855f7',  // purple
+  },
+  {
+    key: 'estrategico',
+    emoji: '🧭',
+    title: 'Estratégico',
+    description: 'Dónde está la palanca. Qué áreas mueven todo el resto.',
+    color: '#3b82f6',  // blue
+  },
+  {
+    key: 'reflexivo',
+    emoji: '👁️',
+    title: 'Reflexivo',
+    description: 'Patrones que se repiten. Qué querés romper este año.',
+    color: '#10b981',  // emerald
+  },
+  {
+    key: 'tactico',
+    emoji: '🎯',
+    title: 'Táctico',
+    description: 'El borrador concreto. 1-2 metas por área para llevarte a Anual.',
+    color: '#f59e0b',  // amber
+  },
+]
+
+export const EAGLE_TEMPLATE: ProjectionTemplate = {
+  level: 'eagle',
+  version: 1,
+  title: 'Vista de Águila',
+  intro: 'Un examen on-demand para volar alto antes de bajar al año. Puntuá tu rueda, recorré los carriles que necesites, y al final llevate tus borradores a "Anual" para escribir las metas en limpio.',
+  lanes: EAGLE_LANES,
+  sections: [
+    // ─── Wheel of Life — siempre visible, sin laneKey ─────────────────────
+    {
+      key: 'wheel_of_life',
+      emoji: '🎯',
+      title: 'Rueda de la vida · ¿dónde estás hoy?',
+      intro: 'Puntuá cada área del 0 al 100 según cómo la sentís HOY. Es un diagnóstico, no un objetivo. Las áreas más bajas son las que más mueven la aguja si las subís.',
+      fields: [
+        { key: 'fisica',       label: 'Salud Física',           type: 'score', hint: 'Energía, fuerza, entrenamiento, descanso.' },
+        { key: 'mental',       label: 'Salud Mental',           type: 'score', hint: 'Claridad, foco, descanso cognitivo.' },
+        { key: 'emocional',    label: 'Salud Emocional',        type: 'score', hint: 'Cómo manejás tus emociones, autorregulación.' },
+        { key: 'espiritual',   label: 'Conexión Espiritual',    type: 'score', hint: 'Sentido de algo más grande, prácticas internas.' },
+        { key: 'relaciones',   label: 'Relaciones Personales',  type: 'score', hint: 'Familia, pareja, amigos, vínculos cercanos.' },
+        { key: 'profesional',  label: 'Profesional / Carrera',  type: 'score', hint: 'Trabajo, propósito vocacional, ejecución.' },
+        { key: 'financiera',   label: 'Salud Financiera',       type: 'score', hint: 'Ingresos, ahorro, gestión, sostenibilidad.' },
+        { key: 'legado',       label: 'Propósito / Legado',     type: 'score', hint: 'Aporte al mundo, contribución, juego infinito.' },
+      ],
+    },
+
+    // ━━━ PROFUNDO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {
+      key: 'eagle_persona',
+      laneKey: 'profundo',
+      emoji: '♥️',
+      title: '¿Qué persona estás dejando germinar este año?',
+      intro: 'Antes de hablar de metas, hablemos de identidad. Las metas que valen la pena son consecuencia de quién querés ser.',
+      fields: [
+        { key: 'persona_vision', label: 'La versión tuya que querés ver en el espejo el 31 de diciembre', type: 'textarea', hint: 'Cómo se mueve, qué decide, qué energía emana.' },
+        { key: 'temas_anuales', label: 'Temas / pilares del año (3-5 palabras-fuerza)', type: 'textarea', placeholder: '1. Disciplina\n2. Profundidad\n3. Conexión\n4. ...' },
+      ],
+    },
+    {
+      key: 'eagle_una_cosa',
+      laneKey: 'profundo',
+      emoji: '🌅',
+      title: 'Si solo lograras UNA cosa este año, ¿cuál sería?',
+      intro: 'La que si la cumplís, hizo que el año valiera la pena. La que te deja en paz aunque todo lo demás falle.',
+      defaultCollapsed: true,
+      fields: [
+        { key: 'una_cosa', label: 'Esa UNA cosa', type: 'textarea' },
+        { key: 'yo_diciembre', label: 'Cómo se siente tu Yo de Diciembre cuando ya lo logró', type: 'textarea', hint: 'Descrilo en tiempo presente — "Estoy...", "Tengo...".' },
+      ],
+    },
+
+    // ━━━ ESTRATÉGICO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {
+      key: 'eagle_palanca',
+      laneKey: 'estrategico',
+      emoji: '🧭',
+      title: 'Dónde está la palanca',
+      intro: 'Mirá tu rueda de arriba. No todas las áreas pesan igual. Vamos a encontrar las 1-2 que, si las movés, mueven todo.',
+      fields: [
+        { key: 'rueda_mas_baja', label: '¿Qué área(s) están MÁS bajas y por qué?', type: 'textarea', hint: 'No te juzgues — describí la situación con honestidad.' },
+        { key: 'area_palanca', label: '¿Cuál de las 8 áreas, si la subís 30 puntos, eleva a las demás?', type: 'textarea', hint: 'A veces no es la más baja, es la que tiene mejor ROI.' },
+        { key: 'movida_80_20', label: '¿Qué movida del 20% mueve el 80% del resultado en esas áreas?', type: 'textarea' },
+      ],
+    },
+    {
+      key: 'eagle_apuesta',
+      laneKey: 'estrategico',
+      emoji: '🎲',
+      title: 'Apuesta · ¿cuáles serían tus 2 áreas principales?',
+      intro: 'Si tuvieras que apostar tu año a SOLO 2 áreas (las que vas a trabajar activamente), ¿cuáles? El resto queda como referencia.',
+      defaultCollapsed: true,
+      fields: [
+        { key: 'principal_1', label: 'Apuesta #1 — área + por qué', type: 'textarea' },
+        { key: 'principal_2', label: 'Apuesta #2 — área + por qué', type: 'textarea' },
+        { key: 'costo_no_elegidas', label: '¿Qué dejás sin trabajar este año? ¿Estás OK con eso?', type: 'textarea', hint: 'Elegir es renunciar. Hacelo consciente.' },
+      ],
+    },
+
+    // ━━━ REFLEXIVO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {
+      key: 'eagle_patrones',
+      laneKey: 'reflexivo',
+      emoji: '🔁',
+      title: 'Patrones que se repiten',
+      intro: 'Antes de planear el año, miremos el patrón. Lo que se repite año a año tiene más peso que cualquier plan nuevo.',
+      fields: [
+        { key: 'patron_repite', label: '¿Qué patrón tuyo se repite año tras año y este año querés romper?', type: 'textarea' },
+        { key: 'creencias_freno', label: '¿Qué creencias te frenan en las áreas que están bajas?', type: 'textarea', hint: 'Las frases que aparecen en tu cabeza cuando intentás moverte ahí.' },
+        { key: 'postergacion', label: '¿Qué área venís postergando hace tiempo y por qué?', type: 'textarea' },
+      ],
+    },
+    {
+      key: 'eagle_energia',
+      laneKey: 'reflexivo',
+      emoji: '⚡',
+      title: 'Energía — qué te drena, qué te recarga',
+      intro: 'Cualquier meta requiere energía sostenida. Identificar los flujos te ahorra meses.',
+      defaultCollapsed: true,
+      fields: [
+        { key: 'recarga', label: '¿Qué acciones / contextos te RECARGAN al 100%?', type: 'textarea' },
+        { key: 'drena', label: '¿Qué acciones / contextos te DRENAN sin retorno?', type: 'textarea' },
+        { key: 'recursos', label: '¿Qué recursos tenés a favor para el año?', type: 'textarea', hint: 'Skills, contactos, capital, energía, tiempo, conocimiento.' },
+      ],
+    },
+
+    // ━━━ TÁCTICO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {
+      key: 'eagle_borrador',
+      laneKey: 'tactico',
+      emoji: '📝',
+      title: 'Borrador de metas por área',
+      intro: 'Salida del examen. Escribí 1-2 metas tentativas por área (las que sentís después de los carriles anteriores). Esto es BORRADOR — después lo pulís en Anual con tranquilidad.',
+      fields: [
+        { key: 'borrador_fisica',      label: 'Borrador · Salud Física',         type: 'textarea' },
+        { key: 'borrador_mental',      label: 'Borrador · Salud Mental',         type: 'textarea' },
+        { key: 'borrador_emocional',   label: 'Borrador · Salud Emocional',      type: 'textarea' },
+        { key: 'borrador_espiritual',  label: 'Borrador · Conexión Espiritual',  type: 'textarea' },
+        { key: 'borrador_relaciones',  label: 'Borrador · Relaciones',           type: 'textarea' },
+        { key: 'borrador_profesional', label: 'Borrador · Profesional / Carrera',type: 'textarea' },
+        { key: 'borrador_financiera',  label: 'Borrador · Salud Financiera',     type: 'textarea' },
+        { key: 'borrador_legado',      label: 'Borrador · Propósito / Legado',   type: 'textarea' },
+      ],
+    },
+    {
+      key: 'eagle_sistema',
+      laneKey: 'tactico',
+      emoji: '⚙️',
+      title: 'Sistema que sostiene las metas',
+      intro: 'Las metas se cumplen con sistemas, no con voluntad. Definí ahora qué hábitos y qué obstáculos vienen con el paquete.',
+      defaultCollapsed: true,
+      fields: [
+        { key: 'habitos_clave', label: 'Hábitos clave que sostienen estas metas', type: 'textarea', placeholder: 'Ej: gym 4x/sem, deep work 4hs/día, journal diario...' },
+        { key: 'pieza_domino', label: 'La "pieza dominó" — una acción mínima de 21 días que destraba todo', type: 'textarea' },
+        { key: 'obstaculos', label: 'Obstáculos previsibles + cómo navegarlos', type: 'textarea' },
+      ],
+    },
+    {
+      key: 'eagle_cierre',
+      emoji: '🦅',
+      title: 'Cierre · llevá esto a Anual',
+      intro: 'Cuando sientas que el examen está listo, abrí la pestaña Anual y escribí tus metas finales mirando los borradores de arriba. No hay cascada automática — esto es para que la decisión final pase por vos.',
+      defaultCollapsed: true,
+      fields: [
+        { key: 'aprendizajes', label: 'Aprendizajes principales del examen', type: 'textarea', hint: 'Lo que se te reveló mientras escribías arriba.' },
+        { key: 'proximo_paso', label: 'Próximo paso concreto', type: 'text', hint: 'Ej: "Esta semana, pasar metas pulidas a Anual".' },
+      ],
+    },
+  ],
+}
 
 /** Annual template — sets the tone for the year.
  *  Heavy reflection, identity-level, long-horizon.
  *  Filled once at year start, revisited mid-year for course correction.
  *
- *  v2 changes:
- *    - Simplified `metas_anuales`: only ONE primary goal per area (no
- *      "secundaria" — the user explicitly wants just one main goal).
- *    - NEW `wheel_of_life` section: 8 life areas scored 0-100, rendered
- *      as sliders + a radar chart so the user can visualize where they
- *      are RIGHT NOW across all dimensions before defining annual goals. */
+ *  v3 changes:
+ *    - `wheel_of_life` section MOVED out to the new EAGLE_TEMPLATE
+ *      (Vista de Águila). Anual now starts directly with identity → metas.
+ *      The user does the diagnostic-and-discovery exam in Vista de Águila
+ *      and then writes the polished metas here. */
 export const ANNUAL_TEMPLATE: ProjectionTemplate = {
   level: 'year',
-  version: 2,
+  version: 3,
   title: 'Visión Anual',
-  intro: 'El año es el horizonte largo. Acá definís quién querés ser, qué pilares activar y qué grandes metas perseguir. Lo trimestral, mensual y semanal salen de acá.',
+  intro: 'El año es el horizonte largo. Acá definís quién querés ser, qué pilares activar y qué grandes metas perseguir. Lo trimestral, mensual y semanal salen de acá. (Tip: si querés explorar antes de escribir las metas, abrí "Vista de Águila".)',
   sections: [
     {
       key: 'identidad',
@@ -25,24 +215,6 @@ export const ANNUAL_TEMPLATE: ProjectionTemplate = {
         { key: 'persona', label: 'La persona que quiero ser al cerrar el año', type: 'textarea', hint: 'Cómo se mueve, qué decide, qué energía emana.' },
         { key: 'temas', label: 'Temas / pilares del año (3-5)', type: 'textarea', placeholder: '1. Disciplina\n2. Profundidad\n3. Conexión\n4. ...' },
         { key: 'una_cosa', label: 'Si solo lograras UNA cosa este año, ¿cuál sería?', type: 'textarea', hint: 'La que si la cumplís, hizo que el año valiera la pena.' },
-      ],
-    },
-
-    // ─── Wheel of Life — scored radar across the main life areas ─────────
-    {
-      key: 'wheel_of_life',
-      emoji: '🎯',
-      title: 'Rueda de la vida · ¿dónde estás hoy?',
-      intro: 'Puntuá cada área del 0 al 100 según cómo la sentís HOY. No es un objetivo — es un diagnóstico. El gráfico de abajo te muestra dónde está la energía y dónde necesitás apuntar este año.',
-      fields: [
-        { key: 'fisica',       label: 'Salud Física',           type: 'score', hint: 'Energía, fuerza, entrenamiento, descanso.' },
-        { key: 'mental',       label: 'Salud Mental',           type: 'score', hint: 'Claridad, foco, descanso cognitivo.' },
-        { key: 'emocional',    label: 'Salud Emocional',        type: 'score', hint: 'Cómo manejás tus emociones, autorregulación.' },
-        { key: 'espiritual',   label: 'Conexión Espiritual',    type: 'score', hint: 'Sentido de algo más grande, prácticas internas.' },
-        { key: 'relaciones',   label: 'Relaciones Personales',  type: 'score', hint: 'Familia, pareja, amigos, vínculos cercanos.' },
-        { key: 'profesional',  label: 'Profesional / Carrera',  type: 'score', hint: 'Trabajo, propósito vocacional, ejecución.' },
-        { key: 'financiera',   label: 'Salud Financiera',       type: 'score', hint: 'Ingresos, ahorro, gestión, sostenibilidad.' },
-        { key: 'legado',       label: 'Propósito / Legado',     type: 'score', hint: 'Aporte al mundo, contribución, juego infinito.' },
       ],
     },
 
@@ -266,7 +438,8 @@ export const MONTH_TEMPLATE: ProjectionTemplate = {
   ],
 }
 
-export const ALL_TEMPLATES: Record<'year' | 'quarter' | 'month', ProjectionTemplate> = {
+export const ALL_TEMPLATES: Record<'eagle' | 'year' | 'quarter' | 'month', ProjectionTemplate> = {
+  eagle: EAGLE_TEMPLATE,
   year: ANNUAL_TEMPLATE,
   quarter: QUARTER_TEMPLATE,
   month: MONTH_TEMPLATE,

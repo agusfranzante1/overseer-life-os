@@ -12,6 +12,7 @@ import { useChatStore } from '@/lib/store/chatStore'
 import { useFoodStore } from '@/lib/store/foodStore'
 import { useSPIStore } from '@/lib/store/spiStore'
 import { useProjectionStore } from '@/lib/store/projectionStore'
+import { useLabStore } from '@/lib/store/labStore'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
@@ -28,6 +29,7 @@ interface SyncState {
   foodInit: boolean
   spiInit: boolean
   projectionInit: boolean
+  labInit: boolean
 }
 
 const state: SyncState = {
@@ -43,6 +45,7 @@ const state: SyncState = {
   foodInit: false,
   spiInit: false,
   projectionInit: false,
+  labInit: false,
 }
 
 // ─── Push timers (debounced per domain) ───────────────────────────────────────
@@ -57,6 +60,7 @@ let chatPushTimer: ReturnType<typeof setTimeout> | null = null
 let foodPushTimer: ReturnType<typeof setTimeout> | null = null
 let spiPushTimer: ReturnType<typeof setTimeout> | null = null
 let projectionPushTimer: ReturnType<typeof setTimeout> | null = null
+let labPushTimer: ReturnType<typeof setTimeout> | null = null
 
 function schedule(
   timer: ReturnType<typeof setTimeout> | null,
@@ -747,10 +751,69 @@ async function pullProjection(): Promise<boolean> {
       score: p.score,
       notes: p.notes,
       templateVersion: p.templateVersion ?? 1,
+      selectedLanes: p.selectedLanes,
     }
   }
   useProjectionStore.setState({
     plans: (res.data ?? []).map((r: Row) => sanitize(r.payload)),
+  })
+  return true
+}
+
+// ─── LAB (mind/emotion exercise sessions) ────────────────────────────────────
+
+async function pushLab() {
+  if (!state.userId) return
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { sessions } = useLabStore.getState()
+
+  const rows = sessions.map((sess) => ({
+    id: sess.id,
+    user_id: uid,
+    exercise_key: sess.exerciseKey,
+    category_key: sess.categoryKey,
+    status: sess.status,
+    created_at: sess.createdAt,
+    updated_at: sess.updatedAt,
+    closed_at: sess.closedAt ?? null,
+    spi_session_id: sess.spiSessionId ?? null,
+    payload: sess,
+  }))
+
+  if (rows.length > 0) await sb.from('lab_sessions').upsert(rows)
+  await deleteSurplus(sb, 'lab_sessions', uid, rows.map((r) => r.id))
+}
+
+async function pullLab(): Promise<boolean> {
+  if (!state.userId) return false
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('lab_sessions').select('*').eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+  if (res.error) { console.error('Lab pull failed', res.error); return false }
+  if ((res.data?.length ?? 0) === 0) return false
+
+  type LabRow = { payload: unknown }
+  const sanitize = (raw: unknown): import('@/lib/lab/types').LabSession => {
+    const p = (raw ?? {}) as Partial<import('@/lib/lab/types').LabSession>
+    return {
+      id: p.id ?? '',
+      exerciseKey: p.exerciseKey ?? '',
+      categoryKey: p.categoryKey ?? '',
+      title: p.title ?? 'Sesión',
+      status: p.status ?? 'open',
+      createdAt: p.createdAt ?? new Date().toISOString(),
+      updatedAt: p.updatedAt ?? new Date().toISOString(),
+      closedAt: p.closedAt,
+      values: p.values ?? {},
+      outcome: p.outcome,
+      spiSessionId: p.spiSessionId,
+    }
+  }
+  useLabStore.setState({
+    sessions: (res.data ?? []).map((r: LabRow) => sanitize(r.payload)),
   })
   return true
 }
@@ -1069,6 +1132,7 @@ function scheduleChat()       { schedule(chatPushTimer,      pushChat,      (t) 
 function scheduleFood()       { schedule(foodPushTimer,      pushFood,      (t) => { foodPushTimer = t }) }
 function scheduleSPI()        { schedule(spiPushTimer,       pushSPI,       (t) => { spiPushTimer = t }) }
 function scheduleProjection() { schedule(projectionPushTimer, pushProjection, (t) => { projectionPushTimer = t }) }
+function scheduleLab()        { schedule(labPushTimer,        pushLab,        (t) => { labPushTimer = t }) }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
@@ -1131,6 +1195,11 @@ async function initAllDomains() {
     const had = await pullProjection()
     if (!had) await pushProjection().catch((e) => console.error('Projection initial push failed', e))
   }
+  if (!state.labInit) {
+    state.labInit = true
+    const had = await pullLab()
+    if (!had) await pushLab().catch((e) => console.error('Lab initial push failed', e))
+  }
 }
 
 /** Mount once at the app root. Wires all domains for sync. */
@@ -1163,6 +1232,7 @@ export function useSupabaseSync() {
       useFoodStore.subscribe(() => { if (state.userId) scheduleFood() })
       useSPIStore.subscribe(() => { if (state.userId) scheduleSPI() })
       useProjectionStore.subscribe(() => { if (state.userId) scheduleProjection() })
+      useLabStore.subscribe(() => { if (state.userId) scheduleLab() })
     }
 
     // Auth state changes — when the user signs in *after* mount (e.g. from
@@ -1181,6 +1251,7 @@ export function useSupabaseSync() {
       state.foodInit = false
       state.spiInit = false
       state.projectionInit = false
+      state.labInit = false
       if (newId) {
         initAllDomains().catch((e) => console.error('Init after auth change failed', e))
       }
@@ -1215,3 +1286,5 @@ export async function forceSyncSPI()      { await pushSPI() }
 export async function forcePullSPI()      { return pullSPI() }
 export async function forceSyncProjection() { await pushProjection() }
 export async function forcePullProjection() { return pullProjection() }
+export async function forceSyncLab()      { await pushLab() }
+export async function forcePullLab()      { return pullLab() }
