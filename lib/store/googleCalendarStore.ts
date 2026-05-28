@@ -5,13 +5,30 @@ import { persist } from 'zustand/middleware'
 /** Surface a Google Calendar failure via the same toast mechanism used by
  *  Supabase sync errors (AppShell listens to this event). Logged-only errors
  *  are too easy to miss — events disappearing is a serious "what just happened"
- *  moment that deserves a visible toast. */
-function reportGcalError(message: string) {
+ *  moment that deserves a visible toast.
+ *
+ *  Optional `action` adds a clickable button to the toast — used e.g. for
+ *  "Reconectar" when the refresh token went bad. */
+function reportGcalError(message: string, action?: { label: string; href: string }) {
   if (typeof window !== 'undefined') {
     try {
-      window.dispatchEvent(new CustomEvent('overseer-sync-error', { detail: { message, at: Date.now() } }))
+      window.dispatchEvent(new CustomEvent('overseer-sync-error', {
+        detail: { message, at: Date.now(), action },
+      }))
     } catch { /* noop */ }
   }
+}
+
+/** Detects the "your Google refresh token is dead" family of errors. Google
+ *  invalidates refresh tokens after 6 months of disuse, password changes,
+ *  scope revocation, etc. Retrying won't help — the user MUST re-OAuth.
+ *  When we see this, mark the store as disconnected so the UI surfaces a
+ *  "Conectar" / "Reconectar" CTA. */
+function isAuthDead(msg: string): boolean {
+  const low = msg.toLowerCase()
+  return low.includes('invalid_grant')
+      || low.includes('token has been expired or revoked')
+      || low.includes('refresh token')
 }
 
 export interface GCalendar {
@@ -206,8 +223,18 @@ export const useGoogleCalendarStore = create<State>()(
         } catch (e) {
           const msg = e instanceof Error ? e.message : 'unknown'
           console.error('[gcal] loadCalendars failed, keeping cache:', msg)
-          reportGcalError(`Google Calendar (calendars): ${msg}`)
-          set({ loading: false, error: msg })
+          if (isAuthDead(msg)) {
+            // Refresh token is dead — no point pretending we're connected.
+            // Marking disconnected makes the "Conectar" CTA reappear.
+            set({ loading: false, error: msg, connected: false })
+            reportGcalError(
+              'Tu sesión de Google expiró — tocá "Reconectar" para volver a darle permisos. (No perdés ningún dato).',
+              { label: 'Reconectar', href: '/api/auth/google' },
+            )
+          } else {
+            reportGcalError(`Google Calendar (calendars): ${msg}`)
+            set({ loading: false, error: msg })
+          }
         }
       },
 
@@ -237,8 +264,16 @@ export const useGoogleCalendarStore = create<State>()(
             // can still see what they had until the issue clears.
             const msg = j.error ?? 'fetch_failed'
             console.error('[gcal] loadEvents failed, keeping cache:', msg)
-            reportGcalError(`Google Calendar: ${msg}`)
-            set({ loading: false, error: msg })
+            if (isAuthDead(msg)) {
+              set({ loading: false, error: msg, connected: false })
+              reportGcalError(
+                'Tu sesión de Google expiró — tocá "Reconectar" para volver a darle permisos. (No perdés ningún dato).',
+                { label: 'Reconectar', href: '/api/auth/google' },
+              )
+            } else {
+              reportGcalError(`Google Calendar: ${msg}`)
+              set({ loading: false, error: msg })
+            }
             return
           }
           // Partial failure: some calendars came back but others errored.
@@ -263,8 +298,16 @@ export const useGoogleCalendarStore = create<State>()(
           // Network error, JSON parse error, etc — keep the cache and surface.
           const msg = e instanceof Error ? e.message : 'unknown'
           console.error('[gcal] loadEvents threw, keeping cache:', msg)
-          reportGcalError(`Google Calendar: ${msg}`)
-          set({ loading: false, error: msg })
+          if (isAuthDead(msg)) {
+            set({ loading: false, error: msg, connected: false })
+            reportGcalError(
+              'Tu sesión de Google expiró — tocá "Reconectar" para volver a darle permisos. (No perdés ningún dato).',
+              { label: 'Reconectar', href: '/api/auth/google' },
+            )
+          } else {
+            reportGcalError(`Google Calendar: ${msg}`)
+            set({ loading: false, error: msg })
+          }
         }
       },
 

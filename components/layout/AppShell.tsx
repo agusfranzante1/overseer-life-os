@@ -104,14 +104,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => { setMobileNavOpen(false) }, [pathname])
 
   // Sync-error toast — listens to the global 'overseer-sync-error' event
-  // that lib/supabase/sync.ts fires when a push fails. Without this, sync
-  // failures were invisible to the user (only logged to devtools).
-  const [syncError, setSyncError] = useState<string | null>(null)
+  // that lib/supabase/sync.ts and the Google Calendar store fire when
+  // something goes wrong. Without this, sync failures were invisible to
+  // the user (only logged to devtools).
+  //
+  // Optional `action` adds a CTA button (used for "Reconectar" when
+  // Google's refresh token died).
+  const [syncError, setSyncError] = useState<{ message: string; action?: { label: string; href: string } } | null>(null)
   useEffect(() => {
     if (typeof window === 'undefined') return
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent<{ message: string }>).detail
-      if (detail?.message) setSyncError(detail.message)
+      const detail = (e as CustomEvent<{ message: string; action?: { label: string; href: string } }>).detail
+      if (detail?.message) setSyncError({ message: detail.message, action: detail.action })
     }
     window.addEventListener('overseer-sync-error', handler)
     return () => window.removeEventListener('overseer-sync-error', handler)
@@ -179,7 +183,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-red-200 mb-1">Sync error</p>
-                <p className="text-xs text-red-300/90 leading-relaxed break-words">{syncError}</p>
+                <p className="text-xs text-red-300/90 leading-relaxed break-words">{syncError.message}</p>
+                {syncError.action && (
+                  <a
+                    href={syncError.action.href}
+                    className="inline-block mt-2 px-3 py-1.5 bg-red-500/20 border border-red-500/50 hover:bg-red-500/30 text-red-100 rounded-lg text-xs font-bold transition-colors"
+                  >
+                    {syncError.action.label} →
+                  </a>
+                )}
               </div>
               <button onClick={() => setSyncError(null)}
                 className="text-red-400 hover:text-red-200 transition-colors shrink-0">
