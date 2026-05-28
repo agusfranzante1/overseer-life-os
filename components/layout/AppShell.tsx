@@ -103,6 +103,51 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // across pages.
   useEffect(() => { setMobileNavOpen(false) }, [pathname])
 
+  // Navigation loading bar — gives the user immediate feedback when they
+  // tap a link. Previously, mobile felt "frozen" between tap and the new
+  // page rendering because Next streams + RSC can take a beat on slow
+  // connections. A thin colored bar at the top removes that uncertainty.
+  //
+  // Strategy: listen to clicks on any internal <a href="..."> at document
+  // level; mark loading. When pathname changes → mark done. Auto-clear
+  // after 4s as a safety net (in case navigation was prevented by some
+  // handler and we never get a pathname change).
+  const [navLoading, setNavLoading] = useState(false)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handler = (e: MouseEvent) => {
+      // Don't trigger on cmd/ctrl/shift click (new tab/window).
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
+      const target = (e.target as HTMLElement | null)?.closest('a[href]') as HTMLAnchorElement | null
+      if (!target) return
+      const href = target.getAttribute('href') ?? ''
+      // Skip external, anchor, and special protocols.
+      if (!href || href.startsWith('#') || href.startsWith('http') || href.startsWith('mailto:') || href.startsWith('tel:')) return
+      // Skip if it's the same page (avoid showing loader for no-op nav).
+      try {
+        const url = new URL(href, window.location.origin)
+        if (url.pathname === window.location.pathname) return
+      } catch { /* ignore */ }
+      setNavLoading(true)
+    }
+    document.addEventListener('click', handler, true)
+    return () => document.removeEventListener('click', handler, true)
+  }, [])
+  useEffect(() => {
+    // Pathname changed → nav completed. Brief delay so the bar shows
+    // "fill" before fading out.
+    if (!navLoading) return
+    const id = setTimeout(() => setNavLoading(false), 200)
+    return () => clearTimeout(id)
+  }, [pathname]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // Safety net: if pathname never changes (e.g. a blocked nav), clear
+    // after 4s so the bar doesn't get stuck forever.
+    if (!navLoading) return
+    const id = setTimeout(() => setNavLoading(false), 4000)
+    return () => clearTimeout(id)
+  }, [navLoading])
+
   // Sync-error toast — listens to the global 'overseer-sync-error' event
   // that lib/supabase/sync.ts and the Google Calendar store fire when
   // something goes wrong. Without this, sync failures were invisible to
@@ -125,6 +170,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen bg-zinc-950 overflow-hidden">
+      {/* Top navigation progress bar — fires the moment a link is tapped
+          and finishes when the new pathname renders. Lives above everything
+          else so it's always visible. */}
+      <AnimatePresence>
+        {navLoading && (
+          <motion.div
+            initial={{ width: '0%', opacity: 1 }}
+            animate={{ width: '70%', opacity: 1 }}
+            exit={{ width: '100%', opacity: 0 }}
+            transition={{ width: { duration: 0.8, ease: 'easeOut' }, opacity: { duration: 0.2 } }}
+            className="fixed top-0 left-0 z-[100] h-0.5 bg-gradient-to-r from-indigo-400 via-fuchsia-400 to-indigo-400 shadow-[0_0_8px_rgba(129,140,248,0.7)]"
+          />
+        )}
+      </AnimatePresence>
+
       <Sidebar
         mobileOpen={mobileNavOpen}
         onMobileClose={() => setMobileNavOpen(false)}

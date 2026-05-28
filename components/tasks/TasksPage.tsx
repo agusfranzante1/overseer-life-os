@@ -10,9 +10,77 @@ import { TaskDetail } from './TaskDetail'
 import { BreakdownModal } from './BreakdownModal'
 import {
   Plus, FolderOpen, X, ChevronDown, ChevronRight, ChevronLeft, Filter, Wand2, LayoutList, Columns3,
-  Pencil, Trash2, MoreHorizontal, ArrowUpDown, RotateCcw,
+  Pencil, Trash2, MoreHorizontal, ArrowUpDown, RotateCcw, Check, Menu,
 } from 'lucide-react'
 import { PROJECT_COLORS } from '@/lib/utils/constants'
+
+/** Drawer wrapper that closes when the user swipes left more than 60px.
+ *  Falls back to a plain div (no swipe handlers) when `enableSwipe` is
+ *  false — desktop doesn't need this. The Y offset bounded to small values
+ *  so vertical scroll inside the drawer still works normally.
+ *
+ *  Renders translate-X live so the user sees the drawer follow their finger
+ *  before deciding to commit or snap back. */
+function SwipeableDrawer({
+  onSwipeClose, enableSwipe, className, children,
+}: {
+  onSwipeClose: () => void
+  enableSwipe: boolean
+  className?: string
+  children: React.ReactNode
+}) {
+  const startXRef = useRef<number | null>(null)
+  const startYRef = useRef<number | null>(null)
+  const horizontalRef = useRef<boolean>(false)
+  const [dragX, setDragX] = useState(0)
+
+  if (!enableSwipe) {
+    return <div className={className}>{children}</div>
+  }
+
+  return (
+    <div
+      className={className}
+      style={{ transform: `translateX(${dragX}px)`, transition: dragX === 0 ? 'transform 0.18s ease-out' : 'none' }}
+      onTouchStart={(e) => {
+        const t = e.touches[0]
+        startXRef.current = t.clientX
+        startYRef.current = t.clientY
+        horizontalRef.current = false
+      }}
+      onTouchMove={(e) => {
+        if (startXRef.current === null || startYRef.current === null) return
+        const t = e.touches[0]
+        const dx = t.clientX - startXRef.current
+        const dy = t.clientY - startYRef.current
+        // Detect dominant direction once and lock it. Without this, a small
+        // horizontal jitter on a vertical scroll would close the drawer.
+        if (!horizontalRef.current && Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) {
+          // Vertical scroll — disengage drag entirely for this gesture.
+          startXRef.current = null
+          startYRef.current = null
+          return
+        }
+        if (Math.abs(dx) > 8) horizontalRef.current = true
+        if (horizontalRef.current) {
+          // Only allow leftward drag (negative).
+          setDragX(Math.min(0, dx))
+        }
+      }}
+      onTouchEnd={() => {
+        if (dragX < -60) {
+          onSwipeClose()
+        }
+        setDragX(0)
+        startXRef.current = null
+        startYRef.current = null
+        horizontalRef.current = false
+      }}
+    >
+      {children}
+    </div>
+  )
+}
 
 function ProjectForm({ onAdd, onClose, t }: {
   onAdd: (name: string, description?: string) => void
@@ -59,29 +127,66 @@ function NewTaskForm({ projectId, statuses, onAdd, onClose, t }: {
   t: (k: string) => string
 }) {
   const [title, setTitle] = useState('')
+  const [justSaved, setJustSaved] = useState(false)
+
+  // Single source of truth for "actually save the task". Called from BOTH
+  // form onSubmit AND from the explicit Enter handler on the input.
+  // On mobile, some soft keyboards' Enter doesn't reliably trigger form
+  // submit, so we wire both paths and let whichever fires first win.
+  const handleSave = () => {
+    const trimmed = title.trim()
+    if (!trimmed) {
+      onClose()
+      return
+    }
+    onAdd(trimmed, projectId, statuses[0]?.label ?? 'To Do')
+    // Stay open so the user can keep adding tasks in a streak — clearing
+    // the input is enough feedback. Briefly flash a checkmark to confirm.
+    setTitle('')
+    setJustSaved(true)
+    setTimeout(() => setJustSaved(false), 1200)
+  }
+
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault()
-        if (title.trim()) {
-          onAdd(title.trim(), projectId, statuses[0]?.label ?? 'To Do')
-          onClose()
-        }
+        handleSave()
       }}
-      className="flex items-center gap-2 mt-2"
+      className="flex items-stretch gap-1.5 mt-2"
     >
       <input
         autoFocus
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder={t('tasks.taskTitle')}
-        className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
-        onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}
+        // Hint the mobile keyboard to show "done"/return instead of next.
+        enterKeyHint="done"
+        autoCapitalize="sentences"
+        autoComplete="off"
+        // Belt-and-suspenders: some mobile keyboards' Enter blurs the input
+        // without firing onSubmit on the form. Catch it here as well.
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') { onClose(); return }
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            handleSave()
+          }
+        }}
+        className="flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
       />
-      <button type="submit" className="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg transition-colors">
-        {t('tasks.create')}
+      <button
+        type="submit"
+        title="Agregar (Enter)"
+        className={`shrink-0 px-3 py-2 rounded-lg text-white text-xs font-semibold transition-all flex items-center gap-1 ${
+          justSaved ? 'bg-emerald-600' : 'bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700'
+        }`}
+      >
+        {justSaved ? <><Check className="w-3.5 h-3.5" /> ¡Listo!</> : <><Plus className="w-3.5 h-3.5" /> {t('tasks.create')}</>}
       </button>
-      <button type="button" onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
+      <button type="button" onClick={onClose}
+        title="Cerrar (Esc)"
+        className="shrink-0 px-2 py-2 text-zinc-500 hover:text-zinc-300 active:text-zinc-200">
         <X className="w-4 h-4" />
       </button>
     </form>
@@ -403,12 +508,32 @@ export function TasksPage() {
 
   const [projectsPanelCollapsed, setProjectsPanelCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
+    // On mobile, default to COLLAPSED — the inline w-64 panel eats most of
+    // the screen otherwise. User can swipe/tap to open it as a drawer.
+    if (window.matchMedia('(max-width: 639px)').matches) return true
     return localStorage.getItem('overseer-tasks-projects-collapsed') === '1'
   })
   const toggleProjectsPanel = () => {
     const next = !projectsPanelCollapsed
     setProjectsPanelCollapsed(next)
     if (typeof window !== 'undefined') localStorage.setItem('overseer-tasks-projects-collapsed', next ? '1' : '0')
+  }
+
+  // Detect mobile reactively. When in mobile, the expanded panel renders as
+  // a fixed-position drawer overlay instead of an inline column.
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)')
+    const update = () => setIsMobile(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+  // Helper used by project buttons — on mobile, auto-close drawer after
+  // selecting a project (feels natural).
+  const handleSelectProject = (id: string | null) => {
+    setSelectedProject(id)
+    if (isMobile) setProjectsPanelCollapsed(true)
   }
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({})
   // ── Filter selections — PERSISTED to localStorage so they survive
@@ -585,12 +710,15 @@ export function TasksPage() {
       className="flex h-[calc(100vh-60px)] overflow-hidden"
     >
       {/* Sidebar: Projects — collapsible */}
-      {projectsPanelCollapsed ? (
-        <div className="w-10 shrink-0 border-r border-zinc-800 bg-zinc-950 flex flex-col items-center pt-4 gap-2">
+      {/* Collapsed icon rail — DESKTOP ONLY. On mobile we hide it entirely
+          and instead show a sticky hamburger inside the main area (see below)
+          since a 40px sidebar on a 360px phone is wasted estate. */}
+      {projectsPanelCollapsed && (
+        <div className="hidden sm:flex w-10 shrink-0 border-r border-zinc-800 bg-zinc-950 flex-col items-center pt-4 gap-2">
           <button
             onClick={toggleProjectsPanel}
             title="Mostrar proyectos"
-            className="w-7 h-7 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white flex items-center justify-center"
+            className="w-7 h-7 rounded-lg bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center transition-colors"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -598,7 +726,7 @@ export function TasksPage() {
           <div className="flex flex-col gap-1.5 mt-3">
             <button onClick={() => setSelectedProject(null)} title={t('tasks.allProjects')}
               className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-                !selectedProjectId ? 'bg-zinc-800' : 'hover:bg-zinc-900'
+                !selectedProjectId ? 'bg-zinc-800' : 'hover:bg-zinc-900 active:bg-zinc-800'
               }`}>
               <FolderOpen className="w-3.5 h-3.5 text-zinc-400" />
             </button>
@@ -606,7 +734,7 @@ export function TasksPage() {
               <button key={proj.id} onClick={() => setSelectedProject(proj.id)}
                 title={proj.name}
                 className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${
-                  selectedProjectId === proj.id ? 'ring-2 ring-white/40' : 'hover:bg-zinc-900'
+                  selectedProjectId === proj.id ? 'ring-2 ring-white/40' : 'hover:bg-zinc-900 active:bg-zinc-800'
                 }`}
                 style={{ backgroundColor: `${proj.color}22` }}>
                 <span className="text-[13px] font-bold leading-none" style={{ color: proj.color }}>
@@ -621,7 +749,7 @@ export function TasksPage() {
                 onClick={() => setSelectedProject(ARCHIVE_SENTINEL)}
                 title={`Papelera (${archivedTasks.length})`}
                 className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-                  inArchiveView ? 'bg-zinc-800 text-amber-400' : 'text-zinc-500 hover:text-amber-400 hover:bg-zinc-900'
+                  inArchiveView ? 'bg-zinc-800 text-amber-400' : 'text-zinc-500 hover:text-amber-400 hover:bg-zinc-900 active:bg-zinc-800'
                 }`}
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -629,8 +757,42 @@ export function TasksPage() {
             </div>
           </div>
         </div>
-      ) : (
-      <div className="w-64 shrink-0 border-r border-zinc-800 overflow-y-auto bg-zinc-950 p-4">
+      )}
+
+      {/* Mobile floating "open projects" button — appears when collapsed.
+          Sits at the top-left of the tasks viewport so it doesn't collide
+          with the AppShell hamburger (which is at the top-left of the
+          entire app on the sticky top bar). */}
+      {projectsPanelCollapsed && (
+        <button
+          onClick={toggleProjectsPanel}
+          aria-label="Mostrar proyectos"
+          className="sm:hidden fixed top-14 left-3 z-30 w-10 h-10 rounded-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 shadow-lg shadow-indigo-900/40 text-white flex items-center justify-center transition-colors"
+        >
+          <FolderOpen className="w-4 h-4" />
+        </button>
+      )}
+
+      {/* Expanded panel — DRAWER overlay on mobile (with backdrop +
+          swipe-to-close), INLINE column on desktop. The user can dismiss
+          with the backdrop, the X button, swiping left, or by selecting
+          a project (auto-closes on mobile via handleSelectProject). */}
+      {!projectsPanelCollapsed && (
+        <>
+          {/* Mobile backdrop — tap to dismiss */}
+          <div
+            onClick={toggleProjectsPanel}
+            className="sm:hidden fixed inset-0 z-30 bg-black/60 backdrop-blur-sm"
+            aria-hidden="true"
+          />
+          <SwipeableDrawer
+            onSwipeClose={toggleProjectsPanel}
+            enableSwipe={isMobile}
+            className="
+              fixed sm:relative inset-y-0 left-0 z-40 sm:z-auto
+              w-72 sm:w-64 shrink-0 border-r border-zinc-800 overflow-y-auto bg-zinc-950 p-4 shadow-2xl sm:shadow-none
+            "
+          >
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <button onClick={toggleProjectsPanel} title="Ocultar panel"
@@ -661,9 +823,9 @@ export function TasksPage() {
 
         {/* All projects */}
         <button
-          onClick={() => setSelectedProject(null)}
+          onClick={() => handleSelectProject(null)}
           className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors mb-1 ${
-            !selectedProjectId ? 'bg-indigo-600/20 text-indigo-400' : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+            !selectedProjectId ? 'bg-indigo-600/20 text-indigo-400' : 'text-zinc-400 hover:bg-zinc-800 active:bg-zinc-700 hover:text-zinc-200'
           }`}
         >
           <FolderOpen className="w-3.5 h-3.5" />
@@ -682,9 +844,9 @@ export function TasksPage() {
             <div key={proj.id} className="mb-1">
               <div className="flex items-center group">
                 <button
-                  onClick={() => setSelectedProject(isActive ? null : proj.id)}
+                  onClick={() => handleSelectProject(isActive ? null : proj.id)}
                   className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                    isActive ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                    isActive ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-800 active:bg-zinc-700 hover:text-zinc-200'
                   }`}
                 >
                   <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: proj.color }} />
@@ -703,11 +865,11 @@ export function TasksPage() {
         {/* Archive (papelera) — expanded entry, separated by a divider */}
         <div className="mt-3 pt-3 border-t border-zinc-800">
           <button
-            onClick={() => setSelectedProject(ARCHIVE_SENTINEL)}
+            onClick={() => handleSelectProject(ARCHIVE_SENTINEL)}
             className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
               inArchiveView
                 ? 'bg-amber-500/10 text-amber-300'
-                : 'text-zinc-400 hover:bg-zinc-800 hover:text-amber-300'
+                : 'text-zinc-400 hover:bg-zinc-800 active:bg-zinc-700 hover:text-amber-300'
             }`}
           >
             <Trash2 className="w-3.5 h-3.5 shrink-0" />
@@ -715,7 +877,8 @@ export function TasksPage() {
             <span className="text-xs text-zinc-600 tabular-nums">{archivedTasks.length}</span>
           </button>
         </div>
-      </div>
+      </SwipeableDrawer>
+      </>
       )}
 
       {/* Main: Tasks (or Archive view) */}

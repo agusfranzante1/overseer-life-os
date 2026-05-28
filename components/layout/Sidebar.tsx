@@ -65,6 +65,44 @@ export function Sidebar({
     return () => mq.removeEventListener('change', update)
   }, [])
 
+  // Swipe-to-close — mobile only. The user can grab the drawer and drag it
+  // left to dismiss it (the same way iOS/Android drawers work). While dragging,
+  // we translate the drawer in real time so the gesture feels live. On release,
+  // if dragged > 70px to the left, the drawer closes. Vertical scroll inside
+  // the drawer is preserved (we lock direction on the first significant move).
+  const dragStartXRef = useRef<number | null>(null)
+  const dragStartYRef = useRef<number | null>(null)
+  const dragHorizontalRef = useRef<boolean>(false)
+  const [dragX, setDragX] = useState(0)
+  const onTouchStart = (e: React.TouchEvent) => {
+    if (!isMobile || !mobileOpen) return
+    const t = e.touches[0]
+    dragStartXRef.current = t.clientX
+    dragStartYRef.current = t.clientY
+    dragHorizontalRef.current = false
+  }
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (dragStartXRef.current === null || dragStartYRef.current === null) return
+    const t = e.touches[0]
+    const dx = t.clientX - dragStartXRef.current
+    const dy = t.clientY - dragStartYRef.current
+    if (!dragHorizontalRef.current && Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) {
+      // Vertical scroll — disengage horizontal drag.
+      dragStartXRef.current = null
+      dragStartYRef.current = null
+      return
+    }
+    if (Math.abs(dx) > 8) dragHorizontalRef.current = true
+    if (dragHorizontalRef.current) setDragX(Math.min(0, dx))
+  }
+  const onTouchEnd = () => {
+    if (dragX < -70 && onMobileClose) onMobileClose()
+    setDragX(0)
+    dragStartXRef.current = null
+    dragStartYRef.current = null
+    dragHorizontalRef.current = false
+  }
+
   const handleLogout = async () => {
     if (!hasSupabaseConfig()) return
     try {
@@ -147,6 +185,10 @@ export function Sidebar({
     <motion.aside
       animate={{ width }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      style={dragX !== 0 ? { transform: `translateX(${dragX}px)`, transition: 'none' } : undefined}
       className={`
         flex flex-col h-screen bg-zinc-900 border-r border-zinc-800 shrink-0 overflow-hidden
         fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-out
@@ -248,6 +290,11 @@ export function Sidebar({
 
           // Normal: <Link>. Icon-only with tooltip when labels hidden, icon
           // + label otherwise. On mobile, tapping also closes the drawer.
+          //
+          // `active:` styles + `whileTap` scale combo gives the user IMMEDIATE
+          // tactile feedback (within 1 frame) — important on mobile where the
+          // navigation itself can take a beat to render and the user otherwise
+          // wonders if their tap registered.
           return (
             <Link
               key={href}
@@ -257,11 +304,11 @@ export function Sidebar({
             >
               <motion.div
                 whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.97 }}
-                className={`flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2.5 rounded-lg cursor-pointer transition-colors ${
+                whileTap={{ scale: 0.95 }}
+                className={`flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2.5 rounded-lg cursor-pointer transition-colors select-none ${
                   active
-                    ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
-                    : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
+                    ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 active:bg-indigo-600/40'
+                    : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 active:bg-indigo-500/20 active:text-indigo-200'
                 }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
