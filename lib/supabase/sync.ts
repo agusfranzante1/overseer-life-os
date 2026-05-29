@@ -14,6 +14,7 @@ import { useSPIStore } from '@/lib/store/spiStore'
 import { useProjectionStore } from '@/lib/store/projectionStore'
 import { useLabStore } from '@/lib/store/labStore'
 import { useAppStore } from '@/lib/store/appStore'
+import { useMindMapStore } from '@/lib/store/mindmapStore'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
@@ -32,6 +33,7 @@ interface SyncState {
   projectionInit: boolean
   labInit: boolean
   appPrefsInit: boolean
+  mindmapInit: boolean
 }
 
 const state: SyncState = {
@@ -49,6 +51,7 @@ const state: SyncState = {
   projectionInit: false,
   labInit: false,
   appPrefsInit: false,
+  mindmapInit: false,
 }
 
 // ─── Push timers (debounced per domain) ───────────────────────────────────────
@@ -65,6 +68,7 @@ let spiPushTimer: ReturnType<typeof setTimeout> | null = null
 let projectionPushTimer: ReturnType<typeof setTimeout> | null = null
 let labPushTimer: ReturnType<typeof setTimeout> | null = null
 let appPrefsPushTimer: ReturnType<typeof setTimeout> | null = null
+let mindmapPushTimer: ReturnType<typeof setTimeout> | null = null
 
 function schedule(
   timer: ReturnType<typeof setTimeout> | null,
@@ -984,6 +988,64 @@ async function pullLab(): Promise<boolean> {
   return true
 }
 
+// ─── MIND MAPS (mapas mentales) ──────────────────────────────────────────────
+
+async function pushMindMaps() {
+  if (!state.userId) return
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { maps } = useMindMapStore.getState()
+
+  const rows = maps.map((m) => ({
+    id: m.id,
+    user_id: uid,
+    title: m.title,
+    created_at: m.createdAt,
+    updated_at: m.updatedAt,
+    payload: m,
+  }))
+
+  if (rows.length > 0) {
+    const r = await sb.from('mindmaps').upsert(rows)
+    if (r.error) {
+      reportSyncError(`mindmaps upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_mindmaps.sql.`)
+      throw r.error
+    }
+  }
+  await deleteSurplus(sb, 'mindmaps', uid, rows.map((r) => r.id))
+}
+
+async function pullMindMaps(): Promise<boolean> {
+  if (!state.userId) return false
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('mindmaps').select('*').eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+  if (res.error) {
+    console.error('Mindmaps pull failed (run migration_mindmaps.sql?):', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) return false
+
+  type MapRow = { payload: unknown }
+  const sanitize = (raw: unknown): import('@/lib/store/mindmapStore').MindMap => {
+    const p = (raw ?? {}) as Partial<import('@/lib/store/mindmapStore').MindMap>
+    return {
+      id: p.id ?? '',
+      title: p.title ?? 'Mapa',
+      nodes: Array.isArray(p.nodes) ? p.nodes : [],
+      edges: Array.isArray(p.edges) ? p.edges : [],
+      createdAt: p.createdAt ?? new Date().toISOString(),
+      updatedAt: p.updatedAt ?? new Date().toISOString(),
+    }
+  }
+  useMindMapStore.setState({
+    maps: (res.data ?? []).map((r: MapRow) => sanitize(r.payload)),
+  })
+  return true
+}
+
 // ─── APP PREFERENCES (sidebar nav order, language, timezone, schedule, etc.) ─
 //
 // Singleton row per user. The payload is a flexible JSONB blob that mirrors
@@ -1380,6 +1442,7 @@ function scheduleSPI()        { schedule(spiPushTimer,       pushSPI,       (t) 
 function scheduleProjection() { schedule(projectionPushTimer, pushProjection, (t) => { projectionPushTimer = t }) }
 function scheduleLab()        { schedule(labPushTimer,        pushLab,        (t) => { labPushTimer = t }) }
 function scheduleAppPrefs()   { schedule(appPrefsPushTimer,   pushAppPrefs,   (t) => { appPrefsPushTimer = t }) }
+function scheduleMindMaps()   { schedule(mindmapPushTimer,    pushMindMaps,   (t) => { mindmapPushTimer = t }) }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
@@ -1452,6 +1515,11 @@ async function initAllDomains() {
     const had = await pullAppPrefs()
     if (!had) await pushAppPrefs().catch((e) => console.error('App prefs initial push failed', e))
   }
+  if (!state.mindmapInit) {
+    state.mindmapInit = true
+    const had = await pullMindMaps()
+    if (!had) await pushMindMaps().catch((e) => console.error('Mindmaps initial push failed', e))
+  }
 }
 
 /** Mount once at the app root. Wires all domains for sync. */
@@ -1486,6 +1554,7 @@ export function useSupabaseSync() {
       useProjectionStore.subscribe(() => { if (state.userId) scheduleProjection() })
       useLabStore.subscribe(() => { if (state.userId) scheduleLab() })
       useAppStore.subscribe(() => { if (state.userId) scheduleAppPrefs() })
+      useMindMapStore.subscribe(() => { if (state.userId) scheduleMindMaps() })
     }
 
     // Auth state changes — when the user signs in *after* mount (e.g. from
@@ -1506,6 +1575,7 @@ export function useSupabaseSync() {
       state.projectionInit = false
       state.labInit = false
       state.appPrefsInit = false
+      state.mindmapInit = false
       if (newId) {
         initAllDomains().catch((e) => console.error('Init after auth change failed', e))
       }
@@ -1544,3 +1614,5 @@ export async function forceSyncLab()      { await pushLab() }
 export async function forcePullLab()      { return pullLab() }
 export async function forceSyncAppPrefs() { await pushAppPrefs() }
 export async function forcePullAppPrefs() { return pullAppPrefs() }
+export async function forceSyncMindMaps() { await pushMindMaps() }
+export async function forcePullMindMaps() { return pullMindMaps() }
