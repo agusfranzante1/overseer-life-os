@@ -2,8 +2,9 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Network, Plus, Pencil, Trash2, ChevronLeft } from 'lucide-react'
-import { useMindMapStore } from '@/lib/store/mindmapStore'
+import { useMindMapStore, type MindMap } from '@/lib/store/mindmapStore'
 import { MindMapCanvas } from './MindMapCanvas'
+import { MindMapThumbnail } from './MindMapThumbnail'
 
 export function MindMapsPage() {
   const maps = useMindMapStore((s) => s.maps)
@@ -109,10 +110,7 @@ export function MindMapsPage() {
             .map((m) => (
               <MapCard
                 key={m.id}
-                title={m.title}
-                nodeCount={m.nodes.length}
-                edgeCount={m.edges.length}
-                updatedAt={m.updatedAt}
+                map={m}
                 onOpen={() => setActiveId(m.id)}
                 onRename={(t) => renameMap(m.id, t)}
                 onDelete={() => {
@@ -160,61 +158,66 @@ function RenameableTitle({ title, onRename }: { title: string; onRename: (t: str
 }
 
 function MapCard({
-  title, nodeCount, edgeCount, updatedAt, onOpen, onRename, onDelete,
+  map, onOpen, onRename, onDelete,
 }: {
-  title: string
-  nodeCount: number
-  edgeCount: number
-  updatedAt: string
+  map: MindMap
   onOpen: () => void
   onRename: (t: string) => void
   onDelete: () => void
 }) {
   const [hover, setHover] = useState(false)
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(title)
-  useEffect(() => { setDraft(title) }, [title])
+  const [draft, setDraft] = useState(map.title)
+  useEffect(() => { setDraft(map.title) }, [map.title])
 
-  const days = Math.floor((Date.now() - new Date(updatedAt).getTime()) / 86400000)
+  const days = Math.floor((Date.now() - new Date(map.updatedAt).getTime()) / 86400000)
   const ago = days === 0 ? 'hoy' : days === 1 ? 'ayer' : `hace ${days}d`
 
   return (
     <div
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      className="rounded-2xl border-2 transition-all duration-150 cursor-pointer"
+      className="rounded-2xl border-2 transition-all duration-150 cursor-pointer overflow-hidden"
       style={{
-        background: hover ? '#6366f120' : '#09090b80',
+        background: hover ? '#6366f110' : '#09090b80',
         borderColor: hover ? '#6366f1AA' : '#27272a',
-        boxShadow: hover ? '0 8px 24px -8px #6366f140' : 'none',
+        boxShadow: hover ? '0 12px 32px -10px #6366f150' : 'none',
         transform: hover ? 'translateY(-2px)' : 'none',
       }}
     >
-      <button onClick={onOpen} className="w-full text-left p-4">
+      {/* Preview / thumbnail — live mini-render of the actual map content.
+          Sits at the top of the card as the visual hook. Subtly brightens
+          on hover via the wrapper's bg shift. */}
+      <button onClick={onOpen} className="block w-full">
+        <MindMapThumbnail map={map} height={140} hover={hover} />
+      </button>
+
+      <button onClick={onOpen} className="w-full text-left px-4 pt-3 pb-1">
         <div className="flex items-center gap-2 mb-1">
-          <Network className="w-4 h-4 text-indigo-400" />
+          <Network className="w-4 h-4 text-indigo-400 shrink-0" />
           {editing ? (
             <input
               autoFocus
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onClick={(e) => e.stopPropagation()}
-              onBlur={() => { onRename(draft.trim() || title); setEditing(false) }}
+              onBlur={() => { onRename(draft.trim() || map.title); setEditing(false) }}
               onKeyDown={(e) => {
                 e.stopPropagation()
-                if (e.key === 'Enter') { onRename(draft.trim() || title); setEditing(false) }
-                if (e.key === 'Escape') { setDraft(title); setEditing(false) }
+                if (e.key === 'Enter') { onRename(draft.trim() || map.title); setEditing(false) }
+                if (e.key === 'Escape') { setDraft(map.title); setEditing(false) }
               }}
               className="flex-1 bg-zinc-900 border-b border-indigo-500/50 text-sm font-bold text-zinc-100 focus:outline-none px-1"
             />
           ) : (
-            <p className="text-sm font-bold text-zinc-100 flex-1 truncate">{title}</p>
+            <p className="text-sm font-bold text-zinc-100 flex-1 truncate">{map.title}</p>
           )}
         </div>
         <p className="text-[10px] font-mono text-zinc-500">
-          {nodeCount} nodos · {edgeCount} conexiones · {ago}
+          {map.nodes.length} nodos · {map.edges.length} conexiones · {ago}
         </p>
       </button>
+
       <div className="px-4 pb-3 flex gap-2 items-center justify-end">
         <button
           onClick={(e) => { e.stopPropagation(); setEditing(true) }}
