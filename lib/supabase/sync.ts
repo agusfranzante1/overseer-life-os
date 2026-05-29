@@ -256,7 +256,7 @@ async function pushWallet() {
   if (!state.userId) return
   const sb = getSupabaseBrowser()
   const uid = state.userId!
-  const { currencies, wallets, transactions, distribution, deletedWallets } = useWalletStore.getState()
+  const { currencies, wallets, transactions, distribution, deletedWallets, recurringExpenses } = useWalletStore.getState()
 
   // Currencies (PK: user_id + code after migration_phase2.sql)
   const currencyRows = currencies.map((c) => ({
@@ -283,6 +283,18 @@ async function pushWallet() {
   const deletedRows = deletedWallets.map((d) => ({
     id: d.id, user_id: uid, wallet: d.wallet,
     transactions: d.transactions, deleted_at: d.deletedAt,
+  }))
+
+  // Recurring expenses
+  const recurringRows = recurringExpenses.map((r) => ({
+    id: r.id, user_id: uid,
+    wallet_id: r.walletId, currency_code: r.currencyCode,
+    amount: r.amount, label: r.label, category: r.category,
+    day_of_month: r.dayOfMonth, active: r.active,
+    start_date: r.startDate, end_date: r.endDate ?? null,
+    last_applied_year_month: r.lastAppliedYearMonth ?? null,
+    is_subscription: r.isSubscription ?? true,
+    notes: r.notes ?? null, created_at: r.createdAt,
   }))
 
   // Upserts — check each result and surface failures loudly so the user
@@ -318,10 +330,19 @@ async function pushWallet() {
 
   if (deletedRows.length > 0) await sb.from('wallets_deleted').upsert(deletedRows)
 
+  if (recurringRows.length > 0) {
+    const r = await sb.from('wallet_recurring_expenses').upsert(recurringRows)
+    if (r.error) {
+      reportSyncError(`wallet_recurring_expenses upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_wallet_recurring.sql.`)
+      throw r.error
+    }
+  }
+
   // Delete surplus
   await deleteSurplus(sb, 'wallet_transactions', uid, txRows.map((r) => r.id))
   await deleteSurplus(sb, 'wallets', uid, walletRows.map((r) => r.id))
   await deleteSurplus(sb, 'wallets_deleted', uid, deletedRows.map((r) => r.id))
+  await deleteSurplus(sb, 'wallet_recurring_expenses', uid, recurringRows.map((r) => r.id))
 
   // Currencies: delete by code (custom helper since PK is composite)
   const { data: remoteCurrencies } = await sb.from('wallet_currencies').select('code').eq('user_id', uid)
@@ -339,17 +360,23 @@ async function pullWallet(): Promise<boolean> {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
-  const [curRes, wallRes, txRes, cfgRes, delRes] = await Promise.all([
+  const [curRes, wallRes, txRes, cfgRes, delRes, recRes] = await Promise.all([
     sb.from('wallet_currencies').select('*').eq('user_id', uid),
     sb.from('wallets').select('*').eq('user_id', uid),
     sb.from('wallet_transactions').select('*').eq('user_id', uid),
     sb.from('wallet_config').select('*').eq('user_id', uid).maybeSingle(),
     sb.from('wallets_deleted').select('*').eq('user_id', uid),
+    sb.from('wallet_recurring_expenses').select('*').eq('user_id', uid),
   ])
 
   if (curRes.error || wallRes.error || txRes.error || cfgRes.error || delRes.error) {
     console.error('Wallet pull failed', curRes.error ?? wallRes.error ?? txRes.error ?? cfgRes.error ?? delRes.error)
     return false
+  }
+  // recRes is non-fatal — if the migration isn't run yet, skip it and let
+  // the next push surface the error via the toast.
+  if (recRes.error) {
+    console.warn('Wallet recurring pull failed (run migration_wallet_recurring.sql):', recRes.error)
   }
 
   const hasData = (wallRes.data?.length ?? 0) > 0 || (txRes.data?.length ?? 0) > 0
@@ -393,6 +420,30 @@ async function pullWallet(): Promise<boolean> {
       transactions: d.transactions as import('@/lib/store/walletStore').Transaction[],
       deletedAt: d.deleted_at as number,
     })),
+    // Only overwrite recurringExpenses if we actually got valid data —
+    // otherwise (migration missing, transient error) keep whatever the
+    // store has locally.
+    ...(recRes.error
+      ? {}
+      : {
+          recurringExpenses: (recRes.data ?? []).map((r: Row) => ({
+            id: r.id as string,
+            walletId: r.wallet_id as string,
+            currencyCode: r.currency_code as string,
+            amount: r.amount as number,
+            label: r.label as string,
+            category: r.category as string,
+            dayOfMonth: r.day_of_month as number,
+            active: r.active as boolean,
+            startDate: r.start_date as string,
+            endDate: (r.end_date as string) ?? undefined,
+            lastAppliedYearMonth: (r.last_applied_year_month as string) ?? undefined,
+            isSubscription: (r.is_subscription as boolean) ?? true,
+            notes: (r.notes as string) ?? undefined,
+            createdAt: r.created_at as string,
+          })),
+        }
+    ),
   })
 
   return true

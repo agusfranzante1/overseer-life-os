@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { Menu, AlertTriangle, X as XIcon } from 'lucide-react'
 import { useAppStore } from '@/lib/store/appStore'
 import { useTasksStore } from '@/lib/store/tasksStore'
+import { useWalletStore } from '@/lib/store/walletStore'
 import { Sidebar } from './Sidebar'
 import { ChatBox } from '@/components/chat/ChatBox'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -19,6 +20,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const timezone = useAppStore((s) => s.timezone)
   const autoPurgeCompletedTasks = useAppStore((s) => s.autoPurgeCompletedTasks)
   const archiveCompletedBefore = useTasksStore((s) => s.archiveCompletedBefore)
+  const processRecurringExpenses = useWalletStore((s) => s.processRecurringExpenses)
   const sidebarWidth = sidebarCollapsed ? 64 : 220
 
   useSupabaseSync()
@@ -91,6 +93,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       clearInterval(safetyInterval)
     }
   }, [timezone, autoPurgeCompletedTasks, archiveCompletedBefore])
+
+  // Process recurring wallet expenses (suscripciones / pagos recurrentes).
+  // Same pattern as task auto-purge: run on mount + 10s delayed (post-Supabase
+  // pull) + every 30 min as safety net. Idempotent — never double-charges
+  // thanks to `lastAppliedYearMonth` guard in the store.
+  useEffect(() => {
+    processRecurringExpenses()
+    const delayed = setTimeout(() => processRecurringExpenses(), 10_000)
+    const interval = setInterval(() => processRecurringExpenses(), 30 * 60_000)
+    return () => { clearTimeout(delayed); clearInterval(interval) }
+  }, [processRecurringExpenses])
 
   const isAuthPage = AUTH_PATHS.some((p) => pathname?.startsWith(p))
 

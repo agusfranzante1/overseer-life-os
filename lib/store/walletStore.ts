@@ -52,6 +52,32 @@ export interface DistributionItem {
   color: string
 }
 
+/** Pago/suscripción recurrente. Se aplica AUTOMÁTICAMENTE el día configurado
+ *  de cada mes mediante `processRecurringExpenses(today)`, llamado en mount
+ *  desde MoneyPage + AppShell + un safety net diario.
+ *
+ *  El `lastAppliedYearMonth` evita doble-cargo: si ya se aplicó el mes actual,
+ *  no se vuelve a crear la transacción aunque el usuario abra la app 50 veces. */
+export interface RecurringExpense {
+  id: string
+  walletId: string
+  currencyCode: string
+  amount: number
+  label: string                // "Netflix", "Spotify", "Alquiler"
+  category: string             // "Suscripción", "Casa", etc.
+  dayOfMonth: number           // 1-28 (cap a 28 para evitar problemas con feb)
+  active: boolean              // pausa el cargo sin borrarlo
+  startDate: string            // YYYY-MM-DD — no se aplica antes de esta fecha
+  endDate?: string             // YYYY-MM-DD — opcional, no se aplica después
+  /** Última vez que se aplicó (YYYY-MM). Si === al mes actual → no doble-cargar. */
+  lastAppliedYearMonth?: string
+  /** Si true: cuando se aplica, además del expense en la wallet/currency
+   *  destino, se anota como "subscription" para que la UI lo destaque. */
+  isSubscription?: boolean
+  notes?: string
+  createdAt: string
+}
+
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 
 export const DEFAULT_CURRENCIES: Currency[] = [
@@ -99,6 +125,7 @@ interface WalletState {
   transactions: Transaction[]
   distribution: DistributionItem[]
   deletedWallets: DeletedWallet[]
+  recurringExpenses: RecurringExpense[]
 
   addCurrency: (c: Currency) => void
   removeCurrency: (code: string) => void
@@ -116,6 +143,16 @@ interface WalletState {
   removeTransaction: (id: string) => void
 
   updateDistribution: (id: string, percentage: number) => void
+
+  // Recurring expenses / subscriptions
+  addRecurringExpense: (r: Omit<RecurringExpense, 'id' | 'createdAt'>) => string
+  updateRecurringExpense: (id: string, patch: Partial<RecurringExpense>) => void
+  removeRecurringExpense: (id: string) => void
+  /** Idempotent — checks every active recurring against today's date and
+   *  creates the corresponding expense transactions if they haven't been
+   *  applied yet this month. Safe to call any number of times per day.
+   *  Returns how many were applied (for optional UI feedback). */
+  processRecurringExpenses: (todayISO?: string) => number
 }
 
 export const useWalletStore = create<WalletState>()(
@@ -126,6 +163,7 @@ export const useWalletStore = create<WalletState>()(
       transactions: [],
       distribution: DEFAULT_DISTRIBUTION,
       deletedWallets: [],
+      recurringExpenses: [],
 
       addCurrency: (c) => set(s => ({ currencies: [...s.currencies, c] })),
       removeCurrency: (code) => set(s => ({
@@ -198,8 +236,105 @@ export const useWalletStore = create<WalletState>()(
       updateDistribution: (id, percentage) => set(s => ({
         distribution: s.distribution.map(d => d.id === id ? { ...d, percentage } : d),
       })),
+
+      // ─── Recurring expenses ─────────────────────────────────────────
+      addRecurringExpense: (r) => {
+        const id = genId()
+        const today = new Date().toISOString().split('T')[0]
+        set(s => ({
+          recurringExpenses: [
+            ...s.recurringExpenses,
+            {
+              ...r,
+              id,
+              // Clamp day-of-month to 1-28 so Feb is always safe.
+              dayOfMonth: Math.max(1, Math.min(28, Math.round(r.dayOfMonth || 1))),
+              createdAt: today,
+            },
+          ],
+        }))
+        return id
+      },
+      updateRecurringExpense: (id, patch) => set(s => ({
+        recurringExpenses: s.recurringExpenses.map(r => r.id === id ? {
+          ...r,
+          ...patch,
+          dayOfMonth: patch.dayOfMonth !== undefined
+            ? Math.max(1, Math.min(28, Math.round(patch.dayOfMonth)))
+            : r.dayOfMonth,
+        } : r),
+      })),
+      removeRecurringExpense: (id) => set(s => ({
+        recurringExpenses: s.recurringExpenses.filter(r => r.id !== id),
+      })),
+
+      processRecurringExpenses: (todayISO) => {
+        const today = todayISO ?? new Date().toISOString().split('T')[0]
+        const [yearStr, monthStr, dayStr] = today.split('-')
+        const todayYM = `${yearStr}-${monthStr}`
+        const todayDay = parseInt(dayStr, 10)
+
+        let appliedCount = 0
+        set(s => {
+          const newTransactions: Transaction[] = []
+          const newRecurring = s.recurringExpenses.map(r => {
+            if (!r.active) return r
+            if (r.lastAppliedYearMonth === todayYM) return r       // ya cargado
+            if (today < r.startDate) return r                       // todavía no empezó
+            if (r.endDate && today > r.endDate) return r            // ya terminó
+            if (todayDay < r.dayOfMonth) return r                   // antes del día de cargo
+
+            // Wallet/currency must still be valid (user might have deleted them)
+            const walletExists = s.wallets.some(w => w.id === r.walletId)
+            const currencyValid = walletExists
+              && s.currencies.some(c => c.code === r.currencyCode)
+              && s.wallets.find(w => w.id === r.walletId)?.currencyCodes.includes(r.currencyCode)
+            if (!walletExists || !currencyValid) {
+              // Auto-pause so it doesn't keep silently failing.
+              return { ...r, active: false }
+            }
+
+            // Apply: create an expense transaction dated to the configured
+            // day-of-month of the CURRENT month. Date = YYYY-MM-DD with that
+            // day, so cash-flow tables bucket it correctly.
+            const chargeDate = `${yearStr}-${monthStr}-${String(r.dayOfMonth).padStart(2, '0')}`
+            const txId = genId() + '_rec'
+            newTransactions.push({
+              id: txId,
+              type: 'expense',
+              walletId: r.walletId,
+              currencyCode: r.currencyCode,
+              amount: r.amount,
+              label: r.label,
+              category: r.category || (r.isSubscription ? 'Suscripción' : 'Recurrente'),
+              date: chargeDate,
+              timestamp: Date.now() + appliedCount,
+            })
+            appliedCount++
+            return { ...r, lastAppliedYearMonth: todayYM }
+          })
+
+          if (appliedCount === 0) return s
+          return {
+            transactions: [...newTransactions, ...s.transactions],
+            recurringExpenses: newRecurring,
+          }
+        })
+
+        return appliedCount
+      },
     }),
-    { name: 'overseer-wallet' }
+    {
+      name: 'overseer-wallet',
+      version: 2,
+      // Older persisted state didn't have `recurringExpenses` — initialize
+      // it to an empty array so downstream code doesn't crash.
+      migrate: (persisted) => {
+        const p = (persisted ?? {}) as Partial<WalletState>
+        if (!Array.isArray(p.recurringExpenses)) p.recurringExpenses = []
+        return p as WalletState
+      },
+    }
   )
 )
 

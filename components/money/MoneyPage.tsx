@@ -4,11 +4,11 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Wallet as WalletIcon, Plus, Trash2, ArrowLeftRight, TrendingUp, TrendingDown,
   X, History, ChevronDown, ChevronUp, Settings, Check,
-  Undo2, RotateCcw, AlertTriangle, Archive
+  Undo2, RotateCcw, AlertTriangle, Archive, Repeat, Pause, Play, Pencil,
 } from 'lucide-react'
 import {
   useWalletStore, getWalletBalance, getMonthlyTotals,
-  Currency, Wallet, DEFAULT_CURRENCIES
+  Currency, Wallet, DEFAULT_CURRENCIES, type RecurringExpense,
 } from '@/lib/store/walletStore'
 
 const MONTHS = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC']
@@ -298,9 +298,18 @@ function WalletCard({ wallet, selected, onClick, onRequestDelete }: { wallet: Wa
     if (v && v !== wallet.name) updateWallet(wallet.id, { name: v })
   }
 
-  // Show total USD-equivalent (rough) — just show first currency balance
-  const mainCurrency = currencies.find(c => c.code === wallet.currencyCodes[0])
-  const mainBalance  = getWalletBalance(wallet.id, wallet.currencyCodes[0], transactions)
+  // Per-currency balances — first one is the headline (big), rest are
+  // listed below as secondary lines. Previously we showed only the first
+  // balance plus a "+N divisas" hint, which forced the user to click into
+  // the wallet to see the rest. Now everything's visible at a glance.
+  const balances = wallet.currencyCodes
+    .map(code => ({
+      cur: currencies.find(c => c.code === code),
+      balance: getWalletBalance(wallet.id, code, transactions),
+      code,
+    }))
+    .filter(b => b.cur)
+  const [headline, ...rest] = balances
 
   return (
     <motion.div
@@ -343,15 +352,36 @@ function WalletCard({ wallet, selected, onClick, onRequestDelete }: { wallet: Wa
           {wallet.name}
         </p>
       )}
-      <p className={`text-lg font-black tabular-nums mt-0.5 ${selected ? 'text-white' : ''}`}
-        style={{ color: selected ? 'white' : mainCurrency?.color }}>
-        {mainCurrency?.symbol}{fmt(mainBalance)}
-        <span className="text-xs font-semibold ml-1 opacity-70">{wallet.currencyCodes[0]}</span>
-      </p>
-      {wallet.currencyCodes.length > 1 && (
-        <p className={`text-[10px] mt-0.5 ${selected ? 'text-white/60' : 'text-zinc-500'}`}>
-          +{wallet.currencyCodes.length - 1} divisa{wallet.currencyCodes.length > 2 ? 's' : ''}
+      {/* Headline balance — primary currency, big */}
+      {headline && (
+        <p className={`text-lg font-black tabular-nums mt-0.5 ${selected ? 'text-white' : ''}`}
+          style={{ color: selected ? 'white' : headline.cur!.color }}>
+          {headline.cur!.symbol}{fmt(headline.balance)}
+          <span className="text-xs font-semibold ml-1 opacity-70">{headline.code}</span>
         </p>
+      )}
+      {/* Additional currencies — vertical list, each with its own color.
+          Tinted background pill on each line so they read as distinct
+          "buckets" without taking too much space. */}
+      {rest.length > 0 && (
+        <div className="mt-1.5 space-y-1">
+          {rest.map(({ cur, balance, code }) => (
+            <div key={code}
+              className={`flex items-center justify-between gap-2 text-xs tabular-nums px-1.5 py-0.5 rounded ${
+                selected ? 'bg-white/10' : ''
+              }`}
+              style={!selected ? { background: `${cur!.color}15` } : undefined}
+            >
+              <span className={`font-semibold ${selected ? 'text-white/80' : ''}`}
+                style={!selected ? { color: cur!.color } : undefined}>
+                {cur!.symbol}{fmt(balance)}
+              </span>
+              <span className={`text-[9px] font-mono ${selected ? 'text-white/60' : 'text-zinc-500'}`}>
+                {code}
+              </span>
+            </div>
+          ))}
+        </div>
       )}
       <button
         onClick={e => { e.stopPropagation(); onRequestDelete(wallet) }}
@@ -773,6 +803,358 @@ function DistributionPanel() {
   )
 }
 
+// ─── Recurring Expenses Panel ─────────────────────────────────────────────────
+//
+// Lista de pagos/suscripciones que se cargan SOLOS el día del mes configurado.
+// El processor (`processRecurringExpenses`) corre al montar MoneyPage + cada
+// hora, y es idempotente (no doble-carga) gracias a `lastAppliedYearMonth`.
+function RecurringExpensesPanel({ onOpenAdd }: { onOpenAdd: () => void }) {
+  const { recurringExpenses, wallets, currencies, updateRecurringExpense, removeRecurringExpense } = useWalletStore()
+  const [collapsed, setCollapsed] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+
+  // Sort: active first (by next charge day asc), inactive at the bottom
+  const sorted = useMemo(() => {
+    const today = new Date()
+    const todayDay = today.getDate()
+    return [...recurringExpenses].sort((a, b) => {
+      if (a.active !== b.active) return a.active ? -1 : 1
+      // For active ones, sort by "days until next charge" (smaller = sooner)
+      const daysUntil = (r: RecurringExpense) => {
+        const d = r.dayOfMonth - todayDay
+        return d >= 0 ? d : d + 30  // wrap to next month
+      }
+      return daysUntil(a) - daysUntil(b)
+    })
+  }, [recurringExpenses])
+
+  const activeCount = recurringExpenses.filter(r => r.active).length
+  const monthlyByCurrency = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const r of recurringExpenses) {
+      if (!r.active) continue
+      map.set(r.currencyCode, (map.get(r.currencyCode) ?? 0) + r.amount)
+    }
+    return map
+  }, [recurringExpenses])
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+      {/* Header */}
+      <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between gap-3 flex-wrap">
+        <button onClick={() => setCollapsed(v => !v)} className="flex items-center gap-2 group">
+          {collapsed ? <ChevronDown className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300" /> : <ChevronUp className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300" />}
+          <Repeat className="w-4 h-4 text-purple-400" />
+          <p className="text-xs font-bold uppercase tracking-wider text-zinc-200">
+            Pagos Recurrentes
+          </p>
+          <span className="text-[10px] font-mono text-zinc-500">
+            {activeCount} {activeCount === 1 ? 'activo' : 'activos'}
+          </span>
+        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Per-currency monthly total */}
+          {Array.from(monthlyByCurrency.entries()).map(([code, total]) => {
+            const cur = currencies.find(c => c.code === code)
+            if (!cur) return null
+            return (
+              <span key={code} className="text-[10px] font-mono text-zinc-500">
+                <span style={{ color: cur.color }}>
+                  {cur.symbol}{fmt(total)} {code}
+                </span>
+                <span className="text-zinc-600 ml-1">/mes</span>
+              </span>
+            )
+          })}
+          <button onClick={onOpenAdd}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 text-purple-300 rounded-lg text-xs font-semibold transition-all">
+            <Plus className="w-3 h-3" /> Nuevo
+          </button>
+        </div>
+      </div>
+
+      {!collapsed && (
+        <div className="divide-y divide-zinc-800/60">
+          {sorted.length === 0 ? (
+            <div className="px-5 py-8 text-center">
+              <Repeat className="w-8 h-8 text-purple-400/50 mx-auto mb-2" />
+              <p className="text-sm text-zinc-400 font-semibold mb-1">Sin pagos recurrentes</p>
+              <p className="text-xs text-zinc-600 mb-4 max-w-md mx-auto">
+                Agregá una suscripción (Netflix, Spotify…) o un gasto fijo (alquiler, gym…) y
+                se va a cargar SOLA el día del mes configurado. Idempotente — no se duplica si
+                abrís la app varias veces.
+              </p>
+              <button onClick={onOpenAdd}
+                className="px-4 py-2 bg-purple-500/15 border border-purple-500/40 hover:bg-purple-500/25 text-purple-300 rounded-lg text-sm font-semibold transition-all inline-flex items-center gap-1.5">
+                <Plus className="w-4 h-4" /> Crear el primero
+              </button>
+            </div>
+          ) : sorted.map(r => (
+            <RecurringRow
+              key={r.id}
+              recurring={r}
+              wallets={wallets}
+              currencies={currencies}
+              onEdit={() => setEditingId(r.id)}
+              onToggle={() => updateRecurringExpense(r.id, { active: !r.active })}
+              onRemove={() => { if (confirm(`¿Eliminar "${r.label}"? El cargo automático se detiene. Las cargas pasadas quedan en el historial.`)) removeRecurringExpense(r.id) }}
+              isEditing={editingId === r.id}
+              onCloseEdit={() => setEditingId(null)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RecurringRow({
+  recurring, wallets, currencies, onEdit, onToggle, onRemove, isEditing, onCloseEdit,
+}: {
+  recurring: RecurringExpense
+  wallets: Wallet[]
+  currencies: Currency[]
+  onEdit: () => void
+  onToggle: () => void
+  onRemove: () => void
+  isEditing: boolean
+  onCloseEdit: () => void
+}) {
+  const wallet = wallets.find(w => w.id === recurring.walletId)
+  const cur = currencies.find(c => c.code === recurring.currencyCode)
+  const today = new Date()
+  const todayYM = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+  const todayDay = today.getDate()
+  const chargedThisMonth = recurring.lastAppliedYearMonth === todayYM
+  const daysUntil = chargedThisMonth
+    ? null  // Already done this month
+    : recurring.dayOfMonth >= todayDay
+      ? recurring.dayOfMonth - todayDay
+      : recurring.dayOfMonth + (30 - todayDay)  // approx — wraps to next month
+
+  if (isEditing) {
+    return (
+      <div className="px-5 py-4">
+        <RecurringExpenseForm
+          existing={recurring}
+          onSaved={onCloseEdit}
+          onCancel={onCloseEdit}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className={`px-5 py-3 flex items-center gap-3 transition-all ${recurring.active ? '' : 'opacity-50'}`}>
+      {/* Day-of-month badge */}
+      <div className="shrink-0 w-12 text-center">
+        <div className="w-10 h-10 rounded-lg border flex flex-col items-center justify-center mx-auto"
+          style={{
+            background: (cur?.color ?? '#52525b') + '15',
+            borderColor: (cur?.color ?? '#52525b') + '50',
+          }}>
+          <span className="text-[8px] font-mono uppercase leading-none" style={{ color: cur?.color }}>día</span>
+          <span className="text-sm font-extrabold tabular-nums leading-tight" style={{ color: cur?.color }}>
+            {recurring.dayOfMonth}
+          </span>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-sm font-bold text-zinc-200 truncate">{recurring.label}</p>
+          {recurring.isSubscription && (
+            <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/30 text-purple-300">
+              suscripción
+            </span>
+          )}
+          {!recurring.active && (
+            <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-500">
+              pausada
+            </span>
+          )}
+          {recurring.active && chargedThisMonth && (
+            <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 flex items-center gap-0.5">
+              <Check className="w-2.5 h-2.5" /> cobrado este mes
+            </span>
+          )}
+        </div>
+        <p className="text-[11px] text-zinc-500 mt-0.5 truncate">
+          {wallet?.icon} {wallet?.name ?? '(wallet eliminada)'}
+          {' · '}
+          <span style={{ color: cur?.color }}>{cur?.symbol}{fmt(recurring.amount)} {cur?.code}</span>
+          {recurring.category && <> · {recurring.category}</>}
+          {recurring.active && !chargedThisMonth && daysUntil !== null && (
+            <> · <span className="text-amber-400">próximo cargo en {daysUntil}d</span></>
+          )}
+          {recurring.endDate && <> · hasta {recurring.endDate}</>}
+        </p>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-1 shrink-0">
+        <button onClick={onToggle}
+          title={recurring.active ? 'Pausar (no se cobra hasta reactivar)' : 'Reactivar'}
+          className={`p-2 rounded-lg transition-colors ${recurring.active ? 'text-amber-400 hover:bg-amber-500/10' : 'text-emerald-400 hover:bg-emerald-500/10'}`}>
+          {recurring.active ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+        </button>
+        <button onClick={onEdit}
+          title="Editar"
+          className="p-2 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors">
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
+        <button onClick={onRemove}
+          title="Eliminar (deja de cobrar)"
+          className="p-2 rounded-lg text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Recurring expense Modal + inline form ────────────────────────────────────
+
+function RecurringExpenseModal({
+  existing, onClose,
+}: { existing?: RecurringExpense; onClose: () => void }) {
+  return (
+    <Modal title={existing ? 'Editar recurrente' : 'Nuevo pago recurrente'} onClose={onClose}>
+      <RecurringExpenseForm existing={existing} onSaved={onClose} onCancel={onClose} />
+    </Modal>
+  )
+}
+
+function RecurringExpenseForm({
+  existing, onSaved, onCancel,
+}: {
+  existing?: RecurringExpense
+  onSaved: () => void
+  onCancel: () => void
+}) {
+  const { wallets, currencies, addRecurringExpense, updateRecurringExpense } = useWalletStore()
+
+  const [walletId, setWalletId]     = useState(existing?.walletId ?? wallets[0]?.id ?? '')
+  const [currencyCode, setCurrency] = useState(existing?.currencyCode ?? wallets[0]?.currencyCodes[0] ?? 'USD')
+  const [amount, setAmount]         = useState(existing ? String(existing.amount) : '')
+  const [label, setLabel]           = useState(existing?.label ?? '')
+  const [category, setCategory]     = useState(existing?.category ?? 'Suscripción')
+  const [dayOfMonth, setDay]        = useState(existing ? String(existing.dayOfMonth) : '1')
+  const [startDate, setStart]       = useState(existing?.startDate ?? new Date().toISOString().split('T')[0])
+  const [endDate, setEnd]           = useState(existing?.endDate ?? '')
+  const [isSubscription, setIsSub]  = useState(existing?.isSubscription ?? true)
+  const [active, setActive]         = useState(existing?.active ?? true)
+
+  // Adjust currency if user switches wallet to one that doesn't support it
+  const selectedWallet = wallets.find(w => w.id === walletId)
+  const availableCurrencies = selectedWallet
+    ? currencies.filter(c => selectedWallet.currencyCodes.includes(c.code))
+    : currencies
+
+  useEffect(() => {
+    if (selectedWallet && !selectedWallet.currencyCodes.includes(currencyCode)) {
+      setCurrency(selectedWallet.currencyCodes[0] ?? 'USD')
+    }
+  }, [walletId, currencyCode, selectedWallet])
+
+  const submit = () => {
+    const amt = parseFloat(amount)
+    const day = parseInt(dayOfMonth, 10)
+    if (!walletId || !label.trim() || !Number.isFinite(amt) || amt <= 0 || !Number.isFinite(day)) return
+    const payload = {
+      walletId, currencyCode, amount: amt, label: label.trim(),
+      category: category.trim() || 'Suscripción',
+      dayOfMonth: day, active,
+      startDate, endDate: endDate || undefined,
+      isSubscription,
+    }
+    if (existing) {
+      updateRecurringExpense(existing.id, payload)
+    } else {
+      addRecurringExpense(payload)
+    }
+    onSaved()
+  }
+
+  const CATS = ['Suscripción', 'Casa', 'Transporte', 'Salud', 'Comida', 'Ocio', 'Inversión', 'Otro']
+
+  return (
+    <div className="space-y-4">
+      <Field label="Etiqueta (qué es)">
+        <input value={label} onChange={e => setLabel(e.target.value)}
+          placeholder="Netflix, Alquiler, Gym..." className={INPUT}
+          autoFocus enterKeyHint="next" autoCapitalize="sentences" />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Billetera">
+          <select value={walletId} onChange={e => setWalletId(e.target.value)} className={SELECT}>
+            {wallets.map(w => <option key={w.id} value={w.id}>{w.icon} {w.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Divisa">
+          <select value={currencyCode} onChange={e => setCurrency(e.target.value)} className={SELECT}>
+            {availableCurrencies.map(c => <option key={c.code} value={c.code}>{c.symbol} {c.code}</option>)}
+          </select>
+        </Field>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Monto">
+          <input value={amount} onChange={e => setAmount(e.target.value)}
+            type="number" min="0" step="0.01" placeholder="0.00" className={INPUT} inputMode="decimal" />
+        </Field>
+        <Field label="Día del mes (1-28)">
+          <input value={dayOfMonth} onChange={e => setDay(e.target.value)}
+            type="number" min="1" max="28" className={INPUT} inputMode="numeric" />
+        </Field>
+      </div>
+
+      <Field label="Categoría">
+        <select value={category} onChange={e => setCategory(e.target.value)} className={SELECT}>
+          {CATS.map(c => <option key={c}>{c}</option>)}
+        </select>
+      </Field>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Empezar el">
+          <input value={startDate} onChange={e => setStart(e.target.value)}
+            type="date" className={INPUT} />
+        </Field>
+        <Field label="Terminar el (opcional)">
+          <input value={endDate} onChange={e => setEnd(e.target.value)}
+            type="date" className={INPUT} placeholder="—" />
+        </Field>
+      </div>
+
+      <div className="flex items-center gap-4 text-xs">
+        <label className="flex items-center gap-2 text-zinc-300 cursor-pointer">
+          <input type="checkbox" checked={isSubscription} onChange={e => setIsSub(e.target.checked)}
+            className="accent-purple-500" />
+          Es suscripción
+        </label>
+        <label className="flex items-center gap-2 text-zinc-300 cursor-pointer">
+          <input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)}
+            className="accent-emerald-500" />
+          Activa (cobra automático)
+        </label>
+      </div>
+
+      <div className="flex items-center gap-2 justify-end pt-2 border-t border-zinc-800">
+        <button onClick={onCancel} className="text-xs text-zinc-500 hover:text-zinc-300 px-3 py-2">
+          Cancelar
+        </button>
+        <button onClick={submit}
+          disabled={!label.trim() || !walletId || !amount}
+          className="px-4 py-2 bg-purple-500/20 border border-purple-500/40 hover:bg-purple-500/30 disabled:opacity-40 disabled:cursor-not-allowed text-purple-200 rounded-lg text-sm font-semibold flex items-center gap-1.5">
+          <Check className="w-3.5 h-3.5" /> {existing ? 'Guardar' : 'Crear'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Transaction History ───────────────────────────────────────────────────────
 function TransactionHistory() {
   const { transactions, wallets, currencies, removeTransaction } = useWalletStore()
@@ -1088,8 +1470,18 @@ function DeletedWalletsHistory() {
 
 // ─── MoneyPage (main) ─────────────────────────────────────────────────────────
 export function MoneyPage() {
-  const { wallets, currencies, removeWallet, restoreWallet } = useWalletStore()
+  const { wallets, currencies, removeWallet, restoreWallet, processRecurringExpenses } = useWalletStore()
   const [selectedWalletId, setSelectedWalletId] = useState(wallets[0]?.id ?? '')
+
+  // Apply any pending recurring charges on every MoneyPage mount + once an hour
+  // as a safety net (in case the user keeps the tab open across midnight or
+  // across the 1st of the month). Idempotent — won't double-charge thanks to
+  // `lastAppliedYearMonth` guard in the store.
+  useEffect(() => {
+    processRecurringExpenses()
+    const id = setInterval(() => processRecurringExpenses(), 60 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [processRecurringExpenses])
   const [pendingDelete, setPendingDelete] = useState<Wallet | null>(null)
   const [lastDeleted, setLastDeleted] = useState<{ id: string; name: string; icon: string } | null>(null)
   const [modal, setModal] = useState<
@@ -1099,6 +1491,7 @@ export function MoneyPage() {
     | { type: 'transaction'; txType: 'income' | 'expense'; walletId: string; currency: string }
     | null
   >(null)
+  const [showAddRecurring, setShowAddRecurring] = useState<boolean | RecurringExpense>(false)
 
   const confirmDelete = () => {
     if (!pendingDelete) return
@@ -1214,6 +1607,9 @@ export function MoneyPage() {
         <DistributionPanel />
       </div>
 
+      {/* Recurring expenses / subscriptions */}
+      <RecurringExpensesPanel onOpenAdd={() => setShowAddRecurring(true)} />
+
       {/* History */}
       <TransactionHistory />
 
@@ -1236,6 +1632,12 @@ export function MoneyPage() {
             wallet={pendingDelete}
             onConfirm={confirmDelete}
             onClose={() => setPendingDelete(null)}
+          />
+        )}
+        {showAddRecurring && (
+          <RecurringExpenseModal
+            existing={typeof showAddRecurring === 'object' ? showAddRecurring : undefined}
+            onClose={() => setShowAddRecurring(false)}
           />
         )}
       </AnimatePresence>

@@ -386,6 +386,30 @@ alter table public.food_data enable row level security;
 create policy "food_data: own" on public.food_data for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- ---------------------------------------------------------------------------
+-- WALLET RECURRING EXPENSES (suscripciones / pagos recurrentes)
+-- ---------------------------------------------------------------------------
+create table if not exists public.wallet_recurring_expenses (
+  id text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  wallet_id text not null,
+  currency_code text not null,
+  amount numeric not null,
+  label text not null,
+  category text not null default 'Suscripción',
+  day_of_month integer not null check (day_of_month between 1 and 28),
+  active boolean not null default true,
+  start_date date not null,
+  end_date date,
+  last_applied_year_month text,
+  is_subscription boolean not null default true,
+  notes text,
+  created_at timestamptz not null default now()
+);
+create index if not exists wallet_recurring_user_idx on public.wallet_recurring_expenses(user_id, active, day_of_month);
+alter table public.wallet_recurring_expenses enable row level security;
+create policy "wallet_recurring_expenses: own" on public.wallet_recurring_expenses for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- ---------------------------------------------------------------------------
 -- APP PREFERENCES (singleton — sidebar order, language, timezone, schedule,
 -- AI settings, etc. Sincronizado entre dispositivos.)
 -- ---------------------------------------------------------------------------
