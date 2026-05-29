@@ -156,9 +156,16 @@ export function MindMapThumbnail({
           )
         })}
 
-        {/* Nodes — filled rounded rectangles with their accent color */}
+        {/* Nodes — filled rounded rectangles with their accent color +
+            the actual text content rendered inside via foreignObject (which
+            gives us real HTML/CSS text rendering, including wrap, clamp
+            and centering, INSIDE the SVG viewBox). */}
         {map.nodes.map((node) => {
           const color = node.color ?? DEFAULT_NODE_COLOR
+          // Font size in CONTENT units. The viewBox handles the scale-down
+          // when the thumbnail shrinks. ~12-14 in content coords ends up
+          // perfectly legible at thumbnail scale.
+          const fontSize = Math.max(10, Math.min(14, node.height * 0.22))
           return (
             <g key={node.id}>
               {/* Subtle glow halo — fades out without hover */}
@@ -181,6 +188,50 @@ export function MindMapThumbnail({
                 strokeWidth={2 * strokeFactor}
                 style={{ transition: 'stroke 0.2s' }}
               />
+              {/* Text content — foreignObject lets us use real HTML text
+                  rendering with wrap and line-clamp inside SVG. SVG <text>
+                  alone doesn't auto-wrap, which would mean long ideas spill
+                  out of their rectangle. */}
+              <foreignObject
+                x={node.x} y={node.y}
+                width={node.width} height={node.height}
+                style={{ pointerEvents: 'none' }}
+              >
+                <div
+                  // React/JSX handles the SVG → HTML namespace transition
+                  // for foreignObject children automatically — no need
+                  // to set xmlns explicitly (and React rejects it on div).
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    textAlign: 'center',
+                    padding: `${node.height * 0.1}px ${node.width * 0.08}px`,
+                    fontFamily: 'inherit',
+                    overflow: 'hidden',
+                  } as React.CSSProperties}
+                >
+                  <span
+                    style={{
+                      color,
+                      fontSize: `${fontSize}px`,
+                      fontWeight: 600,
+                      lineHeight: 1.15,
+                      wordBreak: 'break-word',
+                      // Line clamp so very long ideas don't visually
+                      // explode the proportions of the thumbnail.
+                      display: '-webkit-box',
+                      WebkitLineClamp: 3,
+                      WebkitBoxOrient: 'vertical' as const,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {node.text || '·'}
+                  </span>
+                </div>
+              </foreignObject>
             </g>
           )
         })}
