@@ -404,7 +404,7 @@ async function pushTrading() {
   if (!state.userId) return
   const sb = getSupabaseBrowser()
   const uid = state.userId!
-  const { firms, accounts, strategies, trades, payouts, errors, emotional } = useTradingStore.getState()
+  const { firms, accounts, strategies, trades, payouts, errors, emotional, scaling } = useTradingStore.getState()
 
   const firmRows = firms.map((f) => ({
     id: f.id, user_id: uid, name: f.name, color: f.color,
@@ -480,6 +480,16 @@ async function pushTrading() {
   await deleteSurplus(sb, 'trading_accounts', uid, accountRows.map((r) => r.id))
   await deleteSurplus(sb, 'trading_strategies', uid, stratRows.map((r) => r.id))
   await deleteSurplus(sb, 'trading_firms', uid, firmRows.map((r) => r.id))
+
+  // ─── Scaling System config (singleton JSONB row) ──
+  const r = await sb.from('trading_scaling_config').upsert(
+    { user_id: uid, payload: scaling, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id' },
+  )
+  if (r.error) {
+    reportSyncError(`trading_scaling_config upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_trading_scaling.sql.`)
+    throw r.error
+  }
 }
 
 async function pullTrading(): Promise<boolean> {
@@ -487,7 +497,7 @@ async function pullTrading(): Promise<boolean> {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
-  const [firmRes, stratRes, accRes, tradeRes, payRes, errRes, emotRes] = await Promise.all([
+  const [firmRes, stratRes, accRes, tradeRes, payRes, errRes, emotRes, scalingRes] = await Promise.all([
     sb.from('trading_firms').select('*').eq('user_id', uid),
     sb.from('trading_strategies').select('*').eq('user_id', uid),
     sb.from('trading_accounts').select('*').eq('user_id', uid),
@@ -495,6 +505,7 @@ async function pullTrading(): Promise<boolean> {
     sb.from('trading_payouts').select('*').eq('user_id', uid),
     sb.from('trading_errors').select('*').eq('user_id', uid),
     sb.from('trading_emotional').select('*').eq('user_id', uid),
+    sb.from('trading_scaling_config').select('*').eq('user_id', uid).maybeSingle(),
   ])
 
   const anyError = firmRes.error ?? stratRes.error ?? accRes.error ?? tradeRes.error
@@ -503,9 +514,14 @@ async function pullTrading(): Promise<boolean> {
     console.error('Trading pull failed', anyError)
     return false
   }
+  // scalingRes error is non-fatal — if the migration isn't run yet, skip
+  // and let the next push fail loudly via the toast.
+  if (scalingRes.error) {
+    console.warn('Trading scaling pull failed (run migration_trading_scaling.sql):', scalingRes.error)
+  }
 
   const hasData = [firmRes, stratRes, accRes, tradeRes, payRes, errRes, emotRes]
-    .some((r) => (r.data?.length ?? 0) > 0)
+    .some((r) => (r.data?.length ?? 0) > 0) || !!scalingRes.data
   if (!hasData) return false
 
   useTradingStore.setState({
@@ -576,6 +592,13 @@ async function pullTrading(): Promise<boolean> {
       tradeIds: (e.trade_ids as string[]) ?? [],
       createdAt: e.created_at as string,
     })),
+    // Only overwrite scaling if the remote row actually exists. Otherwise
+    // keep whatever local default the store already has (avoids wiping the
+    // user's local scaling config on a fresh device where the migration
+    // hasn't been run yet).
+    ...(scalingRes.data
+      ? { scaling: (scalingRes.data as { payload: unknown }).payload as import('@/lib/store/tradingStore').ScalingConfig }
+      : {}),
   })
 
   return true

@@ -1,7 +1,7 @@
 'use client'
 import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FlaskConical, Plus, ChevronRight, ChevronDown, Trophy, Search, Sparkles, Check, X, Wand2, RotateCcw, Trash2 } from 'lucide-react'
+import { FlaskConical, Plus, ChevronRight, ChevronLeft, ChevronDown, Trophy, Search, Sparkles, Check, X, Wand2, RotateCcw, Trash2 } from 'lucide-react'
 import { useLabStore } from '@/lib/store/labStore'
 import { LAB_CATEGORIES, exercisesByCategory, findCategory, findExercise } from '@/lib/lab/templates'
 import type { LabCategory, LabExercise, LabSession, LabBelief } from '@/lib/lab/types'
@@ -67,10 +67,25 @@ export function LabPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-      {/* Header */}
-      <header className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
+    <div className="max-w-4xl mx-auto px-4 py-6 space-y-5">
+      {/* Back nav — TOP-LEFT, own row, only when we're deeper than the home
+          view. Sits above everything else so it aligns visually with the
+          left-anchored collapse chevrons / actions throughout the page. */}
+      {view.kind !== 'home' && (
+        <button
+          onClick={() => setView({ kind: 'home' })}
+          className="text-xs text-zinc-400 hover:text-zinc-100 active:text-zinc-100 px-2.5 py-1.5 rounded-lg hover:bg-zinc-900 active:bg-zinc-800 transition-colors flex items-center gap-1.5 -ml-2.5"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" /> Volver al laboratorio
+        </button>
+      )}
+
+      {/* Page header — only shown in home view. When the user is inside a
+          category or running an exercise, the back nav above + the
+          category/exercise's own title carry all the context they need.
+          The repeated "Laboratorio" was just visual noise. */}
+      {view.kind === 'home' && (
+        <header>
           <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
             <FlaskConical className="w-6 h-6 text-fuchsia-400" />
             Laboratorio
@@ -79,14 +94,8 @@ export function LabPage() {
             Tu espacio para trabajar la mente. Creencias, emociones, pensamientos, identidad,
             problemas, inercia. Cada sesión queda guardada para volver y profundizar.
           </p>
-        </div>
-        {view.kind !== 'home' && (
-          <button onClick={() => setView({ kind: 'home' })}
-            className="text-xs text-zinc-400 hover:text-zinc-200 px-3 py-1.5 rounded-lg border border-zinc-800 hover:border-zinc-700 transition-colors">
-            ← Volver al laboratorio
-          </button>
-        )}
-      </header>
+        </header>
+      )}
 
       {view.kind === 'home' && (
         <HomeView

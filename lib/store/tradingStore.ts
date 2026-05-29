@@ -164,6 +164,57 @@ export const ERROR_TYPE_LABELS: Record<ErrorType, string> = {
   other:         'Otro',
 }
 
+// ─── Scaling System (sistema de escalado) ────────────────────────────────────
+//
+// Modelo conceptual del usuario:
+//   - Cada payout cobrado se DIVIDE en 3 buckets (default 20/60/20):
+//       • Nuevas cuentas (reinversión en exámenes)
+//       • Salario        (lo que se queda el trader)
+//       • Capital real   (ahorro hacia la cuenta real)
+//   - Las cuentas se agrupan en GRUPOS de diversificación (Londres / NY / etc).
+//   - El sistema avanza por MILESTONES: 1 payout → 3 ctas → 10 payouts → 10 ctas
+//     → 10 payouts → Capital Real ($100k típico).
+//
+// Toda la config es editable. Las métricas (cuántos payouts cobré, cuántas ctas
+// activas) se derivan de `payouts` y `accounts`.
+
+export interface ScalingDistribution {
+  newAccounts: number  // %
+  salary: number       // %
+  capital: number      // %
+}
+
+export interface ScalingDistributionLabels {
+  newAccounts?: string
+  salary?: string
+  capital?: string
+}
+
+export interface ScalingGroup {
+  id: string
+  name: string                 // "Grupo Londres", "Grupo NY"
+  color: string                // hex
+  accountIds: string[]         // ids de Account asignados a este grupo
+  notes?: string               // "ACCs → Riesgo parcial", "Riesgo independiente"
+}
+
+export interface ScalingMilestone {
+  id: string
+  label: string                // "1 payout → 3 cuentas"
+  targetPayouts: number        // # de payouts requeridos para destrabar
+  targetAccounts?: number      // # de cuentas activas (opcional)
+  notes?: string
+}
+
+export interface ScalingConfig {
+  distribution: ScalingDistribution
+  distributionLabels?: ScalingDistributionLabels
+  groups: ScalingGroup[]
+  milestones: ScalingMilestone[]
+  /** Meta de capital real en USD (último milestone). */
+  capitalRealGoal?: number
+}
+
 export interface ErrorLog {
   id: string
   tradeId: string
@@ -215,6 +266,25 @@ const DEFAULT_FIRMS: PropFirm[] = [
   },
 ]
 
+const DEFAULT_SCALING: ScalingConfig = {
+  distribution: { newAccounts: 20, salary: 60, capital: 20 },
+  distributionLabels: {
+    newAccounts: 'Nuevas cuentas',
+    salary: 'Salario',
+    capital: 'Capital real',
+  },
+  groups: [
+    { id: 'group_london', name: 'Grupo Londres', color: '#6366f1', accountIds: [], notes: 'ACCs · riesgo parcial dentro del grupo' },
+    { id: 'group_ny',     name: 'Grupo NY',      color: '#f59e0b', accountIds: [], notes: 'Riesgo independiente · dentro de mi sistema / semana' },
+  ],
+  milestones: [
+    { id: 'ms1', label: '1 payout → 3 cuentas',    targetPayouts: 1,  targetAccounts: 3 },
+    { id: 'ms2', label: '3 payouts → 10 cuentas',  targetPayouts: 3,  targetAccounts: 10 },
+    { id: 'ms3', label: '10 payouts → Capital Real', targetPayouts: 10 },
+  ],
+  capitalRealGoal: 100000,
+}
+
 const DEFAULT_STRATEGIES: Strategy[] = [
   {
     id: 'strat_demo1', name: 'NQ NY Open Reversal', color: '#10b981',
@@ -244,6 +314,7 @@ interface State {
   payouts: Payout[]
   errors: ErrorLog[]
   emotional: EmotionalEntry[]
+  scaling: ScalingConfig
 
   // Firms
   addFirm: (firm: Omit<PropFirm, 'id' | 'createdAt'>) => string
@@ -277,6 +348,22 @@ interface State {
   addEmotional: (e: Omit<EmotionalEntry, 'id' | 'createdAt'>) => string
   updateEmotional: (id: string, patch: Partial<EmotionalEntry>) => void
   removeEmotional: (id: string) => void
+
+  // Scaling system
+  setScalingDistribution: (d: Partial<ScalingDistribution>) => void
+  setScalingDistributionLabels: (l: Partial<ScalingDistributionLabels>) => void
+  setCapitalRealGoal: (n: number) => void
+
+  addScalingGroup: (g: Omit<ScalingGroup, 'id'>) => string
+  updateScalingGroup: (id: string, patch: Partial<ScalingGroup>) => void
+  removeScalingGroup: (id: string) => void
+  /** Toggle an account's membership in a group. If already in another
+   *  group, it's MOVED (an account can only belong to one group at a time). */
+  toggleAccountInGroup: (groupId: string, accountId: string) => void
+
+  addScalingMilestone: (m: Omit<ScalingMilestone, 'id'>) => string
+  updateScalingMilestone: (id: string, patch: Partial<ScalingMilestone>) => void
+  removeScalingMilestone: (id: string) => void
 }
 
 export const useTradingStore = create<State>()(
@@ -289,6 +376,7 @@ export const useTradingStore = create<State>()(
       payouts: [],
       errors: [],
       emotional: [],
+      scaling: DEFAULT_SCALING,
 
       addFirm: (firm) => {
         const id = genId()
@@ -360,8 +448,86 @@ export const useTradingStore = create<State>()(
         emotional: s.emotional.map((e) => e.id === id ? { ...e, ...patch } : e),
       })),
       removeEmotional: (id) => set((s) => ({ emotional: s.emotional.filter((e) => e.id !== id) })),
+
+      // ─── Scaling System ─────────────────────────────────────────────
+      setScalingDistribution: (d) => set((s) => ({
+        scaling: { ...s.scaling, distribution: { ...s.scaling.distribution, ...d } },
+      })),
+      setScalingDistributionLabels: (l) => set((s) => ({
+        scaling: { ...s.scaling, distributionLabels: { ...s.scaling.distributionLabels, ...l } },
+      })),
+      setCapitalRealGoal: (n) => set((s) => ({
+        scaling: { ...s.scaling, capitalRealGoal: n },
+      })),
+
+      addScalingGroup: (g) => {
+        const id = `group_${genId()}`
+        set((s) => ({
+          scaling: { ...s.scaling, groups: [...s.scaling.groups, { ...g, id }] },
+        }))
+        return id
+      },
+      updateScalingGroup: (id, patch) => set((s) => ({
+        scaling: {
+          ...s.scaling,
+          groups: s.scaling.groups.map((g) => g.id === id ? { ...g, ...patch } : g),
+        },
+      })),
+      removeScalingGroup: (id) => set((s) => ({
+        scaling: { ...s.scaling, groups: s.scaling.groups.filter((g) => g.id !== id) },
+      })),
+
+      toggleAccountInGroup: (groupId, accountId) => set((s) => {
+        // Strategy: an account belongs to AT MOST ONE group at a time. If
+        // toggling adds it, first strip from any other group.
+        const currentlyHere = s.scaling.groups.find((g) => g.id === groupId)?.accountIds.includes(accountId) ?? false
+        return {
+          scaling: {
+            ...s.scaling,
+            groups: s.scaling.groups.map((g) => {
+              if (currentlyHere) {
+                // Removing — only touch the target group
+                return g.id === groupId
+                  ? { ...g, accountIds: g.accountIds.filter((id) => id !== accountId) }
+                  : g
+              }
+              // Adding — remove from any other group, then add to target
+              if (g.id === groupId) {
+                return { ...g, accountIds: [...g.accountIds.filter((id) => id !== accountId), accountId] }
+              }
+              return { ...g, accountIds: g.accountIds.filter((id) => id !== accountId) }
+            }),
+          },
+        }
+      }),
+
+      addScalingMilestone: (m) => {
+        const id = `ms_${genId()}`
+        set((s) => ({
+          scaling: { ...s.scaling, milestones: [...s.scaling.milestones, { ...m, id }] },
+        }))
+        return id
+      },
+      updateScalingMilestone: (id, patch) => set((s) => ({
+        scaling: {
+          ...s.scaling,
+          milestones: s.scaling.milestones.map((m) => m.id === id ? { ...m, ...patch } : m),
+        },
+      })),
+      removeScalingMilestone: (id) => set((s) => ({
+        scaling: { ...s.scaling, milestones: s.scaling.milestones.filter((m) => m.id !== id) },
+      })),
     }),
-    { name: 'overseer-trading' }
+    {
+      name: 'overseer-trading',
+      // Migrate older persisted states that don't have `scaling` yet.
+      version: 2,
+      migrate: (persisted) => {
+        const p = (persisted ?? {}) as Partial<State>
+        if (!p.scaling) p.scaling = DEFAULT_SCALING
+        return p as State
+      },
+    }
   )
 )
 

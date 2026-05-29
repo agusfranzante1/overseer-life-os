@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, ChevronRight, Trophy, RotateCcw, Archive, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronLeft, Trophy, RotateCcw, Archive, Trash2 } from 'lucide-react'
 import { useLabStore } from '@/lib/store/labStore'
 import { findCategory, findExercise } from '@/lib/lab/templates'
 import type { LabSession } from '@/lib/lab/types'
@@ -73,70 +73,81 @@ export function ExerciseRunner({
 
   return (
     <div className="space-y-4">
-      {/* Header */}
+      {/* Header — restructured as a mini navbar.
+          Row 1 (navbar): back-LEFT, action-cluster-RIGHT — both anchored to
+                          their natural sides so the visual flow matches the
+                          left-aligned collapse chevrons throughout the page.
+          Row 2: category chip + status badge
+          Row 3: title input (editable)
+          Row 4: exercise emoji + title
+          Row 5: collapsible "Mostrar contexto" toggle */}
       <div className="rounded-2xl border p-4" style={{
         background: category.color + '0F',
         borderColor: category.color + '40',
       }}>
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border"
-                style={{ borderColor: category.color + '60', color: category.color, background: category.color + '15' }}>
-                {category.emoji} {category.title}
-              </span>
-              <StatusBadge status={session.status} />
-            </div>
-            <input
-              value={session.title}
-              onChange={(e) => renameSession(session.id, e.target.value)}
-              className="w-full bg-transparent text-lg font-semibold text-zinc-100 focus:outline-none focus:bg-zinc-900/40 rounded px-1 -ml-1"
-              placeholder="Título de la sesión"
-            />
-            <p className="text-xs text-zinc-500 mt-0.5">{exercise.emoji} {exercise.title}</p>
-          </div>
-
+        {/* Navbar row */}
+        <div className="flex items-center justify-between gap-2 mb-3">
+          {onBack ? (
+            <button
+              onClick={onBack}
+              className="text-xs text-zinc-400 hover:text-zinc-100 active:text-zinc-100 px-2.5 py-1.5 rounded-lg hover:bg-zinc-900 active:bg-zinc-800 transition-colors flex items-center gap-1.5 -ml-2.5"
+              title="Volver"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" /> Volver
+            </button>
+          ) : (
+            <div />
+          )}
           <div className="flex items-center gap-1.5">
-            {onBack && (
-              <button onClick={onBack}
-                className="text-[11px] text-zinc-500 hover:text-zinc-200 px-2 py-1 rounded hover:bg-zinc-900"
-                title="Volver">
-                ←
-              </button>
-            )}
             {!isClosed && !isArchived && (
               <button onClick={() => setShowClose((v) => !v)}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5"
+                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-colors"
                 style={{ borderColor: category.color + '60', color: category.color, background: category.color + '18' }}>
                 <Trophy className="w-3.5 h-3.5" /> Cerrar
               </button>
             )}
             {isClosed && (
               <button onClick={() => reopenSession(session.id)}
-                className="px-2.5 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-800 hover:border-zinc-700 flex items-center gap-1.5"
+                className="px-2.5 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 border border-zinc-800 hover:border-zinc-700 flex items-center gap-1.5 transition-colors"
                 title="Reabrir para seguir editando">
                 <RotateCcw className="w-3.5 h-3.5" /> Reabrir
               </button>
             )}
             {!isArchived ? (
               <button onClick={() => { if (confirm('¿Archivar esta sesión? Podés desarchivarla después.')) archiveSession(session.id) }}
-                className="text-zinc-500 hover:text-zinc-300 p-1.5 rounded hover:bg-zinc-900"
+                className="text-zinc-500 hover:text-zinc-300 p-1.5 rounded hover:bg-zinc-900 transition-colors"
                 title="Archivar">
                 <Archive className="w-3.5 h-3.5" />
               </button>
             ) : (
               <button onClick={() => unarchiveSession(session.id)}
-                className="text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded hover:bg-zinc-900">
+                className="text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1 rounded hover:bg-zinc-900 transition-colors">
                 Desarchivar
               </button>
             )}
             <button onClick={() => { if (confirm('¿Borrar esta sesión para siempre? No se puede deshacer.')) { deleteSession(session.id); onBack?.() } }}
-              className="text-zinc-600 hover:text-red-400 p-1.5 rounded hover:bg-zinc-900"
+              className="text-zinc-600 hover:text-red-400 p-1.5 rounded hover:bg-zinc-900 transition-colors"
               title="Borrar">
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
+
+        {/* Title area */}
+        <div className="flex items-center gap-2 mb-1 flex-wrap">
+          <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border"
+            style={{ borderColor: category.color + '60', color: category.color, background: category.color + '15' }}>
+            {category.emoji} {category.title}
+          </span>
+          <StatusBadge status={session.status} />
+        </div>
+        <input
+          value={session.title}
+          onChange={(e) => renameSession(session.id, e.target.value)}
+          className="w-full bg-transparent text-lg font-semibold text-zinc-100 focus:outline-none focus:bg-zinc-900/40 rounded px-1 -ml-1"
+          placeholder="Título de la sesión"
+        />
+        <p className="text-xs text-zinc-500 mt-0.5">{exercise.emoji} {exercise.title}</p>
 
         {exercise.intro && (
           <button onClick={() => setIntroOpen((v) => !v)}
