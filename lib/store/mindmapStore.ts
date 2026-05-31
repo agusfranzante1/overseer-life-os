@@ -19,10 +19,19 @@ export interface MindMapNode {
   color?: string
 }
 
+/** Visual shape used to render the connector between two nodes.
+ *   - 'straight'    → direct line, single break point at midpoint
+ *   - 'curved'      → smooth cubic bezier, break point at curve midpoint
+ *   - 'orthogonal'  → L-shape elbow with right-angle corners (break points
+ *                     at each corner); default 90° for now, 45° chamfers
+ *                     could be added later as a sub-variant. */
+export type MindMapEdgeShape = 'straight' | 'curved' | 'orthogonal'
+
 export interface MindMapEdge {
   id: string
   fromNodeId: string
   toNodeId: string
+  shape?: MindMapEdgeShape  // undefined = 'straight' (back-compat)
 }
 
 export interface MindMap {
@@ -62,6 +71,8 @@ interface MindMapState {
   // Edge CRUD
   addEdge: (mapId: string, fromNodeId: string, toNodeId: string) => string | null
   removeEdge: (mapId: string, edgeId: string) => void
+  /** Change the visual shape of an existing edge (straight / curved / orthogonal). */
+  setEdgeShape: (mapId: string, edgeId: string, shape: MindMapEdgeShape) => void
 
   // Selectors
   getMap: (mapId: string) => MindMap | null
@@ -159,6 +170,13 @@ export const useMindMapStore = create<MindMapState>()(
         maps: s.maps.map((m) => m.id !== mapId ? m : touch({
           ...m,
           edges: m.edges.filter((e) => e.id !== edgeId),
+        })),
+      })),
+
+      setEdgeShape: (mapId, edgeId, shape) => set((s) => ({
+        maps: s.maps.map((m) => m.id !== mapId ? m : touch({
+          ...m,
+          edges: m.edges.map((e) => e.id !== edgeId ? e : { ...e, shape }),
         })),
       })),
 

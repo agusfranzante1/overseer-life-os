@@ -72,6 +72,14 @@ export interface LabExercise {
   /** Si está marcado, este ejercicio es "rápido" (< 5 min) — útil para
    *  el preset picker del SPI semanal cuando hay poco tiempo. */
   isQuick?: boolean
+  /** Campo cuyo valor se usa para AUTO-TITULAR la sesión. Cuando el usuario
+   *  escribe acá, el `title` de la sesión se deriva de su contenido
+   *  (primera línea, hasta ~50 chars, + fecha) — mientras el usuario no
+   *  haya renombrado manual la sesión.
+   *
+   *  `stepKey` = undefined → field global (`__root`).
+   *  `stepKey` = string    → field dentro de ese step. */
+  titleField?: { stepKey?: string; fieldKey: string }
 }
 
 /** Estado de una creencia en el catálogo del usuario. */
@@ -127,4 +135,9 @@ export interface LabSession {
    *  marcar automáticamente la creencia como "working" cuando se abre y
    *  ofrecer un botón "resolver creencia" al cerrar. */
   linkedBeliefId?: string
+  /** Si true (default para sesiones nuevas), el title se deriva auto del
+   *  `titleField` del ejercicio mientras el usuario escribe. Se setea en
+   *  false cuando el usuario renombra manualmente con `renameSession`,
+   *  fijando el title como custom. */
+  autoTitled?: boolean
 }

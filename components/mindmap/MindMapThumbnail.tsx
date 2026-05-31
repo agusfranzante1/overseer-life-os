@@ -1,7 +1,8 @@
 'use client'
 import { useMemo, useId } from 'react'
 import { Network } from 'lucide-react'
-import type { MindMap, MindMapNode } from '@/lib/store/mindmapStore'
+import type { MindMap } from '@/lib/store/mindmapStore'
+import { buildEdgePath, computeEdgeEndpoints } from './edgeGeometry'
 
 const DEFAULT_NODE_COLOR = '#6366f1'
 
@@ -136,19 +137,22 @@ export function MindMapThumbnail({
           </filter>
         </defs>
 
-        {/* Edges UNDER nodes so arrowheads visually land on the node border */}
+        {/* Edges UNDER nodes — same path computation as the live canvas so
+            the preview mirrors the real shape (straight/curved/orthogonal). */}
         {map.edges.map((edge) => {
-          const from = map.nodes.find((n) => n.id === edge.fromNodeId)
-          const to   = map.nodes.find((n) => n.id === edge.toNodeId)
-          if (!from || !to) return null
-          const { start, end } = computeEndpoints(from, to)
+          const fromNode = map.nodes.find((n) => n.id === edge.fromNodeId)
+          const toNode   = map.nodes.find((n) => n.id === edge.toNodeId)
+          if (!fromNode || !toNode) return null
+          const shape = edge.shape ?? 'straight'
+          const { start, end } = computeEdgeEndpoints(fromNode, toNode)
+          const d = buildEdgePath(start, end, shape)
           return (
-            <line
+            <path
               key={edge.id}
-              x1={start.x} y1={start.y}
-              x2={end.x}   y2={end.y}
+              d={d}
               stroke={hover ? '#a78bfa' : '#52525b'}
               strokeWidth={1.5 * strokeFactor}
+              fill="none"
               markerEnd={`url(#${hover ? arrowHoverId : arrowId})`}
               opacity={hover ? 0.9 : 0.65}
               style={{ transition: 'stroke 0.2s, opacity 0.2s' }}
@@ -247,50 +251,5 @@ export function MindMapThumbnail({
   )
 }
 
-// ─── Geometry helpers ────────────────────────────────────────────────────────
-
-/** Compute arrow endpoints on the BORDERS of two rectangles. Same logic as
- *  the main canvas — keeps the thumbnail visually consistent. */
-function computeEndpoints(from: MindMapNode, to: MindMapNode) {
-  const fromCx = from.x + from.width / 2
-  const fromCy = from.y + from.height / 2
-  const toCx = to.x + to.width / 2
-  const toCy = to.y + to.height / 2
-
-  return {
-    start: intersectRect(fromCx, fromCy, toCx, toCy, from),
-    end:   intersectRect(toCx, toCy, fromCx, fromCy, to),
-  }
-}
-
-function intersectRect(
-  cx: number, cy: number,
-  otherX: number, otherY: number,
-  node: MindMapNode,
-): { x: number; y: number } {
-  const left = node.x
-  const top = node.y
-  const right = left + node.width
-  const bottom = top + node.height
-
-  const dx = otherX - cx
-  const dy = otherY - cy
-  if (dx === 0 && dy === 0) return { x: cx, y: cy }
-
-  const ts: number[] = []
-  if (dx !== 0) { ts.push((right - cx) / dx); ts.push((left - cx) / dx) }
-  if (dy !== 0) { ts.push((bottom - cy) / dy); ts.push((top - cy) / dy) }
-
-  let bestT = Infinity
-  const tol = 0.001
-  for (const t of ts) {
-    if (t <= 0) continue
-    const px = cx + t * dx
-    const py = cy + t * dy
-    if (px >= left - tol && px <= right + tol && py >= top - tol && py <= bottom + tol) {
-      if (t < bestT) bestT = t
-    }
-  }
-  if (!Number.isFinite(bestT)) return { x: cx, y: cy }
-  return { x: cx + bestT * dx, y: cy + bestT * dy }
-}
+// Geometry helpers extracted to ./edgeGeometry.ts so canvas + thumbnail
+// share the same path math (no drift between live editor and previews).

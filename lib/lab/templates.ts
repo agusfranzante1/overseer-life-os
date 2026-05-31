@@ -73,6 +73,7 @@ const CREENCIAS_EXERCISES: LabExercise[] = [
     emoji: '🔍',
     title: 'Diagnóstico de Creencias',
     shortDescription: 'Preguntas guiadas por área (dinero, vos, relaciones, trabajo…) para detectar qué creencias estás cargando.',
+    titleField: { stepKey: 'captura', fieldKey: 'detectadas' },
     intro: 'Antes de reencuadrar, hay que VER. Este diagnóstico te lleva por las 7 áreas más cargadas de creencias inconscientes. No filtres — escribí lo PRIMERO que aparezca, aunque te avergüence. Al final, llevá las que detectaste a "Tus Creencias" arriba para trabajarlas con Reencuadre.',
     steps: [
       {
@@ -174,6 +175,7 @@ const CREENCIAS_EXERCISES: LabExercise[] = [
     emoji: '🔧',
     title: 'Reencuadre Cognitivo',
     shortDescription: 'Trabajar una creencia. Reconocer primero, cuestionar y transformar después.',
+    titleField: { fieldKey: 'pensamiento_inicial' },
     intro: 'Funciona tanto para creencias claramente falsas como para creencias que parcialmente son verdad. NO PUEDO TRANSFORMAR ALGO QUE NO RECONOZCO. A veces necesitamos admitir que SÍ pensamos algo antes de poder reencuadrarlo.',
     fields: [
       { key: 'pensamiento_inicial', label: 'El pensamiento como aparece en tu cabeza', type: 'textarea', hint: 'Literal. Ej: "Cuando no se dan los resultados, dudo de mi capacidad".' },
@@ -233,6 +235,7 @@ const EMOCIONES_EXERCISES: LabExercise[] = [
     emoji: '🌊',
     title: 'Regulación de una Emoción · TIPI',
     shortDescription: 'Una emoción difícil. Sentirla en el cuerpo y dejarla atravesar hasta que se regule.',
+    titleField: { fieldKey: 'emocion' },
     intro: 'TIPI: identificás la emoción, la sentís en el cuerpo, NO te identificás con la historia, dejás que la sensación se exprese hasta que se transforma sola. No es reprimir — es atravesar.',
     fields: [
       { key: 'emocion', label: 'Nombre de la emoción', type: 'text', placeholder: 'Ansiedad, miedo, frustración, rabia, culpa, tristeza...' },
@@ -295,6 +298,7 @@ const PENSAMIENTOS_EXERCISES: LabExercise[] = [
     emoji: '🔬',
     title: 'Refinador de Pensamientos',
     shortDescription: 'Tomá una frase larga y destilala a UN pensamiento concreto, trabajable.',
+    titleField: { fieldKey: 'frase_larga' },
     intro: 'Si elegís una frase muy larga de lo que está pasando, no funciona bien. Tenés que seleccionar UN PENSAMIENTO y trabajarlo. Vamos a refinar el pensamiento.',
     fields: [
       { key: 'frase_larga', label: 'La frase larga como aparece', type: 'textarea', placeholder: 'Ej: "No sé, siento que cuando no me salen las cosas como quiero me deprimo y empiezo a pensar que nunca voy a lograr nada y que en realidad no soy capaz..."' },
@@ -332,6 +336,7 @@ const IDENTIDAD_EXERCISES: LabExercise[] = [
     emoji: '🌟',
     title: 'Yo Soy · Declaración de Identidad',
     shortDescription: 'Escribir quién querés ser, no como afirmación, sino como elección que sostiene la acción.',
+    titleField: { fieldKey: 'soy_1' },
     intro: 'Con qué LENTES ELIJO VERME. Actúo por cómo me veo, no por mi checklist. Estas declaraciones son la versión tuya que estás eligiendo encarnar.',
     fields: [
       { key: 'soy_1', label: 'Yo soy...', type: 'textarea', placeholder: 'Soy rendición. Dejo que DIOS me guíe. Elijo soltar y confiar.' },
@@ -350,6 +355,7 @@ const IDENTIDAD_EXERCISES: LabExercise[] = [
     emoji: '🔑',
     title: 'Validador de Identidad · "¿Por qué es fácil para mí…?"',
     shortDescription: 'En vez de afirmar, validar. Más potente que "soy X" es "por qué es fácil para mí X".',
+    titleField: { fieldKey: 'identidad_objetivo' },
     intro: 'Hack: validá tus pensamientos. En vez de "soy millonario" decí "¿POR QUÉ es fácil para mí tener ideas que traen millones siempre?". El cerebro busca la respuesta y construye evidencia.',
     fields: [
       { key: 'identidad_objetivo', label: 'La identidad que estás construyendo', type: 'text', placeholder: 'Ej: trader rentable, persona ordenada, comunicador claro...' },
@@ -389,6 +395,7 @@ const IDENTIDAD_EXERCISES: LabExercise[] = [
     emoji: '💎',
     title: 'Valor Propio · más allá de los resultados',
     shortDescription: 'Si tu valor depende de lo que producís, vas a colapsar cuando los resultados no estén.',
+    titleField: { fieldKey: 'condicional' },
     intro: 'Valés por ser, por ser vos, por haber nacido vos y ser diferente al resto. NADIE me va a ganar en ser yo, porque soy el único yo. Si vas a medirte, medilo en cuánto estás respetando tu plan — no en la métrica $.',
     fields: [
       { key: 'condicional', label: '¿En qué basás hoy tu valor? (sé honesto)', type: 'textarea', hint: 'Producción, dinero, lo que digan otros, físico, logros...' },
@@ -406,6 +413,7 @@ const PROBLEMAS_EXERCISES: LabExercise[] = [
     emoji: '🧩',
     title: 'Objetivo Retador · Desgranar en 3 Capas',
     shortDescription: 'Cuando un objetivo grande se siente difícil, lo bajamos por capas: ver, dialogar, planear.',
+    titleField: { stepKey: 'capa_1', fieldKey: 'objetivo_retador' },
     intro: 'Cuando hay un objetivo grande que se siente difícil, lo bajamos por capas. Primera: ver la realidad. Segunda: cambiar el diálogo. Tercera: diseñar el plan con compasión.',
     steps: [
       {
@@ -450,6 +458,7 @@ const INERCIA_EXERCISES: LabExercise[] = [
     emoji: '🪨',
     title: 'Dónde Estoy Trabado · diagnóstico',
     shortDescription: 'No estás avanzando. Antes de empujar más, vamos a entender qué te está reteniendo.',
+    titleField: { fieldKey: 'area_estancada' },
     intro: 'La inercia no se rompe con más fuerza — se rompe identificando QUÉ exactamente te está reteniendo. Muchas veces es un miedo, una creencia o un costo emocional escondido.',
     isQuick: true,
     fields: [
@@ -468,6 +477,7 @@ const INERCIA_EXERCISES: LabExercise[] = [
     emoji: '🀫',
     title: 'Pieza Dominó · 21 días',
     shortDescription: 'La acción mínima sostenida durante 21 días que destraba todo el resto.',
+    titleField: { fieldKey: 'objetivo' },
     intro: 'No es la acción más ambiciosa — es la más PEQUEÑA que, sostenida 21 días, cambia tu identidad y abre el resto. Una sola.',
     isQuick: true,
     fields: [

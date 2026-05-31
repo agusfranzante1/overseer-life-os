@@ -11,7 +11,10 @@ function genId(): string {
 }
 
 /** Returns the most recent Saturday at 00:00 local time as YYYY-MM-DD. */
-function lastSaturdayYmd(now: Date = new Date()): string {
+/** Saturday-anchored "current week" key — YYYY-MM-DD of the most recent
+ *  Saturday (today if today IS Saturday). Used by both the store and the
+ *  SPI page to identify which session belongs to "this week". */
+export function lastSaturdayYmd(now: Date = new Date()): string {
   const d = new Date(now)
   d.setHours(0, 0, 0, 0)
   const day = d.getDay()  // 0 Sun … 6 Sat

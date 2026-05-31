@@ -76,6 +76,24 @@ function defaultTitleFor(exerciseKey: string): string {
   return ex ? `${ex.title} · ${dd}/${mm}` : `Sesión · ${dd}/${mm}`
 }
 
+/** Derive a short title from a free-text value. Takes the first non-empty
+ *  line, strips bullet prefixes ("- ", "• ", "* ", "1. "...) so multi-line
+ *  fields like the diagnostico's "creencias detectadas" yield "el dinero es
+ *  difícil" instead of "- el dinero es difícil". Caps at ~50 chars + "…".
+ *  Returns null if there's nothing usable. */
+function deriveAutoTitle(value: string, createdAtISO: string): string | null {
+  if (!value) return null
+  const firstLine = value.split('\n').find((l) => l.trim().length > 0)
+  if (!firstLine) return null
+  const cleaned = firstLine.replace(/^[\s•·\-–*\d]+\.?\s*/, '').trim()
+  if (!cleaned) return null
+  const truncated = cleaned.length > 50 ? cleaned.slice(0, 50).trim() + '…' : cleaned
+  const date = new Date(createdAtISO)
+  const dd = String(date.getDate()).padStart(2, '0')
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  return `${truncated} · ${dd}/${mm}`
+}
+
 export const useLabStore = create<LabState>()(
   persist(
     (set, get) => ({
@@ -86,17 +104,33 @@ export const useLabStore = create<LabState>()(
         const ex = findExercise(exerciseKey)
         if (!ex) return ''
         const now = new Date().toISOString()
+        // If the caller passed an explicit title (e.g. "Reencuadre · 'X'"
+        // when launching from a belief), respect it — autoTitled=false locks it.
+        // Otherwise the session starts auto-titled and the title updates live
+        // as the user types into the exercise's titleField.
+        const hasExplicitTitle = !!title?.trim()
+        let resolvedTitle = hasExplicitTitle ? title!.trim() : defaultTitleFor(exerciseKey)
+        // If initialValues are pre-populated and the titleField is among them,
+        // derive an initial auto-title from that value right away (covers
+        // the belief-launch case nicely — title becomes the belief text).
+        if (!hasExplicitTitle && ex.titleField && initialValues) {
+          const stepKey = ex.titleField.stepKey ?? '__root'
+          const v = initialValues[stepKey]?.[ex.titleField.fieldKey]
+          const derived = v ? deriveAutoTitle(v, now) : null
+          if (derived) resolvedTitle = derived
+        }
         const sess: LabSession = {
           id: genId(),
           exerciseKey,
           categoryKey: ex.categoryKey,
-          title: title?.trim() || defaultTitleFor(exerciseKey),
+          title: resolvedTitle,
           status: 'open',
           createdAt: now,
           updatedAt: now,
           values: initialValues ?? {},
           spiSessionId,
           linkedBeliefId,
+          autoTitled: !hasExplicitTitle,
         }
         set((s) => {
           const next: Partial<LabState> = { sessions: [sess, ...s.sessions] }
@@ -119,16 +153,35 @@ export const useLabStore = create<LabState>()(
 
       updateValue: (sessionId, stepKey, fieldKey, value) =>
         set((s) => ({
-          sessions: s.sessions.map((sess) =>
-            sess.id !== sessionId ? sess : {
-              ...sess,
-              updatedAt: new Date().toISOString(),
-              values: {
-                ...sess.values,
-                [stepKey]: { ...(sess.values[stepKey] ?? {}), [fieldKey]: value },
-              },
+          sessions: s.sessions.map((sess) => {
+            if (sess.id !== sessionId) return sess
+            const newValues = {
+              ...sess.values,
+              [stepKey]: { ...(sess.values[stepKey] ?? {}), [fieldKey]: value },
             }
-          ),
+            // Auto-title — only when the session hasn't been manually renamed
+            // (autoTitled !== false; undefined defaults to true for new
+            // sessions, false for pre-existing ones from before this feature).
+            // We only check on the changed field — when it matches the
+            // exercise's declared titleField, we re-derive the title.
+            let newTitle = sess.title
+            if (sess.autoTitled === true) {
+              const ex = findExercise(sess.exerciseKey)
+              const tf = ex?.titleField
+              if (tf) {
+                const tfStepKey = tf.stepKey ?? '__root'
+                if (tfStepKey === stepKey && tf.fieldKey === fieldKey) {
+                  newTitle = deriveAutoTitle(value, sess.createdAt) ?? defaultTitleFor(sess.exerciseKey)
+                }
+              }
+            }
+            return {
+              ...sess,
+              title: newTitle,
+              values: newValues,
+              updatedAt: new Date().toISOString(),
+            }
+          }),
         })),
 
       renameSession: (sessionId, title) =>
@@ -137,6 +190,9 @@ export const useLabStore = create<LabState>()(
             sess.id !== sessionId ? sess : {
               ...sess,
               title: title.trim() || sess.title,
+              // User renamed manually → lock the title so future field
+              // changes don't override it via the auto-title pipeline.
+              autoTitled: false,
               updatedAt: new Date().toISOString(),
             }
           ),

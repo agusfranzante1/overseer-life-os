@@ -1,23 +1,28 @@
 'use client'
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
-import { Trash2, Link2, Palette, Plus, X, Hand, MousePointer2 } from 'lucide-react'
-import { useMindMapStore, NODE_PALETTE, type MindMapNode } from '@/lib/store/mindmapStore'
+import { useState, useRef, useEffect } from 'react'
+import { Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight } from 'lucide-react'
+import {
+  useMindMapStore, NODE_PALETTE,
+  type MindMapNode, type MindMapEdgeShape,
+} from '@/lib/store/mindmapStore'
+import {
+  buildEdgePath, computeEdgeEndpoints, computeDrawingEndpoints, computeEdgeBreakpoints,
+} from './edgeGeometry'
 
 const DEFAULT_NODE_COLOR = '#6366f1'
 
-/** The full mind-map editor for a single map. Renders an SVG layer for edges
- *  and absolute-positioned <div>s for nodes. Pan via Hand tool or
- *  empty-canvas drag; zoom not implemented (kept simple).
+/** Full mind-map editor for a single map.
  *
- *  Interactions:
- *   - Double-click empty canvas → create node at that position
- *   - Single-click on node → select
- *   - Drag on node → move it
- *   - Double-click on node → edit text inline
- *   - "Connect" button → enter connect mode → click 2 nodes → arrow created
- *   - Delete key (when a node/edge is selected) → remove it (with confirm)
- *   - Click on edge → select edge
- */
+ *  Connection flow (NEW):
+ *   - Hover over a node (or select it on touch) → "+" handle appears below it
+ *   - Click "+" → enters drawing mode, ghost arrow follows the cursor
+ *   - Click another node → edge created
+ *   - Click empty canvas or press Escape → cancel drawing
+ *
+ *  Edge shapes:
+ *   - Select an edge → toolbar shows 3 shape buttons
+ *   - straight | curved | orthogonal
+ *   - Break points render as small circles on the selected edge */
 export function MindMapCanvas({ mapId }: { mapId: string }) {
   const map = useMindMapStore((s) => s.maps.find((m) => m.id === mapId)) ?? null
   const addNode = useMindMapStore((s) => s.addNode)
@@ -25,24 +30,28 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
   const removeNode = useMindMapStore((s) => s.removeNode)
   const addEdge = useMindMapStore((s) => s.addEdge)
   const removeEdge = useMindMapStore((s) => s.removeEdge)
+  const setEdgeShape = useMindMapStore((s) => s.setEdgeShape)
 
   // Selection — either a node or an edge.
   const [selection, setSelection] = useState<{ kind: 'node' | 'edge'; id: string } | null>(null)
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
-  // Connect mode: when active, next two node clicks create an edge between them.
-  const [connectMode, setConnectMode] = useState(false)
-  const [connectFrom, setConnectFrom] = useState<string | null>(null)
+  // Hover (one node at a time) — drives the "+" connector affordance.
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
+
+  // Drawing mode: an in-progress edge that follows the cursor. While
+  // `drawingFromId` is non-null, the canvas tracks the cursor position
+  // and renders a "ghost" arrow from the source node's border to the
+  // cursor. The drawing ends when the user clicks another node (commit)
+  // or the empty canvas / presses Escape (cancel).
+  const [drawingFromId, setDrawingFromId] = useState<string | null>(null)
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null)
 
   // Canvas pan offset — moves all nodes by this amount when rendering.
-  // Lets the user drag the empty canvas to navigate. Click-and-drag-on-empty
-  // pans; click-and-drag-on-node moves the node.
   const [pan, setPan] = useState({ x: 0, y: 0 })
 
   const canvasRef = useRef<HTMLDivElement | null>(null)
 
-  // ─── Pointer-based pan for the CANVAS ──
-  // Uses window-level listeners since the pan affects the whole canvas
-  // and we want to keep panning even if the cursor briefly exits the area.
+  // ─── Pan via dragging the empty canvas ──
   const dragPanRef = useRef<{
     pointerStartX: number
     pointerStartY: number
@@ -71,36 +80,51 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
     }
   }, [])
 
-  // Delete-key shortcut. Only fires when the user has a selection AND
-  // isn't actively editing text in an input/textarea.
+  // Delete-key shortcut (when there's a selection AND we're not editing text).
+  // Also doubles as the Escape handler for drawing mode.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (!selection) return
       const target = e.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+      if (e.key === 'Escape') {
+        if (drawingFromId) {
+          setDrawingFromId(null)
+          setCursorPos(null)
+          return
+        }
+        setSelection(null)
+        return
+      }
+      if (!selection) return
       if (e.key !== 'Delete' && e.key !== 'Backspace') return
       e.preventDefault()
-      if (selection.kind === 'node') {
-        removeNode(mapId, selection.id)
-      } else {
-        removeEdge(mapId, selection.id)
-      }
+      if (selection.kind === 'node') removeNode(mapId, selection.id)
+      else removeEdge(mapId, selection.id)
       setSelection(null)
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [selection, mapId, removeNode, removeEdge])
+  }, [selection, drawingFromId, mapId, removeNode, removeEdge])
 
-  // Empty-canvas pointer-down → start a pan
+  // Convert a screen-space pointer event into CONTENT coords (the same space
+  // that node.x/y live in — i.e. canvas-local minus the pan offset).
+  const screenToContent = (clientX: number, clientY: number): { x: number; y: number } | null => {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return null
+    return {
+      x: clientX - rect.left - pan.x,
+      y: clientY - rect.top - pan.y,
+    }
+  }
+
+  // ── Empty-canvas pointer-down ──
   const onCanvasPointerDown = (e: React.PointerEvent) => {
-    // Only start pan if the user clicked the BACKGROUND, not a node/edge.
-    // `currentTarget === target` test is the simplest way to detect that.
     if (e.target !== e.currentTarget) return
     setSelection(null)
-    if (connectMode) {
-      // While in connect mode, clicking empty cancels.
-      setConnectMode(false)
-      setConnectFrom(null)
+    if (drawingFromId) {
+      // Clicked empty space while drawing → cancel.
+      setDrawingFromId(null)
+      setCursorPos(null)
       return
     }
     dragPanRef.current = {
@@ -109,50 +133,58 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
     }
   }
 
+  // ── Mouse move on the canvas — track cursor for the ghost edge ──
+  const onCanvasPointerMove = (e: React.PointerEvent) => {
+    if (!drawingFromId) return
+    const p = screenToContent(e.clientX, e.clientY)
+    if (p) setCursorPos(p)
+  }
+
+  // ── Double-click empty canvas → create node ──
   const onCanvasDoubleClick = (e: React.MouseEvent) => {
     if (e.target !== e.currentTarget) return
-    // Convert from screen coords to canvas coords (subtract canvas offset
-    // AND the current pan, since nodes are stored without pan applied).
-    const rect = canvasRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const x = e.clientX - rect.left - pan.x - 80    // center the new node on cursor (160/2)
-    const y = e.clientY - rect.top - pan.y - 32     // (64/2)
-    const id = addNode(mapId, { x, y })
+    const p = screenToContent(e.clientX, e.clientY)
+    if (!p) return
+    const id = addNode(mapId, { x: p.x - 80, y: p.y - 32 })
     setSelection({ kind: 'node', id })
     setEditingNodeId(id)
   }
 
-  const handleNodeClick = useCallback((nodeId: string) => {
-    if (connectMode) {
-      if (!connectFrom) {
-        setConnectFrom(nodeId)
-      } else if (connectFrom !== nodeId) {
-        addEdge(mapId, connectFrom, nodeId)
-        setConnectMode(false)
-        setConnectFrom(null)
+  // ── Click on a node ──
+  // If drawing → commit edge. Else → just select (drag is also handled).
+  const handleNodeClick = (nodeId: string) => {
+    if (drawingFromId) {
+      if (drawingFromId !== nodeId) {
+        addEdge(mapId, drawingFromId, nodeId)
       }
+      setDrawingFromId(null)
+      setCursorPos(null)
       return
     }
-    // Selection is already handled in startNodeDrag (pointerdown). The
-    // click handler is a safety net for cases where pointerdown didn't
-    // fire (rare, e.g. screen readers / keyboard activation).
     setSelection({ kind: 'node', id: nodeId })
-  }, [connectMode, connectFrom, addEdge, mapId])
+  }
 
-  // Robust per-node drag using setPointerCapture — the canonical browser
-  // pattern. The captured pointer keeps emitting move events to the SOURCE
-  // element even if the cursor leaves it (which fixes drag breaking on
-  // mobile when the finger leaves the rectangle). Also has a 4px movement
-  // threshold so a quick tap counts as click (select), not as zero-pixel
-  // drag, and so accidental microscopic mouse jitter doesn't move nodes.
+  // ── Click the "+" handle below a hovered/selected node → start drawing ──
+  const startDrawingFrom = (node: MindMapNode) => {
+    setSelection(null)
+    setDrawingFromId(node.id)
+    // Seed cursor at the node's bottom-center so the ghost line doesn't
+    // jump from (0,0) until the user moves the mouse.
+    setCursorPos({
+      x: node.x + node.width / 2,
+      y: node.y + node.height + 12,
+    })
+  }
+
+  // ── Robust pointer-capture node drag with movement threshold ──
+  // Click vs drag distinguished by 4px hysteresis.
   const startNodeDrag = (e: React.PointerEvent, node: MindMapNode) => {
     e.stopPropagation()
-    if (connectMode) {
+    if (drawingFromId) {
+      // While drawing, treat tap on node as "commit edge" instead of drag.
       handleNodeClick(node.id)
       return
     }
-    // Always select on pointer-down so the toolbar shows the node's
-    // actions immediately (color picker, delete).
     setSelection({ kind: 'node', id: node.id })
 
     const startClientX = e.clientX
@@ -163,25 +195,15 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
     const el = e.currentTarget as HTMLElement
     let hasMoved = false
 
-    // Capture the pointer to this element so we get pointermove/up even
-    // when the cursor leaves the node. Without this, dragging a node up
-    // to the toolbar (or off-screen on mobile) would silently break drag.
     try { el.setPointerCapture(pointerId) } catch { /* noop */ }
 
     const onMove = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return
       const dx = ev.clientX - startClientX
       const dy = ev.clientY - startClientY
-      // Hysteresis: only commit position changes after the user has
-      // intentionally moved. Without this, micro-movements before pointerup
-      // would mark the click as a drag (which suppresses click selection
-      // on touch screens where the OS itself introduces tiny jitter).
       if (!hasMoved && Math.hypot(dx, dy) < 4) return
       hasMoved = true
-      updateNode(mapId, node.id, {
-        x: startNodeX + dx,
-        y: startNodeY + dy,
-      })
+      updateNode(mapId, node.id, { x: startNodeX + dx, y: startNodeY + dy })
     }
     const onUp = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return
@@ -204,19 +226,24 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
     )
   }
 
+  const selectedEdge = selection?.kind === 'edge'
+    ? map.edges.find((e) => e.id === selection.id) ?? null
+    : null
+  const selectedNode = selection?.kind === 'node'
+    ? map.nodes.find((n) => n.id === selection.id) ?? null
+    : null
+
   return (
     <div className="relative h-full bg-zinc-950 flex flex-col">
       {/* Toolbar */}
       <Toolbar
-        connectMode={connectMode}
-        onToggleConnect={() => {
-          setConnectMode((v) => !v)
-          setConnectFrom(null)
-        }}
-        selection={selection}
-        selectedNode={selection?.kind === 'node' ? map.nodes.find((n) => n.id === selection.id) ?? null : null}
+        selectedNode={selectedNode}
+        selectedEdge={selectedEdge}
         onChangeNodeColor={(color) => {
           if (selection?.kind === 'node') updateNode(mapId, selection.id, { color })
+        }}
+        onChangeEdgeShape={(shape) => {
+          if (selection?.kind === 'edge') setEdgeShape(mapId, selection.id, shape)
         }}
         onDeleteSelection={() => {
           if (!selection) return
@@ -225,7 +252,6 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
           setSelection(null)
         }}
         onAddNode={() => {
-          // Add at the visual center of the current view.
           const rect = canvasRef.current?.getBoundingClientRect()
           const cx = rect ? rect.width / 2 - pan.x - 80 : 100
           const cy = rect ? rect.height / 2 - pan.y - 32 : 100
@@ -236,15 +262,15 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
         onResetPan={() => setPan({ x: 0, y: 0 })}
       />
 
-      {/* Connect mode banner */}
-      {connectMode && (
+      {/* Drawing mode banner */}
+      {drawingFromId && (
         <div className="absolute top-12 left-1/2 -translate-x-1/2 z-20 bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs font-semibold px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-2">
-          <Link2 className="w-3 h-3" />
-          {connectFrom
-            ? 'Ahora tocá el nodo DESTINO'
-            : 'Tocá el nodo ORIGEN'}
-          <button onClick={() => { setConnectMode(false); setConnectFrom(null) }}
-            className="ml-2 opacity-60 hover:opacity-100">
+          <CornerDownRight className="w-3 h-3" />
+          Tocá el nodo destino para crear la flecha
+          <button
+            onClick={() => { setDrawingFromId(null); setCursorPos(null) }}
+            className="ml-2 opacity-60 hover:opacity-100"
+          >
             <X className="w-3 h-3" />
           </button>
         </div>
@@ -254,29 +280,29 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
       <div
         ref={canvasRef}
         onPointerDown={onCanvasPointerDown}
+        onPointerMove={onCanvasPointerMove}
         onDoubleClick={onCanvasDoubleClick}
         className={`flex-1 relative overflow-hidden select-none ${
-          connectMode ? 'cursor-crosshair' : dragPanRef.current ? 'cursor-grabbing' : 'cursor-grab'
+          drawingFromId ? 'cursor-crosshair' : dragPanRef.current ? 'cursor-grabbing' : 'cursor-grab'
         }`}
         style={{
-          backgroundImage:
-            'radial-gradient(circle at 1px 1px, #27272a 1px, transparent 0)',
+          backgroundImage: 'radial-gradient(circle at 1px 1px, #27272a 1px, transparent 0)',
           backgroundSize: '24px 24px',
           backgroundPosition: `${pan.x % 24}px ${pan.y % 24}px`,
           touchAction: 'none',
         }}
       >
-        {/* SVG layer for edges — sits BELOW the nodes via z-index. */}
+        {/* SVG layer for edges. Lives in CONTENT coords (no pan applied to
+            the math); the outer <g> transform applies the pan visually so
+            edges follow the nodes when the user pans the canvas. */}
         <svg
           className="absolute inset-0 w-full h-full pointer-events-none"
           style={{ overflow: 'visible' }}
         >
-          {/* Arrowhead marker — reused by every edge. */}
           <defs>
             <marker
               id="mm-arrowhead"
-              viewBox="0 0 10 10"
-              refX="9" refY="5"
+              viewBox="0 0 10 10" refX="9" refY="5"
               markerWidth="6" markerHeight="6"
               orient="auto-start-reverse"
             >
@@ -284,67 +310,120 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
             </marker>
             <marker
               id="mm-arrowhead-active"
-              viewBox="0 0 10 10"
-              refX="9" refY="5"
+              viewBox="0 0 10 10" refX="9" refY="5"
               markerWidth="6" markerHeight="6"
               orient="auto-start-reverse"
             >
               <path d="M 0 0 L 10 5 L 0 10 z" fill="#a78bfa" />
             </marker>
+            <marker
+              id="mm-arrowhead-ghost"
+              viewBox="0 0 10 10" refX="9" refY="5"
+              markerWidth="6" markerHeight="6"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#fbbf24" />
+            </marker>
           </defs>
 
-          {map.edges.map((edge) => {
-            const fromNode = map.nodes.find((n) => n.id === edge.fromNodeId)
-            const toNode = map.nodes.find((n) => n.id === edge.toNodeId)
-            if (!fromNode || !toNode) return null
-            const isSelected = selection?.kind === 'edge' && selection.id === edge.id
-            const path = computeArrowPath(fromNode, toNode, pan)
-            return (
-              <g key={edge.id}>
-                {/* Wide invisible path for easier click targeting */}
+          {/* All edge geometry is panned via a single transform. */}
+          <g transform={`translate(${pan.x} ${pan.y})`}>
+            {map.edges.map((edge) => {
+              const fromNode = map.nodes.find((n) => n.id === edge.fromNodeId)
+              const toNode = map.nodes.find((n) => n.id === edge.toNodeId)
+              if (!fromNode || !toNode) return null
+              const isSelected = selection?.kind === 'edge' && selection.id === edge.id
+              const shape = edge.shape ?? 'straight'
+              const { start, end } = computeEdgeEndpoints(fromNode, toNode)
+              const path = buildEdgePath(start, end, shape)
+              const breakpoints = isSelected ? computeEdgeBreakpoints(start, end, shape) : []
+              return (
+                <g key={edge.id}>
+                  {/* Wide invisible hit area for easy clicking */}
+                  <path
+                    d={path}
+                    stroke="transparent" strokeWidth={16}
+                    fill="none"
+                    className="pointer-events-auto cursor-pointer"
+                    onPointerDown={(e) => {
+                      e.stopPropagation()
+                      setSelection({ kind: 'edge', id: edge.id })
+                    }}
+                  />
+                  {/* Visible stroke */}
+                  <path
+                    d={path}
+                    stroke={isSelected ? '#a78bfa' : '#71717a'}
+                    strokeWidth={isSelected ? 2.5 : 1.75}
+                    fill="none"
+                    markerEnd={isSelected ? 'url(#mm-arrowhead-active)' : 'url(#mm-arrowhead)'}
+                    className="pointer-events-none"
+                  />
+                  {/* Break-point markers (visible only when selected) */}
+                  {breakpoints.map((p, i) => (
+                    <circle
+                      key={i}
+                      cx={p.x} cy={p.y} r={4}
+                      fill="#a78bfa" stroke="#0a0a0b" strokeWidth={1.5}
+                      className="pointer-events-none"
+                    />
+                  ))}
+                </g>
+              )
+            })}
+
+            {/* Ghost edge — the in-progress arrow that follows the cursor */}
+            {drawingFromId && cursorPos && (() => {
+              const fromNode = map.nodes.find((n) => n.id === drawingFromId)
+              if (!fromNode) return null
+              const { start, end } = computeDrawingEndpoints(fromNode, cursorPos)
+              return (
                 <path
-                  d={path}
-                  stroke="transparent" strokeWidth={14}
+                  d={`M ${start.x} ${start.y} L ${end.x} ${end.y}`}
+                  stroke="#fbbf24" strokeWidth={2}
+                  strokeDasharray="6 4"
                   fill="none"
-                  className="pointer-events-auto cursor-pointer"
-                  onPointerDown={(e) => {
-                    e.stopPropagation()
-                    setSelection({ kind: 'edge', id: edge.id })
-                  }}
-                />
-                {/* Visible stroke */}
-                <path
-                  d={path}
-                  stroke={isSelected ? '#a78bfa' : '#71717a'}
-                  strokeWidth={isSelected ? 2.5 : 1.75}
-                  fill="none"
-                  markerEnd={isSelected ? 'url(#mm-arrowhead-active)' : 'url(#mm-arrowhead)'}
+                  markerEnd="url(#mm-arrowhead-ghost)"
                   className="pointer-events-none"
                 />
-              </g>
-            )
-          })}
+              )
+            })()}
+          </g>
         </svg>
 
-        {/* Nodes layer — absolute positioned divs, on top of the SVG. */}
-        {map.nodes.map((node) => (
-          <NodeBox
-            key={node.id}
-            node={node}
-            pan={pan}
-            selected={selection?.kind === 'node' && selection.id === node.id}
-            connectMode={connectMode}
-            isConnectSource={connectFrom === node.id}
-            editing={editingNodeId === node.id}
-            onPointerDown={(e) => startNodeDrag(e, node)}
-            onClick={() => handleNodeClick(node.id)}
-            onDoubleClick={() => { setEditingNodeId(node.id); setSelection({ kind: 'node', id: node.id }) }}
-            onTextChange={(text) => updateNode(mapId, node.id, { text })}
-            onEndEdit={() => setEditingNodeId(null)}
-          />
-        ))}
+        {/* Nodes layer — absolute positioned divs on top of the SVG */}
+        {map.nodes.map((node) => {
+          const isSelected = selection?.kind === 'node' && selection.id === node.id
+          const isHovered = hoveredNodeId === node.id
+          // Show the "+" handle when hovered OR selected. Hide while editing
+          // or while we're already drawing FROM this same node (no point).
+          const showPlus = (isHovered || isSelected)
+            && editingNodeId !== node.id
+            && drawingFromId !== node.id
+          return (
+            <NodeBox
+              key={node.id}
+              node={node}
+              pan={pan}
+              selected={isSelected}
+              drawingMode={drawingFromId !== null}
+              editing={editingNodeId === node.id}
+              showPlus={showPlus}
+              onPointerDown={(e) => startNodeDrag(e, node)}
+              onClick={() => handleNodeClick(node.id)}
+              onDoubleClick={() => {
+                setEditingNodeId(node.id)
+                setSelection({ kind: 'node', id: node.id })
+              }}
+              onTextChange={(text) => updateNode(mapId, node.id, { text })}
+              onEndEdit={() => setEditingNodeId(null)}
+              onHover={(hover) => setHoveredNodeId(hover ? node.id : (h) => (h === node.id ? null : h) as null)}
+              onStartConnect={() => startDrawingFrom(node)}
+            />
+          )
+        })}
 
-        {/* Empty state inside the canvas */}
+        {/* Empty state */}
         {map.nodes.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="text-center max-w-sm px-6 py-8 bg-zinc-900/60 border border-dashed border-zinc-700 rounded-2xl">
@@ -365,14 +444,13 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
 // ─── Toolbar ─────────────────────────────────────────────────────────────────
 
 function Toolbar({
-  connectMode, onToggleConnect,
-  selection, selectedNode, onChangeNodeColor, onDeleteSelection, onAddNode, onResetPan,
+  selectedNode, selectedEdge,
+  onChangeNodeColor, onChangeEdgeShape, onDeleteSelection, onAddNode, onResetPan,
 }: {
-  connectMode: boolean
-  onToggleConnect: () => void
-  selection: { kind: 'node' | 'edge'; id: string } | null
   selectedNode: MindMapNode | null
+  selectedEdge: { id: string; shape?: MindMapEdgeShape } | null
   onChangeNodeColor: (color: string) => void
+  onChangeEdgeShape: (shape: MindMapEdgeShape) => void
   onDeleteSelection: () => void
   onAddNode: () => void
   onResetPan: () => void
@@ -387,17 +465,6 @@ function Toolbar({
         <Plus className="w-3.5 h-3.5" /> Nodo
       </button>
       <button
-        onClick={onToggleConnect}
-        title={connectMode ? 'Salir de modo conexión' : 'Conectar dos nodos con una flecha'}
-        className={`text-xs px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
-          connectMode
-            ? 'bg-amber-500/20 border border-amber-500/40 text-amber-200'
-            : 'text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800 active:bg-zinc-800'
-        }`}
-      >
-        <Link2 className="w-3.5 h-3.5" /> Conectar
-      </button>
-      <button
         onClick={onResetPan}
         title="Centrar vista"
         className="text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 active:bg-zinc-800 p-1.5 rounded-lg transition-colors"
@@ -406,13 +473,19 @@ function Toolbar({
       </button>
 
       {/* Selection-dependent actions */}
-      {selection && (
+      {(selectedNode || selectedEdge) && (
         <>
           <div className="w-px h-5 bg-zinc-800 mx-1" />
           {selectedNode && (
             <ColorPickerInline
               currentColor={selectedNode.color ?? DEFAULT_NODE_COLOR}
               onChange={onChangeNodeColor}
+            />
+          )}
+          {selectedEdge && (
+            <EdgeShapePicker
+              current={selectedEdge.shape ?? 'straight'}
+              onChange={onChangeEdgeShape}
             />
           )}
           <button
@@ -458,146 +531,152 @@ function ColorPickerInline({ currentColor, onChange }: { currentColor: string; o
   )
 }
 
+/** Three buttons to pick the visual shape of the selected edge. Icons mimic
+ *  the actual shape so the meaning is obvious at a glance. */
+function EdgeShapePicker({
+  current, onChange,
+}: { current: MindMapEdgeShape; onChange: (s: MindMapEdgeShape) => void }) {
+  const buttons: { key: MindMapEdgeShape; label: string; Icon: typeof Minus }[] = [
+    { key: 'straight',   label: 'Recta',      Icon: Minus },
+    { key: 'curved',     label: 'Redondeada', Icon: Spline },
+    { key: 'orthogonal', label: 'Quebrada',   Icon: CornerDownRight },
+  ]
+  return (
+    <div className="flex items-center gap-0.5 bg-zinc-950/60 border border-zinc-800 rounded-lg p-0.5">
+      {buttons.map(({ key, label, Icon }) => {
+        const active = current === key
+        return (
+          <button
+            key={key}
+            onClick={() => onChange(key)}
+            title={label}
+            onPointerDown={(e) => e.stopPropagation()}
+            className={`px-1.5 py-1 rounded-md transition-colors ${
+              active
+                ? 'bg-violet-500/25 text-violet-200'
+                : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Node ────────────────────────────────────────────────────────────────────
 
 function NodeBox({
-  node, pan, selected, connectMode, isConnectSource, editing,
+  node, pan, selected, drawingMode, editing, showPlus,
   onPointerDown, onClick, onDoubleClick, onTextChange, onEndEdit,
+  onHover, onStartConnect,
 }: {
   node: MindMapNode
   pan: { x: number; y: number }
   selected: boolean
-  connectMode: boolean
-  isConnectSource: boolean
+  drawingMode: boolean
   editing: boolean
+  showPlus: boolean
   onPointerDown: (e: React.PointerEvent) => void
   onClick: () => void
   onDoubleClick: () => void
   onTextChange: (text: string) => void
   onEndEdit: () => void
+  onHover: (hover: boolean) => void
+  onStartConnect: () => void
 }) {
   const color = node.color ?? DEFAULT_NODE_COLOR
-  const borderColor = selected || isConnectSource
-    ? color
-    : color + '70'
+  const borderColor = selected ? color : color + '70'
 
   const [draft, setDraft] = useState(node.text)
   useEffect(() => { setDraft(node.text) }, [node.text, editing])
 
   return (
-    <div
-      onPointerDown={onPointerDown}
-      onClick={(e) => { e.stopPropagation(); onClick() }}
-      onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick() }}
-      className="absolute rounded-2xl border-2 shadow-lg transition-shadow"
-      style={{
-        left: node.x + pan.x,
-        top: node.y + pan.y,
-        width: node.width,
-        height: node.height,
-        background: color + '18',
-        borderColor,
-        boxShadow: selected
-          ? `0 0 0 3px ${color}40, 0 10px 24px -10px ${color}80`
-          : isConnectSource
-            ? `0 0 0 3px ${color}60`
+    <>
+      <div
+        onPointerDown={onPointerDown}
+        onClick={(e) => { e.stopPropagation(); onClick() }}
+        onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick() }}
+        onPointerEnter={() => onHover(true)}
+        onPointerLeave={() => onHover(false)}
+        className="absolute rounded-2xl border-2 shadow-lg transition-shadow"
+        style={{
+          left: node.x + pan.x,
+          top: node.y + pan.y,
+          width: node.width,
+          height: node.height,
+          background: color + '18',
+          borderColor,
+          boxShadow: selected
+            ? `0 0 0 3px ${color}40, 0 10px 24px -10px ${color}80`
             : `0 4px 14px -4px ${color}40`,
-        cursor: connectMode ? 'crosshair' : editing ? 'text' : 'move',
-        touchAction: 'none',
-      }}
-    >
-      {editing ? (
-        <textarea
-          autoFocus
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => { onTextChange(draft); onEndEdit() }}
-          onKeyDown={(e) => {
+          cursor: drawingMode ? 'crosshair' : editing ? 'text' : 'move',
+          touchAction: 'none',
+        }}
+      >
+        {editing ? (
+          <textarea
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => { onTextChange(draft); onEndEdit() }}
+            onKeyDown={(e) => {
+              e.stopPropagation()
+              if (e.key === 'Escape') { setDraft(node.text); onEndEdit() }
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                onTextChange(draft)
+                onEndEdit()
+              }
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full h-full bg-transparent text-sm text-zinc-100 font-medium text-center p-2 focus:outline-none resize-none leading-snug"
+            style={{ color }}
+          />
+        ) : (
+          <div
+            className="w-full h-full flex items-center justify-center text-center px-2 text-sm font-medium leading-snug select-none break-words"
+            style={{ color }}
+          >
+            {node.text || <span className="opacity-50 italic">(vacío)</span>}
+          </div>
+        )}
+      </div>
+
+      {/* "+" connector handle. Floats at the node's bottom-center, OVERLAPPING
+          the node's bottom edge (top half is over the node, bottom half pokes
+          below). The overlap is intentional: it eliminates the "gap" between
+          node and button, so when the cursor moves down to click the +,
+          there's no in-between moment where neither element is hovered.
+          Without the overlap, the hover state would flicker to null and
+          unmount the button before the user could reach it. */}
+      {showPlus && (
+        <button
+          onPointerEnter={() => onHover(true)}
+          onPointerLeave={() => onHover(false)}
+          onPointerDown={(e) => {
             e.stopPropagation()
-            if (e.key === 'Escape') { setDraft(node.text); onEndEdit() }
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              onTextChange(draft)
-              onEndEdit()
-            }
+            e.preventDefault()
+            onStartConnect()
           }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-          className="w-full h-full bg-transparent text-sm text-zinc-100 font-medium text-center p-2 focus:outline-none resize-none leading-snug"
-          style={{ color }}
-        />
-      ) : (
-        <div
-          className="w-full h-full flex items-center justify-center text-center px-2 text-sm font-medium leading-snug select-none break-words"
-          style={{ color }}
+          title="Crear flecha desde este nodo"
+          className="absolute z-10 w-7 h-7 rounded-full border-2 flex items-center justify-center shadow-lg transition-transform hover:scale-110 active:scale-95"
+          style={{
+            left: node.x + pan.x + node.width / 2 - 14,
+            // -14 = the button's top is 14px above the node's bottom, so the
+            // button straddles the bottom edge (overlap zone, no gap).
+            top: node.y + pan.y + node.height - 14,
+            background: '#09090b',
+            borderColor: color,
+            color,
+            touchAction: 'none',
+          }}
         >
-          {node.text || <span className="opacity-50 italic">(vacío)</span>}
-        </div>
+          <Plus className="w-3.5 h-3.5" strokeWidth={2.5} />
+        </button>
       )}
-    </div>
+    </>
   )
-}
-
-// ─── Geometry helpers ────────────────────────────────────────────────────────
-
-/** Compute an SVG path string for an edge between two nodes. The arrow goes
- *  from the BORDER of the source to the BORDER of the target (not center-to-
- *  center, which would hide the arrowhead under the target node).
- *
- *  We compute the intersection of the line between centers with each node's
- *  rectangle border to get the endpoints. */
-function computeArrowPath(from: MindMapNode, to: MindMapNode, pan: { x: number; y: number }): string {
-  const fromCx = from.x + pan.x + from.width / 2
-  const fromCy = from.y + pan.y + from.height / 2
-  const toCx = to.x + pan.x + to.width / 2
-  const toCy = to.y + pan.y + to.height / 2
-
-  const start = intersectRect(fromCx, fromCy, toCx, toCy, from, pan)
-  const end = intersectRect(toCx, toCy, fromCx, fromCy, to, pan)
-
-  return `M ${start.x} ${start.y} L ${end.x} ${end.y}`
-}
-
-/** Intersect the line from (cx,cy) → (otherX,otherY) with the rectangle
- *  of `node`, returning the point ON the border (not inside). */
-function intersectRect(
-  cx: number, cy: number,
-  otherX: number, otherY: number,
-  node: MindMapNode,
-  pan: { x: number; y: number },
-): { x: number; y: number } {
-  const left = node.x + pan.x
-  const top = node.y + pan.y
-  const right = left + node.width
-  const bottom = top + node.height
-
-  const dx = otherX - cx
-  const dy = otherY - cy
-
-  if (dx === 0 && dy === 0) return { x: cx, y: cy }
-
-  // Find the smallest positive t such that (cx + t*dx, cy + t*dy) lies on
-  // one of the four sides of the rectangle.
-  const ts: number[] = []
-  if (dx !== 0) {
-    ts.push((right - cx) / dx)
-    ts.push((left - cx) / dx)
-  }
-  if (dy !== 0) {
-    ts.push((bottom - cy) / dy)
-    ts.push((top - cy) / dy)
-  }
-  let bestT = Infinity
-  for (const t of ts) {
-    if (t <= 0) continue
-    const px = cx + t * dx
-    const py = cy + t * dy
-    // Allow tiny float-precision wiggle
-    const tol = 0.001
-    if (px >= left - tol && px <= right + tol && py >= top - tol && py <= bottom + tol) {
-      if (t < bestT) bestT = t
-    }
-  }
-  if (!Number.isFinite(bestT)) return { x: cx, y: cy }
-  return { x: cx + bestT * dx, y: cy + bestT * dy }
 }

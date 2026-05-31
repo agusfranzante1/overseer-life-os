@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Infinity as InfinityIcon, Plus, ChevronDown, ChevronRight, Flame, Trophy,
@@ -14,7 +14,7 @@ import { TemplateEditor } from './TemplateEditor'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
-import { useSPIStore } from '@/lib/store/spiStore'
+import { useSPIStore, lastSaturdayYmd } from '@/lib/store/spiStore'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useProjectionStore } from '@/lib/store/projectionStore'
 import type { SPISection, SectionField, SPISession, SPITask } from '@/lib/spi/types'
@@ -38,7 +38,10 @@ export function SPIPage() {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
   const [showHistory, setShowHistory] = useState(false)
-  const [showClose, setShowClose] = useState(false)
+  // `showClose` holds the session id about to be closed (null = closed-modal
+  // not shown). Was a boolean back when the page only edited one session;
+  // now multiple cards can each request close, so we track the target.
+  const [showClose, setShowClose] = useState<string | null>(null)
   const [showTemplateEditor, setShowTemplateEditor] = useState(false)
   /** Set when the just-closed session triggered a level-up — drives the
    *  celebration modal. Cleared on dismiss. */
@@ -61,6 +64,25 @@ export function SPIPage() {
   }, [activeSessionId, activeSession])
 
   if (!mounted) return null
+
+  // ── New list-view model ───────────────────────────────────────────
+  // Mirrors the projection PlanList pattern: ALWAYS show a card for the
+  // current Saturday (whether it's been started or not, open or closed),
+  // followed by past closed sessions newest-first. When a session is
+  // closed, it auto-collapses (handled inside <WeekCard> via a closedAt
+  // transition effect) — and when a new Saturday rolls around, this list
+  // recomputes so the new week shows up on top as "not yet started".
+  const currentSaturday = lastSaturdayYmd()
+  const currentSession = sessions.find((s) => s.weekStartDate === currentSaturday) ?? null
+  const pastClosed = sessions
+    .filter((s) => s.weekStartDate !== currentSaturday && !!s.closedAt)
+    .sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate))
+  // Sessions that are NOT for the current week but also NOT closed (the
+  // user left them mid-edit). Surface them between current and history so
+  // they don't get silently buried.
+  const pastUnclosed = sessions
+    .filter((s) => s.weekStartDate !== currentSaturday && !s.closedAt)
+    .sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate))
 
   const streak = getStreak()
   const levelInfo = getLevel()
@@ -120,30 +142,58 @@ export function SPIPage() {
           >
             <Settings2 className="w-3.5 h-3.5" />
           </button>
-          {!activeSession && (
-            <button
-              onClick={() => createOrOpenCurrentWeek()}
-              className="px-4 py-2 bg-fuchsia-500/15 border border-fuchsia-500/40 hover:bg-fuchsia-500/25 text-fuchsia-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" /> Empezar esta semana
-            </button>
-          )}
         </div>
       </header>
 
-      {/* ── No active session — empty state ──────────────────────── */}
-      {!activeSession && (
-        <EmptyState
-          hasPastSessions={sessions.length > 0}
-          onStart={() => createOrOpenCurrentWeek()}
-          onViewHistory={() => setShowHistory(true)}
-        />
-      )}
+      {/* ── Week cards (current first, then any past) ────────────── */}
+      {/* Current Saturday — always shown. Body switches between
+          "empezar" CTA / open editor / closed summary based on whether
+          the session exists and whether it's been closed. */}
+      <WeekCard
+        key={`current-${currentSaturday}`}
+        weekStartDate={currentSaturday}
+        isCurrent
+        session={currentSession}
+        template={template}
+        projectsById={projectsById}
+        taskMap={taskMap}
+        projectionPlans={projectionPlans}
+        bitacoraEntries={bitacoraEntries}
+        onBitacoraAdd={addBitacoraEntry}
+        onBitacoraUpdate={updateBitacoraEntry}
+        onBitacoraRemove={removeBitacoraEntry}
+        onStart={() => createOrOpenCurrentWeek()}
+        onValueChange={updateValue}
+        onChecklistToggle={toggleChecklistItem}
+        onSetLanes={setSessionLanes}
+        onAddTask={addTask}
+        onUpdateTask={updateTask}
+        onRemoveTask={removeTask}
+        onPushTask={pushTaskToManager}
+        onCloseRequest={(sessId) => setShowClose(sessId)}
+        onDeleteRequest={(sessId) => {
+          const s = sessions.find((x) => x.id === sessId)
+          if (!s) return
+          const hasContent =
+            Object.values(s.mainChecklist ?? {}).some(Boolean) ||
+            Object.keys(s.values ?? {}).length > 0 ||
+            (s.tasks?.length ?? 0) > 0 ||
+            (s.selectedLanes?.length ?? 0) > 0
+          if (hasContent && !confirm('¿Cancelar esta sesión? Vas a perder lo que escribiste en ella.')) return
+          deleteSession(sessId)
+        }}
+      />
 
-      {/* ── Active session ──────────────────────────────────────── */}
-      {activeSession && (
-        <ActiveSession
-          session={activeSession}
+      {/* Past sessions that the user STARTED but never closed. Surface
+          them between current and the closed history so they're not lost.
+          Default collapsed — single line in the header makes it obvious
+          they need attention. */}
+      {pastUnclosed.map((s) => (
+        <WeekCard
+          key={s.id}
+          weekStartDate={s.weekStartDate}
+          isCurrent={false}
+          session={s}
           template={template}
           projectsById={projectsById}
           taskMap={taskMap}
@@ -152,27 +202,50 @@ export function SPIPage() {
           onBitacoraAdd={addBitacoraEntry}
           onBitacoraUpdate={updateBitacoraEntry}
           onBitacoraRemove={removeBitacoraEntry}
-          onChecklistToggle={(key) => toggleChecklistItem(activeSession.id, key)}
-          onValueChange={(secKey, fieldKey, v) => updateValue(activeSession.id, secKey, fieldKey, v)}
-          onSetLanes={(lanes) => setSessionLanes(activeSession.id, lanes)}
-          onAddTask={(t) => addTask(activeSession.id, t)}
-          onUpdateTask={(taskId, patch) => updateTask(activeSession.id, taskId, patch)}
-          onRemoveTask={(taskId) => removeTask(activeSession.id, taskId)}
-          onPushTask={(taskId) => pushTaskToManager(activeSession.id, taskId)}
-          onCloseRequest={() => setShowClose(true)}
-          onCancelRequest={() => {
-            // If the session has any content, ask before nuking it.
-            // Otherwise (just opened, nothing filled) — silent delete.
-            const hasContent =
-              Object.values(activeSession.mainChecklist ?? {}).some(Boolean) ||
-              Object.keys(activeSession.values ?? {}).length > 0 ||
-              (activeSession.tasks?.length ?? 0) > 0 ||
-              (activeSession.selectedLanes?.length ?? 0) > 0
-            if (hasContent && !confirm('¿Cancelar esta sesión? Vas a perder lo que escribiste en ella.')) return
-            deleteSession(activeSession.id)
+          onValueChange={updateValue}
+          onChecklistToggle={toggleChecklistItem}
+          onSetLanes={setSessionLanes}
+          onAddTask={addTask}
+          onUpdateTask={updateTask}
+          onRemoveTask={removeTask}
+          onPushTask={pushTaskToManager}
+          onCloseRequest={(sessId) => setShowClose(sessId)}
+          onDeleteRequest={(sessId) => {
+            if (!confirm('¿Eliminar esta sesión incompleta? No se puede deshacer.')) return
+            deleteSession(sessId)
           }}
         />
-      )}
+      ))}
+
+      {/* Closed history — collapsed by default, "Done" badge */}
+      {pastClosed.map((s) => (
+        <WeekCard
+          key={s.id}
+          weekStartDate={s.weekStartDate}
+          isCurrent={false}
+          session={s}
+          template={template}
+          projectsById={projectsById}
+          taskMap={taskMap}
+          projectionPlans={projectionPlans}
+          bitacoraEntries={bitacoraEntries}
+          onBitacoraAdd={addBitacoraEntry}
+          onBitacoraUpdate={updateBitacoraEntry}
+          onBitacoraRemove={removeBitacoraEntry}
+          onValueChange={updateValue}
+          onChecklistToggle={toggleChecklistItem}
+          onSetLanes={setSessionLanes}
+          onAddTask={addTask}
+          onUpdateTask={updateTask}
+          onRemoveTask={removeTask}
+          onPushTask={pushTaskToManager}
+          onCloseRequest={(sessId) => setShowClose(sessId)}
+          onDeleteRequest={(sessId) => {
+            if (!confirm('¿Eliminar esta sesión del historial?')) return
+            deleteSession(sessId)
+          }}
+        />
+      ))}
 
       {/* ── Modals ──────────────────────────────────────────────── */}
       <AnimatePresence>
@@ -184,22 +257,27 @@ export function SPIPage() {
             onOpen={(id) => { setActiveSession(id); setShowHistory(false) }}
           />
         )}
-        {showClose && activeSession && (
-          <CloseSessionModal
-            pendingTaskCount={(activeSession.tasks ?? []).filter((t) => !t.linkedTaskId).length}
-            onClose={() => setShowClose(false)}
-            onConfirm={({ mood, notes }) => {
-              const result = closeSession(activeSession.id, { mood, notes })
-              setShowClose(false)
-              setCloseResult({
-                xp: result.xp,
-                leveledUp: result.leveledUp,
-                newLevel: result.newLevel,
-                pushedTasks: result.pushedTasks,
-              })
-            }}
-          />
-        )}
+        {(() => {
+          if (!showClose) return null
+          const closingSession = sessions.find((s) => s.id === showClose) ?? null
+          if (!closingSession) return null
+          return (
+            <CloseSessionModal
+              pendingTaskCount={(closingSession.tasks ?? []).filter((t) => !t.linkedTaskId).length}
+              onClose={() => setShowClose(null)}
+              onConfirm={({ mood, notes }) => {
+                const result = closeSession(closingSession.id, { mood, notes })
+                setShowClose(null)
+                setCloseResult({
+                  xp: result.xp,
+                  leveledUp: result.leveledUp,
+                  newLevel: result.newLevel,
+                  pushedTasks: result.pushedTasks,
+                })
+              }}
+            />
+          )
+        })()}
         {closeResult && (
           <CelebrationModal
             result={closeResult}
@@ -215,6 +293,183 @@ export function SPIPage() {
           />
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// WEEK CARD — collapsible wrapper that holds one weekly session.
+//
+// Behavior matches the projection PlanList pattern:
+//   - Current week, no session yet → expanded card with "Empezar" CTA
+//   - Current week, open session   → expanded editor (full ActiveSession)
+//   - Current week, closed session → collapsed by default (auto-collapses
+//     immediately after the user closes it)
+//   - Past closed session          → collapsed by default with score/badge
+//
+// User can re-expand any card by clicking its header.
+// ─────────────────────────────────────────────────────────────────────
+function WeekCard({
+  weekStartDate, isCurrent, session, template,
+  projectsById, taskMap, projectionPlans,
+  bitacoraEntries, onBitacoraAdd, onBitacoraUpdate, onBitacoraRemove,
+  onStart, onValueChange, onChecklistToggle, onSetLanes,
+  onAddTask, onUpdateTask, onRemoveTask, onPushTask,
+  onCloseRequest, onDeleteRequest,
+}: {
+  weekStartDate: string
+  isCurrent: boolean
+  session: SPISession | null
+  template: ReturnType<typeof useSPIStore.getState>['template']
+  projectsById: ReturnType<typeof useTasksStore.getState>['projects']
+  taskMap: ReturnType<typeof useTasksStore.getState>['tasks']
+  projectionPlans: ReturnType<typeof useProjectionStore.getState>['plans']
+  bitacoraEntries: import('@/lib/spi/types').BitacoraEntry[]
+  onBitacoraAdd: (e: Omit<import('@/lib/spi/types').BitacoraEntry, 'id' | 'createdAt' | 'updatedAt'>) => string
+  onBitacoraUpdate: (id: string, patch: Partial<import('@/lib/spi/types').BitacoraEntry>) => void
+  onBitacoraRemove: (id: string) => void
+  /** Only provided for the current-week card when no session exists yet. */
+  onStart?: () => void
+  onValueChange: (sessionId: string, sectionKey: string, fieldKey: string, value: string) => void
+  onChecklistToggle: (sessionId: string, key: string) => void
+  onSetLanes: (sessionId: string, lanes: string[]) => void
+  onAddTask: (sessionId: string, t: Omit<SPITask, 'id'>) => string
+  onUpdateTask: (sessionId: string, taskId: string, patch: Partial<SPITask>) => void
+  onRemoveTask: (sessionId: string, taskId: string) => void
+  onPushTask: (sessionId: string, taskId: string) => void
+  onCloseRequest: (sessionId: string) => void
+  onDeleteRequest: (sessionId: string) => void
+}) {
+  const isClosed = !!session?.closedAt
+  const hasSession = !!session
+
+  // Default-expanded heuristic:
+  //   - current week without session → expanded (so the CTA is visible)
+  //   - current week with OPEN session → expanded (active editing)
+  //   - any closed session → collapsed (history view)
+  //   - past unclosed → collapsed (user can choose to resume)
+  const initialExpanded = isCurrent && (!hasSession || !isClosed)
+  const [expanded, setExpanded] = useState(initialExpanded)
+
+  // Auto-collapse when this session transitions from open → closed. Without
+  // this, closing the current session would leave the (now-closed) editor
+  // expanded — which contradicts the "save & collapse" UX the user asked for.
+  const wasClosedRef = useRef(isClosed)
+  useEffect(() => {
+    if (isClosed && !wasClosedRef.current) setExpanded(false)
+    wasClosedRef.current = isClosed
+  }, [isClosed])
+
+  // Pretty week label — Sábado D de mes Y
+  const weekLabel = useMemo(() => {
+    const [y, m, d] = weekStartDate.split('-').map(Number)
+    const date = new Date(y, m - 1, d)
+    return date.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  }, [weekStartDate])
+
+  // Status badge — what color and label to show in the header
+  const status: 'not_started' | 'in_progress' | 'done' = !hasSession
+    ? 'not_started'
+    : isClosed ? 'done' : 'in_progress'
+  const badge =
+    status === 'in_progress' ? { label: 'En Progreso', cls: 'bg-blue-500/15 border-blue-500/40 text-blue-300' }
+    : status === 'done'      ? { label: 'Done',        cls: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' }
+    : null  // not_started → no badge, just the "Empezar" CTA inside
+
+  return (
+    <div className={`rounded-xl border overflow-hidden transition-colors mb-3 ${
+      isCurrent
+        ? 'bg-zinc-950/60 border-fuchsia-500/30'
+        : 'bg-zinc-950/40 border-zinc-800'
+    }`}>
+      {/* Header — always clickable to expand/collapse */}
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full px-5 py-3 flex items-center gap-3 text-left hover:bg-zinc-900/40 transition-colors"
+      >
+        <span className="text-lg shrink-0">♾️</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-zinc-100 capitalize truncate">
+            {weekLabel}
+          </p>
+          {session?.closedAt && session.score !== undefined && (
+            <p className="text-[10px] text-zinc-500 mt-0.5">
+              Cerrada · puntuación {session.score}%
+            </p>
+          )}
+          {!hasSession && (
+            <p className="text-[10px] text-zinc-500 mt-0.5">Sin empezar todavía</p>
+          )}
+        </div>
+        {badge && (
+          <span className={`text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border ${badge.cls}`}>
+            {badge.label}
+          </span>
+        )}
+        {expanded ? <ChevronDown className="w-4 h-4 text-zinc-500" /> : <ChevronRight className="w-4 h-4 text-zinc-500" />}
+      </button>
+
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-zinc-800/60 p-5">
+              {!hasSession && onStart ? (
+                <EmptyWeekCTA onStart={onStart} />
+              ) : session ? (
+                <ActiveSession
+                  session={session}
+                  template={template}
+                  projectsById={projectsById}
+                  taskMap={taskMap}
+                  projectionPlans={projectionPlans}
+                  bitacoraEntries={bitacoraEntries}
+                  onBitacoraAdd={onBitacoraAdd}
+                  onBitacoraUpdate={onBitacoraUpdate}
+                  onBitacoraRemove={onBitacoraRemove}
+                  onChecklistToggle={(key) => onChecklistToggle(session.id, key)}
+                  onValueChange={(secKey, fieldKey, v) => onValueChange(session.id, secKey, fieldKey, v)}
+                  onSetLanes={(lanes) => onSetLanes(session.id, lanes)}
+                  onAddTask={(t) => onAddTask(session.id, t)}
+                  onUpdateTask={(taskId, patch) => onUpdateTask(session.id, taskId, patch)}
+                  onRemoveTask={(taskId) => onRemoveTask(session.id, taskId)}
+                  onPushTask={(taskId) => onPushTask(session.id, taskId)}
+                  onCloseRequest={() => onCloseRequest(session.id)}
+                  onCancelRequest={() => onDeleteRequest(session.id)}
+                />
+              ) : null}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+/** Empty-state CTA shown inside the current-week WeekCard when the user
+ *  hasn't started this Saturday yet. Centred, fuchsia-tinted, single
+ *  primary action — matching the projection "Empezar plan" pattern. */
+function EmptyWeekCTA({ onStart }: { onStart: () => void }) {
+  return (
+    <div className="bg-zinc-950/40 border border-zinc-800 rounded-2xl p-6 text-center">
+      <Sparkles className="w-8 h-8 text-fuchsia-400/70 mx-auto mb-2" />
+      <p className="text-sm font-semibold text-zinc-200 mb-1">
+        No empezaste esta semana todavía
+      </p>
+      <p className="text-xs text-zinc-500 mb-4 max-w-md mx-auto">
+        Sentate con tiempo (idealmente sábado), abrí la sesión, y respondé con la profundidad
+        que sientas que necesitás.
+      </p>
+      <button
+        onClick={onStart}
+        className="px-4 py-2 bg-fuchsia-500/15 border border-fuchsia-500/40 hover:bg-fuchsia-500/25 active:bg-fuchsia-500/30 text-fuchsia-300 rounded-lg text-sm font-semibold transition-all inline-flex items-center gap-2"
+      >
+        <Plus className="w-4 h-4" /> Empezar la sesión
+      </button>
     </div>
   )
 }

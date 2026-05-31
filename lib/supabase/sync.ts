@@ -979,6 +979,7 @@ async function pullLab(): Promise<boolean> {
       outcome: p.outcome,
       spiSessionId: p.spiSessionId,
       linkedBeliefId: p.linkedBeliefId,
+      autoTitled: p.autoTitled,
     }
   }
   useLabStore.setState({
