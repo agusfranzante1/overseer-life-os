@@ -148,10 +148,18 @@ export function CalendarPage() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="p-3 sm:p-4">
+    // `h-full flex flex-col min-h-0`: the page fills the entire available
+    // height of the AppShell main area and uses a vertical flex layout so
+    // we can size the grid below as `flex-1`. Without this, the calendar
+    // grid had to hard-code `calc(100vh - 160px)` which left a black band
+    // at the bottom on routes where the ChatBox doesn't render.
+    <motion.div
+      initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+      className="p-3 sm:p-4 h-full flex flex-col min-h-0"
+    >
       {/* Header — stacks vertically on mobile so the action row gets full
           width instead of squeezing next to the title. */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-3 shrink-0">
         <div>
           <h1 className="text-xl font-bold text-white">{t('calendar.title')}</h1>
           <p className="text-zinc-500 text-sm">
@@ -264,10 +272,10 @@ export function CalendarPage() {
         )}
       </AnimatePresence>
 
-      <div className={`grid grid-cols-1 gap-6 ${gcal.showSideRail ? 'xl:grid-cols-[1fr_300px]' : ''}`}>
+      <div className={`grid grid-cols-1 gap-6 flex-1 min-h-0 ${gcal.showSideRail ? 'xl:grid-cols-[1fr_300px]' : ''}`}>
         {/* Calendar grid (month OR week) */}
         {view === 'month' ? (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden h-full flex flex-col min-h-0">
             <div className="grid grid-cols-7 border-b border-zinc-800">
               {weekDays.map((day) => (
                 <div key={day} className="py-3 text-center text-xs font-semibold text-zinc-500 uppercase tracking-wider">
@@ -1095,10 +1103,15 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
   return (
     // GCal-look outer container — slightly lighter than zinc-900, no big
     // rounded corners (GCal's panel is more flat), softer border.
+    //
+    // `h-full min-h-0`: the WeekView fills the grid cell its parent gives
+    // it (which is now `flex-1` on the page wrapper). Previously this
+    // hard-coded `calc(100vh - 160px)` — that worked on some screens but
+    // left a black band at the bottom when the offset didn't match
+    // (different headers, mobile top bar, removed ChatBox, etc.).
     <div
-      className="border border-zinc-800/60 rounded-xl overflow-hidden flex flex-col"
+      className="border border-zinc-800/60 rounded-xl overflow-hidden flex flex-col h-full min-h-0"
       style={{
-        maxHeight: 'calc(100vh - 160px)',
         backgroundColor: '#1f1f1f',
         fontFamily: 'Roboto, "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
       }}

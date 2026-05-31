@@ -707,7 +707,12 @@ export function TasksPage() {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="flex h-[calc(100vh-60px)] overflow-hidden"
+      // `h-full` (was `h-[calc(100vh-60px)]`): the AppShell's main container
+      // already sizes `flex-1 overflow-y-auto` to exactly the available
+      // viewport space (accounting for the mobile top bar via the flex
+      // layout). Hard-coding a 60px subtraction here was leaving a black
+      // band at the bottom on routes that don't render a ChatBox.
+      className="flex h-full overflow-hidden"
     >
       {/* Sidebar: Projects — collapsible */}
       {/* Collapsed icon rail — DESKTOP ONLY. On mobile we hide it entirely
