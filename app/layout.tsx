@@ -21,12 +21,16 @@ const robotoMono = Roboto_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Overseer — Life OS",
+  // Default title — shown on the initial paint and on routes that
+  // <TitleUpdater> doesn't recognize (login, etc). Once React mounts,
+  // <TitleUpdater> kicks in and updates document.title to
+  // "OVERSEER · {section}" matching the sidebar's nav labels.
+  title: "OVERSEER · Life OS",
   description: "Your AI-powered personal operating system",
-  icons: {
-    icon: '/logo.png',
-    apple: '/logo.png',
-  },
+  // Icons come from the file-based convention in /app: `icon.png` for the
+  // favicon and `apple-icon.png` for iOS touch icons. Both are copies of
+  // /public/logo.png. We removed the legacy `app/favicon.ico` because it
+  // was taking priority and showing the OLD icon.
   manifest: '/manifest.json',
   appleWebApp: {
     // Enables standalone mode when added to home screen on iOS (no Safari

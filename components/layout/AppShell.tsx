@@ -7,6 +7,7 @@ import { useAppStore } from '@/lib/store/appStore'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useWalletStore } from '@/lib/store/walletStore'
 import { Sidebar } from './Sidebar'
+import { TitleUpdater } from './TitleUpdater'
 import { ChatBox } from '@/components/chat/ChatBox'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useSupabaseSync } from '@/lib/supabase/sync'
@@ -183,6 +184,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen bg-zinc-950 overflow-hidden">
+      {/* Updates document.title to "OVERSEER · {section}" on every route
+          change so the browser tab shows where the user is. Renders no DOM. */}
+      <TitleUpdater />
+
       {/* Top navigation progress bar — fires the moment a link is tapped
           and finishes when the new pathname renders. Lives above everything
           else so it's always visible. */}
