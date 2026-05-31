@@ -1,9 +1,9 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
-import { Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight } from 'lucide-react'
+import { Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight, ZoomIn, ZoomOut, Square, Circle } from 'lucide-react'
 import {
   useMindMapStore, NODE_PALETTE,
-  type MindMapNode, type MindMapEdgeShape,
+  type MindMapNode, type MindMapEdgeShape, type MindMapNodeShape,
 } from '@/lib/store/mindmapStore'
 import {
   buildEdgePath, computeEdgeEndpoints, computeDrawingEndpoints, computeEdgeBreakpoints,
@@ -31,6 +31,7 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
   const addEdge = useMindMapStore((s) => s.addEdge)
   const removeEdge = useMindMapStore((s) => s.removeEdge)
   const setEdgeShape = useMindMapStore((s) => s.setEdgeShape)
+  const setNodeShape = useMindMapStore((s) => s.setNodeShape)
 
   // Selection — either a node or an edge.
   const [selection, setSelection] = useState<{ kind: 'node' | 'edge'; id: string } | null>(null)
@@ -48,8 +49,21 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
 
   // Canvas pan offset — moves all nodes by this amount when rendering.
   const [pan, setPan] = useState({ x: 0, y: 0 })
+  // Zoom factor — 1.0 = native, capped to a sensible range so you can't
+  // accidentally wheel the content into a black hole or 50x size.
+  const [zoom, setZoom] = useState(1)
+  const ZOOM_MIN = 0.25
+  const ZOOM_MAX = 3
 
   const canvasRef = useRef<HTMLDivElement | null>(null)
+
+  // Refs that mirror zoom/pan so non-React handlers (the wheel listener,
+  // node-drag move handler) read the LATEST values without needing to be
+  // re-attached on every state change.
+  const zoomRef = useRef(zoom)
+  const panRef = useRef(pan)
+  useEffect(() => { zoomRef.current = zoom }, [zoom])
+  useEffect(() => { panRef.current = pan }, [pan])
 
   // ─── Pan via dragging the empty canvas ──
   const dragPanRef = useRef<{
@@ -80,6 +94,45 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
     }
   }, [])
 
+  // ─── Wheel zoom ────────────────────────────────────────────────────
+  // Attached as a NON-PASSIVE native listener so we can preventDefault and
+  // stop the page from scrolling. React's synthetic wheel events are
+  // passive-by-default in modern versions, so the only reliable way to
+  // suppress the default is the native API.
+  useEffect(() => {
+    const el = canvasRef.current
+    if (!el) return
+    const handler = (e: WheelEvent) => {
+      e.preventDefault()
+      const rect = el.getBoundingClientRect()
+      // Cursor position relative to the canvas top-left, in SCREEN pixels.
+      const sx = e.clientX - rect.left
+      const sy = e.clientY - rect.top
+      // Exponential zoom step → feels smoother than linear at any scale.
+      // Trackpad pinches send tiny deltas, mouse wheels send larger ones —
+      // we scale the factor with the delta magnitude so both feel right.
+      const intensity = Math.min(0.2, Math.abs(e.deltaY) * 0.0015)
+      const factor = e.deltaY < 0 ? 1 + intensity : 1 / (1 + intensity)
+      const oldZoom = zoomRef.current
+      const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, oldZoom * factor))
+      if (newZoom === oldZoom) return
+      // Zoom-to-cursor: keep the content point under the cursor anchored
+      // by re-deriving pan from the new zoom level.
+      //   sx = panX + cx * zoom  →  cx = (sx - panX) / zoom
+      //   After zoom: sx = newPanX + cx * newZoom
+      //   ⇒ newPanX = sx - (sx - panX) * (newZoom / oldZoom)
+      const ratio = newZoom / oldZoom
+      const oldPan = panRef.current
+      setPan({
+        x: sx - (sx - oldPan.x) * ratio,
+        y: sy - (sy - oldPan.y) * ratio,
+      })
+      setZoom(newZoom)
+    }
+    el.addEventListener('wheel', handler, { passive: false })
+    return () => el.removeEventListener('wheel', handler)
+  }, [])
+
   // Delete-key shortcut (when there's a selection AND we're not editing text).
   // Also doubles as the Escape handler for drawing mode.
   useEffect(() => {
@@ -107,13 +160,15 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
   }, [selection, drawingFromId, mapId, removeNode, removeEdge])
 
   // Convert a screen-space pointer event into CONTENT coords (the same space
-  // that node.x/y live in — i.e. canvas-local minus the pan offset).
+  // that node.x/y live in — i.e. canvas-local, minus pan, divided by zoom).
+  // Formula reverses the visual transform `translate(pan) scale(zoom)`:
+  //   screen = pan + content * zoom  →  content = (screen - pan) / zoom
   const screenToContent = (clientX: number, clientY: number): { x: number; y: number } | null => {
     const rect = canvasRef.current?.getBoundingClientRect()
     if (!rect) return null
     return {
-      x: clientX - rect.left - pan.x,
-      y: clientY - rect.top - pan.y,
+      x: (clientX - rect.left - pan.x) / zoom,
+      y: (clientY - rect.top - pan.y) / zoom,
     }
   }
 
@@ -176,6 +231,51 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
     })
   }
 
+  // ── Cursor reporting from the "+" pointer-capture drag ──
+  // While the user holds the `+` and drags, pointer events are captured
+  // by the button (not the canvas), so the canvas's own pointermove
+  // doesn't fire. The NodeBox forwards client coords here so the ghost
+  // arrow can keep tracking the cursor.
+  const handleConnectorMove = (clientX: number, clientY: number) => {
+    const p = screenToContent(clientX, clientY)
+    if (p) setCursorPos(p)
+  }
+
+  // ── Release of the "+" drag → commit ──
+  //
+  //   - Released over an existing node (≠ source) → create an edge
+  //   - Released on empty canvas → create a NEW node at the cursor and
+  //     auto-connect it from the source. Open the new node for editing
+  //     so the user can immediately type its label.
+  //   - Released on the source itself or elsewhere weird → cancel.
+  const handleConnectorDrop = (sourceNodeId: string, clientX: number, clientY: number) => {
+    // Figure out what's under the cursor at release time. Looking up via
+    // `elementFromPoint` is robust to nested transforms/zoom — the browser
+    // does the inverse geometry for us.
+    const targetEl = document.elementFromPoint(clientX, clientY) as HTMLElement | null
+    const nodeEl = targetEl?.closest?.('[data-node-id]') as HTMLElement | null
+    const droppedNodeId = nodeEl?.getAttribute('data-node-id') ?? null
+
+    if (droppedNodeId && droppedNodeId !== sourceNodeId) {
+      addEdge(mapId, sourceNodeId, droppedNodeId)
+    } else if (!droppedNodeId) {
+      // Empty canvas → create a fresh node centered on the cursor and
+      // auto-connect. Open it for editing so the next thing the user does
+      // is type its label (no extra click needed).
+      const p = screenToContent(clientX, clientY)
+      if (p) {
+        const newId = addNode(mapId, { x: p.x - 80, y: p.y - 32 })
+        if (newId) {
+          addEdge(mapId, sourceNodeId, newId)
+          setSelection({ kind: 'node', id: newId })
+          setEditingNodeId(newId)
+        }
+      }
+    }
+    setDrawingFromId(null)
+    setCursorPos(null)
+  }
+
   // ── Robust pointer-capture node drag with movement threshold ──
   // Click vs drag distinguished by 4px hysteresis.
   const startNodeDrag = (e: React.PointerEvent, node: MindMapNode) => {
@@ -201,9 +301,15 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
       if (ev.pointerId !== pointerId) return
       const dx = ev.clientX - startClientX
       const dy = ev.clientY - startClientY
+      // Still measure the click-vs-drag threshold in SCREEN pixels (4px feels
+      // the same regardless of zoom). But translate the actual node delta
+      // into CONTENT pixels by dividing by current zoom — otherwise dragging
+      // a node 100 screen-px right while zoomed 2x would move it 100 in
+      // content coords (which is 50 visual px), feeling sluggish.
       if (!hasMoved && Math.hypot(dx, dy) < 4) return
       hasMoved = true
-      updateNode(mapId, node.id, { x: startNodeX + dx, y: startNodeY + dy })
+      const z = zoomRef.current
+      updateNode(mapId, node.id, { x: startNodeX + dx / z, y: startNodeY + dy / z })
     }
     const onUp = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return
@@ -242,6 +348,9 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
         onChangeNodeColor={(color) => {
           if (selection?.kind === 'node') updateNode(mapId, selection.id, { color })
         }}
+        onChangeNodeShape={(shape) => {
+          if (selection?.kind === 'node') setNodeShape(mapId, selection.id, shape)
+        }}
         onChangeEdgeShape={(shape) => {
           if (selection?.kind === 'edge') setEdgeShape(mapId, selection.id, shape)
         }}
@@ -259,7 +368,35 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
           setSelection({ kind: 'node', id })
           setEditingNodeId(id)
         }}
-        onResetPan={() => setPan({ x: 0, y: 0 })}
+        onResetPan={() => { setPan({ x: 0, y: 0 }); setZoom(1) }}
+        zoom={zoom}
+        onZoomIn={() => {
+          // Step 1.25× clamped — same idea as a discrete wheel tick but
+          // centred on the current viewport for the button case (no cursor
+          // to anchor to). Re-derives pan so the viewport center stays put.
+          const el = canvasRef.current
+          if (!el) return
+          const rect = el.getBoundingClientRect()
+          const sx = rect.width / 2
+          const sy = rect.height / 2
+          const newZoom = Math.min(ZOOM_MAX, zoom * 1.25)
+          if (newZoom === zoom) return
+          const ratio = newZoom / zoom
+          setPan({ x: sx - (sx - pan.x) * ratio, y: sy - (sy - pan.y) * ratio })
+          setZoom(newZoom)
+        }}
+        onZoomOut={() => {
+          const el = canvasRef.current
+          if (!el) return
+          const rect = el.getBoundingClientRect()
+          const sx = rect.width / 2
+          const sy = rect.height / 2
+          const newZoom = Math.max(ZOOM_MIN, zoom / 1.25)
+          if (newZoom === zoom) return
+          const ratio = newZoom / zoom
+          setPan({ x: sx - (sx - pan.x) * ratio, y: sy - (sy - pan.y) * ratio })
+          setZoom(newZoom)
+        }}
       />
 
       {/* Drawing mode banner */}
@@ -327,7 +464,11 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
           </defs>
 
           {/* All edge geometry is panned via a single transform. */}
-          <g transform={`translate(${pan.x} ${pan.y})`}>
+          {/* Single transform on the group: translate (pan) + scale (zoom).
+              Applied right-to-left (scale first, then translate) which means
+              `pan` stays in screen pixels — that's intentional. The pan drag
+              handler can keep writing screen pixels directly. */}
+          <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
             {map.edges.map((edge) => {
               const fromNode = map.nodes.find((n) => n.id === edge.fromNodeId)
               const toNode = map.nodes.find((n) => n.id === edge.toNodeId)
@@ -391,37 +532,59 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
           </g>
         </svg>
 
-        {/* Nodes layer — absolute positioned divs on top of the SVG */}
-        {map.nodes.map((node) => {
-          const isSelected = selection?.kind === 'node' && selection.id === node.id
-          const isHovered = hoveredNodeId === node.id
-          // Show the "+" handle when hovered OR selected. Hide while editing
-          // or while we're already drawing FROM this same node (no point).
-          const showPlus = (isHovered || isSelected)
-            && editingNodeId !== node.id
-            && drawingFromId !== node.id
-          return (
-            <NodeBox
-              key={node.id}
-              node={node}
-              pan={pan}
-              selected={isSelected}
-              drawingMode={drawingFromId !== null}
-              editing={editingNodeId === node.id}
-              showPlus={showPlus}
-              onPointerDown={(e) => startNodeDrag(e, node)}
-              onClick={() => handleNodeClick(node.id)}
-              onDoubleClick={() => {
-                setEditingNodeId(node.id)
-                setSelection({ kind: 'node', id: node.id })
-              }}
-              onTextChange={(text) => updateNode(mapId, node.id, { text })}
-              onEndEdit={() => setEditingNodeId(null)}
-              onHover={(hover) => setHoveredNodeId(hover ? node.id : (h) => (h === node.id ? null : h) as null)}
-              onStartConnect={() => startDrawingFrom(node)}
-            />
-          )
-        })}
+        {/* Nodes layer — wrapped in a CSS-transformed div that mirrors the
+            SVG group transform. This way pan + zoom apply uniformly to nodes
+            AND edges with a single source of truth, and NodeBox doesn't need
+            to know about zoom at all (it positions at raw node.x/y; the
+            wrapper handles the visual transform). */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 0, left: 0,
+            width: 0, height: 0,           // wrapper has no intrinsic size
+            transformOrigin: '0 0',
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            // No `pointer-events: none` here on purpose — that would cascade
+            // to children and make nodes uninteractive. The 0×0 wrapper
+            // itself can't catch events (no area), so we just let children
+            // catch pointer events normally.
+          }}
+        >
+          {map.nodes.map((node) => {
+            const isSelected = selection?.kind === 'node' && selection.id === node.id
+            const isHovered = hoveredNodeId === node.id
+            // Show the "+" handle when hovered OR selected. Hide while editing
+            // or while we're already drawing FROM this same node (no point).
+            const showPlus = (isHovered || isSelected)
+              && editingNodeId !== node.id
+              && drawingFromId !== node.id
+            return (
+              <NodeBox
+                key={node.id}
+                node={node}
+                // pan = 0 because the wrapper above already applies the
+                // visual pan/zoom transform — NodeBox can stay zoom-unaware.
+                pan={{ x: 0, y: 0 }}
+                selected={isSelected}
+                drawingMode={drawingFromId !== null}
+                editing={editingNodeId === node.id}
+                showPlus={showPlus}
+                onPointerDown={(e) => startNodeDrag(e, node)}
+                onClick={() => handleNodeClick(node.id)}
+                onDoubleClick={() => {
+                  setEditingNodeId(node.id)
+                  setSelection({ kind: 'node', id: node.id })
+                }}
+                onTextChange={(text) => updateNode(mapId, node.id, { text })}
+                onEndEdit={() => setEditingNodeId(null)}
+                onHover={(hover) => setHoveredNodeId(hover ? node.id : (h) => (h === node.id ? null : h) as null)}
+                onStartConnect={() => startDrawingFrom(node)}
+                onConnectorMove={handleConnectorMove}
+                onConnectorDrop={(cx, cy) => handleConnectorDrop(node.id, cx, cy)}
+              />
+            )
+          })}
+        </div>
 
         {/* Empty state */}
         {map.nodes.length === 0 && (
@@ -445,15 +608,20 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
 
 function Toolbar({
   selectedNode, selectedEdge,
-  onChangeNodeColor, onChangeEdgeShape, onDeleteSelection, onAddNode, onResetPan,
+  onChangeNodeColor, onChangeNodeShape, onChangeEdgeShape, onDeleteSelection, onAddNode, onResetPan,
+  zoom, onZoomIn, onZoomOut,
 }: {
   selectedNode: MindMapNode | null
   selectedEdge: { id: string; shape?: MindMapEdgeShape } | null
   onChangeNodeColor: (color: string) => void
+  onChangeNodeShape: (shape: MindMapNodeShape) => void
   onChangeEdgeShape: (shape: MindMapEdgeShape) => void
   onDeleteSelection: () => void
   onAddNode: () => void
   onResetPan: () => void
+  zoom: number
+  onZoomIn: () => void
+  onZoomOut: () => void
 }) {
   return (
     <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-zinc-900/95 backdrop-blur border border-zinc-800 rounded-xl p-1 shadow-2xl">
@@ -466,21 +634,54 @@ function Toolbar({
       </button>
       <button
         onClick={onResetPan}
-        title="Centrar vista"
+        title="Centrar vista + resetear zoom a 100%"
         className="text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 active:bg-zinc-800 p-1.5 rounded-lg transition-colors"
       >
         <Hand className="w-3.5 h-3.5" />
       </button>
+
+      {/* Zoom controls — wheel on the canvas also zooms (anchored to cursor),
+          these are the explicit buttons for touch/keyboard users. The middle
+          chip shows the current zoom % and is clickable to reset to 100%. */}
+      <div className="flex items-center gap-0.5 bg-zinc-950/60 border border-zinc-800 rounded-lg p-0.5 ml-1">
+        <button
+          onClick={onZoomOut}
+          title="Alejar"
+          className="text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 active:bg-zinc-800 p-1 rounded-md transition-colors"
+        >
+          <ZoomOut className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={onResetPan}
+          title="100%"
+          className="text-[10px] font-mono tabular-nums text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800 active:bg-zinc-800 px-1.5 py-1 rounded-md transition-colors min-w-[36px] text-center"
+        >
+          {Math.round(zoom * 100)}%
+        </button>
+        <button
+          onClick={onZoomIn}
+          title="Acercar"
+          className="text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 active:bg-zinc-800 p-1 rounded-md transition-colors"
+        >
+          <ZoomIn className="w-3.5 h-3.5" />
+        </button>
+      </div>
 
       {/* Selection-dependent actions */}
       {(selectedNode || selectedEdge) && (
         <>
           <div className="w-px h-5 bg-zinc-800 mx-1" />
           {selectedNode && (
-            <ColorPickerInline
-              currentColor={selectedNode.color ?? DEFAULT_NODE_COLOR}
-              onChange={onChangeNodeColor}
-            />
+            <>
+              <NodeShapePicker
+                current={selectedNode.shape ?? 'rect'}
+                onChange={onChangeNodeShape}
+              />
+              <ColorPickerInline
+                currentColor={selectedNode.color ?? DEFAULT_NODE_COLOR}
+                onChange={onChangeNodeColor}
+              />
+            </>
           )}
           {selectedEdge && (
             <EdgeShapePicker
@@ -533,6 +734,40 @@ function ColorPickerInline({ currentColor, onChange }: { currentColor: string; o
 
 /** Three buttons to pick the visual shape of the selected edge. Icons mimic
  *  the actual shape so the meaning is obvious at a glance. */
+/** Two buttons (Square / Circle) to pick the visual shape of the selected
+ *  node. Matches the EdgeShapePicker pattern — small icons sized like the
+ *  rest of the toolbar so it fits inline without overflowing. */
+function NodeShapePicker({
+  current, onChange,
+}: { current: MindMapNodeShape; onChange: (s: MindMapNodeShape) => void }) {
+  const buttons: { key: MindMapNodeShape; label: string; Icon: typeof Square }[] = [
+    { key: 'rect',   label: 'Rectángulo', Icon: Square },
+    { key: 'circle', label: 'Círculo',    Icon: Circle },
+  ]
+  return (
+    <div className="flex items-center gap-0.5 bg-zinc-950/60 border border-zinc-800 rounded-lg p-0.5">
+      {buttons.map(({ key, label, Icon }) => {
+        const active = current === key
+        return (
+          <button
+            key={key}
+            onClick={() => onChange(key)}
+            title={label}
+            onPointerDown={(e) => e.stopPropagation()}
+            className={`px-1.5 py-1 rounded-md transition-colors ${
+              active
+                ? 'bg-violet-500/25 text-violet-200'
+                : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800'
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function EdgeShapePicker({
   current, onChange,
 }: { current: MindMapEdgeShape; onChange: (s: MindMapEdgeShape) => void }) {
@@ -570,7 +805,7 @@ function EdgeShapePicker({
 function NodeBox({
   node, pan, selected, drawingMode, editing, showPlus,
   onPointerDown, onClick, onDoubleClick, onTextChange, onEndEdit,
-  onHover, onStartConnect,
+  onHover, onStartConnect, onConnectorMove, onConnectorDrop,
 }: {
   node: MindMapNode
   pan: { x: number; y: number }
@@ -585,6 +820,13 @@ function NodeBox({
   onEndEdit: () => void
   onHover: (hover: boolean) => void
   onStartConnect: () => void
+  /** Fired while the user holds the "+" handle and drags. Used by the
+   *  parent to update the ghost-edge cursor position (we report client
+   *  coords; the parent converts to content coords via screenToContent). */
+  onConnectorMove: (clientX: number, clientY: number) => void
+  /** Fired when the user RELEASES the "+" drag. The parent decides
+   *  whether to wire to an existing node or spawn a fresh one. */
+  onConnectorDrop: (clientX: number, clientY: number) => void
 }) {
   const color = node.color ?? DEFAULT_NODE_COLOR
   const borderColor = selected ? color : color + '70'
@@ -595,12 +837,17 @@ function NodeBox({
   return (
     <>
       <div
+        // Used by the drag-to-create-node flow on the `+` handle to detect
+        // what node (if any) the user released the pointer over.
+        data-node-id={node.id}
         onPointerDown={onPointerDown}
         onClick={(e) => { e.stopPropagation(); onClick() }}
         onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick() }}
         onPointerEnter={() => onHover(true)}
         onPointerLeave={() => onHover(false)}
-        className="absolute rounded-2xl border-2 shadow-lg transition-shadow"
+        className={`absolute border-2 shadow-lg transition-shadow ${
+          node.shape === 'circle' ? 'rounded-full' : 'rounded-2xl'
+        }`}
         style={{
           left: node.x + pan.x,
           top: node.y + pan.y,
@@ -619,6 +866,7 @@ function NodeBox({
           <textarea
             autoFocus
             value={draft}
+            placeholder="Idea"
             onChange={(e) => setDraft(e.target.value)}
             onBlur={() => { onTextChange(draft); onEndEdit() }}
             onKeyDown={(e) => {
@@ -632,7 +880,7 @@ function NodeBox({
             }}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            className="w-full h-full bg-transparent text-sm text-zinc-100 font-medium text-center p-2 focus:outline-none resize-none leading-snug"
+            className="w-full h-full bg-transparent text-sm text-zinc-100 font-medium text-center p-2 focus:outline-none resize-none leading-snug placeholder:opacity-40 placeholder:italic"
             style={{ color }}
           />
         ) : (
@@ -640,7 +888,9 @@ function NodeBox({
             className="w-full h-full flex items-center justify-center text-center px-2 text-sm font-medium leading-snug select-none break-words"
             style={{ color }}
           >
-            {node.text || <span className="opacity-50 italic">(vacío)</span>}
+            {/* Empty-text placeholder. Matches the textarea's placeholder
+                "Idea" so the visual is consistent between view and edit modes. */}
+            {node.text || <span className="opacity-40 italic">Idea</span>}
           </div>
         )}
       </div>
@@ -660,8 +910,52 @@ function NodeBox({
             e.stopPropagation()
             e.preventDefault()
             onStartConnect()
+
+            // ── Drag-to-create flow ──
+            // Capture the pointer to THIS button so we keep getting move
+            // and up events even when the cursor leaves the button (which
+            // it does instantly — the user is dragging out toward another
+            // node or empty space).
+            //
+            // If the user just CLICKS without dragging (no move > 8px),
+            // we leave drawing mode active. Then the existing "click on
+            // a node to connect" pathway still works — same UX as before.
+            // If they DRAG and release, we call onConnectorDrop which
+            // either wires to whatever node is under the cursor at release,
+            // or creates a fresh node there and auto-connects.
+            const pointerId = e.pointerId
+            const el = e.currentTarget as HTMLElement
+            const startX = e.clientX
+            const startY = e.clientY
+            let hasDragged = false
+
+            try { el.setPointerCapture(pointerId) } catch { /* noop */ }
+
+            const onMove = (ev: PointerEvent) => {
+              if (ev.pointerId !== pointerId) return
+              const dx = ev.clientX - startX
+              const dy = ev.clientY - startY
+              if (Math.hypot(dx, dy) > 8) hasDragged = true
+              // Forward cursor coords so the parent can keep the ghost
+              // arrow tracking. Without this, the captured pointer events
+              // never reach the canvas's own onPointerMove and the ghost
+              // would freeze at its initial seed position.
+              onConnectorMove(ev.clientX, ev.clientY)
+            }
+            const onUp = (ev: PointerEvent) => {
+              if (ev.pointerId !== pointerId) return
+              el.removeEventListener('pointermove', onMove)
+              el.removeEventListener('pointerup', onUp)
+              el.removeEventListener('pointercancel', onUp)
+              try { el.releasePointerCapture(pointerId) } catch { /* noop */ }
+              if (hasDragged) onConnectorDrop(ev.clientX, ev.clientY)
+              // else: drawing mode stays active for the click-to-connect path
+            }
+            el.addEventListener('pointermove', onMove)
+            el.addEventListener('pointerup', onUp)
+            el.addEventListener('pointercancel', onUp)
           }}
-          title="Crear flecha desde este nodo"
+          title="Arrastrá hasta otro nodo o al lienzo vacío para crear uno nuevo"
           className="absolute z-10 w-7 h-7 rounded-full border-2 flex items-center justify-center shadow-lg transition-transform hover:scale-110 active:scale-95"
           style={{
             left: node.x + pan.x + node.width / 2 - 14,

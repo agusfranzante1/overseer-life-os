@@ -8,15 +8,24 @@ function genId(): string {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/** Visual shape used to render a node.
+ *   - 'rect'   → rounded rectangle (default, current behavior)
+ *   - 'circle' → ellipse inscribed in the bounding box (becomes a true
+ *                circle when width === height) */
+export type MindMapNodeShape = 'rect' | 'circle'
+
 export interface MindMapNode {
   id: string
-  x: number          // canvas coords (top-left of the rectangle)
+  x: number          // canvas coords (top-left of the bounding box)
   y: number
   width: number      // explicit so drag math is clean
   height: number
   text: string
   /** Optional accent color (border / text). Defaults to indigo. */
   color?: string
+  /** Optional shape. Undefined = 'rect' for back-compat with maps created
+   *  before this field existed. */
+  shape?: MindMapNodeShape
 }
 
 /** Visual shape used to render the connector between two nodes.
@@ -73,6 +82,8 @@ interface MindMapState {
   removeEdge: (mapId: string, edgeId: string) => void
   /** Change the visual shape of an existing edge (straight / curved / orthogonal). */
   setEdgeShape: (mapId: string, edgeId: string, shape: MindMapEdgeShape) => void
+  /** Change the visual shape of a node (rect / circle). */
+  setNodeShape: (mapId: string, nodeId: string, shape: MindMapNodeShape) => void
 
   // Selectors
   getMap: (mapId: string) => MindMap | null
@@ -117,7 +128,11 @@ export const useMindMapStore = create<MindMapState>()(
               id: nodeId,
               x: args.x, y: args.y,
               width: NODE_DEFAULT_WIDTH, height: NODE_DEFAULT_HEIGHT,
-              text: args.text ?? 'Idea',
+              // Default to empty. The view renders "Idea" as a placeholder
+              // when text is empty so the box doesn't look broken, but the
+              // edit textarea opens BLANK — no need for the user to delete
+              // the literal word "Idea" before typing their actual idea.
+              text: args.text ?? '',
               color: args.color,
             }
             return touch({ ...m, nodes: [...m.nodes, newNode] })
@@ -177,6 +192,13 @@ export const useMindMapStore = create<MindMapState>()(
         maps: s.maps.map((m) => m.id !== mapId ? m : touch({
           ...m,
           edges: m.edges.map((e) => e.id !== edgeId ? e : { ...e, shape }),
+        })),
+      })),
+
+      setNodeShape: (mapId, nodeId, shape) => set((s) => ({
+        maps: s.maps.map((m) => m.id !== mapId ? m : touch({
+          ...m,
+          nodes: m.nodes.map((n) => n.id !== nodeId ? n : { ...n, shape }),
         })),
       })),
 

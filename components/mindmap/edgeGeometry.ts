@@ -9,16 +9,18 @@ import type { MindMapNode, MindMapEdgeShape } from '@/lib/store/mindmapStore'
 
 export type Pt = { x: number; y: number }
 
-/** Endpoints anchored to the BORDERS of each rectangle (not the centers).
- *  Without this, arrowheads would hide behind the target node. */
+/** Endpoints anchored to the BORDERS of each node (not the centers).
+ *  Without this, arrowheads would hide behind the target node. Handles
+ *  both rectangular and circular (ellipse) node shapes — see
+ *  `intersectNodeBorder` for the dispatch. */
 export function computeEdgeEndpoints(from: MindMapNode, to: MindMapNode) {
   const fromCx = from.x + from.width / 2
   const fromCy = from.y + from.height / 2
   const toCx = to.x + to.width / 2
   const toCy = to.y + to.height / 2
   return {
-    start: intersectRect(fromCx, fromCy, toCx, toCy, from),
-    end:   intersectRect(toCx, toCy, fromCx, fromCy, to),
+    start: intersectNodeBorder(fromCx, fromCy, toCx, toCy, from),
+    end:   intersectNodeBorder(toCx, toCy, fromCx, fromCy, to),
   }
 }
 
@@ -29,9 +31,47 @@ export function computeDrawingEndpoints(from: MindMapNode, cursor: Pt) {
   const fromCx = from.x + from.width / 2
   const fromCy = from.y + from.height / 2
   return {
-    start: intersectRect(fromCx, fromCy, cursor.x, cursor.y, from),
+    start: intersectNodeBorder(fromCx, fromCy, cursor.x, cursor.y, from),
     end: cursor,
   }
+}
+
+/** Dispatch: rectangle border vs ellipse border depending on node.shape. */
+function intersectNodeBorder(
+  cx: number, cy: number,
+  otherX: number, otherY: number,
+  node: MindMapNode,
+): Pt {
+  if (node.shape === 'circle') return intersectEllipse(cx, cy, otherX, otherY, node)
+  return intersectRect(cx, cy, otherX, otherY, node)
+}
+
+/** Intersect the line from (cx,cy) → (otherX,otherY) with the ellipse
+ *  inscribed in `node`'s bounding box. For a circle (width === height),
+ *  this is just a circle border intersection.
+ *
+ *  Parametric: (cx + t·dx, cy + t·dy) lies on the ellipse when
+ *    (t·dx / a)² + (t·dy / b)² = 1, where a = width/2, b = height/2.
+ *    ⇒ t = 1 / √((dx/a)² + (dy/b)²). */
+function intersectEllipse(
+  cx: number, cy: number,
+  otherX: number, otherY: number,
+  node: MindMapNode,
+): Pt {
+  const a = node.width / 2
+  const b = node.height / 2
+  // (cx, cy) is the rect's center, but for ellipse we need the ELLIPSE
+  // center which is the same point (the ellipse is inscribed in the box).
+  // But the caller passes the rectangle's top-left x,y plus we computed
+  // center from there. Re-derive here just to be explicit.
+  const centerX = node.x + a
+  const centerY = node.y + b
+  const dx = otherX - centerX
+  const dy = otherY - centerY
+  if (dx === 0 && dy === 0) return { x: centerX, y: centerY }
+  if (a === 0 || b === 0) return { x: centerX, y: centerY }
+  const t = 1 / Math.sqrt((dx / a) ** 2 + (dy / b) ** 2)
+  return { x: centerX + t * dx, y: centerY + t * dy }
 }
 
 /** SVG `d` attribute for an edge. The shape determines whether we draw a
