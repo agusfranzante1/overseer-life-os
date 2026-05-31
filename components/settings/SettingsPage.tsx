@@ -577,10 +577,214 @@ export function SettingsPage() {
         )}
       </section>
 
+      <PushNotificationsSection />
       <GoogleCalendarSection />
       <HealthWebhookSection />
       <BackupImportSection />
     </motion.div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// PUSH NOTIFICATIONS — opt-in for native-app-style alerts (iOS 16.4+ /
+// Android / desktop). Requires the app to be installed to the home screen
+// on iOS for delivery to actually fire.
+// ─────────────────────────────────────────────────────────────────────
+function PushNotificationsSection() {
+  const [mounted, setMounted] = useState(false)
+  const [cap, setCap] = useState<{ supported: boolean; permission: NotificationPermission; subscribed: boolean; reason?: string } | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
+  const [isStandalone, setIsStandalone] = useState(false)
+  const [isIOS, setIsIOS] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+    // Detect iOS standalone mode (PWA on home screen). iOS uses
+    // `navigator.standalone`; other platforms use `display-mode: standalone`.
+    const standalone =
+      (typeof window !== 'undefined' && (window.navigator as unknown as { standalone?: boolean }).standalone === true) ||
+      (typeof window !== 'undefined' && window.matchMedia?.('(display-mode: standalone)').matches)
+    setIsStandalone(!!standalone)
+    setIsIOS(typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent))
+    // Lazy-load the client helper so SSR doesn't choke on browser APIs.
+    import('@/lib/push/client').then(({ getPushCapability }) => {
+      getPushCapability().then(setCap)
+    })
+  }, [])
+
+  const refresh = async () => {
+    const { getPushCapability } = await import('@/lib/push/client')
+    setCap(await getPushCapability())
+  }
+
+  const handleSubscribe = async () => {
+    setBusy('subscribe')
+    setFeedback(null)
+    try {
+      const { subscribeToPush } = await import('@/lib/push/client')
+      const result = await subscribeToPush()
+      if (result.ok) {
+        setFeedback({ kind: 'ok', msg: '✓ Suscripción activa en este dispositivo' })
+      } else {
+        setFeedback({ kind: 'err', msg: result.error })
+      }
+      await refresh()
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const handleUnsubscribe = async () => {
+    setBusy('unsubscribe')
+    setFeedback(null)
+    try {
+      const { unsubscribeFromPush } = await import('@/lib/push/client')
+      const result = await unsubscribeFromPush()
+      setFeedback(result.ok
+        ? { kind: 'ok', msg: 'Suscripción eliminada' }
+        : { kind: 'err', msg: result.error ?? 'Falló al desuscribir' })
+      await refresh()
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const handleTest = async () => {
+    setBusy('test')
+    setFeedback(null)
+    try {
+      const r = await fetch('/api/push/test', { method: 'POST' })
+      const j = await r.json()
+      if (j.ok) {
+        setFeedback({ kind: 'ok', msg: `✓ Enviada a ${j.sent} dispositivo${j.sent === 1 ? '' : 's'}. Revisá tus notificaciones.` })
+      } else {
+        setFeedback({ kind: 'err', msg: j.error ?? 'Falló el envío' })
+      }
+    } catch (e) {
+      setFeedback({ kind: 'err', msg: e instanceof Error ? e.message : 'unknown' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  if (!mounted) return null
+
+  return (
+    <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <span className="text-lg">🔔</span>
+        <h2 className="text-sm font-bold text-white">Notificaciones push</h2>
+      </div>
+
+      <p className="text-xs text-zinc-500 leading-relaxed">
+        Recibí notificaciones nativas en este dispositivo (recordatorios del SPI del sábado,
+        eventos próximos, etc.). Cada dispositivo (iPhone, laptop, etc.) se suscribe por separado.
+      </p>
+
+      {/* iOS-specific install instructions — only shown on iOS browsers that
+          aren't in standalone mode yet. iOS REQUIRES the PWA to be installed
+          to the home screen for push to work; web pages in Safari don't get
+          push, ever. */}
+      {isIOS && !isStandalone && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200">
+          <p className="font-semibold mb-1.5">📱 Para iPhone — instalá la app primero</p>
+          <ol className="list-decimal list-inside space-y-0.5 text-amber-100/80">
+            <li>Tocá <strong>Compartir</strong> (cuadrado con flecha arriba)</li>
+            <li>Tocá <strong>&quot;Agregar a inicio&quot;</strong></li>
+            <li>Abrí Overseer desde el ícono nuevo en tu home screen</li>
+            <li>Volvé acá y activá las notificaciones</li>
+          </ol>
+          <p className="mt-2 text-[10px] text-amber-300/70">
+            iOS 16.4+ requerido · Las notifs solo funcionan en modo &quot;app&quot;, no en Safari.
+          </p>
+        </div>
+      )}
+
+      {/* Status box */}
+      {cap && (
+        <div className="bg-zinc-950/60 border border-zinc-800 rounded-lg p-3 space-y-1.5 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-zinc-500">Soporte del browser</span>
+            <span className={cap.supported ? 'text-emerald-400' : 'text-red-400'}>
+              {cap.supported ? '✓ disponible' : '✗ no disponible'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-zinc-500">Permiso</span>
+            <span className={
+              cap.permission === 'granted' ? 'text-emerald-400'
+              : cap.permission === 'denied' ? 'text-red-400'
+              : 'text-amber-400'
+            }>
+              {cap.permission === 'granted' ? 'otorgado'
+              : cap.permission === 'denied' ? 'denegado (cambialo en config del browser)'
+              : 'pendiente'}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-zinc-500">Suscripción en este dispositivo</span>
+            <span className={cap.subscribed ? 'text-emerald-400' : 'text-zinc-500'}>
+              {cap.subscribed ? '✓ activa' : 'inactiva'}
+            </span>
+          </div>
+          {isIOS && (
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-500">Modo standalone (PWA)</span>
+              <span className={isStandalone ? 'text-emerald-400' : 'text-amber-400'}>
+                {isStandalone ? '✓ sí' : 'no — instalá la app primero'}
+              </span>
+            </div>
+          )}
+          {cap.reason && (
+            <p className="text-[10px] text-zinc-500 italic mt-2">{cap.reason}</p>
+          )}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-2 flex-wrap">
+        {!cap?.subscribed ? (
+          <button
+            onClick={handleSubscribe}
+            disabled={!cap?.supported || busy !== null}
+            className="px-4 py-2 bg-emerald-500/15 border border-emerald-500/40 hover:bg-emerald-500/25 disabled:opacity-40 disabled:cursor-not-allowed text-emerald-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5"
+          >
+            {busy === 'subscribe' ? <Loader2 className="w-4 h-4 animate-spin" /> : '🔔'}
+            Activar notificaciones
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={handleTest}
+              disabled={busy !== null}
+              className="px-4 py-2 bg-indigo-500/15 border border-indigo-500/40 hover:bg-indigo-500/25 disabled:opacity-40 text-indigo-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5"
+            >
+              {busy === 'test' ? <Loader2 className="w-4 h-4 animate-spin" /> : '🧪'}
+              Probar
+            </button>
+            <button
+              onClick={handleUnsubscribe}
+              disabled={busy !== null}
+              className="px-4 py-2 bg-zinc-800 border border-zinc-700 hover:border-red-500/40 hover:text-red-400 disabled:opacity-40 text-zinc-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5"
+            >
+              {busy === 'unsubscribe' ? <Loader2 className="w-4 h-4 animate-spin" /> : '🔕'}
+              Desactivar
+            </button>
+          </>
+        )}
+      </div>
+
+      {feedback && (
+        <div className={`text-xs rounded-lg px-3 py-2 ${
+          feedback.kind === 'ok'
+            ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+            : 'bg-red-500/10 border border-red-500/30 text-red-300'
+        }`}>
+          {feedback.msg}
+        </div>
+      )}
+    </section>
   )
 }
 
