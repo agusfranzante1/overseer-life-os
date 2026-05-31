@@ -237,14 +237,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span className="font-bold text-white text-sm tracking-wider uppercase">Overseer</span>
         </div>
 
-        <div className="flex-1 overflow-y-auto pb-20">
-          {children}
-        </div>
-        {/* ChatBox — scoped to the gym page only. Elsewhere it was eating
-            screen estate and competing with primary actions. The gym is
-            the page where the user actually uses it (logging sets / asking
-            for routine advice). */}
-        {pathname?.startsWith('/gym') && <ChatBox />}
+        {/* ChatBox is only rendered on /gym. The `pb-20` reserves the
+            ~80px the ChatBox occupies at the bottom of the viewport — but
+            only on routes that ACTUALLY render the ChatBox. Without this
+            conditional, every other route shows an empty black band at
+            the bottom (where the ChatBox would have been). That dead band
+            was the cause of the "Calendar y Tasks no llegan al borde". */}
+        {(() => {
+          const showChatBox = !!pathname?.startsWith('/gym')
+          return (
+            <>
+              <div className={`flex-1 overflow-y-auto ${showChatBox ? 'pb-20' : ''}`}>
+                {children}
+              </div>
+              {showChatBox && <ChatBox />}
+            </>
+          )
+        })()}
 
         {/* Sync error toast — sticky bottom-right, only when sync push fails.
             Click X to dismiss. Tells the user EXACTLY what to do (most common
