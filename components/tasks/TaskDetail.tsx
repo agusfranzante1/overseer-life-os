@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Task, Project, Priority } from '@/types'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTranslation } from '@/hooks/useTranslation'
-import { X, Plus, Trash2, CheckCircle2, ChevronRight, ArrowRightLeft, Check } from 'lucide-react'
+import { X, Plus, Trash2, CheckCircle2, ChevronRight, ArrowRightLeft, Check, GitMerge } from 'lucide-react'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { SubtaskDetailModal } from './SubtaskDetailModal'
 
@@ -17,7 +17,7 @@ interface Props {
 const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
 export function TaskDetail({ task, project, onClose }: Props) {
-  const { updateTask, addSubtask, toggleSubtask, deleteSubtask, updateSubtask, moveTask, projects } = useTasksStore()
+  const { updateTask, addSubtask, toggleSubtask, deleteSubtask, updateSubtask, moveTask, projects, tasks, convertTaskToSubtask } = useTasksStore()
   const { t } = useTranslation()
   // Read the task LIVE from the store so edits reflect immediately.
   const liveTask = useTasksStore((s) => (task ? s.tasks[task.id] : undefined))
@@ -70,6 +70,11 @@ export function TaskDetail({ task, project, onClose }: Props) {
   const [newSubtask, setNewSubtask] = useState('')
   const [openSubtaskId, setOpenSubtaskId] = useState<string | null>(null)
   const [showMoveMenu, setShowMoveMenu] = useState(false)
+  // Separate menu for "convert this task into a subtask of another". Lives
+  // alongside the project-move menu but does a different operation: it
+  // doesn't move the task across projects, it merges it INTO another task
+  // (this task disappears as a top-level entity, becomes a subtask).
+  const [showMergeMenu, setShowMergeMenu] = useState(false)
 
   if (!effective || !project) return null
 
@@ -188,6 +193,71 @@ export function TaskDetail({ task, project, onClose }: Props) {
                   </div>
                 </>
               )}
+            </div>
+
+            {/* Convert into subtask of another task — same UI pattern as the
+                project move menu above. Lists all OTHER non-archived tasks
+                in this project as targets. The current task (plus its own
+                subtasks) gets nested as a single subtree inside the chosen
+                target task and disappears from the top level. */}
+            <div className="relative">
+              <button
+                onClick={() => setShowMergeMenu((v) => !v)}
+                className="flex items-center gap-2 group hover:bg-zinc-800/40 px-2 py-1 -mx-2 rounded-md transition-colors"
+                title="Convertir esta tarea en subtarea de otra"
+              >
+                <GitMerge className="w-3 h-3 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+                <span className="text-xs text-zinc-500 group-hover:text-zinc-300 transition-colors">
+                  Mover dentro de otra tarea
+                </span>
+                <ChevronRight className={`w-3 h-3 text-zinc-600 group-hover:text-zinc-400 transition-transform ${showMergeMenu ? 'rotate-90' : ''}`} />
+              </button>
+              {showMergeMenu && (() => {
+                // Only show tasks from the SAME project (the user expectation
+                // is "merge with a sibling"). Filter out the current task and
+                // any archived ones. Sort by title for predictability.
+                const candidates = Object.values(tasks)
+                  .filter((t) => t.projectId === project.id && t.id !== effective.id && !t.archivedAt)
+                  .sort((a, b) => a.title.localeCompare(b.title))
+                return (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowMergeMenu(false)} />
+                    <div className="absolute left-0 top-full mt-1.5 z-20 min-w-[260px] bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1 max-h-72 overflow-y-auto">
+                      <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 px-3 py-2 border-b border-zinc-800">
+                        Anidar dentro de…
+                      </p>
+                      {candidates.length === 0 && (
+                        <p className="text-xs text-zinc-600 italic text-center px-3 py-4">
+                          No hay otras tareas en este proyecto
+                        </p>
+                      )}
+                      {candidates.map((tk) => (
+                        <button
+                          key={tk.id}
+                          onClick={() => {
+                            const subCount = tk.subtasks.filter((s) => !s.archivedAt).length
+                            const hasOwnSubs = effective.subtasks.some((s) => !s.archivedAt)
+                            const confirmMsg = hasOwnSubs
+                              ? `¿Mover "${effective.title}" (con sus subtareas) dentro de "${tk.title}"? Las subtareas anidadas se aplanan a un solo nivel.`
+                              : `¿Mover "${effective.title}" dentro de "${tk.title}"?`
+                            if (!confirm(confirmMsg)) return
+                            convertTaskToSubtask(effective.id, tk.id)
+                            setShowMergeMenu(false)
+                            onClose()
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-zinc-200 hover:bg-zinc-800 transition-colors"
+                        >
+                          <CheckCircle2 className="w-3 h-3 text-zinc-600 shrink-0" />
+                          <span className="flex-1 truncate">{tk.title}</span>
+                          <span className="text-[10px] font-mono text-zinc-600 shrink-0">
+                            {tk.subtasks.filter((s) => !s.archivedAt).length} sub
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )
+              })()}
             </div>
 
             {/* Status */}

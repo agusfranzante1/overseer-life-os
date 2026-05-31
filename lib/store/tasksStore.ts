@@ -49,6 +49,12 @@ interface TasksState {
   /** Permanently delete every archived task — "vaciar papelera". Returns count. */
   emptyArchive: () => number
   moveTask: (taskId: string, projectId: string) => void
+  /** Convert a mother Task into a Subtask of another Task, bringing all
+   *  its existing subtasks along as direct children of the new subtask.
+   *  Nested subtasks (2-level deep) get FLATTENED into direct children
+   *  because the subtask model only supports 1 level of nesting.
+   *  No-op if sourceTaskId === targetTaskId or either doesn't exist. */
+  convertTaskToSubtask: (sourceTaskId: string, targetTaskId: string) => void
   postponeTask: (id: string) => void
   pushRemainingToTomorrow: () => void
   planNext2h: () => Task[]
@@ -390,6 +396,75 @@ export const useTasksStore = create<TasksState>()(
               },
             },
           }
+        }),
+
+      convertTaskToSubtask: (sourceTaskId, targetTaskId) =>
+        set((s) => {
+          if (sourceTaskId === targetTaskId) return s
+          const source = s.tasks[sourceTaskId]
+          const target = s.tasks[targetTaskId]
+          if (!source || !target) return s
+          // Archived items can't participate — restore them first if the
+          // user wants to merge them somewhere.
+          if (source.archivedAt || target.archivedAt) return s
+
+          const newRootId = genId()
+          const baseOrder = target.subtasks.length
+
+          // The dragged task BECOMES a new top-level subtask in the target.
+          // We copy over the fields that the Subtask type supports; anything
+          // Task-specific (energyEstimate, scheduledFor, postponedCount,
+          // projectId, etc.) is left behind since it doesn't apply at the
+          // subtask level.
+          const newRoot: Subtask = {
+            id: newRootId,
+            title: source.title,
+            completed: !!source.completedAt,
+            status: source.status,
+            order: baseOrder,
+            notes: source.notes,
+            description: source.description,
+            priority: source.priority,
+            dueDate: source.dueDate,
+            completedAt: source.completedAt,
+            // parentId undefined → this is a top-level subtask in target.
+          }
+
+          // ALL of the source's non-archived subtasks become FLAT children
+          // of newRoot. Originally-nested subtasks lose their parentId
+          // chain (we flatten to a single level because the Subtask schema
+          // only supports 1 level of nesting). This loses the "subtask of
+          // subtask" relationships but preserves all the data — typically
+          // the user can rebuild the structure visually after the move.
+          const childSubs: Subtask[] = source.subtasks
+            .filter((sub) => !sub.archivedAt)
+            .map((sub, idx) => ({
+              ...sub,
+              id: genId(),       // fresh ids so they don't collide with anything
+              parentId: newRootId,
+              order: baseOrder + 1 + idx,
+            }))
+
+          const newTarget: Task = {
+            ...target,
+            subtasks: [...target.subtasks, newRoot, ...childSubs],
+            updatedAt: new Date().toISOString(),
+          }
+
+          // Drop the source task entirely + unlink from its project's taskIds.
+          const newTasks = { ...s.tasks, [targetTaskId]: newTarget }
+          delete newTasks[sourceTaskId]
+
+          const sourceProj = s.projects[source.projectId]
+          const newProjects = sourceProj ? {
+            ...s.projects,
+            [source.projectId]: {
+              ...sourceProj,
+              taskIds: sourceProj.taskIds.filter((id) => id !== sourceTaskId),
+            },
+          } : s.projects
+
+          return { tasks: newTasks, projects: newProjects }
         }),
 
       postponeTask: (id) =>

@@ -23,7 +23,7 @@ interface Props {
 const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
 export function TaskCard({ task, project, onClick, showProjectBadge = false }: Props) {
-  const { completeTask, postponeTask, deleteTask, toggleSubtask, addSubtask, updateSubtask, deleteSubtask, updateTask } = useTasksStore()
+  const { completeTask, postponeTask, deleteTask, toggleSubtask, addSubtask, updateSubtask, deleteSubtask, updateTask, convertTaskToSubtask } = useTasksStore()
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [newSubtask, setNewSubtask] = useState('')
@@ -67,6 +67,72 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
   const [dragSubId, setDragSubId] = useState<string | null>(null)
   const [overSubId, setOverSubId] = useState<string | null>(null)
   const draggedSubRef = useRef<string | null>(null)
+
+  // ── Task-to-task drag (for converting a mother task into a subtask of
+  //    another). Uses a custom dataTransfer MIME type so the existing
+  //    subtask drag-and-drop code keeps working untouched — the two paths
+  //    don't interfere. ──
+  const [isDraggingThisCard, setIsDraggingThisCard] = useState(false)
+  const [isDropTarget, setIsDropTarget] = useState(false)
+
+  /** Drag start on the TaskCard itself — fires when the user starts dragging
+   *  the card body (not a child subtask). Tags the dataTransfer with the
+   *  task id so the drop handler on another card can identify it.
+   *
+   *  Guards:
+   *    1. `target !== currentTarget` → the drag originated on a child
+   *       (a subtask which has its own draggable). Don't take over.
+   *    2. Target is inside a `data-interactive` element (buttons, inputs,
+   *       inline editors) → drag from those would be confusing. Bail. */
+  const onTaskDragStart = (e: React.DragEvent) => {
+    if (e.target !== e.currentTarget) {
+      // Child element initiated the drag (e.g. a subtask row). Their own
+      // handlers manage dataTransfer; we must NOT overwrite it here.
+      return
+    }
+    const targetEl = e.target as HTMLElement
+    if (targetEl.closest?.('[data-interactive]')) return
+    e.dataTransfer.effectAllowed = 'move'
+    try {
+      e.dataTransfer.setData('application/x-overseer-task', task.id)
+      // Fallback for browsers that don't surface custom MIME in dataTransfer.types
+      e.dataTransfer.setData('text/plain', `task:${task.id}`)
+    } catch { /* noop */ }
+    setIsDraggingThisCard(true)
+  }
+
+  const onTaskDragOver = (e: React.DragEvent) => {
+    // Accept drops from OTHER TaskCards. The custom MIME is set during
+    // dragstart so a quick `types` check is enough — no need to parse
+    // the actual data (which only the drop handler can read).
+    const types = e.dataTransfer.types
+    if (!types.includes('application/x-overseer-task')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (!isDropTarget) setIsDropTarget(true)
+  }
+  const onTaskDragLeave = () => setIsDropTarget(false)
+
+  const onTaskDrop = (e: React.DragEvent) => {
+    setIsDropTarget(false)
+    let sourceId = ''
+    try {
+      sourceId = e.dataTransfer.getData('application/x-overseer-task')
+      if (!sourceId) {
+        const plain = e.dataTransfer.getData('text/plain') ?? ''
+        if (plain.startsWith('task:')) sourceId = plain.slice(5)
+      }
+    } catch { /* noop */ }
+    if (!sourceId || sourceId === task.id) return
+    e.preventDefault()
+    e.stopPropagation()
+    convertTaskToSubtask(sourceId, task.id)
+  }
+
+  const onTaskDragEnd = () => {
+    setIsDraggingThisCard(false)
+    setIsDropTarget(false)
+  }
 
   // ── Inline "add child" state — which parent subtask currently has its
   //    "+ subtarea" input expanded, plus the in-flight draft text. Resets
@@ -175,9 +241,30 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
         ? 'border-red-500/40'
         : 'border-zinc-800 hover:border-zinc-700'
 
+  // Apply task-to-task drag visual state. Solid violet ring while a
+  // foreign TaskCard is hovering over this card (= valid drop target);
+  // soft opacity dip on the source while it's being dragged.
+  const dndClass = isDropTarget
+    ? 'ring-2 ring-violet-400 ring-offset-2 ring-offset-zinc-950'
+    : ''
+  const dndStyle: React.CSSProperties = isDraggingThisCard
+    ? { opacity: 0.4 }
+    : {}
+
   return (
-    <motion.div
-      className={`bg-zinc-900 border rounded-xl transition-all ${borderClass}`}
+    // Plain <div> — was a motion.div but Framer Motion's `onDragStart` /
+    // `onDrag` typings clash with HTML5 drag-and-drop. We weren't using any
+    // animation props here (no initial/animate/whileHover/etc), so dropping
+    // motion has zero visual impact and unblocks the HTML5 DnD handlers.
+    <div
+      draggable
+      onDragStart={onTaskDragStart}
+      onDragOver={onTaskDragOver}
+      onDragLeave={onTaskDragLeave}
+      onDrop={onTaskDrop}
+      onDragEnd={onTaskDragEnd}
+      style={dndStyle}
+      className={`bg-zinc-900 border rounded-xl transition-all ${borderClass} ${dndClass}`}
     >
       {/* Body — clicking it opens the detail modal */}
       <div
@@ -572,7 +659,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
           onClose={() => setDetailSubtaskId(null)}
         />
       )}
-    </motion.div>
+    </div>
   )
 }
 
