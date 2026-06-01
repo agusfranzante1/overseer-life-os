@@ -359,9 +359,12 @@ export function HabitsPage() {
                         title={`${weekDays[i].toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' })} — click para ${nextLabel}`}
                         className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all hover:scale-110 ${future ? 'opacity-40' : ''} ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
                         style={{
-                          backgroundColor: done ? habit.color + '30'
-                            : skipped ? '#27272a'   // zinc-800 — neutral
-                            : '#18181b',
+                          // Sober palette: neutral zinc background regardless
+                          // of habit color. The "done" state reads as a
+                          // bright white dot on near-black, no rainbow.
+                          backgroundColor: done ? '#27272a'      // zinc-800
+                            : skipped ? '#27272a'                // zinc-800
+                            : '#18181b',                          // zinc-900
                         }}>
                         {skipped ? (
                           <Minus className="w-4 h-4 text-zinc-500" />
@@ -370,8 +373,11 @@ export function HabitsPage() {
                             style={{
                               width: done ? 14 : 10,
                               height: done ? 14 : 10,
-                              backgroundColor: done ? habit.color : '#3f3f46',
-                              boxShadow: done ? `0 0 8px ${habit.color}80` : 'none',
+                              // White when completed, dark zinc when empty.
+                              // Subtle white halo on done so it still pops
+                              // a touch — but no per-habit color tint.
+                              backgroundColor: done ? '#ffffff' : '#3f3f46',
+                              boxShadow: done ? '0 0 6px rgba(255,255,255,0.35)' : 'none',
                             }} />
                         )}
                       </button>
@@ -387,7 +393,9 @@ export function HabitsPage() {
                     <button onClick={() => toggleDate(habit.id, today)}
                       disabled={reorderMode}
                       className={`md:hidden shrink-0 transition-all ${reorderMode ? 'opacity-40 pointer-events-none' : ''}`}
-                      style={{ color: doneTodayHabit ? habit.color : skippedToday ? '#71717a' : '#52525b' }}>
+                      // Sober: white when done, mid-zinc when skipped/empty.
+                      // Matches the desktop weekly dots — no rainbow.
+                      style={{ color: doneTodayHabit ? '#ffffff' : skippedToday ? '#71717a' : '#52525b' }}>
                       {doneTodayHabit ? <CheckCircle2 className="w-6 h-6" />
                        : skippedToday ? <Minus className="w-6 h-6" />
                        : <Circle className="w-6 h-6" />}

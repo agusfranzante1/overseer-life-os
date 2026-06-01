@@ -264,8 +264,9 @@ export async function handleIntent(
         title,
         projectId: project.id,
         status: project.statuses[0]?.label ?? 'To Do',
-        priority: 'medium',
-        importance: 'medium',
+        // Default LOW — global "new tasks start off the radar" rule.
+        priority: 'low',
+        importance: 'low',
         subtasks: [],
         scheduledFor: 'today',
       })
@@ -318,8 +319,9 @@ export async function handleIntent(
           title,
           projectId: project.id,
           status: project.statuses[0]?.label ?? 'To Do',
-          priority: 'medium',
-          importance: 'medium',
+          // Default LOW — global "new tasks start off the radar" rule.
+          priority: 'low',
+          importance: 'low',
           subtasks: [],
           scheduledFor: 'today',
         })

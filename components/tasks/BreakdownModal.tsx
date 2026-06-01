@@ -86,7 +86,8 @@ export function BreakdownModal({ initialTask, onClose }: Props) {
   }
 
   const addManualSub = () => {
-    setSubtasks((prev) => [...prev, { title: '', priority: 'medium' }])
+    // Default LOW — matches the global "new tasks start off the radar" rule.
+    setSubtasks((prev) => [...prev, { title: '', priority: 'low' }])
   }
 
   const applyToProject = () => {
@@ -105,8 +106,10 @@ export function BreakdownModal({ initialTask, onClose }: Props) {
         projectId: selectedProjectId,
         title: taskInput.trim(),
         status: firstStatus,
-        priority: 'medium',
-        importance: 'medium',
+        // Default LOW — matches the global "new tasks start off the radar"
+        // rule. The user can bump priority/importance per-task after.
+        priority: 'low',
+        importance: 'low',
         subtasks: [],
       })
     }

@@ -693,8 +693,11 @@ export function TasksPage() {
       title,
       projectId,
       status,
-      priority: 'medium',
-      importance: 'medium',
+      // Default to LOW priority — new tasks should start "off the radar"
+      // unless the user explicitly bumps them. Importance also defaults to
+      // low so the auto-sort doesn't surface every fresh capture to the top.
+      priority: 'low',
+      importance: 'low',
       subtasks: [],
       scheduledFor: 'today',
     })

@@ -538,6 +538,9 @@ export const useTasksStore = create<TasksState>()(
                   {
                     id, title, completed: false, status: defaultStatus,
                     order: task.subtasks.length, notes: '',
+                    // Default priority LOW — mirror the parent Task default
+                    // so capture stays off the radar until the user bumps it.
+                    priority: 'low',
                     ...(parentId ? { parentId } : {}),
                   },
                 ],
