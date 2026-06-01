@@ -5,22 +5,30 @@
  *  All functions take node positions in CONTENT coordinates. Pan/zoom is
  *  applied at the SVG transform level, NOT here. */
 
-import type { MindMapNode, MindMapEdgeShape } from '@/lib/store/mindmapStore'
+import type { MindMapNode, MindMapEdge, MindMapEdgeShape } from '@/lib/store/mindmapStore'
 
 export type Pt = { x: number; y: number }
 
 /** Endpoints anchored to the BORDERS of each node (not the centers).
  *  Without this, arrowheads would hide behind the target node. Handles
  *  both rectangular and circular (ellipse) node shapes — see
- *  `intersectNodeBorder` for the dispatch. */
-export function computeEdgeEndpoints(from: MindMapNode, to: MindMapNode) {
+ *  `intersectNodeBorder` for the dispatch.
+ *
+ *  Si la edge tiene un `bend` definido, lo usamos como "punto remoto"
+ *  desde cada extremo (en vez del centro del otro nodo) para calcular
+ *  la intersección de borde. Así la flecha sale apuntando hacia el
+ *  bend, no hacia el otro nodo — lo que da una salida natural cuando
+ *  el usuario tira el waypoint a un costado. */
+export function computeEdgeEndpoints(from: MindMapNode, to: MindMapNode, bend?: Pt) {
   const fromCx = from.x + from.width / 2
   const fromCy = from.y + from.height / 2
   const toCx = to.x + to.width / 2
   const toCy = to.y + to.height / 2
+  const startTarget = bend ?? { x: toCx, y: toCy }
+  const endTarget = bend ?? { x: fromCx, y: fromCy }
   return {
-    start: intersectNodeBorder(fromCx, fromCy, toCx, toCy, from),
-    end:   intersectNodeBorder(toCx, toCy, fromCx, fromCy, to),
+    start: intersectNodeBorder(fromCx, fromCy, startTarget.x, startTarget.y, from),
+    end:   intersectNodeBorder(toCx, toCy, endTarget.x, endTarget.y, to),
   }
 }
 
@@ -75,10 +83,21 @@ function intersectEllipse(
 }
 
 /** SVG `d` attribute for an edge. The shape determines whether we draw a
- *  straight line, smooth cubic bezier, or orthogonal L-elbow. */
-export function buildEdgePath(start: Pt, end: Pt, shape: MindMapEdgeShape): string {
+ *  straight line, smooth cubic bezier, or orthogonal L-elbow. Si la edge
+ *  tiene un `bend` (punto-pliegue custom), el ruteo lo respeta:
+ *   - straight  → polyline `start → bend → end`
+ *   - curved    → quadratic bezier con `bend` como control point
+ *   - orthogonal → ignora el bend (su L se calcula del eje dominante;
+ *                   meter un waypoint libre rompería los 90°). */
+export function buildEdgePath(start: Pt, end: Pt, shape: MindMapEdgeShape, bend?: Pt): string {
   switch (shape) {
     case 'curved': {
+      if (bend) {
+        // Quadratic bezier con bend como control point — la curva pasa
+        // CERCA del bend (no exactamente por él, por la definición del
+        // bezier cuadrático) pero responde de forma intuitiva al drag.
+        return `M ${start.x} ${start.y} Q ${bend.x} ${bend.y}, ${end.x} ${end.y}`
+      }
       // Cubic bezier with control points extended in the dominant axis
       // direction. Mimics react-flow's "smoothstep" connector — clean,
       // never crosses itself, looks organic.
@@ -116,20 +135,29 @@ export function buildEdgePath(start: Pt, end: Pt, shape: MindMapEdgeShape): stri
     }
     case 'straight':
     default:
+      if (bend) {
+        // Polyline: start → bend → end. Da el efecto de "doblar" la
+        // recta donde el usuario tiró el waypoint.
+        return `M ${start.x} ${start.y} L ${bend.x} ${bend.y} L ${end.x} ${end.y}`
+      }
       return `M ${start.x} ${start.y} L ${end.x} ${end.y}`
   }
 }
 
 /** Locations of the visual "break points" along the path. These get
  *  rendered as small circles when an edge is selected so the user sees
- *  where the line bends. Returned in canvas coords (no pan applied).
- *
- *  Not draggable in v1 — purely visual. */
-export function computeEdgeBreakpoints(start: Pt, end: Pt, shape: MindMapEdgeShape): Pt[] {
+ *  donde la línea se dobla. Ahora son DRAGGABLES — arrastrar mueve el
+ *  bend de la edge. Si la edge ya tiene un `bend` custom, se devuelve
+ *  ése en vez del midpoint calculado, para que el círculo visible siga
+ *  la nueva posición. */
+export function computeEdgeBreakpoints(start: Pt, end: Pt, shape: MindMapEdgeShape, bend?: Pt): Pt[] {
+  // 'straight' y 'curved' soportan bend custom; en ese caso el círculo
+  // visible es exactamente el bend (la "manija" del waypoint).
+  if (bend && (shape === 'straight' || shape === 'curved' || shape === undefined)) {
+    return [bend]
+  }
   switch (shape) {
     case 'curved': {
-      // Curve midpoint approximation — quadratic midpoint of the dominant
-      // axis. Close enough visually for a single marker.
       return [{ x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }]
     }
     case 'orthogonal': {
@@ -154,6 +182,10 @@ export function computeEdgeBreakpoints(start: Pt, end: Pt, shape: MindMapEdgeSha
       return [{ x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }]
   }
 }
+
+// MindMapEdge re-exported via import — TS workaround para que tsc no se
+// queje de unused imports cuando los tipos no se usan acá.
+export type { MindMapEdge }
 
 /** Intersect the line from (cx,cy)→(otherX,otherY) with the rectangle of
  *  `node`, returning the point ON the border. If the line is degenerate

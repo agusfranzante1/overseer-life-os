@@ -12,22 +12,16 @@ export function MindMapsPage() {
   const renameMap = useMindMapStore((s) => s.renameMap)
   const deleteMap = useMindMapStore((s) => s.deleteMap)
 
-  // Current view — list of maps OR a specific map's canvas. Persisted to
-  // localStorage so a refresh doesn't kick you out of the map you were
-  // working on.
+  // Current view — list of maps OR a specific map's canvas.
+  // NO persistimos `activeId`: cada vez que el usuario entra a la sección
+  // Mapas Mentales (cambio de pestaña, refresh, navegación) aterriza en
+  // el menú principal de mapas, NO en el último que haya abierto. Si por
+  // alguna razón quedó cacheado de una versión vieja, lo borramos al
+  // montar para limpieza.
   const [activeId, setActiveId] = useState<string | null>(null)
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('overseer-mindmap-active')
-      if (saved) setActiveId(saved)
-    } catch { /* noop */ }
+    try { localStorage.removeItem('overseer-mindmap-active') } catch { /* noop */ }
   }, [])
-  useEffect(() => {
-    try {
-      if (activeId) localStorage.setItem('overseer-mindmap-active', activeId)
-      else localStorage.removeItem('overseer-mindmap-active')
-    } catch { /* noop */ }
-  }, [activeId])
 
   // If activeId references a deleted map, fall back to list view.
   const activeMap = activeId ? maps.find((m) => m.id === activeId) ?? null : null

@@ -44,6 +44,7 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
   const addEdge = useMindMapStore((s) => s.addEdge)
   const removeEdge = useMindMapStore((s) => s.removeEdge)
   const setEdgeShape = useMindMapStore((s) => s.setEdgeShape)
+  const setEdgeBend = useMindMapStore((s) => s.setEdgeBend)
   const setNodeShape = useMindMapStore((s) => s.setNodeShape)
   const setNodeFontSize = useMindMapStore((s) => s.setNodeFontSize)
   const duplicateNode = useMindMapStore((s) => s.duplicateNode)
@@ -304,6 +305,40 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
     setCursorPos(null)
   }
 
+  /** Drag de un breakpoint para mover el bend de una edge. Soportado para
+   *  shape 'straight' y 'curved' — en 'orthogonal' los breakpoints son
+   *  esquinas calculadas y no tiene sentido pisarlas con un waypoint
+   *  arbitrario. El bend se guarda en CONTENT COORDS y se persiste solo
+   *  al pointer-up para no spamear el store en cada pixel. */
+  const startBendDrag = (e: React.PointerEvent, edgeId: string) => {
+    e.stopPropagation()
+    e.preventDefault()
+    setSelection({ kind: 'edge', id: edgeId })
+    const pointerId = e.pointerId
+    const el = e.currentTarget as SVGElement
+    try { el.setPointerCapture(pointerId) } catch { /* noop */ }
+
+    const apply = (ev: PointerEvent) => {
+      const p = screenToContent(ev.clientX, ev.clientY)
+      if (p) setEdgeBend(mapId, edgeId, p)
+    }
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      apply(ev)
+    }
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+      el.removeEventListener('pointercancel', onUp)
+      try { el.releasePointerCapture(pointerId) } catch { /* noop */ }
+      apply(ev)  // commit final position
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+    el.addEventListener('pointercancel', onUp)
+  }
+
   // ── Robust pointer-capture node drag with movement threshold ──
   // Click vs drag distinguished by 4px hysteresis.
   /** Drag the bottom-right resize handle of a node. Updates width/height
@@ -555,9 +590,16 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
               if (!fromNode || !toNode) return null
               const isSelected = selection?.kind === 'edge' && selection.id === edge.id
               const shape = edge.shape ?? 'straight'
-              const { start, end } = computeEdgeEndpoints(fromNode, toNode)
-              const path = buildEdgePath(start, end, shape)
-              const breakpoints = isSelected ? computeEdgeBreakpoints(start, end, shape) : []
+              // Si la edge tiene bend custom, lo usamos para todo: el
+              // anclaje de los endpoints (apuntan hacia el bend), el
+              // path, y la posición del círculo-handle.
+              const { start, end } = computeEdgeEndpoints(fromNode, toNode, edge.bend)
+              const path = buildEdgePath(start, end, shape, edge.bend)
+              const breakpoints = isSelected ? computeEdgeBreakpoints(start, end, shape, edge.bend) : []
+              // Solo el primer breakpoint es draggable como "bend" en
+              // straight/curved. Para orthogonal mostramos los corners
+              // como visual-only (drag tendría que recalcular corners).
+              const supportsBend = shape === 'straight' || shape === 'curved'
               return (
                 <g key={edge.id}>
                   {/* Wide invisible hit area for easy clicking */}
@@ -580,15 +622,32 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
                     markerEnd={isSelected ? 'url(#mm-arrowhead-active)' : 'url(#mm-arrowhead)'}
                     className="pointer-events-none"
                   />
-                  {/* Break-point markers (visible only when selected) */}
-                  {breakpoints.map((p, i) => (
-                    <circle
-                      key={i}
-                      cx={p.x} cy={p.y} r={4}
-                      fill="#a78bfa" stroke="#0a0a0b" strokeWidth={1.5}
-                      className="pointer-events-none"
-                    />
-                  ))}
+                  {/* Break-point markers — el primero es draggable cuando
+                      el shape soporta bend. Cursor "move" + radio mayor
+                      como affordance visual. Doble-click resetea el bend
+                      al midpoint calculado (limpia el waypoint custom). */}
+                  {breakpoints.map((p, i) => {
+                    const isDraggable = isSelected && supportsBend && i === 0
+                    return (
+                      <circle
+                        key={i}
+                        cx={p.x} cy={p.y}
+                        r={isDraggable ? 6 : 4}
+                        fill="#a78bfa" stroke="#0a0a0b" strokeWidth={1.5}
+                        className={isDraggable ? 'pointer-events-auto cursor-move' : 'pointer-events-none'}
+                        style={isDraggable ? { touchAction: 'none' } : undefined}
+                        onPointerDown={isDraggable ? (e) => startBendDrag(e, edge.id) : undefined}
+                        onDoubleClick={isDraggable ? (e) => {
+                          e.stopPropagation()
+                          setEdgeBend(mapId, edge.id, undefined)
+                        } : undefined}
+                      >
+                        {isDraggable && (
+                          <title>Arrastrá para doblar la flecha · doble-click para resetear</title>
+                        )}
+                      </circle>
+                    )
+                  })}
                 </g>
               )
             })}
@@ -651,7 +710,21 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
                 showPlus={showPlus}
                 onPointerDown={(e) => startNodeDrag(e, node)}
                 onResizeStart={(e) => startNodeResize(e, node)}
-                onAutoGrowHeight={(height) => updateNode(mapId, node.id, { height })}
+                onAutoGrowHeight={(height) => {
+                  // Para nodos CIRCLE mantenemos width === height — si
+                  // updateáramos solo height, el bounding box quedaría
+                  // no-cuadrado y `rounded-full` lo rendería como pill
+                  // (lo que el usuario percibe como "se volvió rectángulo").
+                  // En ese caso usamos `max(width, height)` para que el
+                  // texto siga entrando incluso si quedó más ancho que
+                  // alto antes del auto-grow.
+                  if (node.shape === 'circle') {
+                    const size = Math.max(node.width, height)
+                    updateNode(mapId, node.id, { width: size, height: size })
+                  } else {
+                    updateNode(mapId, node.id, { height })
+                  }
+                }}
                 onDuplicate={() => {
                   const newId = duplicateNode(mapId, node.id)
                   if (newId) setSelection({ kind: 'node', id: newId })

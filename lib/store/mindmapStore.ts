@@ -45,6 +45,13 @@ export interface MindMapEdge {
   fromNodeId: string
   toNodeId: string
   shape?: MindMapEdgeShape  // undefined = 'straight' (back-compat)
+  /** Punto de pliegue (bend / waypoint) opcional en COORDENADAS DE CONTENT.
+   *  Cuando está definido, el path se rutea a través de este punto en
+   *  vez de ir directo. Aplica a 'straight' (polyline) y 'curved'
+   *  (bezier cuadrático con bend como control). 'orthogonal' por ahora
+   *  ignora el bend — su ruteo en L se calcula del medio del eje
+   *  dominante y no tiene sentido pisarlo con un waypoint libre. */
+  bend?: { x: number; y: number }
 }
 
 export interface MindMap {
@@ -92,6 +99,10 @@ interface MindMapState {
   removeEdge: (mapId: string, edgeId: string) => void
   /** Change the visual shape of an existing edge (straight / curved / orthogonal). */
   setEdgeShape: (mapId: string, edgeId: string, shape: MindMapEdgeShape) => void
+  /** Setea (o limpia, con `undefined`) el bend point de una edge. Cuando
+   *  el usuario arrastra el círculo-breakpoint, su nueva posición se
+   *  persiste acá. Pasar `undefined` resetea al midpoint calculado. */
+  setEdgeBend: (mapId: string, edgeId: string, bend: { x: number; y: number } | undefined) => void
   /** Change the visual shape of a node (rect / circle). */
   setNodeShape: (mapId: string, nodeId: string, shape: MindMapNodeShape) => void
   /** Change the text size of a node, in pixels. Pass `undefined` to reset
@@ -223,6 +234,19 @@ export const useMindMapStore = create<MindMapState>()(
         maps: s.maps.map((m) => m.id !== mapId ? m : touch({
           ...m,
           edges: m.edges.map((e) => e.id !== edgeId ? e : { ...e, shape }),
+        })),
+      })),
+
+      setEdgeBend: (mapId, edgeId, bend) => set((s) => ({
+        maps: s.maps.map((m) => m.id !== mapId ? m : touch({
+          ...m,
+          edges: m.edges.map((e) => {
+            if (e.id !== edgeId) return e
+            const next = { ...e }
+            if (bend === undefined) delete next.bend
+            else next.bend = bend
+            return next
+          }),
         })),
       })),
 
