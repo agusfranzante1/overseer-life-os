@@ -357,12 +357,15 @@ export function HabitsPage() {
                         onClick={() => toggleDate(habit.id, ds)}
                         disabled={reorderMode}
                         title={`${weekDays[i].toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' })} — click para ${nextLabel}`}
-                        className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all hover:scale-110 ${future ? 'opacity-40' : ''} ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
+                        className={`group w-10 h-10 rounded-lg flex items-center justify-center transition-all hover:scale-110 hover:ring-2 hover:ring-white hover:shadow-[0_0_14px_rgba(255,255,255,0.55)] ${future ? 'opacity-40' : ''} ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
                         style={{
                           // Estricto blanco y negro: celda NEGRA siempre.
                           // Completed = punto BLANCO sólido.
                           // Empty     = anillo blanco fino (outline).
                           // Skipped   = misma celda negra con un minus tenue.
+                          // Hover     = anillo blanco grueso + glow blanco
+                          //             (resalta qué día está apuntando el
+                          //             cursor sin romper la paleta B&N).
                           backgroundColor: '#000000',
                         }}>
                         {skipped ? (
@@ -401,10 +404,10 @@ export function HabitsPage() {
                   return (
                     <button onClick={() => toggleDate(habit.id, today)}
                       disabled={reorderMode}
-                      className={`md:hidden shrink-0 rounded-lg flex items-center justify-center transition-all w-10 h-10 ${reorderMode ? 'opacity-40 pointer-events-none' : ''}`}
+                      className={`md:hidden shrink-0 rounded-lg flex items-center justify-center transition-all w-10 h-10 hover:ring-2 hover:ring-white hover:shadow-[0_0_14px_rgba(255,255,255,0.55)] ${reorderMode ? 'opacity-40 pointer-events-none' : ''}`}
                       // Mismo lenguaje que el desktop: celda negra, punto
                       // blanco sólido cuando está hecho, anillo blanco hueco
-                      // cuando está vacío.
+                      // cuando está vacío. Hover = anillo blanco grueso + glow.
                       style={{ backgroundColor: '#000000' }}>
                       {skippedToday ? (
                         <Minus className="w-4 h-4 text-zinc-500" />
