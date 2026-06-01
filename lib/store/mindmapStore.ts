@@ -198,7 +198,22 @@ export const useMindMapStore = create<MindMapState>()(
       setNodeShape: (mapId, nodeId, shape) => set((s) => ({
         maps: s.maps.map((m) => m.id !== mapId ? m : touch({
           ...m,
-          nodes: m.nodes.map((n) => n.id !== nodeId ? n : { ...n, shape }),
+          nodes: m.nodes.map((n) => {
+            if (n.id !== nodeId) return n
+            if (shape === 'circle') {
+              // Force SQUARE dimensions so the circle is a real circle, not
+              // an elongated pill. We use `max(width, height)` with a 96px
+              // floor so text fits comfortably. Default nodes are 160×64,
+              // which without this would become a 160×64 elongated ellipse
+              // (border-radius: 50% on a non-square rect = pill shape).
+              const size = Math.max(n.width, n.height, 96)
+              return { ...n, shape, width: size, height: size }
+            }
+            // Going back to rect — keep whatever dimensions the user had.
+            // (If the node was a square circle, it stays square as a rect;
+            // user can edit if they want non-square later.)
+            return { ...n, shape }
+          }),
         })),
       })),
 
