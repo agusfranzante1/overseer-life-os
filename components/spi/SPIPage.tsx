@@ -1119,7 +1119,12 @@ function WeeklyGoalsByArea({
   const [yearStr, monthStr] = session.weekStartDate.split('-')
   const yearKey = yearStr
   const monthKey = `${yearStr}-${monthStr}`
+  // Quarter del mes actual: meses 1-3 → Q1, 4-6 → Q2, etc.
+  const monthN = parseInt(monthStr, 10)
+  const qN = monthN <= 3 ? 1 : monthN <= 6 ? 2 : monthN <= 9 ? 3 : 4
+  const quarterKey = `${yearStr}-Q${qN}`
   const annualPlan = plans.find((p) => p.level === 'year' && p.periodKey === yearKey)
+  const quarterPlan = plans.find((p) => p.level === 'quarter' && p.periodKey === quarterKey)
   const monthPlan = plans.find((p) => p.level === 'month' && p.periodKey === monthKey)
   const principalesCsv = annualPlan?.values?.metas_anuales?.principales ?? ''
   const principalKeys = principalesCsv.split(',').filter(Boolean)
@@ -1140,6 +1145,13 @@ function WeeklyGoalsByArea({
   return (
     <div className="space-y-3">
       {principalKeys.map((k) => {
+        // Sub-metas del trimestre y del mes. Las keys son las mismas en
+        // ambos planes (`{areaKey}_subN`) — solo difiere el plan del que
+        // leemos. Antes solo leíamos las del mes, así que la columna
+        // "Trimestral" no aparecía aunque el usuario las tuviera cargadas.
+        const quarterlySubs = [1, 2, 3]
+          .map((i) => quarterPlan?.values?.principal_cascade?.[`${k}_sub${i}`] ?? '')
+          .filter((s) => s.trim().length > 0)
         const monthlySubs = [1, 2, 3]
           .map((i) => monthPlan?.values?.principal_cascade?.[`${k}_sub${i}`] ?? '')
           .filter((s) => s.trim().length > 0)
@@ -1160,16 +1172,37 @@ function WeeklyGoalsByArea({
                 {annualMeta}
               </p>
             )}
+            {/* Sub-metas trimestrales (read-only) */}
+            {quarterlySubs.length > 0 ? (
+              <div className="space-y-0.5 mb-1.5 bg-zinc-900/40 border border-zinc-800 rounded px-2 py-1.5">
+                <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-600 mb-0.5">
+                  Trimestral · Q{qN}
+                </p>
+                <ul className="space-y-0.5">
+                  {quarterlySubs.map((s, i) => (
+                    <li key={i} className="text-[11px] text-zinc-300 leading-snug">
+                      <span className="text-amber-400/60 font-mono text-[10px]">{i + 1}.</span> {s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="text-[10px] text-zinc-600 italic mb-1.5">
+                Sin sub-metas trimestrales cargadas para esta área. Definilas en el plan trimestral.
+              </p>
+            )}
             {/* Sub-metas mensuales (read-only) */}
             {monthlySubs.length > 0 ? (
-              <ul className="space-y-0.5 mb-2 bg-zinc-900/40 border border-zinc-800 rounded px-2 py-1.5">
+              <div className="space-y-0.5 mb-2 bg-zinc-900/40 border border-zinc-800 rounded px-2 py-1.5">
                 <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-600 mb-0.5">Mensual</p>
-                {monthlySubs.map((s, i) => (
-                  <li key={i} className="text-[11px] text-zinc-300 leading-snug">
-                    <span className="text-amber-400/60 font-mono text-[10px]">{i + 1}.</span> {s}
-                  </li>
-                ))}
-              </ul>
+                <ul className="space-y-0.5">
+                  {monthlySubs.map((s, i) => (
+                    <li key={i} className="text-[11px] text-zinc-300 leading-snug">
+                      <span className="text-amber-400/60 font-mono text-[10px]">{i + 1}.</span> {s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : (
               <p className="text-[10px] text-zinc-600 italic mb-2">
                 Sin sub-metas mensuales cargadas. Definilas en el plan mensual.
