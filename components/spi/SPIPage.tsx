@@ -1116,10 +1116,34 @@ function WeeklyGoalsByArea({
   onValueChange: (sectionKey: string, fieldKey: string, value: string) => void
 }) {
   const plans = useProjectionStore((s) => s.plans)
-  const [yearStr, monthStr] = session.weekStartDate.split('-')
+  // La semana SPI arranca el SÁBADO y cubre 7 días (Sáb → Vie). Cuando
+  // la semana cae a caballo entre dos meses (típico fin de mes), el mes
+  // del weekStartDate (sábado) NO necesariamente es el mes donde el
+  // usuario llenó el plan mensual. Por eso elegimos el mes que contiene
+  // la MAYORÍA de los días de la semana — esa es la "intención" real
+  // del mes que estamos cerrando.
+  const [yearStr0, monthStr0, dayStr0] = session.weekStartDate.split('-')
+  const sat = new Date(parseInt(yearStr0, 10), parseInt(monthStr0, 10) - 1, parseInt(dayStr0, 10))
+  // Contar días por mes para los 7 días Sáb → Vie.
+  const counts = new Map<string, number>()
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(sat)
+    d.setDate(sat.getDate() + i)
+    const mk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    counts.set(mk, (counts.get(mk) ?? 0) + 1)
+  }
+  // Mes con más días gana. Si hay empate (raro pero posible), gana el
+  // segundo (el mes "que viene") porque Sat-Sun + 5 weekdays va al
+  // mes nuevo en la práctica.
+  let monthKey = `${yearStr0}-${monthStr0}`
+  let bestCount = 0
+  for (const [mk, c] of counts) {
+    if (c >= bestCount) { monthKey = mk; bestCount = c }
+  }
+  const [yearStr, monthStr] = monthKey.split('-')
   const yearKey = yearStr
-  const monthKey = `${yearStr}-${monthStr}`
-  // Quarter del mes actual: meses 1-3 → Q1, 4-6 → Q2, etc.
+  // Quarter del mes elegido (mismo cálculo que antes pero sobre el mes
+  // ganador, no sobre el del sábado).
   const monthN = parseInt(monthStr, 10)
   const qN = monthN <= 3 ? 1 : monthN <= 6 ? 2 : monthN <= 9 ? 3 : 4
   const quarterKey = `${yearStr}-Q${qN}`
