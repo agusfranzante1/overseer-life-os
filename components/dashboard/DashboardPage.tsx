@@ -11,6 +11,7 @@ import { TomorrowPlanBlock } from './TomorrowPlanBlock'
 import { QuickActions } from './QuickActions'
 import { IdealScheduleCard } from './IdealScheduleCard'
 import { DailyGoals } from './DailyGoals'
+import { FavoritesPanel } from './FavoritesPanel'
 import { format } from 'date-fns'
 import { GripVertical, LayoutGrid, RotateCcw, Check, Eye, EyeOff } from 'lucide-react'
 
@@ -71,6 +72,11 @@ const WIDGETS: WidgetDef[] = [
     id: 'ideal-schedule',
     label: 'Horarios ideales',
     render: () => <IdealScheduleCard />,
+  },
+  {
+    id: 'favorites',
+    label: 'Favoritos · links rápidos',
+    render: () => <FavoritesPanel />,
   },
 ]
 

@@ -80,6 +80,12 @@ interface MindMapState {
   addNode: (mapId: string, args: { x: number; y: number; text?: string; color?: string }) => string
   updateNode: (mapId: string, nodeId: string, patch: Partial<Omit<MindMapNode, 'id'>>) => void
   removeNode: (mapId: string, nodeId: string) => void
+  /** Duplicate a node — copy text, color, shape, dimensions, fontSize. The
+   *  copy is offset (x+24, y+24) so it doesn't sit exactly on top of the
+   *  original. Returns the new node's id (or null if the source doesn't
+   *  exist). Edges are NOT copied — too easy to accidentally clone a
+   *  whole subgraph; the user can wire connections explicitly. */
+  duplicateNode: (mapId: string, nodeId: string) => string | null
 
   // Edge CRUD
   addEdge: (mapId: string, fromNodeId: string, toNodeId: string) => string | null
@@ -157,6 +163,24 @@ export const useMindMapStore = create<MindMapState>()(
           })
         }),
       })),
+
+      duplicateNode: (mapId, nodeId) => {
+        const map = get().maps.find((m) => m.id === mapId)
+        if (!map) return null
+        const source = map.nodes.find((n) => n.id === nodeId)
+        if (!source) return null
+        const newId = genId()
+        const copy: MindMapNode = {
+          ...source,
+          id: newId,
+          x: source.x + 24,
+          y: source.y + 24,
+        }
+        set((s) => ({
+          maps: s.maps.map((m) => m.id !== mapId ? m : touch({ ...m, nodes: [...m.nodes, copy] })),
+        }))
+        return newId
+      },
 
       removeNode: (mapId, nodeId) => set((s) => ({
         maps: s.maps.map((m) => {

@@ -96,6 +96,30 @@ export function monthOfSpiWeek(weekStartDate: string): string {
   return `${y}-${m}`
 }
 
+/** Returns the 1-indexed week number of an SPI session within its
+ *  containing quarter. SPI sessions are Saturday-anchored, quarters start
+ *  on Jan/Apr/Jul/Oct 1. Week 1 = the first SPI session whose Saturday
+ *  falls inside the quarter's date range. A quarter typically has 12-13
+ *  Saturdays — we cap at 13 just in case.
+ *
+ *  Used in the UI so the user sees "Semana 3 · Q1" instead of
+ *  "Semana 12 del año" (ISO week of year), since they plan in 12-week
+ *  trimester cycles. */
+export function weekOfQuarter(weekStartDate: string): number {
+  const [y, m, d] = weekStartDate.split('-').map(Number)
+  const sat = new Date(y, m - 1, d)
+  const q = quarterOfMonth(m)
+  const quarterStartMonth = (q - 1) * 3  // 0-indexed (0, 3, 6, 9)
+  const quarterStart = new Date(y, quarterStartMonth, 1)
+  // Find the first Saturday on or after the quarter start.
+  const startDay = quarterStart.getDay()  // 0=Sun ... 6=Sat
+  const daysToFirstSat = (6 - startDay + 7) % 7
+  const firstSat = new Date(y, quarterStartMonth, 1 + daysToFirstSat)
+  const diffDays = Math.round((sat.getTime() - firstSat.getTime()) / (1000 * 60 * 60 * 24))
+  const weekIndex = Math.floor(diffDays / 7) + 1
+  return Math.max(1, Math.min(13, weekIndex))
+}
+
 /** Human-readable label for any period key.
  *  'current' (eagle) → 'Vista de Águila · workspace'
  *  '2026' → '2026'

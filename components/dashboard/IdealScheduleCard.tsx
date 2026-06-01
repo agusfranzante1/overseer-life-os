@@ -1,7 +1,7 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Clock, Pencil, Check, X, Trash2, Plus, ChevronDown } from 'lucide-react'
+import { Clock, Pencil, Check, X, Trash2, Plus, ChevronDown, GripVertical } from 'lucide-react'
 import { useAppStore, ScheduleKey } from '@/lib/store/appStore'
 
 const SLOT_ICONS = [
@@ -22,6 +22,16 @@ function parseTime(time: string): number {
   return parseInt(m[1]) + (parseInt(m[2] ?? '0') / 60)
 }
 
+/** Inversa de `parseTime`: convierte un hour-float (e.g. 13.25) en
+ *  "HH:MM". Snap a 15 min para que el drag no genere horarios "13:07". */
+function formatHour(hourFloat: number): string {
+  const clamped = Math.max(0, Math.min(23.999, hourFloat))
+  const snapped = Math.round(clamped * 4) / 4   // 15-min increments
+  const h = Math.floor(snapped)
+  const m = Math.round((snapped - h) * 60)
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
 export function IdealScheduleCard() {
   const {
     idealSchedule, updateSchedule, addScheduleSlot, removeScheduleSlot,
@@ -31,6 +41,14 @@ export function IdealScheduleCard() {
   const [showAdd, setShowAdd] = useState(false)
   const [now, setNow] = useState(() => new Date())
   const [mounted, setMounted] = useState(false)
+  // ── Drag-to-reschedule state ──
+  // Mientras el usuario arrastra un slot, mantenemos la nueva hora en
+  // memoria local (no la commiteamos al store hasta soltar) para evitar
+  // re-renders y re-sorts en cada pixel. `dragKey` = ítem activo,
+  // `dragTime` = hora previewed (string HH:MM).
+  const timelineRef = useRef<HTMLDivElement | null>(null)
+  const [dragKey, setDragKey] = useState<ScheduleKey | null>(null)
+  const [dragHour, setDragHour] = useState<number | null>(null)
 
   useEffect(() => {
     setMounted(true)
@@ -113,6 +131,47 @@ export function IdealScheduleCard() {
     if (confirm(`¿Eliminar "${slot.label}" de los horarios ideales?`)) {
       removeScheduleSlot(key)
     }
+  }
+
+  /** Inicia un drag para mover un slot a otra hora. Se llama desde el
+   *  handle "GripVertical" del item — no del item entero, así seguir
+   *  clickeando el label/hora no dispara un drag accidental. */
+  const startTimeDrag = (e: React.PointerEvent, key: ScheduleKey, originalHour: number) => {
+    e.stopPropagation()
+    e.preventDefault()
+    const container = timelineRef.current
+    if (!container) return
+    const containerRect = container.getBoundingClientRect()
+    const pointerId = e.pointerId
+    const el = e.currentTarget as HTMLElement
+    try { el.setPointerCapture(pointerId) } catch { /* noop */ }
+
+    setDragKey(key)
+    setDragHour(originalHour)
+
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      // Y dentro del contenedor → hora absoluta (snap interno).
+      const offsetY = ev.clientY - containerRect.top
+      const hourFloat = startH + offsetY / PX_PER_HOUR
+      setDragHour(Math.max(0, Math.min(23.999, hourFloat)))
+    }
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+      el.removeEventListener('pointercancel', onUp)
+      try { el.releasePointerCapture(pointerId) } catch { /* noop */ }
+      // Commit al store solo en pointer-up, con snap a 15 min.
+      setDragHour((h) => {
+        if (h !== null) updateSchedule(key, formatHour(h))
+        return null
+      })
+      setDragKey(null)
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+    el.addEventListener('pointercancel', onUp)
   }
 
   return (
@@ -208,7 +267,7 @@ export function IdealScheduleCard() {
           </div>
 
           {/* Right: cards positioned by hour */}
-          <div className="relative flex-1">
+          <div className="relative flex-1" ref={timelineRef}>
             {/* Faint horizontal hour gridlines */}
             {hourTicks.map((h) => (
               <div key={`grid-${h}`}
@@ -225,25 +284,44 @@ export function IdealScheduleCard() {
             )}
 
             {sorted.map(({ key, slot, hour }) => {
-              const top = (hour - startH) * PX_PER_HOUR - 24
-              const isPast = mounted && hour < nowHour
+              // Mientras el usuario arrastra ESTE item, usamos la hora
+              // previewada en local (sin commitear al store todavía).
+              const effectiveHour = dragKey === key && dragHour !== null ? dragHour : hour
+              const top = (effectiveHour - startH) * PX_PER_HOUR - 24
+              const isPast = mounted && effectiveHour < nowHour
               const isNext = nextItem?.key === key
+              const isDragging = dragKey === key
               return (
                 <div
                   key={key}
-                  className={`absolute left-0 right-0 transition-opacity ${isPast ? 'opacity-50' : 'opacity-100'}`}
+                  className={`absolute left-0 right-0 transition-opacity ${isPast ? 'opacity-50' : 'opacity-100'} ${
+                    isDragging ? 'z-20' : ''
+                  }`}
                   style={{ top }}
                 >
                   <div
                     className={`relative flex items-center gap-4 group px-5 py-3.5 rounded-xl bg-zinc-800/60 border transition-all hover:bg-zinc-800 ${
                       isNext ? 'border-indigo-500/60 shadow-[0_0_0_1px_rgba(99,102,241,0.3)]' : 'border-zinc-800 hover:border-zinc-700'
-                    }`}
+                    } ${isDragging ? 'border-indigo-500/80 shadow-[0_0_18px_rgba(99,102,241,0.45)] cursor-grabbing' : ''}`}
                   >
                     {/* Color accent bar */}
                     <span className="absolute left-0 top-3 bottom-3 w-1 rounded-full"
                       style={{ background: slot.color }} />
 
-                    <span className="text-2xl shrink-0 ml-2">{slot.icon}</span>
+                    {/* Drag handle — arrastrá verticalmente para mover el
+                        slot a otra hora. Solo aparece en hover/drag, y solo
+                        responde a pointer (no roba clicks al item). */}
+                    <button
+                      type="button"
+                      onPointerDown={(e) => startTimeDrag(e, key, hour)}
+                      title="Arrastrá para cambiar la hora"
+                      className={`opacity-0 group-hover:opacity-100 ${isDragging ? 'opacity-100' : ''} text-zinc-500 hover:text-zinc-200 transition-opacity p-1 cursor-grab active:cursor-grabbing shrink-0`}
+                      style={{ touchAction: 'none' }}
+                    >
+                      <GripVertical className="w-4 h-4" />
+                    </button>
+
+                    <span className="text-2xl shrink-0">{slot.icon}</span>
                     <div className="flex-1 min-w-0">
                       <p className="text-base text-zinc-100 font-semibold truncate">{slot.label}</p>
                       {isNext && (
@@ -290,7 +368,7 @@ export function IdealScheduleCard() {
                     ) : (
                       <div className="flex items-center gap-2">
                         <span className="text-xl font-extrabold tabular-nums" style={{ color: slot.color, letterSpacing: '-0.02em' }}>
-                          {slot.time}
+                          {isDragging && dragHour !== null ? formatHour(dragHour) : slot.time}
                         </span>
                         <button
                           onClick={(e) => { e.stopPropagation(); startEdit(key) }}

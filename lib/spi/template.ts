@@ -105,15 +105,16 @@ export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
 
     // ━━━ ESTRATÉGICO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     {
+      // v5: esta sección ya NO tiene fields hardcoded. SPIPage la
+      // renderiza con un bloque dinámico que itera las áreas principales
+      // del plan anual y muestra, para cada una, sus sub-metas mensuales
+      // (como contexto top-down) + un textarea de meta semanal. Así si
+      // marcaste 4 áreas principales aparecen las 4, no 2 fijas.
       key: 'que_buscamos',
       laneKey: 'estrategico',
       emoji: '🔍',
       title: 'Qué buscás esta semana?',
-      intro: 'Las metas trimestre/mes ya viven en Proyección y se muestran en el panel de arriba — acá enfocá lo SEMANAL específico que sale de esas anclas.',
-      fields: [
-        { key: 'meta_pro_sem', label: 'Meta Profesional · esta semana', type: 'text', hint: 'Qué movimiento concreto vas a hacer estos 7 días que alinea con tu trimestre/mes.' },
-        { key: 'meta_per_sem', label: 'Meta Personal · esta semana', type: 'text', hint: 'Igual, pero del lado personal/salud/relaciones.' },
-      ],
+      intro: 'Para cada área principal del año, mirá las sub-metas mensuales y bajá una meta concreta para estos 7 días.',
     },
     {
       key: 'donde_estamos',

@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { Task, Project, Priority, Subtask } from '@/types'
 import { useTasksStore } from '@/lib/store/tasksStore'
+import { useTaskUiStore } from '@/lib/store/taskUiStore'
 import { useTranslation } from '@/hooks/useTranslation'
 import { CheckCircle2, Clock, Trash2, ChevronDown, ChevronUp, Plus, Flag, GripVertical, CornerDownRight, MoreHorizontal, ChevronRight, Calendar, X } from 'lucide-react'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
@@ -25,7 +26,14 @@ const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 export function TaskCard({ task, project, onClick, showProjectBadge = false }: Props) {
   const { completeTask, postponeTask, deleteTask, toggleSubtask, addSubtask, updateSubtask, deleteSubtask, updateTask, convertTaskToSubtask } = useTasksStore()
   const { t } = useTranslation()
-  const [expanded, setExpanded] = useState(false)
+  // Estado de UI (expanded del card, colapso de cada sub-tarea-1) vive
+  // en su propio store persistido. Refrescar la página ya no resetea el
+  // layout — recordamos qué quedó abierto/cerrado.
+  const expanded = useTaskUiStore((s) => !!s.taskExpanded[task.id])
+  const setExpanded = (next: boolean | ((v: boolean) => boolean)) => {
+    const value = typeof next === 'function' ? next(expanded) : next
+    useTaskUiStore.getState().setTaskExpanded(task.id, value)
+  }
   const [newSubtask, setNewSubtask] = useState('')
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.title)
@@ -62,6 +70,11 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
 
   const urgentSubs = visibleSubtasks.filter((s) => s.priority === 'urgent' && !s.completed)
   const highSubs = visibleSubtasks.filter((s) => s.priority === 'high' && !s.completed)
+  // Si una subtarea (sub1 o sub2) está URGENTE y abierta, la tarea madre
+  // tiene que verse roja también. La banderita inline queda muy chica y
+  // se pierde a la vista — el borde rojo + glow es inequívoco.
+  const hasUrgentSub = urgentSubs.length > 0
+  const treatAsUrgent = isUrgent || hasUrgentSub
 
   // ── Drag-and-drop state for subtask nesting ──
   const [dragSubId, setDragSubId] = useState<string | null>(null)
@@ -159,13 +172,12 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
   const [childDraft, setChildDraft] = useState('')
 
   // ── Collapse state per parent subtask (parent id → collapsed?) ──
-  const [collapsedParents, setCollapsedParents] = useState<Set<string>>(new Set())
+  // Persistido en el taskUi store: refrescar la página NO resetea qué
+  // sub-tarea-1 quedó cerrada.
+  const subtaskCollapsedMap = useTaskUiStore((s) => s.subtaskCollapsed)
+  const isParentCollapsed = (parentId: string) => !!subtaskCollapsedMap[`${task.id}:${parentId}`]
   const toggleParentCollapse = (parentId: string) => {
-    setCollapsedParents((prev) => {
-      const next = new Set(prev)
-      if (next.has(parentId)) next.delete(parentId); else next.add(parentId)
-      return next
-    })
+    useTaskUiStore.getState().toggleSubtaskCollapsed(task.id, parentId)
   }
 
   // ── Subtask detail modal ──
@@ -252,7 +264,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
   // Border logic
   const borderClass = isDone
     ? 'border-zinc-800 opacity-60'
-    : isUrgent
+    : treatAsUrgent
       ? 'border-red-500 shadow-[0_0_0_1px_rgba(239,68,68,0.3)]'
       : isHighPriority || isOverdue
         ? 'border-red-500/40'
@@ -281,7 +293,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
       onDrop={onTaskDrop}
       onDragEnd={onTaskDragEnd}
       style={dndStyle}
-      className={`bg-zinc-900 border rounded-xl transition-all ${borderClass} ${dndClass}`}
+      className={`${treatAsUrgent && !isDone ? 'bg-red-500/[0.06]' : 'bg-zinc-900'} border rounded-xl transition-all ${borderClass} ${dndClass}`}
     >
       {/* Body — clicking it opens the detail modal */}
       <div
@@ -487,7 +499,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
               const children = subtaskTree.childrenByParent.get(root.id) ?? []
               const doneChildren = children.filter((c) => c.completed).length
               const hasChildren = children.length > 0
-              const isCollapsed = collapsedParents.has(root.id)
+              const isCollapsed = isParentCollapsed(root.id)
               return (
                 <div key={root.id} className="space-y-1">
                   <InlineSubtask

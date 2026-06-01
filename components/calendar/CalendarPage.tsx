@@ -286,9 +286,23 @@ export function CalendarPage() {
 
             <div className="grid grid-cols-7">
               {days.map((day, i) => {
+                const isCurrentMonth = isSameMonth(day, currentDate)
+                // Days that fall outside the current month (leading/trailing
+                // padding to align the grid to Monday) render as completely
+                // BLANK cells — no number, no events, no hover. This avoids
+                // "today" appearing in two different months when navigating
+                // forward/back and the same calendar week spans both.
+                if (!isCurrentMonth) {
+                  return (
+                    <div
+                      key={i}
+                      className="p-2 min-h-[90px] border-b border-r border-zinc-800 bg-zinc-950/40"
+                      aria-hidden="true"
+                    />
+                  )
+                }
                 const dayTasks = getTasksForDay(day)
                 const dayEvents = eventsByDay.get(format(day, 'yyyy-MM-dd')) ?? []
-                const isCurrentMonth = isSameMonth(day, currentDate)
                 const isSelected = selectedDay && isSameDay(day, selectedDay)
                 const isCurrentDay = isToday(day)
                 const totalItems = dayTasks.length + dayEvents.length
@@ -300,8 +314,8 @@ export function CalendarPage() {
                     whileTap={{ scale: 0.96 }}
                     onClick={() => setSelectedDay(day)}
                     className={`relative p-2 min-h-[90px] text-left border-b border-r border-zinc-800 transition-colors ${
-                      !isCurrentMonth ? 'opacity-30' : ''
-                    } ${isSelected ? 'bg-indigo-600/10' : 'hover:bg-zinc-800/50'}`}
+                      isSelected ? 'bg-indigo-600/10' : 'hover:bg-zinc-800/50'
+                    }`}
                   >
                     <span className={`inline-flex w-6 h-6 items-center justify-center rounded-full text-xs font-medium mb-1 ${
                       isCurrentDay ? 'bg-indigo-600 text-white' :

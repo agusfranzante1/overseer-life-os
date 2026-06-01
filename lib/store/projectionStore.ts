@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { ProjectionPlan, ProjectionLevel } from '@/lib/projection/types'
 import { ALL_TEMPLATES } from '@/lib/projection/templates'
+import { buildMonthSnapshot } from '@/lib/projection/monthSnapshot'
 
 function genId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
@@ -205,15 +206,23 @@ export const useProjectionStore = create<ProjectionState>()(
 
       closePlan: (planId, args) =>
         set((s) => ({
-          plans: s.plans.map((p) =>
-            p.id !== planId ? p : {
+          plans: s.plans.map((p) => {
+            if (p.id !== planId) return p
+            // Para planes mensuales, capturamos el snapshot de hábitos +
+            // ingresos AL MOMENTO del cierre. Queda congelado en el plan
+            // así la revisión histórica no depende del estado live.
+            const snapshot = p.level === 'month'
+              ? buildMonthSnapshot(p.periodKey)
+              : undefined
+            return {
               ...p,
               closedAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
               mood: args.mood ?? p.mood,
               notes: args.notes ?? p.notes,
+              monthSnapshot: snapshot ?? p.monthSnapshot,
             }
-          ),
+          }),
         })),
 
       reopenPlan: (planId) =>

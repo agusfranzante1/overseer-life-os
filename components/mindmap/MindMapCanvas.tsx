@@ -1,6 +1,6 @@
 'use client'
-import { useState, useRef, useEffect } from 'react'
-import { Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight, ZoomIn, ZoomOut, Square, Circle, Type } from 'lucide-react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight, ZoomIn, ZoomOut, Square, Circle, Type, Copy } from 'lucide-react'
 import {
   useMindMapStore, NODE_PALETTE,
   type MindMapNode, type MindMapEdgeShape, type MindMapNodeShape,
@@ -46,6 +46,7 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
   const setEdgeShape = useMindMapStore((s) => s.setEdgeShape)
   const setNodeShape = useMindMapStore((s) => s.setNodeShape)
   const setNodeFontSize = useMindMapStore((s) => s.setNodeFontSize)
+  const duplicateNode = useMindMapStore((s) => s.duplicateNode)
 
   // Selection — either a node or an edge.
   const [selection, setSelection] = useState<{ kind: 'node' | 'edge'; id: string } | null>(null)
@@ -191,7 +192,20 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
     if (e.target !== e.currentTarget) return
     setSelection(null)
     if (drawingFromId) {
-      // Clicked empty space while drawing → cancel.
+      // Drawing + click en lienzo vacío → CREAR un nodo nuevo donde se
+      // hizo click y conectarlo automáticamente desde el origen. Antes
+      // este branch cancelaba el drawing, lo cual era confuso porque el
+      // affordance natural es "tap acá y aparece la otra punta de la
+      // flecha". Para cancelar el drawing seguís teniendo Escape.
+      const p = screenToContent(e.clientX, e.clientY)
+      if (p) {
+        const newId = addNode(mapId, { x: p.x - 80, y: p.y - 32 })
+        if (newId) {
+          addEdge(mapId, drawingFromId, newId)
+          setSelection({ kind: 'node', id: newId })
+          setEditingNodeId(newId)
+        }
+      }
       setDrawingFromId(null)
       setCursorPos(null)
       return
@@ -469,7 +483,7 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
       {drawingFromId && (
         <div className="absolute top-12 left-1/2 -translate-x-1/2 z-20 bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs font-semibold px-3 py-1.5 rounded-lg shadow-lg flex items-center gap-2">
           <CornerDownRight className="w-3 h-3" />
-          Tocá el nodo destino para crear la flecha
+          Tocá un nodo destino o el lienzo vacío para crear uno nuevo · Esc cancela
           <button
             onClick={() => { setDrawingFromId(null); setCursorPos(null) }}
             className="ml-2 opacity-60 hover:opacity-100"
@@ -638,6 +652,10 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
                 onPointerDown={(e) => startNodeDrag(e, node)}
                 onResizeStart={(e) => startNodeResize(e, node)}
                 onAutoGrowHeight={(height) => updateNode(mapId, node.id, { height })}
+                onDuplicate={() => {
+                  const newId = duplicateNode(mapId, node.id)
+                  if (newId) setSelection({ kind: 'node', id: newId })
+                }}
                 onClick={() => handleNodeClick(node.id)}
                 onDoubleClick={() => {
                   setEditingNodeId(node.id)
@@ -927,7 +945,7 @@ function EdgeShapePicker({
 
 function NodeBox({
   node, pan, selected, drawingMode, editing, showPlus,
-  onPointerDown, onResizeStart, onAutoGrowHeight, onClick, onDoubleClick, onTextChange, onEndEdit,
+  onPointerDown, onResizeStart, onAutoGrowHeight, onDuplicate, onClick, onDoubleClick, onTextChange, onEndEdit,
   onHover, onStartConnect, onConnectorMove, onConnectorDrop,
 }: {
   node: MindMapNode
@@ -943,6 +961,9 @@ function NodeBox({
   /** Fired while editing when the textarea's content grows past the current
    *  height. Parent persists the new height to the store. */
   onAutoGrowHeight: (height: number) => void
+  /** Fired when the user clicks the "duplicar" button (top-right on hover).
+   *  Parent creates a copy of this node and selects the new one. */
+  onDuplicate: () => void
   onClick: () => void
   onDoubleClick: () => void
   onTextChange: (text: string) => void
@@ -964,50 +985,53 @@ function NodeBox({
   const [draft, setDraft] = useState(node.text)
   useEffect(() => { setDraft(node.text) }, [node.text, editing])
 
-  // Auto-grow height: when editing, measure the textarea's natural content
-  // height (scrollHeight) and bump the node's persisted height if the text
-  // outgrew the box. We never SHRINK below the current height here — the
-  // user controls shrinking via the manual resize handle. This way the
-  // node "remembers" how big you sized it once, and grows further only if
-  // you keep typing past that.
+  // Auto-fit height: la altura del nodo SIGUE al contenido — crece al
+  // tipear, decrece al borrar. Antes solo crecía (la idea original era
+  // "recordar el tamaño que le diste"), pero el usuario prefiere que
+  // sea estricto: caja ajustada al texto, ni más ni menos.
   //
-  // IMPORTANT: `node.height` is intentionally NOT in the dep array. The
-  // effect SETS height — if we depended on it, every update would
-  // re-trigger the effect and (for the view-mode path below, where the
-  // measured element is h-full) cause an infinite grow loop. Without it,
-  // the effect only re-runs when the inputs that affect content height
-  // change (text, font size, width, edit mode).
+  // El truco para auto-fit funcional en un textarea con `h-full`: ANTES
+  // de leer `scrollHeight`, resetear `style.height = 'auto'`. Sin ese
+  // reset, scrollHeight = altura actual del box (= node.height), no la
+  // altura natural del contenido → en delete nunca decrece.
+  //
+  // Importante: `node.height` NO está en el dep array. El effect SETEA
+  // height — depender de él re-dispararía el effect tras cada update y
+  // (en el view-mode path) entraría en loop infinito.
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-  // Stable ref to the parent callback so we can omit it from deps without
-  // staleness — parent identity is recreated each render and would
-  // otherwise re-trigger the effect on every parent re-render.
   const onAutoGrowHeightRef = useRef(onAutoGrowHeight)
   useEffect(() => { onAutoGrowHeightRef.current = onAutoGrowHeight }, [onAutoGrowHeight])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!editing) return
     const ta = textareaRef.current
     if (!ta) return
-    // The textarea fills the node minus padding. Its scrollHeight tells us
-    // the minimum height needed to render `draft` without scrolling.
-    const needed = ta.scrollHeight + NODE_TEXT_PADDING_Y
-    if (needed > node.height) onAutoGrowHeightRef.current(needed)
+    // 1) Reset → scrollHeight reporta la altura natural (no la del box).
+    const previousHeight = ta.style.height
+    ta.style.height = 'auto'
+    // 2) scrollHeight INCLUYE el padding del textarea (`p-2` = 16px total
+    //    vertical) — no sumamos nada extra. Sumar padding adicional acá
+    //    era lo que hacía la caja crecer ~16px en CADA cambio.
+    const needed = Math.max(NODE_MIN_HEIGHT, ta.scrollHeight)
+    // 3) Restaurar el inline style (vacío → vuelve a CSS `h-full`).
+    ta.style.height = previousHeight
+    // Sync up-and-down. `!==` en vez de `>` para que también achique
+    // cuando el usuario borra texto.
+    if (needed !== node.height) onAutoGrowHeightRef.current(needed)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, editing, fontSize, node.width])
 
-  // Auto-grow (read-only path): even when NOT editing, the text might
-  // outgrow the box — e.g. after the user bumped the font size from the
-  // toolbar, or after a programmatic text change. We measure an INNER
-  // wrapper div (see JSX: `viewMeasureRef`) that has natural height —
-  // NOT the outer h-full flex container, whose scrollHeight is just the
-  // node's set height and would create a runaway feedback loop.
+  // Auto-fit (view-mode): si el texto cambia fuera del modo edit (cambio
+  // de fontSize desde la toolbar, importación, etc.), también ajustamos.
+  // Medimos el inner wrapper que tiene altura natural (NO el outer
+  // h-full, que devolvería siempre la altura actual del box).
   const viewMeasureRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (editing) return
     const el = viewMeasureRef.current
     if (!el) return
-    const needed = el.scrollHeight + NODE_TEXT_PADDING_Y
-    if (needed > node.height) onAutoGrowHeightRef.current(needed)
+    const needed = Math.max(NODE_MIN_HEIGHT, el.scrollHeight + NODE_TEXT_PADDING_Y)
+    if (needed !== node.height) onAutoGrowHeightRef.current(needed)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node.text, fontSize, node.width, editing])
 
@@ -1096,6 +1120,22 @@ function NodeBox({
               touchAction: 'none',
             }}
           />
+        )}
+
+        {/* Duplicar — botón chico arriba a la derecha del nodo. Se muestra
+            en hover/selected (mismo gate que el "+"). Click → copia todas
+            las propiedades visuales del nodo y selecciona la copia. */}
+        {showPlus && (
+          <button
+            onPointerDown={(e) => { e.stopPropagation(); e.preventDefault() }}
+            onClick={(e) => { e.stopPropagation(); onDuplicate() }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            title="Duplicar nodo"
+            className="absolute -top-2 -right-2 w-6 h-6 rounded-full border-2 bg-zinc-900 flex items-center justify-center shadow-lg transition-transform hover:scale-110 active:scale-95 z-[5]"
+            style={{ borderColor: color, color, touchAction: 'none' }}
+          >
+            <Copy className="w-3 h-3" strokeWidth={2.5} />
+          </button>
         )}
       </div>
 

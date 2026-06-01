@@ -53,6 +53,18 @@ interface AppState {
   /** Toggle for auto-deleting tasks the day after they're completed. */
   autoPurgeCompletedTasks: boolean
 
+  /** Per-channel notification preferences. Each value is a boolean; if
+   *  `undefined` we treat it as enabled (opt-out model — sane defaults).
+   *  Consumers (push schedulers, SPI Saturday banner, task due banners,
+   *  etc) should check the corresponding key before firing. */
+  notificationPrefs: {
+    spiNewSession?: boolean    // Sábado AM: "Tu nuevo SPI está habilitado"
+    taskDueSoon?: boolean      // Tareas con dueDate hoy/mañana
+    taskOverdue?: boolean      // Tareas vencidas
+    habitReminder?: boolean    // Reminder diario de hábitos no marcados
+  }
+  setNotificationPref: (key: keyof AppState['notificationPrefs'], value: boolean) => void
+
   setLanguage: (lang: Language) => void
   toggleSidebar: () => void
   setSidebarCollapsed: (v: boolean) => void
@@ -96,6 +108,12 @@ export const useAppStore = create<AppState>()(
       dayTypes: DEFAULT_DAY_TYPES,
       timezone: detectTimezone(),
       autoPurgeCompletedTasks: true,
+      notificationPrefs: {
+        spiNewSession: true,
+        taskDueSoon: true,
+        taskOverdue: true,
+        habitReminder: false,
+      },
       metrics: {
         focus: 72,
         energy: 61,
@@ -136,6 +154,9 @@ export const useAppStore = create<AppState>()(
       })),
       setTimezone: (tz) => set({ timezone: tz }),
       setAutoPurgeCompletedTasks: (v) => set({ autoPurgeCompletedTasks: v }),
+      setNotificationPref: (key, value) => set((s) => ({
+        notificationPrefs: { ...s.notificationPrefs, [key]: value },
+      })),
       setActiveSection: (activeSection) => set({ activeSection }),
       updateMetric: (key, value) =>
         set((s) => ({ metrics: { ...s.metrics, [key]: value } })),

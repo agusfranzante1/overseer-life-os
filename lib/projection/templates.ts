@@ -273,50 +273,6 @@ export const ANNUAL_TEMPLATE: ProjectionTemplate = {
   ],
 }
 
-/** Three-layer breakdown section — used in both quarterly and monthly
- *  templates to deep-dive a CHALLENGING objective. Maps to the user's
- *  Notion exercise: ver la realidad sin filtro → cambiar el diálogo
- *  interno → diseñar el plan desde compasión y claridad. */
-const TRES_CAPAS_SECTION: SPISection = {
-  key: 'desgranar_retador',
-  emoji: '🧩',
-  title: 'Objetivo retador · desgranarlo en 3 capas',
-  intro: 'Cuando hay un objetivo grande que se siente difícil, lo bajamos por capas. Primera capa: ver la realidad. Segunda capa: cambiar el diálogo. Tercera capa: diseñar el plan con compasión.',
-  defaultCollapsed: true,
-  subsections: [
-    {
-      key: 'capa_1',
-      emoji: '1️⃣',
-      title: 'Primera capa · ver la realidad',
-      fields: [
-        { key: 'objetivo_retador', label: '¿Cuál es el objetivo más retador que tenés ahora mismo?', type: 'textarea' },
-        { key: 'mirando_reojo', label: '¿Qué parte de la situación real estás mirando de reojo, en lugar de mirarla de frente?', type: 'textarea' },
-        { key: 'interpretacion', label: '¿Qué argumentación estás usando que NO es la situación, sino una interpretación de ella?', type: 'textarea' },
-      ],
-    },
-    {
-      key: 'capa_2',
-      emoji: '2️⃣',
-      title: 'Segunda capa · diálogo interno',
-      fields: [
-        { key: 'como_te_hablas', label: '¿Cómo te hablás a vos mismo cuando las cosas no van como esperabas?', type: 'textarea', hint: 'Escribilo LITERAL. Las frases exactas que aparecen en tu cabeza.' },
-        { key: 'a_alguien_querido', label: 'Ahora escribí qué le dirías a alguien que querés en ese mismo momento.', type: 'textarea', hint: 'Las mismas palabras, el mismo tono que usarías con esa persona.' },
-        { key: 'que_cambia', label: '¿Qué cambia si empezás a usar ese segundo tono con vos mismo?', type: 'textarea' },
-      ],
-    },
-    {
-      key: 'capa_3',
-      emoji: '3️⃣',
-      title: 'Tercera capa · el plan desde claridad',
-      fields: [
-        { key: 'plan_honesto', label: 'Sin historia, sin juicio, con compasión radical — ¿cuál es el plan honesto de cómo lograrías este objetivo?', type: 'textarea', hint: 'Un plan que lleva esfuerzo, contempla desafíos, no cree que todo debe llegar fácil — pero está diseñado para los momentos difíciles.' },
-        { key: 'recursos_actuales', label: '¿Cuáles son los recursos con los que YA contás para este objetivo?', type: 'textarea' },
-        { key: 'pieza_domino', label: 'Una acción de compromiso (la pieza dominó) durante 21 días', type: 'textarea', hint: 'La acción mínima sostenida que destraba todo el resto.' },
-      ],
-    },
-  ],
-}
-
 /** Quarterly template — turn vision into 3-month focus.
  *  Filled at the start of each Q. The first month of the quarter is the
  *  best moment to do this in depth. */
@@ -362,7 +318,7 @@ export const QUARTER_TEMPLATE: ProjectionTemplate = {
  *  Filled at the start of each month. */
 export const MONTH_TEMPLATE: ProjectionTemplate = {
   level: 'month',
-  version: 3,
+  version: 4,
   title: 'Plan Mensual',
   intro: 'El mes es la bisagra entre el trimestre y la semana. Cada sub-meta del trimestre se baja a 3 sub-metas mensuales para esas áreas principales.',
   sections: [
@@ -394,8 +350,10 @@ export const MONTH_TEMPLATE: ProjectionTemplate = {
         { key: 'proyecto_4', label: 'Proyecto #4 (opcional)', type: 'textarea' },
       ],
     },
-    // 3-layer breakdown — for diving deep into the month's hardest objective
-    TRES_CAPAS_SECTION,
+    // v4: "Objetivo retador" (TRES_CAPAS) y "Sistema del mes" (sistema_m)
+    // movidos al SPI semanal. El mes queda enfocado en cascade + eventos +
+    // pre-mortem + cierre — el "cómo lo voy a hacer" semana a semana vive
+    // ahora en el ciclo semanal donde es accionable.
     {
       key: 'eventos_m',
       emoji: '📅',
@@ -403,16 +361,6 @@ export const MONTH_TEMPLATE: ProjectionTemplate = {
       fields: [
         { key: 'eventos', label: 'Eventos importantes esperados', type: 'textarea', placeholder: 'Viajes, fechas límite, reuniones grandes, lanzamientos, cumpleaños...' },
         { key: 'fechas_clave', label: 'Fechas clave / deadlines', type: 'textarea' },
-      ],
-    },
-    {
-      key: 'sistema_m',
-      emoji: '⚙️',
-      title: 'Sistema del mes',
-      defaultCollapsed: true,
-      fields: [
-        { key: 'bloques', label: 'Bloques de calendario fijos', type: 'textarea', placeholder: 'Ej: Lun-Vie 8-9 anclaje, Lun-Vie 9-13 deep work, Sáb 10 SPI...' },
-        { key: 'metricas_m', label: 'Métricas a trackear este mes', type: 'textarea' },
       ],
     },
     {

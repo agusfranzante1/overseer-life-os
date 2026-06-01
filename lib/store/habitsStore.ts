@@ -58,7 +58,40 @@ export const useHabitsStore = create<State>()(
       habits: [],
       addHabit: (h) => {
         const id = genId()
-        set((s) => ({ habits: [...s.habits, { ...h, id, createdAt: todayStr(), completedDates: [] }] }))
+        set((s) => {
+          // Pre-fill skipped dates desde el día más viejo registrado en
+          // los hábitos existentes hasta AYER. Razón: un hábito nuevo
+          // no debería arrastrar para abajo los stats acumulados de las
+          // revisiones que ya hizo el usuario. Como los días skipped se
+          // excluyen del numerador Y del denominador del % diario, esto
+          // hace que el hábito nuevo "no exista" para fechas previas a
+          // su creación.
+          const today = new Date()
+          today.setHours(0, 0, 0, 0)
+          const todayStrVal = dateToStr(today)
+          const skipped: string[] = []
+          if (s.habits.length > 0) {
+            const earliest = s.habits
+              .map((existing) => existing.createdAt)
+              .filter(Boolean)
+              .sort()[0]
+            if (earliest && earliest < todayStrVal) {
+              const [ey, em, ed] = earliest.split('-').map(Number)
+              const cursor = new Date(ey, em - 1, ed)
+              cursor.setHours(0, 0, 0, 0)
+              while (cursor < today) {
+                skipped.push(dateToStr(cursor))
+                cursor.setDate(cursor.getDate() + 1)
+              }
+            }
+          }
+          return {
+            habits: [
+              ...s.habits,
+              { ...h, id, createdAt: todayStrVal, completedDates: [], skippedDates: skipped },
+            ],
+          }
+        })
         return id
       },
       removeHabit: (id) => set((s) => ({ habits: s.habits.filter((h) => h.id !== id) })),

@@ -20,7 +20,7 @@ import {
   currentYearKey, currentQuarterKey, currentMonthKey,
   previewMonthKey, previewQuarterKey,
   quarterMonths, yearOfQuarter, yearOfMonth, quarterOfMonthKey,
-  labelForPeriod, shiftPeriod, monthOfSpiWeek,
+  labelForPeriod, shiftPeriod, monthOfSpiWeek, weekOfQuarter,
 } from '@/lib/projection/period'
 import type { ProjectionLevel, ProjectionPlan, SPISection, SectionField } from '@/lib/projection/types'
 
@@ -403,6 +403,14 @@ function PlanCard({
                   onValueChange={(secKey, fieldKey, value) => updateValue(plan.id, secKey, fieldKey, value)}
                 />
               ))}
+
+              {/* Snapshot del mes — solo para planes mensuales cerrados.
+                  Muestra cómo cumpliste los hábitos cada día + ingresos
+                  totales por moneda. Queda congelado en el plan así la
+                  revisión histórica no depende del estado live. */}
+              {plan && level === 'month' && plan.monthSnapshot && (
+                <MonthClosureSnapshotBlock snapshot={plan.monthSnapshot} periodKey={periodKey} />
+              )}
 
               {/* Cascade from annual is rendered inside Section via the
                   special 'principal_cascade' key — no extra wiring here. */}
@@ -817,10 +825,14 @@ function buildHierarchyContext(
       .sort((a, b) => a.weekStartDate.localeCompare(b.weekStartDate))
     for (const sess of monthSessions) {
       const [, m, d] = sess.weekStartDate.split('-')
+      const wN = weekOfQuarter(sess.weekStartDate)
       children.push({
         level: 'week',
         key: sess.id,
-        label: `Semana del ${d}/${m}`,
+        // Format: "Semana N · DD/MM" — N is the week index INSIDE the
+        // quarter (1-12/13), not the ISO week of year. The user plans in
+        // 12-week trimester cycles.
+        label: `Semana ${wN} · ${d}/${m}`,
         closed: !!sess.closedAt,
         href: '/spi',
       })
@@ -1059,6 +1071,112 @@ const MONTH_NAMES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ]
 
+// ─────────────────────────────────────────────────────────────────────
+// MONTH CLOSURE SNAPSHOT
+// ─────────────────────────────────────────────────────────────────────
+/** Renderiza la imagen capturada al cerrar un mes — grid de hábitos día
+ *  por día + total de ingresos por moneda. Es read-only (snapshot
+ *  congelado), nada de esto se persiste a los stores en vivo. */
+function MonthClosureSnapshotBlock({
+  snapshot, periodKey,
+}: {
+  snapshot: import('@/lib/projection/types').MonthClosureSnapshot
+  periodKey: string
+}) {
+  const [yearStr, monthStr] = periodKey.split('-')
+  const year = parseInt(yearStr, 10)
+  const monthIdx = parseInt(monthStr, 10) - 1
+  const totalDays = new Date(year, monthIdx + 1, 0).getDate()
+  const dayNumbers = Array.from({ length: totalDays }, (_, i) => i + 1)
+  const monthName = MONTH_NAMES[monthIdx] ?? monthStr
+  const capturedDate = new Date(snapshot.capturedAt).toLocaleDateString('es-AR', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  })
+
+  return (
+    <div className="bg-zinc-950/60 border border-emerald-500/20 rounded-2xl p-4 space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-[10px] font-mono uppercase tracking-wider text-emerald-300/80">
+          📸 Snapshot del cierre · {monthName} {year}
+        </p>
+        <span className="text-[10px] text-zinc-600 font-mono">capturado el {capturedDate}</span>
+      </div>
+
+      {/* Hábitos del mes — grid día x hábito */}
+      {snapshot.habits.length > 0 ? (
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold text-zinc-300">Hábitos · cómo te fue</p>
+          <div className="overflow-x-auto -mx-1 px-1">
+            <div className="inline-block min-w-full">
+              {/* Header con números de día */}
+              <div className="flex items-center gap-1 mb-1 ml-[140px]">
+                {dayNumbers.map((d) => (
+                  <span key={d} className="w-5 text-center text-[9px] font-mono text-zinc-600 tabular-nums">
+                    {d}
+                  </span>
+                ))}
+              </div>
+              {/* Una fila por hábito */}
+              {snapshot.habits.map((h) => (
+                <div key={h.id} className="flex items-center gap-1 mb-1">
+                  <div className="w-[140px] shrink-0 flex items-center gap-1.5 pr-2">
+                    <span className="text-sm shrink-0">{h.icon}</span>
+                    <span className="text-[11px] text-zinc-300 truncate" title={h.name}>{h.name}</span>
+                  </div>
+                  {h.days.map((state, i) => {
+                    const bg = state === 'done' ? h.color
+                      : state === 'skipped' ? '#27272a'
+                      : state === 'future' ? 'transparent'
+                      : '#18181b'
+                    const border = state === 'future' ? '1px dashed #3f3f46' : 'none'
+                    const title = state === 'done' ? 'Cumplido'
+                      : state === 'skipped' ? 'N/A'
+                      : state === 'future' ? 'Posterior al cierre'
+                      : 'Perdido'
+                    return (
+                      <div
+                        key={i}
+                        title={`Día ${i + 1} · ${title}`}
+                        className="w-5 h-5 rounded shrink-0"
+                        style={{ backgroundColor: bg, border, opacity: state === 'missed' ? 0.5 : 1 }}
+                      />
+                    )
+                  })}
+                  <span className="ml-2 text-[10px] font-mono tabular-nums text-zinc-400 shrink-0">
+                    {h.completionPct}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <p className="text-xs text-zinc-600 italic">Sin hábitos cargados al cierre.</p>
+      )}
+
+      {/* Ingresos por moneda */}
+      <div className="space-y-2">
+        <p className="text-[11px] font-semibold text-zinc-300">Ingresos del mes</p>
+        {snapshot.income.length === 0 ? (
+          <p className="text-xs text-zinc-600 italic">Sin ingresos registrados.</p>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {snapshot.income.map((row) => (
+              <div key={row.currencyCode} className="bg-zinc-900/60 border border-zinc-800 rounded-lg px-3 py-2">
+                <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">{row.currencyCode}</p>
+                <p className="text-base font-bold text-emerald-300 tabular-nums">
+                  {row.total.toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-[10px] text-zinc-600">{row.count} {row.count === 1 ? 'movimiento' : 'movimientos'}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function QuarterMiniCalendar({ quarterKey }: { quarterKey: string }) {
   // Parse 'YYYY-QN' → year + first month index (0-based).
   const [yearStr, qStr] = quarterKey.split('-Q')
@@ -1290,7 +1408,9 @@ function PrincipalCascadeBlock({
               {/* 3 sub-goal inputs */}
               <div className="space-y-2">
                 <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-                  3 sub-metas para este {plan.level === 'quarter' ? 'trimestre' : 'mes'}
+                  {plan.level === 'quarter'
+                    ? 'Cómo vas a sostener por 12 semanas este objetivo'
+                    : '3 sub-metas para este mes'}
                 </p>
                 {[0, 1, 2].map((idx) => (
                   <div key={idx} className="flex items-start gap-2">

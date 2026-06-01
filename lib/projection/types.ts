@@ -50,6 +50,36 @@ export interface ProjectionPlan {
    *  thematic lanes the user has selected to display. Empty / undefined =
    *  show all lanes. Sections without `laneKey` render regardless. */
   selectedLanes?: string[]
+  /** Snapshot capturado al cerrar el plan. Solo se popula en planes
+   *  mensuales — fixed-frozen-en-el-tiempo de hábitos + ingresos del mes
+   *  para que la revisión histórica muestre cómo te fue ese mes incluso
+   *  si después borrás hábitos o transacciones. */
+  monthSnapshot?: MonthClosureSnapshot
+}
+
+/** Captura al cerrar un mes: estado de hábitos (qué se cumplió cada día)
+ *  + ingresos totales por moneda. Pensado como "imagen congelada" del
+ *  mes para revisarlo después aunque el dataset live cambie. */
+export interface MonthClosureSnapshot {
+  /** Para cada hábito, qué pasó cada día del mes.
+   *   - 'done'    → marcado como cumplido
+   *   - 'skipped' → N/A (no cuenta)
+   *   - 'missed'  → ni done ni skipped (perdido)
+   *   - 'future'  → día posterior a hoy al cierre (no aplica) */
+  habits: Array<{
+    id: string
+    name: string
+    icon: string
+    color: string
+    /** Array paralelo a los días del mes (1-31). Índice i = día i+1. */
+    days: Array<'done' | 'skipped' | 'missed' | 'future'>
+    /** % de cumplimiento sobre días NO-skipped y NO-future. */
+    completionPct: number
+  }>
+  /** Total de ingresos del mes agrupado por código de moneda. */
+  income: Array<{ currencyCode: string; total: number; count: number }>
+  /** ISO timestamp del cierre — para mostrar "snapshot del X de marzo". */
+  capturedAt: string
 }
 
 /** A template for one projection level — same shape as SPITemplate.

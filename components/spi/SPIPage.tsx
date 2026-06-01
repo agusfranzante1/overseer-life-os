@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Infinity as InfinityIcon, Plus, ChevronDown, ChevronRight, Flame, Trophy,
@@ -19,7 +19,7 @@ import { useTasksStore } from '@/lib/store/tasksStore'
 import { useProjectionStore } from '@/lib/store/projectionStore'
 import type { SPISection, SectionField, SPISession, SPITask } from '@/lib/spi/types'
 import { titleForLevel, type SessionXP } from '@/lib/spi/gamification'
-import { quarterOfMonthKey, monthOfSpiWeek, labelForPeriod } from '@/lib/projection/period'
+import { quarterOfMonthKey, monthOfSpiWeek, labelForPeriod, weekOfQuarter } from '@/lib/projection/period'
 
 export function SPIPage() {
   const {
@@ -570,7 +570,9 @@ function ActiveSession({
       <div className="bg-zinc-950/60 border border-fuchsia-500/20 rounded-2xl p-5">
         <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
           <div>
-            <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-400/70">Sesión de</p>
+            <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-400/70">
+              Sesión de · Semana {weekOfQuarter(session.weekStartDate)} / 12 del Q{quarterN}
+            </p>
             <p className="text-base font-semibold text-zinc-200 capitalize">{weekLabel}</p>
             {/* Projection breadcrumb — links each level to /proyeccion. */}
             <p className="text-[10px] text-zinc-600 mt-1">
@@ -1080,6 +1082,118 @@ function LaneBar({
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// WEEKLY GOALS BY PRINCIPAL AREA
+// ─────────────────────────────────────────────────────────────────────
+/** Renderiza dinámicamente las "metas semanales por área principal"
+ *  dentro de la sección `que_buscamos` del SPI semanal. Para cada área
+ *  marcada como principal en el plan anual:
+ *   1. Muestra el label del área.
+ *   2. Lista las 3 sub-metas mensuales (read-only) como contexto top-down.
+ *   3. Provee un textarea de meta semanal específica para esa área.
+ *
+ *  Persistencia: cada meta semanal vive en
+ *  `session.values.que_buscamos.meta_${areaKey}_sem` — un campo dinámico
+ *  por área. No hay que tocar el schema porque el storage es key/value. */
+const AREA_LABEL_MAP: Record<string, string> = {
+  fisica: 'Salud Física',
+  mental_emocional: 'Salud Mental/Emocional',
+  mental: 'Salud Mental',         // legacy pre-v2
+  emocional: 'Salud Emocional',   // legacy pre-v2
+  espiritual: 'Conexión Espiritual',
+  relaciones: 'Relaciones Personales',
+  profesional: 'Profesional',
+  financiera: 'Salud Financiera',
+  legado: 'Propósito / Legado',
+  hobbies: 'Hobbies / Pasiones',
+  creatividad: 'Creatividad',
+}
+
+function WeeklyGoalsByArea({
+  session, fullKey, onValueChange,
+}: {
+  session: SPISession
+  fullKey: string
+  onValueChange: (sectionKey: string, fieldKey: string, value: string) => void
+}) {
+  const plans = useProjectionStore((s) => s.plans)
+  const [yearStr, monthStr] = session.weekStartDate.split('-')
+  const yearKey = yearStr
+  const monthKey = `${yearStr}-${monthStr}`
+  const annualPlan = plans.find((p) => p.level === 'year' && p.periodKey === yearKey)
+  const monthPlan = plans.find((p) => p.level === 'month' && p.periodKey === monthKey)
+  const principalesCsv = annualPlan?.values?.metas_anuales?.principales ?? ''
+  const principalKeys = principalesCsv.split(',').filter(Boolean)
+
+  if (principalKeys.length === 0) {
+    return (
+      <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">
+        <p className="text-xs text-amber-200/80">
+          No marcaste áreas principales en el plan anual.
+        </p>
+        <p className="text-[10px] text-zinc-500 mt-1">
+          Andá a Proyección → Anual, marcá las áreas que vas a trabajar este año, y van a aparecer acá con sus sub-metas mensuales.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {principalKeys.map((k) => {
+        const monthlySubs = [1, 2, 3]
+          .map((i) => monthPlan?.values?.principal_cascade?.[`${k}_sub${i}`] ?? '')
+          .filter((s) => s.trim().length > 0)
+        const annualMeta = (annualPlan?.values?.metas_anuales?.[k] ?? '').trim()
+        const fieldKey = `meta_${k}_sem`
+        const weeklyMeta = session.values[fullKey]?.[fieldKey] ?? ''
+        const label = AREA_LABEL_MAP[k] ?? k
+        return (
+          <div key={k} className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">
+            <div className="flex items-center gap-1.5 mb-2">
+              <span className="text-amber-400">⭐</span>
+              <span className="text-xs font-semibold text-amber-200">{label}</span>
+            </div>
+            {/* Meta anual (read-only) */}
+            {annualMeta && (
+              <p className="text-[10px] text-zinc-500 italic mb-1.5">
+                <span className="text-amber-300/60 not-italic font-mono uppercase tracking-wider">Anual · </span>
+                {annualMeta}
+              </p>
+            )}
+            {/* Sub-metas mensuales (read-only) */}
+            {monthlySubs.length > 0 ? (
+              <ul className="space-y-0.5 mb-2 bg-zinc-900/40 border border-zinc-800 rounded px-2 py-1.5">
+                <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-600 mb-0.5">Mensual</p>
+                {monthlySubs.map((s, i) => (
+                  <li key={i} className="text-[11px] text-zinc-300 leading-snug">
+                    <span className="text-amber-400/60 font-mono text-[10px]">{i + 1}.</span> {s}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-[10px] text-zinc-600 italic mb-2">
+                Sin sub-metas mensuales cargadas. Definilas en el plan mensual.
+              </p>
+            )}
+            {/* Meta semanal — input dinámico por área */}
+            <label className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-400/70 mb-1 block">
+              Esta semana
+            </label>
+            <AutoGrowTextarea
+              value={weeklyMeta}
+              onChange={(e) => onValueChange(fullKey, fieldKey, e.target.value)}
+              placeholder="Qué movés concretamente esta semana en esta área?"
+              minRows={2}
+              className="w-full text-xs bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
+            />
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // SECTION (recursive — supports subsections)
 // ─────────────────────────────────────────────────────────────────────
 function Section({
@@ -1124,6 +1238,16 @@ function Section({
               {section.intro && (
                 <p className="text-xs text-zinc-400 italic leading-relaxed">{section.intro}</p>
               )}
+              {/* Render dinámico para "Qué buscás esta semana?": itera las
+                  áreas principales del plan anual + sus sub-metas mensuales
+                  como contexto, en lugar de los 2 fields hardcoded. */}
+              {section.key === 'que_buscamos' && (
+                <WeeklyGoalsByArea
+                  session={session}
+                  fullKey={fullKey}
+                  onValueChange={onValueChange}
+                />
+              )}
               {section.fields?.map((field) => (
                 <Field
                   key={field.key}
@@ -1150,6 +1274,47 @@ function Section({
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// AUTO-GROW TEXTAREA
+// ─────────────────────────────────────────────────────────────────────
+/** Textarea que crece automáticamente para mostrar todo su contenido sin
+ *  scroll vertical. Acepta todas las props nativas de <textarea> + un
+ *  `minRows` que setea el alto mínimo cuando está vacío.
+ *
+ *  Estrategia: en cada cambio de `value` resetear `height` a 'auto' (para
+ *  que `scrollHeight` reporte la altura natural del contenido y NO la
+ *  altura previamente seteada — sin este reset el textarea solo crece,
+ *  nunca decrece al borrar) y luego setear `height = scrollHeight`.
+ *  Usamos useLayoutEffect para que el ajuste suceda antes del paint y
+ *  no se vea un flash en N filas.
+ *
+ *  Ventaja vs `resize-y` manual: el contenido es SIEMPRE visible, no hace
+ *  falta que el usuario recuerde re-dimensionar cada caja. */
+function AutoGrowTextarea({
+  value, minRows = 2, style, ...rest
+}: Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'rows'> & {
+  minRows?: number
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null)
+  useLayoutEffect(() => {
+    const ta = ref.current
+    if (!ta) return
+    // Reset → scrollHeight reflects natural content size (otherwise the
+    // textarea would only grow, never shrink when the user deletes text).
+    ta.style.height = 'auto'
+    ta.style.height = `${ta.scrollHeight}px`
+  }, [value])
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      rows={minRows}
+      style={{ resize: 'none', overflow: 'hidden', ...style }}
+      {...rest}
+    />
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // FIELD
 // ─────────────────────────────────────────────────────────────────────
 function Field({
@@ -1167,12 +1332,12 @@ function Field({
         <p className="text-[10px] text-zinc-600 italic mb-1.5">{field.hint}</p>
       )}
       {field.type === 'textarea' ? (
-        <textarea
+        <AutoGrowTextarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.placeholder}
-          rows={3}
-          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40 resize-y"
+          minRows={3}
+          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
         />
       ) : field.type === 'select' ? (
         <select
@@ -1375,12 +1540,12 @@ function TaskRow({
               </div>
               <div>
                 <label className="text-[10px] text-zinc-500 mb-1 block">💡 Para qué (propósito)</label>
-                <textarea
+                <AutoGrowTextarea
                   value={task.whyPurpose ?? ''}
                   onChange={(e) => onUpdate({ whyPurpose: e.target.value || undefined })}
                   placeholder="Qué resultado va a generar esta tarea?"
-                  rows={2}
-                  className="w-full text-xs bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40 resize-none"
+                  minRows={2}
+                  className="w-full text-xs bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
                 />
               </div>
               {isLinked && currentProject && (
@@ -1436,7 +1601,9 @@ function HistoryModal({
             {sorted.map((sess) => {
               const [y, m, d] = sess.weekStartDate.split('-').map(Number)
               const date = new Date(y, m - 1, d)
-              const label = date.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+              const dateLabel = date.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+              const qN = m <= 3 ? 1 : m <= 6 ? 2 : m <= 9 ? 3 : 4
+              const label = `Semana ${weekOfQuarter(sess.weekStartDate)} / Q${qN} · ${dateLabel}`
               const isActive = sess.id === activeSessionId
               return (
                 <button
@@ -1520,12 +1687,12 @@ function CloseSessionModal({
           </div>
           <div>
             <label className="text-xs text-zinc-400 mb-1.5 block">Reflexión de cierre (opcional)</label>
-            <textarea
+            <AutoGrowTextarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Qué te llevás de esta semana?"
-              rows={3}
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-emerald-500/40 resize-none"
+              minRows={3}
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-emerald-500/40"
             />
           </div>
         </div>
@@ -1801,21 +1968,21 @@ function BitacoraRow({
           row back to the compact view. Esc does the same thing. */}
       {expanded && (
         <div className="space-y-1.5 mt-1.5 ml-3">
-          <textarea
+          <AutoGrowTextarea
             autoFocus
             value={entry.situation}
             onChange={(e) => onUpdate({ situation: e.target.value })}
             onKeyDown={(e) => { if (e.key === 'Escape') setExpanded(false) }}
-            rows={2}
-            className="w-full text-[11px] bg-zinc-900 border border-zinc-800 rounded px-1.5 py-1 text-zinc-200 focus:outline-none focus:border-fuchsia-500/40 resize-none"
+            minRows={2}
+            className="w-full text-[11px] bg-zinc-900 border border-zinc-800 rounded px-1.5 py-1 text-zinc-200 focus:outline-none focus:border-fuchsia-500/40"
           />
-          <textarea
+          <AutoGrowTextarea
             value={entry.dominoEffect}
             onChange={(e) => onUpdate({ dominoEffect: e.target.value })}
             onKeyDown={(e) => { if (e.key === 'Escape') setExpanded(false) }}
             placeholder={entry.kind === 'working' ? 'Por qué funciona?' : 'Acción solución'}
-            rows={2}
-            className="w-full text-[10px] bg-zinc-900 border border-zinc-800 rounded px-1.5 py-1 text-zinc-400 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40 resize-none"
+            minRows={2}
+            className="w-full text-[10px] bg-zinc-900 border border-zinc-800 rounded px-1.5 py-1 text-zinc-400 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
           />
           <div className="flex items-center justify-between gap-2">
             <p className="text-[9px] text-zinc-700">

@@ -578,6 +578,7 @@ export function SettingsPage() {
       </section>
 
       <PushNotificationsSection />
+      <NotificationPrefsSection />
       <GoogleCalendarSection />
       <HealthWebhookSection />
       <BackupImportSection />
@@ -784,6 +785,101 @@ function PushNotificationsSection() {
           {feedback.msg}
         </div>
       )}
+    </section>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// NOTIFICATION PREFERENCES — per-channel on/off
+// ─────────────────────────────────────────────────────────────────────
+/** Toggles que controlan QUÉ tipo de notificaciones se disparan. Esto
+ *  va aparte del PushNotificationsSection (que gestiona la suscripción
+ *  push global del dispositivo) — acá vivim los flags por canal. Los
+ *  servicios que disparan notificaciones (push scheduler, banners
+ *  in-app, etc.) tienen que chequear `notificationPrefs[key]` antes de
+ *  emitir. Default: todos encendidos excepto recordatorio diario de
+ *  hábitos (opt-in porque puede ser ruido). */
+function NotificationPrefsSection() {
+  const notificationPrefs = useAppStore((s) => s.notificationPrefs)
+  const setNotificationPref = useAppStore((s) => s.setNotificationPref)
+
+  type Channel = {
+    key: keyof typeof notificationPrefs
+    title: string
+    description: string
+    emoji: string
+  }
+  const channels: Channel[] = [
+    {
+      key: 'spiNewSession',
+      title: 'Nuevo SPI habilitado',
+      description: 'Aviso el sábado AM cuando una sesión SPI nueva está disponible para arrancar.',
+      emoji: '📐',
+    },
+    {
+      key: 'taskDueSoon',
+      title: 'Vencimiento de tareas',
+      description: 'Aviso cuando una tarea con dueDate vence hoy o mañana.',
+      emoji: '📋',
+    },
+    {
+      key: 'taskOverdue',
+      title: 'Tareas vencidas',
+      description: 'Aviso recurrente si tenés tareas con dueDate ya pasada y todavía abiertas.',
+      emoji: '⚠️',
+    },
+    {
+      key: 'habitReminder',
+      title: 'Recordatorio diario de hábitos',
+      description: 'Aviso al final del día con los hábitos del día que todavía no marcaste.',
+      emoji: '🟢',
+    },
+  ]
+
+  return (
+    <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <span className="text-lg">🎚️</span>
+        <h2 className="text-sm font-bold text-white">Qué notificaciones querés recibir</h2>
+      </div>
+      <p className="text-xs text-zinc-500">
+        Estos toggles controlan QUÉ tipo de notificación se dispara. La
+        suscripción push se configura arriba — si la apagás, ninguna llega
+        aunque acá esté en ON.
+      </p>
+      <div className="space-y-2">
+        {channels.map((ch) => {
+          // Default ON (undefined → true) — coincide con el initial state.
+          const enabled = notificationPrefs[ch.key] !== false
+          return (
+            <label
+              key={ch.key}
+              className="flex items-start gap-3 p-3 rounded-xl border border-zinc-800 bg-zinc-950/40 hover:border-zinc-700 transition-colors cursor-pointer"
+            >
+              <span className="text-lg shrink-0 mt-0.5">{ch.emoji}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-zinc-200">{ch.title}</p>
+                <p className="text-[11px] text-zinc-500 mt-0.5">{ch.description}</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={enabled}
+                onClick={() => setNotificationPref(ch.key, !enabled)}
+                className={`shrink-0 w-10 h-6 rounded-full transition-colors relative ${
+                  enabled ? 'bg-emerald-500' : 'bg-zinc-700'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow ${
+                    enabled ? 'translate-x-[18px]' : 'translate-x-0.5'
+                  }`}
+                />
+              </button>
+            </label>
+          )
+        })}
+      </div>
     </section>
   )
 }
