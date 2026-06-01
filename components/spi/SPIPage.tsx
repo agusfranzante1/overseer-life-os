@@ -2088,6 +2088,7 @@ function ProjectionContext({
         financiera: 'Salud Financiera',
         legado: 'Propósito / Legado',
         hobbies: 'Hobbies / Pasiones',
+        creatividad: 'Creatividad',
       } as Record<string, string>)[k] ?? k,
       subgoals: subs,
     }

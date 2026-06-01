@@ -359,33 +359,32 @@ export function HabitsPage() {
                         title={`${weekDays[i].toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' })} — click para ${nextLabel}`}
                         className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all hover:scale-110 ${future ? 'opacity-40' : ''} ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
                         style={{
-                          // "Sticker sheet" look: every cell is a light/white
-                          // rounded square. Completed = solid BLACK dot on top.
-                          // Empty   = thin black ring outline (hollow circle).
-                          // Skipped = neutral dark cell with a minus.
-                          backgroundColor: skipped ? '#27272a'   // zinc-800
-                            : '#f4f4f5',                          // zinc-100 (sticker bg)
+                          // Estricto blanco y negro: celda NEGRA siempre.
+                          // Completed = punto BLANCO sólido.
+                          // Empty     = anillo blanco fino (outline).
+                          // Skipped   = misma celda negra con un minus tenue.
+                          backgroundColor: '#000000',
                         }}>
                         {skipped ? (
                           <Minus className="w-4 h-4 text-zinc-500" />
                         ) : done ? (
-                          // Filled solid-black dot — matches the reference image.
+                          // Punto blanco sólido — el estado "marcado".
                           <div
                             className="rounded-full transition-all"
                             style={{
                               width: 14,
                               height: 14,
-                              backgroundColor: '#000000',
+                              backgroundColor: '#ffffff',
                             }}
                           />
                         ) : (
-                          // Empty cell: hollow black ring (outline circle).
+                          // Anillo blanco fino — celda vacía.
                           <div
                             className="rounded-full transition-all"
                             style={{
                               width: 14,
                               height: 14,
-                              border: '2px solid #18181b',  // zinc-900 ring
+                              border: '2px solid #ffffff',
                               backgroundColor: 'transparent',
                             }}
                           />
@@ -403,17 +402,16 @@ export function HabitsPage() {
                     <button onClick={() => toggleDate(habit.id, today)}
                       disabled={reorderMode}
                       className={`md:hidden shrink-0 rounded-lg flex items-center justify-center transition-all w-10 h-10 ${reorderMode ? 'opacity-40 pointer-events-none' : ''}`}
-                      // Mirror the desktop "sticker sheet" style: light cell,
-                      // solid-black dot when done / hollow black ring when empty.
-                      style={{
-                        backgroundColor: skippedToday ? '#27272a' : '#f4f4f5',
-                      }}>
+                      // Mismo lenguaje que el desktop: celda negra, punto
+                      // blanco sólido cuando está hecho, anillo blanco hueco
+                      // cuando está vacío.
+                      style={{ backgroundColor: '#000000' }}>
                       {skippedToday ? (
                         <Minus className="w-4 h-4 text-zinc-500" />
                       ) : doneTodayHabit ? (
-                        <div className="rounded-full" style={{ width: 16, height: 16, backgroundColor: '#000000' }} />
+                        <div className="rounded-full" style={{ width: 16, height: 16, backgroundColor: '#ffffff' }} />
                       ) : (
-                        <div className="rounded-full" style={{ width: 16, height: 16, border: '2px solid #18181b', backgroundColor: 'transparent' }} />
+                        <div className="rounded-full" style={{ width: 16, height: 16, border: '2px solid #ffffff', backgroundColor: 'transparent' }} />
                       )}
                     </button>
                   )

@@ -64,6 +64,7 @@ export const EAGLE_TEMPLATE: ProjectionTemplate = {
         { key: 'financiera',        label: 'Salud Financiera',          type: 'score', hint: 'Ingresos, ahorro, gestión, sostenibilidad.' },
         { key: 'legado',            label: 'Propósito / Legado',        type: 'score', hint: 'Aporte al mundo, contribución, juego infinito.' },
         { key: 'hobbies',           label: 'Hobbies / Pasiones',        type: 'score', hint: 'Instrumentos, idiomas, deportes recreativos, pintura, lectura, lo que te enciende fuera del trabajo.' },
+        { key: 'creatividad',       label: 'Creatividad',               type: 'score', hint: 'Output creativo — escribir, componer, diseñar, construir, contar historias. Qué tan viva está tu pulsión de hacer.' },
       ],
     },
 
@@ -162,6 +163,7 @@ export const EAGLE_TEMPLATE: ProjectionTemplate = {
         { key: 'borrador_financiera',       label: 'Borrador · Salud Financiera',          type: 'textarea' },
         { key: 'borrador_legado',           label: 'Borrador · Propósito / Legado',        type: 'textarea' },
         { key: 'borrador_hobbies',          label: 'Borrador · Hobbies / Pasiones',        type: 'textarea' },
+        { key: 'borrador_creatividad',      label: 'Borrador · Creatividad',               type: 'textarea' },
       ],
     },
     {
@@ -232,6 +234,7 @@ export const ANNUAL_TEMPLATE: ProjectionTemplate = {
         { key: 'financiera',       label: 'Meta · Salud Financiera',          type: 'textarea', hint: 'Ej: "USD 50k ahorrado", "30% de ingresos invertido cada mes".' },
         { key: 'legado',           label: 'Meta · Propósito / Legado',        type: 'textarea', hint: 'Ej: "Lanzar curso público", "Mentoría a 10 personas".' },
         { key: 'hobbies',          label: 'Meta · Hobbies / Pasiones',        type: 'textarea', hint: 'Ej: "Tocar 3 canciones nuevas en guitarra", "B1 de italiano", "Volver a pintar 1x/semana".' },
+        { key: 'creatividad',      label: 'Meta · Creatividad',               type: 'textarea', hint: 'Ej: "Escribir 1 ensayo por mes", "Lanzar mini-álbum de 4 canciones", "Diseñar y publicar 12 piezas".' },
       ],
     },
     {
@@ -465,4 +468,9 @@ export const WHEEL_AREAS: { key: string; label: string }[] = [
   // etc). Existing plans no tendrán este campo → se ve vacío hasta que
   // el usuario lo complete.
   { key: 'hobbies',           label: 'Hobbies' },
+  // v3: creatividad como eje propio — expresión, hacer cosas nuevas,
+  // estética, narrativa. Diferente de hobbies (que es "qué te enciende")
+  // y de profesional (que es ejecución). Acá vive el output creativo
+  // (escribir, componer, diseñar, construir, contar historias).
+  { key: 'creatividad',       label: 'Creatividad' },
 ]
