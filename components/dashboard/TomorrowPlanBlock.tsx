@@ -5,14 +5,35 @@ import { motion } from 'framer-motion'
 import { CheckCircle2, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
 
+/** Parsea un YYYY-MM-DD en hora LOCAL (evita el bug UTC-rollback). */
+function parseLocalDate(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  dt.setHours(0, 0, 0, 0)
+  return dt
+}
+
+function startOfTomorrowLocal(): Date {
+  const t = new Date()
+  t.setHours(0, 0, 0, 0)
+  t.setDate(t.getDate() + 1)
+  return t
+}
+
 export function TomorrowPlanBlock() {
   const { tasks, projects, completeTask } = useTasksStore()
   const { t } = useTranslation()
 
+  // Solo tareas con dueDate === MAÑANA. Antes filtrábamos por
+  // `scheduledFor === 'tomorrow'` que acumulaba todas las postergaciones,
+  // y el panel del dashboard quedaba con un listado interminable que
+  // nada que ver. Si querés ver lo pospuesto, abrí el task manager.
+  const tomorrowTs = startOfTomorrowLocal().getTime()
   const tomorrowTasks = Object.values(tasks).filter((task) => {
     const proj = projects[task.projectId]
     const isDone = proj?.statuses.find((s) => s.label === task.status)?.countsAsDone
-    return !isDone && task.scheduledFor === 'tomorrow'
+    if (isDone || !task.dueDate) return false
+    return parseLocalDate(task.dueDate).getTime() === tomorrowTs
   })
 
   return (

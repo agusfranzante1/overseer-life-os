@@ -2,11 +2,9 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTranslation } from '@/hooks/useTranslation'
-import { useAppStore } from '@/lib/store/appStore'
 import { Task } from '@/types'
-import { CheckCircle2, Clock, ChevronRight, AlertCircle } from 'lucide-react'
-import { PRIORITY_COLORS, IMPACT_COLORS } from '@/lib/utils/constants'
-import { format } from 'date-fns'
+import { CheckCircle2, Clock, ChevronRight } from 'lucide-react'
+import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import Link from 'next/link'
 
 /** Parse a YYYY-MM-DD string in LOCAL time (avoids the UTC-roll-back bug
@@ -24,22 +22,14 @@ function startOfTodayLocal(): Date {
   return t
 }
 
-function isOverdue(task: Task): boolean {
-  if (!task.dueDate) return false
-  return parseLocalDate(task.dueDate).getTime() < startOfTodayLocal().getTime()
-}
-
-function isToday(task: Task): boolean {
-  if (task.scheduledFor === 'today') return true
+/** Solo cuenta tareas cuya `dueDate` cae HOY (no `scheduledFor`, no
+ *  vencidas, no overdue). El usuario explícitamente pidió que este
+ *  panel del dashboard muestre únicamente las tareas con fecha de hoy
+ *  — el listado anterior con scheduledFor + overdue acumulaba todo lo
+ *  postergado y se hacía interminable. */
+function isDueToday(task: Task): boolean {
   if (!task.dueDate) return false
   return parseLocalDate(task.dueDate).getTime() === startOfTodayLocal().getTime()
-}
-
-function isDueTomorrow(task: Task): boolean {
-  if (!task.dueDate) return false
-  const tomorrow = startOfTodayLocal()
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  return parseLocalDate(task.dueDate).getTime() === tomorrow.getTime()
 }
 
 export function TodayTaskList() {
@@ -49,7 +39,9 @@ export function TodayTaskList() {
   const todayTasks = Object.values(tasks).filter((task) => {
     const proj = projects[task.projectId]
     const isDone = proj?.statuses.find((s) => s.label === task.status)?.countsAsDone
-    return !isDone && (isToday(task) || isOverdue(task))
+    // Solo dueDate === hoy. Ni overdue ni scheduledFor — esos quedan
+    // en el task manager completo, no en el dashboard.
+    return !isDone && isDueToday(task)
   })
 
   return (
@@ -73,8 +65,6 @@ export function TodayTaskList() {
           ) : (
             todayTasks.map((task, i) => {
               const proj = projects[task.projectId]
-              const overdue = isOverdue(task)
-              const dueTomorrow = isDueTomorrow(task)
               return (
                 <motion.div
                   key={task.id}
@@ -82,9 +72,7 @@ export function TodayTaskList() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, x: -20 }}
                   transition={{ delay: i * 0.05 }}
-                  className={`flex items-start gap-3 bg-zinc-900 rounded-xl p-3 border group transition-colors hover:border-zinc-700 ${
-                    overdue ? 'border-red-500/30' : 'border-zinc-800'
-                  }`}
+                  className="flex items-start gap-3 bg-zinc-900 rounded-xl p-3 border border-zinc-800 group transition-colors hover:border-zinc-700"
                 >
                   <button
                     onClick={() => completeTask(task.id)}
@@ -96,17 +84,6 @@ export function TodayTaskList() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm text-zinc-200 font-medium truncate">{task.title}</span>
-                      {overdue && (
-                        <span className="flex items-center gap-1 text-xs text-red-400">
-                          <AlertCircle className="w-3 h-3" /> {t('tasks.overdue')}
-                        </span>
-                      )}
-                      {dueTomorrow && (
-                        <span className="flex items-center gap-1 text-xs text-red-400">
-                          <AlertCircle className="w-3 h-3" />
-                          <span className="text-[10px] font-medium opacity-80">→ Mañana</span>
-                        </span>
-                      )}
                     </div>
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
                       {proj && (
