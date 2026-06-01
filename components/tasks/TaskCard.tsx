@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import { Task, Project, Priority, Subtask } from '@/types'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTaskUiStore } from '@/lib/store/taskUiStore'
+import { effectivePriority } from '@/lib/utils/taskPriority'
 import { useTranslation } from '@/hooks/useTranslation'
 import { CheckCircle2, Clock, Trash2, ChevronDown, ChevronUp, Plus, Flag, GripVertical, CornerDownRight, MoreHorizontal, ChevronRight, Calendar, X } from 'lucide-react'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
@@ -65,16 +66,17 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
   const isOverdue = dueState === 'overdue'
   const isDueTomorrow = dueState === 'tomorrow'
 
-  const isHighPriority = task.priority === 'high' || task.priority === 'urgent'
-  const isUrgent = task.priority === 'urgent'
+  // Prioridad EFECTIVA: si alguna sub-tarea abierta es urgent, la madre
+  // se trata como 'high' (escalamiento heredado). El priority real en
+  // el store NO cambia — cuando la subtarea se completa/borra, la madre
+  // vuelve a su priority original sola.
+  const effPriority = effectivePriority(task)
+  const isHighPriority = effPriority === 'high' || effPriority === 'urgent'
+  const isUrgent = effPriority === 'urgent'
 
   const urgentSubs = visibleSubtasks.filter((s) => s.priority === 'urgent' && !s.completed)
   const highSubs = visibleSubtasks.filter((s) => s.priority === 'high' && !s.completed)
-  // Si una subtarea (sub1 o sub2) está URGENTE y abierta, la tarea madre
-  // tiene que verse roja también. La banderita inline queda muy chica y
-  // se pierde a la vista — el borde rojo + glow es inequívoco.
-  const hasUrgentSub = urgentSubs.length > 0
-  const treatAsUrgent = isUrgent || hasUrgentSub
+  const escalatedByChild = effPriority !== task.priority
 
   // ── Drag-and-drop state for subtask nesting ──
   const [dragSubId, setDragSubId] = useState<string | null>(null)
@@ -261,10 +263,13 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
     setOverSubId(null)
   }
 
-  // Border logic
+  // Border logic basado en la prioridad EFECTIVA — no tocamos colores
+  // especiales para "tiene hija urgente": como la efectiva ya es high
+  // en ese caso, la madre se ve con el borde rojo claro de high. Sin
+  // hijas urgentes y sin prioridad alta propia, vuelve al borde neutro.
   const borderClass = isDone
     ? 'border-zinc-800 opacity-60'
-    : treatAsUrgent
+    : isUrgent
       ? 'border-red-500 shadow-[0_0_0_1px_rgba(239,68,68,0.3)]'
       : isHighPriority || isOverdue
         ? 'border-red-500/40'
@@ -293,7 +298,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
       onDrop={onTaskDrop}
       onDragEnd={onTaskDragEnd}
       style={dndStyle}
-      className={`${treatAsUrgent && !isDone ? 'bg-red-500/[0.06]' : 'bg-zinc-900'} border rounded-xl transition-all ${borderClass} ${dndClass}`}
+      className={`bg-zinc-900 border rounded-xl transition-all ${borderClass} ${dndClass}`}
     >
       {/* Body — clicking it opens the detail modal */}
       <div
@@ -406,14 +411,29 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
                   badge comes back. Same for the date/overdue indicator —
                   irrelevant once the task is finished. */}
               {!isDone && (
-                <InlineSelectBadge
-                  value={task.priority}
-                  options={PRIORITIES.map((p) => ({ value: p, label: t(`tasks.priorities.${p}`), color: PRIORITY_COLORS[p] }))}
-                  onChange={(v) => updateTask(task.id, { priority: v as Priority })}
-                  bgColor={PRIORITY_COLORS[task.priority] + '15'}
-                  fgColor={PRIORITY_COLORS[task.priority]}
-                  renderLabel={() => t(`tasks.priorities.${task.priority}`)}
-                />
+                <>
+                  {/* La badge muestra la prioridad EFECTIVA (puede estar
+                      escalada por una subtarea urgente) pero el dropdown
+                      edita la real (`task.priority`). El usuario ve qué
+                      tan urgente está la tarea YA, pero sigue controlando
+                      su propio setting subyacente. */}
+                  <InlineSelectBadge
+                    value={task.priority}
+                    options={PRIORITIES.map((p) => ({ value: p, label: t(`tasks.priorities.${p}`), color: PRIORITY_COLORS[p] }))}
+                    onChange={(v) => updateTask(task.id, { priority: v as Priority })}
+                    bgColor={PRIORITY_COLORS[effPriority] + '15'}
+                    fgColor={PRIORITY_COLORS[effPriority]}
+                    renderLabel={() => t(`tasks.priorities.${effPriority}`)}
+                  />
+                  {escalatedByChild && (
+                    <span
+                      className="text-[10px] font-mono text-red-300/70 flex items-center gap-0.5"
+                      title={`Escalada a "${t(`tasks.priorities.${effPriority}`)}" por subtarea urgente. La prioridad real sigue siendo "${t(`tasks.priorities.${task.priority}`)}" y vuelve cuando se resuelva la subtarea.`}
+                    >
+                      ↑ por subtarea urgente
+                    </span>
+                  )}
+                </>
               )}
               {!isDone && task.dueDate && (() => {
                 // Parse date in LOCAL time (avoids UTC roll-back bug).

@@ -10,6 +10,9 @@ import {
 import { SPIPage } from '@/components/spi/SPIPage'
 import { useProjectionStore } from '@/lib/store/projectionStore'
 import { useSPIStore } from '@/lib/store/spiStore'
+import { useHabitsStore } from '@/lib/store/habitsStore'
+import { useWalletStore } from '@/lib/store/walletStore'
+import { buildMonthSnapshot } from '@/lib/projection/monthSnapshot'
 import { ALL_TEMPLATES, WHEEL_AREAS } from '@/lib/projection/templates'
 import {
   ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip as RechartsTooltip,
@@ -404,12 +407,13 @@ function PlanCard({
                 />
               ))}
 
-              {/* Snapshot del mes — solo para planes mensuales cerrados.
-                  Muestra cómo cumpliste los hábitos cada día + ingresos
-                  totales por moneda. Queda congelado en el plan así la
-                  revisión histórica no depende del estado live. */}
-              {plan && level === 'month' && plan.monthSnapshot && (
-                <MonthClosureSnapshotBlock snapshot={plan.monthSnapshot} periodKey={periodKey} />
+              {/* Snapshot del mes — para planes mensuales. Si hay snapshot
+                  guardado en el plan (capturado al cerrar) lo usamos como
+                  vista CONGELADA. Si no hay (porque el mes se cerró antes
+                  de que existiera la feature, o porque está abierto), lo
+                  calculamos en vivo desde los stores de hábitos y wallet. */}
+              {plan && level === 'month' && (
+                <MonthSnapshotContainer plan={plan} periodKey={periodKey} />
               )}
 
               {/* Cascade from annual is rendered inside Section via the
@@ -1072,16 +1076,53 @@ const MONTH_NAMES = [
 ]
 
 // ─────────────────────────────────────────────────────────────────────
-// MONTH CLOSURE SNAPSHOT
+// MONTH SNAPSHOT (stored o live)
 // ─────────────────────────────────────────────────────────────────────
-/** Renderiza la imagen capturada al cerrar un mes — grid de hábitos día
- *  por día + total de ingresos por moneda. Es read-only (snapshot
- *  congelado), nada de esto se persiste a los stores en vivo. */
+/** Decide entre el snapshot CONGELADO en el plan (capturado al cerrar)
+ *  y un cálculo EN VIVO desde los stores de hábitos + wallet. Casos:
+ *   - Plan cerrado con `monthSnapshot` guardado → usamos el congelado.
+ *   - Plan cerrado SIN `monthSnapshot` (cerrado antes de la feature) →
+ *     calculamos en vivo y mostramos un hint "vista en vivo".
+ *   - Plan abierto → calculamos en vivo igual; útil para ver el progreso
+ *     del mes en curso sin tener que cerrarlo.
+ *
+ *  El cálculo en vivo se re-corre cuando cambian los hábitos o las
+ *  transacciones, así el panel siempre refleja el estado actual. */
+function MonthSnapshotContainer({
+  plan, periodKey,
+}: {
+  plan: ProjectionPlan
+  periodKey: string
+}) {
+  // Suscripción a los stores que alimentan el snapshot live, así el
+  // panel se re-renderiza cuando cambian (marcar un hábito, sumar
+  // una transacción, etc.).
+  const habits = useHabitsStore((s) => s.habits)
+  const transactions = useWalletStore((s) => s.transactions)
+  const liveSnapshot = useMemo(() => {
+    if (plan.monthSnapshot) return null  // ya hay frozen, no hace falta computar
+    return buildMonthSnapshot(periodKey)
+    // habits y transactions están en deps para que recompute cuando cambien.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan.monthSnapshot, periodKey, habits, transactions])
+
+  const snapshot = plan.monthSnapshot ?? liveSnapshot
+  if (!snapshot) return null
+  const isLive = !plan.monthSnapshot
+  return <MonthClosureSnapshotBlock snapshot={snapshot} periodKey={periodKey} isLive={isLive} />
+}
+
+/** Renderiza la imagen del mes — grid de hábitos día por día + total de
+ *  ingresos por moneda. Puede venir de un snapshot CONGELADO (capturado
+ *  al cerrar el mes) o calculado EN VIVO desde los stores. El flag
+ *  `isLive` solo cambia el subtítulo para que el usuario sepa qué está
+ *  viendo. */
 function MonthClosureSnapshotBlock({
-  snapshot, periodKey,
+  snapshot, periodKey, isLive = false,
 }: {
   snapshot: import('@/lib/projection/types').MonthClosureSnapshot
   periodKey: string
+  isLive?: boolean
 }) {
   const [yearStr, monthStr] = periodKey.split('-')
   const year = parseInt(yearStr, 10)
@@ -1097,9 +1138,11 @@ function MonthClosureSnapshotBlock({
     <div className="bg-zinc-950/60 border border-emerald-500/20 rounded-2xl p-4 space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-[10px] font-mono uppercase tracking-wider text-emerald-300/80">
-          📸 Snapshot del cierre · {monthName} {year}
+          📸 {isLive ? 'Vista en vivo' : 'Snapshot del cierre'} · {monthName} {year}
         </p>
-        <span className="text-[10px] text-zinc-600 font-mono">capturado el {capturedDate}</span>
+        <span className="text-[10px] text-zinc-600 font-mono">
+          {isLive ? 'calculado en vivo desde tus datos' : `capturado el ${capturedDate}`}
+        </span>
       </div>
 
       {/* Hábitos del mes — grid día x hábito */}

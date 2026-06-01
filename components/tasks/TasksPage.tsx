@@ -13,6 +13,7 @@ import {
   Pencil, Trash2, MoreHorizontal, ArrowUpDown, RotateCcw, Check, Menu,
 } from 'lucide-react'
 import { PROJECT_COLORS } from '@/lib/utils/constants'
+import { effectivePriority } from '@/lib/utils/taskPriority'
 
 /** Drawer wrapper that closes when the user swipes left more than 60px.
  *  Falls back to a plain div (no swipe handlers) when `enableSwipe` is
@@ -433,9 +434,12 @@ function sortTasks(
   const arr = [...tasks]
   switch (mode) {
     case 'priority':
-      return arr.sort((a, b) => (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9))
+      // Ordena por prioridad EFECTIVA (escala a 'high' si hay subtarea
+      // urgente abierta) — para que las madres con hijas urgentes suban
+      // al tope del listado igual que las urgentes nativas.
+      return arr.sort((a, b) => (PRIORITY_RANK[effectivePriority(a)] ?? 9) - (PRIORITY_RANK[effectivePriority(b)] ?? 9))
     case 'priorityAsc':
-      return arr.sort((a, b) => (PRIORITY_RANK[b.priority] ?? 9) - (PRIORITY_RANK[a.priority] ?? 9))
+      return arr.sort((a, b) => (PRIORITY_RANK[effectivePriority(b)] ?? 9) - (PRIORITY_RANK[effectivePriority(a)] ?? 9))
     case 'status':
       return arr.sort((a, b) => {
         if (statusOrder) {
@@ -647,7 +651,10 @@ export function TasksPage() {
 
   const passesFilters = (t: typeof tasks[string]) =>
     (statusFilter ? t.status === statusFilter : true) &&
-    (priorityFilter ? t.priority === priorityFilter : true) &&
+    // Filtra por la prioridad EFECTIVA (escala a 'high' si tiene una
+    // subtarea urgente abierta). Así una tarea madre con priority='low'
+    // pero con sub1 urgent aparece cuando filtrás por "Alta".
+    (priorityFilter ? effectivePriority(t) === priorityFilter : true) &&
     (categoryFilter ? (t.category ?? '') === categoryFilter : true)
 
   // Status order map for sortTasks: built from the active project's statuses
@@ -1084,7 +1091,9 @@ export function TasksPage() {
               // (Status filter is intentionally not applied here — each column
               // already represents one status, so it'd be confusing.)
               tasks={getProjectTasks(activeProject.id).filter((t) =>
-                (priorityFilter ? t.priority === priorityFilter : true) &&
+                // Misma lógica que `passesFilters`: usa la prioridad
+                // efectiva (escala a 'high' por subtarea urgente).
+                (priorityFilter ? effectivePriority(t) === priorityFilter : true) &&
                 (categoryFilter ? (t.category ?? '') === categoryFilter : true)
               )}
               sortMode={sortMode}
