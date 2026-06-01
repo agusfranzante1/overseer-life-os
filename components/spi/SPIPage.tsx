@@ -1189,11 +1189,23 @@ function WeeklyGoalsByArea({
               <span className="text-amber-400">⭐</span>
               <span className="text-xs font-semibold text-amber-200">{label}</span>
             </div>
-            {/* Meta anual (read-only) */}
-            {annualMeta && (
-              <p className="text-[10px] text-zinc-500 italic mb-1.5">
-                <span className="text-amber-300/60 not-italic font-mono uppercase tracking-wider">Anual · </span>
-                {annualMeta}
+            {/* Meta anual (read-only) — mismo estilo que las cajas
+                trimestral/mensual: fondo zinc oscuro, borde, label
+                en mono uppercase arriba. Antes era un párrafo finito
+                gris itálico y se perdía visualmente al lado de las
+                cajas grandes. */}
+            {annualMeta ? (
+              <div className="space-y-0.5 mb-1.5 bg-zinc-900/40 border border-zinc-800 rounded px-2 py-1.5">
+                <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-600 mb-0.5">
+                  Anual
+                </p>
+                <p className="text-[11px] text-zinc-300 leading-snug whitespace-pre-wrap">
+                  {annualMeta}
+                </p>
+              </div>
+            ) : (
+              <p className="text-[10px] text-zinc-600 italic mb-1.5">
+                Sin meta anual cargada para esta área. Definila en el plan anual.
               </p>
             )}
             {/* Sub-metas trimestrales (read-only) */}
