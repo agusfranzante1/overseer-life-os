@@ -76,36 +76,53 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
   const [isDropTarget, setIsDropTarget] = useState(false)
 
   /** Drag start on the TaskCard itself — fires when the user starts dragging
-   *  the card body (not a child subtask). Tags the dataTransfer with the
-   *  task id so the drop handler on another card can identify it.
+   *  the card body. Tags the dataTransfer with the task id so another
+   *  TaskCard's drop handler can identify it.
    *
-   *  Guards:
-   *    1. `target !== currentTarget` → the drag originated on a child
-   *       (a subtask which has its own draggable). Don't take over.
-   *    2. Target is inside a `data-interactive` element (buttons, inputs,
-   *       inline editors) → drag from those would be confusing. Bail. */
+   *  Previous version had a guard `target !== currentTarget` which was wrong:
+   *  HTML5 sets dragstart's target to the DRAGGED ELEMENT (the closest
+   *  draggable ancestor of where the user grabbed), so when the user grabbed
+   *  anywhere inside the card the event still bubbled with target === card.
+   *  But in some browser/React combos, target ends up being the original
+   *  mousedown child element instead, which made the old guard bail
+   *  EVERY time the user grabbed any inner content (title, body, etc) —
+   *  meaning dataTransfer never got set and the drop never registered.
+   *  Result: drag felt completely broken.
+   *
+   *  New guard walks UP from event.target looking for a NESTED draggable
+   *  ancestor before reaching the card. If found, that nested draggable
+   *  (e.g. a subtask row) is the real source — bail out. Otherwise, this
+   *  is the card itself being dragged → set up dataTransfer. */
   const onTaskDragStart = (e: React.DragEvent) => {
-    if (e.target !== e.currentTarget) {
-      // Child element initiated the drag (e.g. a subtask row). Their own
-      // handlers manage dataTransfer; we must NOT overwrite it here.
-      return
+    let node: HTMLElement | null = e.target as HTMLElement
+    while (node && node !== e.currentTarget) {
+      if (node.draggable) {
+        // Nested draggable (a subtask) is the source. Don't overwrite its
+        // dataTransfer — its own handler manages that.
+        return
+      }
+      node = node.parentElement
     }
-    const targetEl = e.target as HTMLElement
-    if (targetEl.closest?.('[data-interactive]')) return
     e.dataTransfer.effectAllowed = 'move'
     try {
       e.dataTransfer.setData('application/x-overseer-task', task.id)
-      // Fallback for browsers that don't surface custom MIME in dataTransfer.types
+      // Fallback for browsers that don't surface custom MIME types via
+      // dataTransfer.types during dragover.
       e.dataTransfer.setData('text/plain', `task:${task.id}`)
     } catch { /* noop */ }
     setIsDraggingThisCard(true)
   }
 
   const onTaskDragOver = (e: React.DragEvent) => {
-    // Accept drops from OTHER TaskCards. The custom MIME is set during
-    // dragstart so a quick `types` check is enough — no need to parse
-    // the actual data (which only the drop handler can read).
-    const types = e.dataTransfer.types
+    // Accept drops from OTHER TaskCards. We check ONLY the custom MIME here
+    // (not text/plain) so subtask drags — which also use text/plain — don't
+    // get falsely highlighted as drop targets. The custom MIME is set during
+    // dragstart and per spec is visible during dragover.
+    //
+    // `Array.from(...)` is defensive: in some browsers `dataTransfer.types`
+    // is a `DOMStringList` whose `includes` may not exist or behave as
+    // expected. Converting to an Array sidesteps that.
+    const types = Array.from(e.dataTransfer.types)
     if (!types.includes('application/x-overseer-task')) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'

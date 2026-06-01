@@ -23,6 +23,39 @@ export function currentMonthKey(now: Date = new Date()): string {
   return `${y}-${m}`
 }
 
+/** "Preview" period helpers — if today is a SATURDAY or SUNDAY and the
+ *  upcoming Monday is the 1st of a new month/quarter, return that upcoming
+ *  period key. Otherwise return null.
+ *
+ *  Usage: the SPI page surfaces this preview as an extra card ABOVE the
+ *  current month/quarter so the user can do their planning on the weekend
+ *  instead of waiting for the Monday to roll around. */
+export function previewMonthKey(now: Date = new Date()): string | null {
+  const dow = now.getDay()
+  // 6 = Saturday, 0 = Sunday. Only trigger on weekends.
+  if (dow !== 6 && dow !== 0) return null
+  const daysToMonday = dow === 6 ? 2 : 1
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysToMonday)
+  // Only return a preview key when that upcoming Monday is the first of a
+  // new calendar month. If it's just a "normal" Monday mid-month, no preview.
+  if (monday.getDate() !== 1) return null
+  const y = monday.getFullYear()
+  const m = String(monday.getMonth() + 1).padStart(2, '0')
+  return `${y}-${m}`
+}
+
+/** Same idea as `previewMonthKey` but for quarters. Only returns a key when
+ *  the upcoming Monday is the start of a new QUARTER (Jan / Apr / Jul / Oct). */
+export function previewQuarterKey(now: Date = new Date()): string | null {
+  const monthKey = previewMonthKey(now)
+  if (!monthKey) return null
+  const [yearStr, monthStr] = monthKey.split('-')
+  const m = parseInt(monthStr, 10)
+  if (m !== 1 && m !== 4 && m !== 7 && m !== 10) return null
+  const q = quarterOfMonth(m)
+  return `${yearStr}-Q${q}`
+}
+
 /** Map a calendar month (1-12) to its quarter (1-4). */
 export function quarterOfMonth(month: number): Quarter {
   if (month <= 3) return 1

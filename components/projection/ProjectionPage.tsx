@@ -18,6 +18,7 @@ import { Sparkles, Dices, Loader2 } from 'lucide-react'
 import { getAiHeaders } from '@/lib/ai/headers'
 import {
   currentYearKey, currentQuarterKey, currentMonthKey,
+  previewMonthKey, previewQuarterKey,
   quarterMonths, yearOfQuarter, yearOfMonth, quarterOfMonthKey,
   labelForPeriod, shiftPeriod, monthOfSpiWeek,
 } from '@/lib/projection/period'
@@ -195,20 +196,36 @@ function PlanList({
   onJumpToChild: (level: ProjectionLevel, periodKey: string) => void
 }) {
   const currentKey = level === 'quarter' ? currentQuarterKey() : currentMonthKey()
+  // PREVIEW key: if today is the Sat/Sun before the start of a new
+  // month/quarter (i.e. the upcoming Monday is the 1st), surface that
+  // upcoming period as an EXTRA editable card on top. Lets the user do
+  // their planning during the weekend instead of waiting for Monday.
+  const previewKey = level === 'quarter' ? previewQuarterKey() : previewMonthKey()
 
-  // Build the visible periods list: current (always) + any closed plans
-  // for past periods (newest first). Future periods are NOT shown — they
-  // appear automatically when their start date arrives.
+  // Build the visible periods list: preview (when applicable) + current
+  // (always) + any closed plans for past periods (newest first). Future
+  // periods other than the immediate preview are NOT shown — they appear
+  // automatically when their start date arrives.
   const periods = useMemo(() => {
-    const list: { key: string; plan: ProjectionPlan | null; isCurrent: boolean }[] = []
+    const list: { key: string; plan: ProjectionPlan | null; isCurrent: boolean; isPreview: boolean }[] = []
+    // Preview goes FIRST so the user can jump in over the weekend.
+    if (previewKey && previewKey !== currentKey) {
+      const previewPlan = allPlans.find((p) => p.level === level && p.periodKey === previewKey) ?? null
+      list.push({ key: previewKey, plan: previewPlan, isCurrent: false, isPreview: true })
+    }
     const currentPlan = allPlans.find((p) => p.level === level && p.periodKey === currentKey) ?? null
-    list.push({ key: currentKey, plan: currentPlan, isCurrent: true })
+    list.push({ key: currentKey, plan: currentPlan, isCurrent: true, isPreview: false })
     const closedPast = allPlans
-      .filter((p) => p.level === level && p.periodKey !== currentKey && !!p.closedAt)
+      .filter((p) =>
+        p.level === level
+        && p.periodKey !== currentKey
+        && p.periodKey !== previewKey
+        && !!p.closedAt
+      )
       .sort((a, b) => b.periodKey.localeCompare(a.periodKey))
-    for (const p of closedPast) list.push({ key: p.periodKey, plan: p, isCurrent: false })
+    for (const p of closedPast) list.push({ key: p.periodKey, plan: p, isCurrent: false, isPreview: false })
     return list
-  }, [level, currentKey, allPlans])
+  }, [level, currentKey, previewKey, allPlans])
 
   const template = ALL_TEMPLATES[level]
 
@@ -231,7 +248,11 @@ function PlanList({
           level={level}
           periodKey={p.key}
           plan={p.plan}
-          status={p.isCurrent ? 'in_progress' : 'done'}
+          // Preview = the upcoming period the user can pre-fill this weekend.
+          // Render as "in_progress" so the card is open and editable, but the
+          // header gets an extra "Próximo · Disponible este finde" badge.
+          status={p.isCurrent || p.isPreview ? 'in_progress' : 'done'}
+          isPreview={p.isPreview}
           allPlans={allPlans}
           spiSessions={spiSessions}
           getOrCreatePlan={getOrCreatePlan}
@@ -251,7 +272,7 @@ function PlanList({
 // past periods default to collapsed.
 // ─────────────────────────────────────────────────────────────────────
 function PlanCard({
-  level, periodKey, plan, status,
+  level, periodKey, plan, status, isPreview,
   allPlans, spiSessions,
   getOrCreatePlan, updateValue, closePlan, reopenPlan, onJumpToChild,
 }: {
@@ -259,6 +280,11 @@ function PlanCard({
   periodKey: string
   plan: ProjectionPlan | null
   status: 'in_progress' | 'done'
+  /** Pre-enablement card for the upcoming period (Sat/Sun before a new
+   *  month/quarter starts). Renders with a "Próximo" badge instead of
+   *  "En Progreso" so the user knows this is the NEXT period they can
+   *  start filling in advance. */
+  isPreview?: boolean
   allPlans: ProjectionPlan[]
   spiSessions: ReturnType<typeof useSPIStore.getState>['sessions']
   getOrCreatePlan: (level: ProjectionLevel, periodKey: string) => string
@@ -267,7 +293,8 @@ function PlanCard({
   reopenPlan: (planId: string) => void
   onJumpToChild: (level: ProjectionLevel, periodKey: string) => void
 }) {
-  // Past closed plans default collapsed; current period default expanded.
+  // Past closed plans default collapsed; current period and preview cards
+  // default expanded so the user lands directly on the editor.
   const [expanded, setExpanded] = useState(status === 'in_progress')
   const template = ALL_TEMPLATES[level]
   const [showClose, setShowClose] = useState(false)
@@ -277,13 +304,19 @@ function PlanCard({
     [level, periodKey, allPlans, spiSessions]
   )
 
-  const badge = status === 'in_progress'
-    ? { label: 'En Progreso', cls: 'bg-blue-500/15 border-blue-500/40 text-blue-300' }
-    : { label: 'Done',        cls: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' }
+  const badge = isPreview
+    ? { label: 'Próximo · Disponible este finde', cls: 'bg-amber-500/15 border-amber-500/40 text-amber-300' }
+    : status === 'in_progress'
+      ? { label: 'En Progreso', cls: 'bg-blue-500/15 border-blue-500/40 text-blue-300' }
+      : { label: 'Done',        cls: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' }
 
   return (
     <div className={`rounded-xl border overflow-hidden transition-colors ${
-      status === 'in_progress' ? 'bg-zinc-950/60 border-indigo-500/30' : 'bg-zinc-950/40 border-zinc-800'
+      isPreview
+        ? 'bg-zinc-950/60 border-amber-500/30'
+        : status === 'in_progress'
+          ? 'bg-zinc-950/60 border-indigo-500/30'
+          : 'bg-zinc-950/40 border-zinc-800'
     }`}>
       {/* Header — always clickable to expand/collapse */}
       <button
@@ -908,10 +941,11 @@ function Section({
               {section.intro && (
                 <p className="text-xs text-zinc-400 italic leading-relaxed">{section.intro}</p>
               )}
-              {/* Special render: "2 metas principales" picker — for
-                  metas_anuales it goes ABOVE the field list so the user
-                  picks the 2 areas to focus on FIRST, then completes the
-                  metas (which get re-ordered to put principales on top). */}
+              {/* Special render: principal-goals picker — for metas_anuales
+                  it goes ABOVE the field list so the user picks the areas
+                  to focus on FIRST (any number — 1, 2, 3, 4...), then
+                  completes the metas (which get re-ordered to put
+                  principales on top). */}
               {section.key === 'metas_anuales' && (
                 <PrincipalGoalsPicker
                   values={plan.values[section.key] ?? {}}
@@ -1197,10 +1231,10 @@ function PrincipalCascadeBlock({
     return (
       <div className="bg-zinc-950/60 border border-amber-500/20 rounded-xl p-4 text-center">
         <p className="text-xs text-amber-300/80">
-          Todavía no elegiste tus 2 áreas principales del año.
+          Todavía no elegiste tus áreas principales del año.
         </p>
         <p className="text-[10px] text-zinc-500 mt-1">
-          Volvé al plan <span className="text-zinc-300">Anual</span> y marcá 2 áreas en la sección "Metas del año".
+          Volvé al plan <span className="text-zinc-300">Anual</span> y marcá las áreas que vas a trabajar en la sección "Metas del año".
         </p>
       </div>
     )
@@ -1279,11 +1313,12 @@ function PrincipalCascadeBlock({
   )
 }
 
-/** "Elegí 2 metas principales" picker — rendered below the metas section.
+/** "Elegí tus metas principales" picker — rendered below the metas section.
  *  The selection is stored as a comma-separated list of area keys under
  *  values.metas_anuales.principales so it persists with the rest of the
- *  plan without needing schema changes. Limit: 2 selected at a time;
- *  clicking a 3rd auto-removes the oldest. */
+ *  plan without needing schema changes. No cap — the user picks as many
+ *  areas as they want and those are the ones that cascade down to quarter
+ *  and month plans. */
 function PrincipalGoalsPicker({
   values, onChange,
 }: { values: Record<string, string>; onChange: (csv: string) => void }) {
@@ -1293,11 +1328,9 @@ function PrincipalGoalsPicker({
     if (principales.includes(areaKey)) {
       onChange(principales.filter((k) => k !== areaKey).join(','))
     } else {
-      // Max 2 — when adding a 3rd, drop the oldest.
-      const next = principales.length >= 2
-        ? [...principales.slice(1), areaKey]
-        : [...principales, areaKey]
-      onChange(next.join(','))
+      // No cap — the user can pick as many principal areas as they want.
+      // All selected areas cascade down to quarter/month plans.
+      onChange([...principales, areaKey].join(','))
     }
   }
 
@@ -1305,15 +1338,16 @@ function PrincipalGoalsPicker({
     <div className="bg-zinc-950/60 border border-amber-500/20 rounded-xl p-4">
       <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
         <p className="text-[10px] font-mono uppercase tracking-wider text-amber-300">
-          ⭐ Paso 1 · Elegí las 2 áreas principales del año
+          ⭐ Paso 1 · Elegí tus áreas principales del año
         </p>
         <span className="text-[10px] font-mono text-zinc-600">
-          {principales.length}/2 seleccionadas
+          {principales.length} seleccionada{principales.length === 1 ? '' : 's'}
         </span>
       </div>
       <p className="text-[11px] text-zinc-500 italic mb-3">
-        Las 2 que elijas se van a trabajar activamente. Las demás quedan como referencia.
-        Después abajo completás las metas — las elegidas aparecen arriba primero.
+        Marcá las áreas que vas a trabajar activamente este año — pueden ser 1, 2, 3 o
+        las que necesites. Las demás quedan como referencia. Después abajo completás las
+        metas — las elegidas aparecen arriba primero y son las que bajan al trimestre y al mes.
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {WHEEL_AREAS.map((area) => {
