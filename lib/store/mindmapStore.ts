@@ -26,6 +26,10 @@ export interface MindMapNode {
   /** Optional shape. Undefined = 'rect' for back-compat with maps created
    *  before this field existed. */
   shape?: MindMapNodeShape
+  /** Optional text size in pixels. Undefined = 14 (text-sm) for back-compat
+   *  with maps created before this field existed. The user can bump it from
+   *  the toolbar; auto-grow logic factors it into the measured height. */
+  fontSize?: number
 }
 
 /** Visual shape used to render the connector between two nodes.
@@ -84,6 +88,9 @@ interface MindMapState {
   setEdgeShape: (mapId: string, edgeId: string, shape: MindMapEdgeShape) => void
   /** Change the visual shape of a node (rect / circle). */
   setNodeShape: (mapId: string, nodeId: string, shape: MindMapNodeShape) => void
+  /** Change the text size of a node, in pixels. Pass `undefined` to reset
+   *  to the default (14px). */
+  setNodeFontSize: (mapId: string, nodeId: string, fontSize: number | undefined) => void
 
   // Selectors
   getMap: (mapId: string) => MindMap | null
@@ -195,6 +202,21 @@ export const useMindMapStore = create<MindMapState>()(
         })),
       })),
 
+      setNodeFontSize: (mapId, nodeId, fontSize) => set((s) => ({
+        maps: s.maps.map((m) => m.id !== mapId ? m : touch({
+          ...m,
+          nodes: m.nodes.map((n) => {
+            if (n.id !== nodeId) return n
+            // `undefined` clears the override → falls back to the default 14
+            // via the `node.fontSize ?? 14` reads downstream.
+            const next = { ...n }
+            if (fontSize === undefined) delete next.fontSize
+            else next.fontSize = fontSize
+            return next
+          }),
+        })),
+      })),
+
       setNodeShape: (mapId, nodeId, shape) => set((s) => ({
         maps: s.maps.map((m) => m.id !== mapId ? m : touch({
           ...m,
@@ -207,7 +229,12 @@ export const useMindMapStore = create<MindMapState>()(
               // which without this would become a 160×64 elongated ellipse
               // (border-radius: 50% on a non-square rect = pill shape).
               const size = Math.max(n.width, n.height, 96)
-              return { ...n, shape, width: size, height: size }
+              // Snap top-left so the circle stays centered on the previous
+              // rectangle's center — otherwise turning a wide rect into a
+              // square circle yanks it visually to the right.
+              const cx = n.x + n.width / 2
+              const cy = n.y + n.height / 2
+              return { ...n, shape, width: size, height: size, x: cx - size / 2, y: cy - size / 2 }
             }
             // Going back to rect — keep whatever dimensions the user had.
             // (If the node was a square circle, it stays square as a rect;

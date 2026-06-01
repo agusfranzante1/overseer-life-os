@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
-import { Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight, ZoomIn, ZoomOut, Square, Circle } from 'lucide-react'
+import { Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight, ZoomIn, ZoomOut, Square, Circle, Type } from 'lucide-react'
 import {
   useMindMapStore, NODE_PALETTE,
   type MindMapNode, type MindMapEdgeShape, type MindMapNodeShape,
@@ -10,6 +10,19 @@ import {
 } from './edgeGeometry'
 
 const DEFAULT_NODE_COLOR = '#6366f1'
+const DEFAULT_FONT_SIZE = 14
+/** Discrete font-size steps for the picker. Covers small "label" text up to
+ *  a big section header. Keep the list short — fewer choices = faster decisions. */
+const FONT_SIZE_STEPS = [10, 12, 14, 16, 20, 24, 32] as const
+/** Padding around the text inside a node, in CSS pixels. Used by the
+ *  auto-grow logic to compute the minimum node height that still fits the
+ *  textarea's content + breathing room. */
+const NODE_TEXT_PADDING_Y = 16   // 8px top + 8px bottom
+const NODE_TEXT_PADDING_X = 16
+/** Minimum dimensions enforced by the resize handle. Nodes smaller than
+ *  this are unreadable and tend to be unselectable on touch. */
+const NODE_MIN_WIDTH = 80
+const NODE_MIN_HEIGHT = 48
 
 /** Full mind-map editor for a single map.
  *
@@ -32,6 +45,7 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
   const removeEdge = useMindMapStore((s) => s.removeEdge)
   const setEdgeShape = useMindMapStore((s) => s.setEdgeShape)
   const setNodeShape = useMindMapStore((s) => s.setNodeShape)
+  const setNodeFontSize = useMindMapStore((s) => s.setNodeFontSize)
 
   // Selection — either a node or an edge.
   const [selection, setSelection] = useState<{ kind: 'node' | 'edge'; id: string } | null>(null)
@@ -278,6 +292,55 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
 
   // ── Robust pointer-capture node drag with movement threshold ──
   // Click vs drag distinguished by 4px hysteresis.
+  /** Drag the bottom-right resize handle of a node. Updates width/height
+   *  live as the pointer moves. For circle-shaped nodes we lock the
+   *  aspect ratio to 1:1 by averaging the deltas — otherwise resizing
+   *  would turn the circle into an ellipse. */
+  const startNodeResize = (e: React.PointerEvent, node: MindMapNode) => {
+    e.stopPropagation()
+    e.preventDefault()
+    setSelection({ kind: 'node', id: node.id })
+
+    const startClientX = e.clientX
+    const startClientY = e.clientY
+    const startW = node.width
+    const startH = node.height
+    const isCircle = node.shape === 'circle'
+    const pointerId = e.pointerId
+    const el = e.currentTarget as HTMLElement
+
+    try { el.setPointerCapture(pointerId) } catch { /* noop */ }
+
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      const z = zoomRef.current
+      const dx = (ev.clientX - startClientX) / z
+      const dy = (ev.clientY - startClientY) / z
+      if (isCircle) {
+        // Lock to square: use the average of dx/dy so diagonal drags feel
+        // natural. Could use Math.max for "follow the farthest finger";
+        // average just feels less twitchy in practice.
+        const delta = (dx + dy) / 2
+        const size = Math.max(NODE_MIN_WIDTH, Math.max(NODE_MIN_HEIGHT, startW + delta))
+        updateNode(mapId, node.id, { width: size, height: size })
+      } else {
+        const w = Math.max(NODE_MIN_WIDTH, startW + dx)
+        const h = Math.max(NODE_MIN_HEIGHT, startH + dy)
+        updateNode(mapId, node.id, { width: w, height: h })
+      }
+    }
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+      el.removeEventListener('pointercancel', onUp)
+      try { el.releasePointerCapture(pointerId) } catch { /* noop */ }
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+    el.addEventListener('pointercancel', onUp)
+  }
+
   const startNodeDrag = (e: React.PointerEvent, node: MindMapNode) => {
     e.stopPropagation()
     if (drawingFromId) {
@@ -350,6 +413,9 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
         }}
         onChangeNodeShape={(shape) => {
           if (selection?.kind === 'node') setNodeShape(mapId, selection.id, shape)
+        }}
+        onChangeNodeFontSize={(fontSize) => {
+          if (selection?.kind === 'node') setNodeFontSize(mapId, selection.id, fontSize)
         }}
         onChangeEdgeShape={(shape) => {
           if (selection?.kind === 'edge') setEdgeShape(mapId, selection.id, shape)
@@ -570,6 +636,8 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
                 editing={editingNodeId === node.id}
                 showPlus={showPlus}
                 onPointerDown={(e) => startNodeDrag(e, node)}
+                onResizeStart={(e) => startNodeResize(e, node)}
+                onAutoGrowHeight={(height) => updateNode(mapId, node.id, { height })}
                 onClick={() => handleNodeClick(node.id)}
                 onDoubleClick={() => {
                   setEditingNodeId(node.id)
@@ -608,13 +676,14 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
 
 function Toolbar({
   selectedNode, selectedEdge,
-  onChangeNodeColor, onChangeNodeShape, onChangeEdgeShape, onDeleteSelection, onAddNode, onResetPan,
+  onChangeNodeColor, onChangeNodeShape, onChangeNodeFontSize, onChangeEdgeShape, onDeleteSelection, onAddNode, onResetPan,
   zoom, onZoomIn, onZoomOut,
 }: {
   selectedNode: MindMapNode | null
   selectedEdge: { id: string; shape?: MindMapEdgeShape } | null
   onChangeNodeColor: (color: string) => void
   onChangeNodeShape: (shape: MindMapNodeShape) => void
+  onChangeNodeFontSize: (fontSize: number | undefined) => void
   onChangeEdgeShape: (shape: MindMapEdgeShape) => void
   onDeleteSelection: () => void
   onAddNode: () => void
@@ -676,6 +745,10 @@ function Toolbar({
               <NodeShapePicker
                 current={selectedNode.shape ?? 'rect'}
                 onChange={onChangeNodeShape}
+              />
+              <FontSizePicker
+                current={selectedNode.fontSize ?? DEFAULT_FONT_SIZE}
+                onChange={onChangeNodeFontSize}
               />
               <ColorPickerInline
                 currentColor={selectedNode.color ?? DEFAULT_NODE_COLOR}
@@ -768,6 +841,56 @@ function NodeShapePicker({
   )
 }
 
+/** Inline font-size picker — small button shows the current px, click to
+ *  reveal a list of discrete sizes. Defaults to the global DEFAULT_FONT_SIZE
+ *  (14) when the node has no `fontSize` set yet. */
+function FontSizePicker({
+  current, onChange,
+}: { current: number; onChange: (fontSize: number | undefined) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        onPointerDown={(e) => e.stopPropagation()}
+        title="Tamaño del texto"
+        className="px-1.5 py-1 rounded-md hover:bg-zinc-800 active:bg-zinc-800 transition-colors flex items-center gap-1 text-zinc-300 hover:text-zinc-100"
+      >
+        <Type className="w-3.5 h-3.5" />
+        <span className="text-[10px] font-mono tabular-nums">{current}</span>
+      </button>
+      {open && (
+        <div
+          className="absolute top-full mt-1 left-1/2 -translate-x-1/2 z-30 p-1 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl flex flex-col gap-0.5 min-w-[60px]"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {FONT_SIZE_STEPS.map((size) => {
+            const active = size === current
+            return (
+              <button
+                key={size}
+                onClick={() => {
+                  // If user picks the default, store `undefined` so back-compat
+                  // nodes (no field) and explicitly-defaulted nodes look the
+                  // same in the JSON and in render.
+                  onChange(size === DEFAULT_FONT_SIZE ? undefined : size)
+                  setOpen(false)
+                }}
+                className={`px-2 py-1 rounded-md text-left transition-colors ${
+                  active ? 'bg-violet-500/25 text-violet-200' : 'text-zinc-300 hover:bg-zinc-800'
+                }`}
+                style={{ fontSize: Math.min(size, 18) }}
+              >
+                {size}px
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function EdgeShapePicker({
   current, onChange,
 }: { current: MindMapEdgeShape; onChange: (s: MindMapEdgeShape) => void }) {
@@ -804,7 +927,7 @@ function EdgeShapePicker({
 
 function NodeBox({
   node, pan, selected, drawingMode, editing, showPlus,
-  onPointerDown, onClick, onDoubleClick, onTextChange, onEndEdit,
+  onPointerDown, onResizeStart, onAutoGrowHeight, onClick, onDoubleClick, onTextChange, onEndEdit,
   onHover, onStartConnect, onConnectorMove, onConnectorDrop,
 }: {
   node: MindMapNode
@@ -814,6 +937,12 @@ function NodeBox({
   editing: boolean
   showPlus: boolean
   onPointerDown: (e: React.PointerEvent) => void
+  /** Fired when the user grabs the bottom-right corner handle to resize.
+   *  The parent owns the pointer-capture + delta math; this just kicks it off. */
+  onResizeStart: (e: React.PointerEvent) => void
+  /** Fired while editing when the textarea's content grows past the current
+   *  height. Parent persists the new height to the store. */
+  onAutoGrowHeight: (height: number) => void
   onClick: () => void
   onDoubleClick: () => void
   onTextChange: (text: string) => void
@@ -830,9 +959,40 @@ function NodeBox({
 }) {
   const color = node.color ?? DEFAULT_NODE_COLOR
   const borderColor = selected ? color : color + '70'
+  const fontSize = node.fontSize ?? DEFAULT_FONT_SIZE
 
   const [draft, setDraft] = useState(node.text)
   useEffect(() => { setDraft(node.text) }, [node.text, editing])
+
+  // Auto-grow height: when editing, measure the textarea's natural content
+  // height (scrollHeight) and bump the node's persisted height if the text
+  // outgrew the box. We never SHRINK below the current height here — the
+  // user controls shrinking via the manual resize handle. This way the
+  // node "remembers" how big you sized it once, and grows further only if
+  // you keep typing past that.
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  useEffect(() => {
+    if (!editing) return
+    const ta = textareaRef.current
+    if (!ta) return
+    // The textarea fills the node minus padding. Its scrollHeight tells us
+    // the minimum height needed to render `draft` without scrolling.
+    const needed = ta.scrollHeight + NODE_TEXT_PADDING_Y
+    if (needed > node.height) onAutoGrowHeight(needed)
+  }, [draft, editing, fontSize, node.width, node.height, onAutoGrowHeight])
+
+  // Auto-grow (read-only path): even when NOT editing, the text might
+  // outgrow the box — e.g. after the user bumped the font size from the
+  // toolbar, or after a programmatic text change. Measure the view-mode
+  // div the same way and bump height if needed.
+  const viewRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (editing) return
+    const el = viewRef.current
+    if (!el) return
+    const needed = el.scrollHeight + NODE_TEXT_PADDING_Y
+    if (needed > node.height) onAutoGrowHeight(needed)
+  }, [node.text, fontSize, node.width, node.height, editing, onAutoGrowHeight])
 
   return (
     <>
@@ -864,6 +1024,7 @@ function NodeBox({
       >
         {editing ? (
           <textarea
+            ref={textareaRef}
             autoFocus
             value={draft}
             placeholder="Idea"
@@ -880,18 +1041,37 @@ function NodeBox({
             }}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            className="w-full h-full bg-transparent text-sm text-zinc-100 font-medium text-center p-2 focus:outline-none resize-none leading-snug placeholder:opacity-40 placeholder:italic"
-            style={{ color }}
+            className="w-full h-full bg-transparent text-zinc-100 font-medium text-center p-2 focus:outline-none resize-none leading-snug placeholder:opacity-40 placeholder:italic"
+            style={{ color, fontSize }}
           />
         ) : (
           <div
-            className="w-full h-full flex items-center justify-center text-center px-2 text-sm font-medium leading-snug select-none break-words"
-            style={{ color }}
+            ref={viewRef}
+            className="w-full h-full flex items-center justify-center text-center px-2 font-medium leading-snug select-none break-words"
+            style={{ color, fontSize }}
           >
             {/* Empty-text placeholder. Matches the textarea's placeholder
                 "Idea" so the visual is consistent between view and edit modes. */}
             {node.text || <span className="opacity-40 italic">Idea</span>}
           </div>
+        )}
+
+        {/* Resize handle — bottom-right corner. Visible only when the node
+            is selected and NOT being edited (during edit, the focus is on
+            the textarea — a stray pointer-down on the corner would steal
+            the blur). For circles, dragging keeps width === height. */}
+        {selected && !editing && (
+          <div
+            onPointerDown={onResizeStart}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            title="Arrastrá para cambiar el tamaño"
+            className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 bg-zinc-900 cursor-nwse-resize z-[5]"
+            style={{
+              borderColor: color,
+              touchAction: 'none',
+            }}
+          />
         )}
       </div>
 

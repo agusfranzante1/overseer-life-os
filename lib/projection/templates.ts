@@ -109,8 +109,8 @@ export const EAGLE_TEMPLATE: ProjectionTemplate = {
       key: 'eagle_apuesta',
       laneKey: 'estrategico',
       emoji: '🎲',
-      title: 'Apuesta · ¿cuáles serían tus 2 áreas principales?',
-      intro: 'Si tuvieras que apostar tu año a SOLO 2 áreas (las que vas a trabajar activamente), ¿cuáles? El resto queda como referencia.',
+      title: 'Apuesta · ¿cuáles serían tus áreas principales?',
+      intro: 'Si tuvieras que apostar tu año a unas pocas áreas (las que vas a trabajar activamente), ¿cuáles? Pueden ser 1, 2, 3 o las que necesites. El resto queda como referencia.',
       defaultCollapsed: true,
       fields: [
         { key: 'principal_1', label: 'Apuesta #1 — área + por qué', type: 'textarea' },
@@ -222,7 +222,7 @@ export const ANNUAL_TEMPLATE: ProjectionTemplate = {
       key: 'metas_anuales',
       emoji: '🎯',
       title: 'Metas del año',
-      intro: 'Una meta por área (las mismas 8 de la rueda). Después marcá 2 como PRINCIPALES — donde vas a poner el foco real este año. Las demás son referencia, no se trabajan activamente.',
+      intro: 'Una meta por área (las mismas 8 de la rueda). Después marcá las que vas a trabajar activamente como PRINCIPALES — pueden ser 1, 2, 3 o las que necesites. Las demás son referencia, no se trabajan activamente.',
       fields: [
         { key: 'fisica',      label: 'Meta · Salud Física',         type: 'textarea', hint: 'Ej: "Correr media maratón sub-2hs", "5 entrenamientos/semana sostenidos".' },
         { key: 'mental',      label: 'Meta · Salud Mental',         type: 'textarea', hint: 'Ej: "Meditar 10min/día", "Terminar 12 libros".' },
@@ -321,15 +321,15 @@ export const QUARTER_TEMPLATE: ProjectionTemplate = {
   level: 'quarter',
   version: 4,
   title: 'Plan Trimestral',
-  intro: 'Las 2 áreas principales del año bajan acá automáticamente (arriba). Acá solo definís la alineación estratégica y, si ya cerraste un Q antes, sus aprendizajes.',
+  intro: 'Tus áreas principales del año bajan acá automáticamente (arriba). Acá solo definís la alineación estratégica y, si ya cerraste un Q antes, sus aprendizajes.',
   sections: [
     // Cascade FROM annual principales — special block, no fields (renders
     // dynamically based on the parent annual plan).
     {
       key: 'principal_cascade',
       emoji: '🎯',
-      title: 'Tus 2 áreas principales · desglose trimestral',
-      intro: 'De las 2 áreas que marcaste como principales en el plan anual, cada una se baja a 3 sub-metas para este trimestre. Podés escribirlas a mano o usar la IA para que las proponga.',
+      title: 'Tus áreas principales · desglose trimestral',
+      intro: 'De las áreas que marcaste como principales en el plan anual, cada una se baja a 3 sub-metas para este trimestre. Podés escribirlas a mano o usar la IA para que las proponga.',
     },
     {
       key: 'alineacion',
@@ -361,13 +361,13 @@ export const MONTH_TEMPLATE: ProjectionTemplate = {
   level: 'month',
   version: 3,
   title: 'Plan Mensual',
-  intro: 'El mes es la bisagra entre el trimestre y la semana. Cada sub-meta del trimestre se baja a 3 sub-metas mensuales para esas 2 áreas principales.',
+  intro: 'El mes es la bisagra entre el trimestre y la semana. Cada sub-meta del trimestre se baja a 3 sub-metas mensuales para esas áreas principales.',
   sections: [
     // Cascade FROM quarter sub-goals
     {
       key: 'principal_cascade',
       emoji: '🎯',
-      title: 'Tus 2 áreas principales · desglose mensual',
+      title: 'Tus áreas principales · desglose mensual',
       intro: 'Las sub-metas trimestrales de cada área se desglosan ahora en 3 sub-metas para este mes. Lo más concreto posible — para que la semana ya tenga tareas claras.',
     },
     {
