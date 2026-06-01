@@ -897,9 +897,12 @@ function NotificationPrefsSection() {
                     enabled ? 'bg-emerald-500' : 'bg-zinc-700'
                   }`}
                 >
+                  {/* Knob: a la IZQUIERDA cuando está habilitado, a la
+                      DERECHA cuando está apagado. Convención pedida —
+                      al contrario del switch estándar de iOS/Android. */}
                   <span
                     className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow ${
-                      enabled ? 'translate-x-[18px]' : 'translate-x-0.5'
+                      enabled ? 'translate-x-0.5' : 'translate-x-[18px]'
                     }`}
                   />
                 </button>
