@@ -312,12 +312,18 @@ export function HabitsPage() {
             return (
               <motion.div key={habit.id} layout
                 {...dragHandlers}
+                // Hover en la FILA ENTERA: borde blanco + glow blanco difuso.
+                // Así sabés en qué hábito estás parado mientras movés el mouse
+                // entre los puntitos. El glow es suficientemente sutil para
+                // no marear, pero el borde blanco lo deja inequívoco.
+                // (No aplicamos hover si estás en reorder mode o si la fila
+                // ya está resaltada como drop-target.)
                 className={`bg-zinc-900 border rounded-xl px-4 py-3 flex items-center gap-4 group transition-all ${
                   isDragging
                     ? 'border-emerald-500/60 opacity-50 cursor-grabbing'
                     : isDropTarget
                       ? 'border-emerald-500/60 bg-emerald-500/5'
-                      : 'border-zinc-800'
+                      : 'border-zinc-800 hover:border-white hover:shadow-[0_0_18px_rgba(255,255,255,0.25)]'
                 } ${reorderMode ? 'cursor-grab select-none' : ''}`}>
                 {/* Drag handle — only in reorder mode */}
                 {reorderMode && (
@@ -357,7 +363,7 @@ export function HabitsPage() {
                         onClick={() => toggleDate(habit.id, ds)}
                         disabled={reorderMode}
                         title={`${weekDays[i].toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' })} — click para ${nextLabel}`}
-                        className={`group w-10 h-10 rounded-lg flex items-center justify-center transition-all hover:scale-110 hover:ring-2 hover:ring-white hover:shadow-[0_0_14px_rgba(255,255,255,0.55)] ${future ? 'opacity-40' : ''} ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
+                        className={`group w-10 h-10 rounded-lg flex items-center justify-center transition-all hover:scale-110 hover:ring-1 hover:ring-white/70 ${future ? 'opacity-40' : ''} ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
                         style={{
                           // Estricto blanco y negro: celda NEGRA siempre.
                           // Completed = punto BLANCO sólido.
@@ -404,7 +410,7 @@ export function HabitsPage() {
                   return (
                     <button onClick={() => toggleDate(habit.id, today)}
                       disabled={reorderMode}
-                      className={`md:hidden shrink-0 rounded-lg flex items-center justify-center transition-all w-10 h-10 hover:ring-2 hover:ring-white hover:shadow-[0_0_14px_rgba(255,255,255,0.55)] ${reorderMode ? 'opacity-40 pointer-events-none' : ''}`}
+                      className={`md:hidden shrink-0 rounded-lg flex items-center justify-center transition-all w-10 h-10 hover:ring-1 hover:ring-white/70 ${reorderMode ? 'opacity-40 pointer-events-none' : ''}`}
                       // Mismo lenguaje que el desktop: celda negra, punto
                       // blanco sólido cuando está hecho, anillo blanco hueco
                       // cuando está vacío. Hover = anillo blanco grueso + glow.
