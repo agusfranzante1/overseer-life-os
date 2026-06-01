@@ -2,7 +2,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Activity, Plus, Trash2, Flame, CheckCircle2, Circle, Trophy, X,
+  Activity, Plus, Trash2, Flame, Trophy, X,
   ChevronLeft, ChevronRight, TrendingUp, GripVertical, ArrowUpDown, Check, Minus,
 } from 'lucide-react'
 import {
@@ -359,26 +359,36 @@ export function HabitsPage() {
                         title={`${weekDays[i].toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' })} — click para ${nextLabel}`}
                         className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all hover:scale-110 ${future ? 'opacity-40' : ''} ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
                         style={{
-                          // Sober palette: neutral zinc background regardless
-                          // of habit color. The "done" state reads as a
-                          // bright white dot on near-black, no rainbow.
-                          backgroundColor: done ? '#27272a'      // zinc-800
-                            : skipped ? '#27272a'                // zinc-800
-                            : '#18181b',                          // zinc-900
+                          // "Sticker sheet" look: every cell is a light/white
+                          // rounded square. Completed = solid BLACK dot on top.
+                          // Empty   = thin black ring outline (hollow circle).
+                          // Skipped = neutral dark cell with a minus.
+                          backgroundColor: skipped ? '#27272a'   // zinc-800
+                            : '#f4f4f5',                          // zinc-100 (sticker bg)
                         }}>
                         {skipped ? (
                           <Minus className="w-4 h-4 text-zinc-500" />
-                        ) : (
-                          <div className="rounded-full transition-all"
+                        ) : done ? (
+                          // Filled solid-black dot — matches the reference image.
+                          <div
+                            className="rounded-full transition-all"
                             style={{
-                              width: done ? 14 : 10,
-                              height: done ? 14 : 10,
-                              // White when completed, dark zinc when empty.
-                              // Subtle white halo on done so it still pops
-                              // a touch — but no per-habit color tint.
-                              backgroundColor: done ? '#ffffff' : '#3f3f46',
-                              boxShadow: done ? '0 0 6px rgba(255,255,255,0.35)' : 'none',
-                            }} />
+                              width: 14,
+                              height: 14,
+                              backgroundColor: '#000000',
+                            }}
+                          />
+                        ) : (
+                          // Empty cell: hollow black ring (outline circle).
+                          <div
+                            className="rounded-full transition-all"
+                            style={{
+                              width: 14,
+                              height: 14,
+                              border: '2px solid #18181b',  // zinc-900 ring
+                              backgroundColor: 'transparent',
+                            }}
+                          />
                         )}
                       </button>
                     )
@@ -392,13 +402,19 @@ export function HabitsPage() {
                   return (
                     <button onClick={() => toggleDate(habit.id, today)}
                       disabled={reorderMode}
-                      className={`md:hidden shrink-0 transition-all ${reorderMode ? 'opacity-40 pointer-events-none' : ''}`}
-                      // Sober: white when done, mid-zinc when skipped/empty.
-                      // Matches the desktop weekly dots — no rainbow.
-                      style={{ color: doneTodayHabit ? '#ffffff' : skippedToday ? '#71717a' : '#52525b' }}>
-                      {doneTodayHabit ? <CheckCircle2 className="w-6 h-6" />
-                       : skippedToday ? <Minus className="w-6 h-6" />
-                       : <Circle className="w-6 h-6" />}
+                      className={`md:hidden shrink-0 rounded-lg flex items-center justify-center transition-all w-10 h-10 ${reorderMode ? 'opacity-40 pointer-events-none' : ''}`}
+                      // Mirror the desktop "sticker sheet" style: light cell,
+                      // solid-black dot when done / hollow black ring when empty.
+                      style={{
+                        backgroundColor: skippedToday ? '#27272a' : '#f4f4f5',
+                      }}>
+                      {skippedToday ? (
+                        <Minus className="w-4 h-4 text-zinc-500" />
+                      ) : doneTodayHabit ? (
+                        <div className="rounded-full" style={{ width: 16, height: 16, backgroundColor: '#000000' }} />
+                      ) : (
+                        <div className="rounded-full" style={{ width: 16, height: 16, border: '2px solid #18181b', backgroundColor: 'transparent' }} />
+                      )}
                     </button>
                   )
                 })()}
