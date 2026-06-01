@@ -897,12 +897,16 @@ function NotificationPrefsSection() {
                     enabled ? 'bg-emerald-500' : 'bg-zinc-700'
                   }`}
                 >
-                  {/* Knob: a la IZQUIERDA cuando está habilitado, a la
-                      DERECHA cuando está apagado. Convención pedida —
-                      al contrario del switch estándar de iOS/Android. */}
+                  {/* Knob: anclado a left-0.5 cuando ON, a right-0.5
+                      cuando OFF. Usar `left`/`right` directos (en vez de
+                      `translate-x`) garantiza que el knob siempre quede
+                      DENTRO de la forma redondeada, simétrico en ambos
+                      estados. El anterior translate-x-[18px] dejaba el
+                      knob desbordando visualmente la curva del rounded-full
+                      en el lado derecho. */}
                   <span
-                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow ${
-                      enabled ? 'translate-x-0.5' : 'translate-x-[18px]'
+                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-[left,right] duration-150 ${
+                      enabled ? 'left-0.5 right-auto' : 'left-auto right-0.5'
                     }`}
                   />
                 </button>
