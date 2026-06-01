@@ -127,16 +127,32 @@ export async function POST(req: NextRequest) {
     const { auth, error } = await getAuth(req)
     if (!auth) return NextResponse.json({ ok: false, error }, { status: 401 })
 
-    const { calendarId, summary, description, location, start, end, allDay, recurrence } = await req.json() as {
+    const { calendarId, summary, description, location, start, end, allDay, recurrence, timeZone } = await req.json() as {
       calendarId: string; summary: string; description?: string
       location?: string; start: string; end: string; allDay?: boolean
       // Optional RRULE array (e.g. ['RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR']).
       // When present, Google creates a recurring series instead of a one-off.
       recurrence?: string[]
+      // IANA timezone (e.g. "America/Argentina/Buenos_Aires"). REQUIRED by
+      // Google for recurring events with dateTime — without it, the API
+      // returns 400 "Recurring events must have a time zone".
+      timeZone?: string
     }
 
     if (!calendarId || !summary || !start || !end) {
       return NextResponse.json({ ok: false, error: 'missing_fields' }, { status: 400 })
+    }
+
+    // Para eventos recurrentes con horario (no all-day), Google exige
+    // start.timeZone Y end.timeZone. Si el cliente no lo mandó, lo
+    // bloqueamos con un error claro en vez de dejar que Google devuelva
+    // un mensaje genérico que se pierde en el banner.
+    const isRecurringTimed = !allDay && recurrence && recurrence.length > 0
+    if (isRecurringTimed && !timeZone) {
+      return NextResponse.json({
+        ok: false,
+        error: 'Falta timeZone — eventos recurrentes con horario requieren IANA timezone.',
+      }, { status: 400 })
     }
 
     const calendar = google.calendar({ version: 'v3', auth })
@@ -144,8 +160,12 @@ export async function POST(req: NextRequest) {
       calendarId,
       requestBody: {
         summary, description, location,
-        start: allDay ? { date: start.slice(0, 10) } : { dateTime: start },
-        end:   allDay ? { date: end.slice(0, 10)   } : { dateTime: end },
+        start: allDay
+          ? { date: start.slice(0, 10) }
+          : { dateTime: start, ...(timeZone ? { timeZone } : {}) },
+        end:   allDay
+          ? { date: end.slice(0, 10) }
+          : { dateTime: end,   ...(timeZone ? { timeZone } : {}) },
         ...(recurrence && recurrence.length > 0 ? { recurrence } : {}),
       },
     })

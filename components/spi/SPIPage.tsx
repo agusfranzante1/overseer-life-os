@@ -17,6 +17,9 @@ import {
 import { useSPIStore, lastSaturdayYmd } from '@/lib/store/spiStore'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useProjectionStore } from '@/lib/store/projectionStore'
+import { useHabitsStore } from '@/lib/store/habitsStore'
+import { buildWeekSnapshot } from '@/lib/spi/weekSnapshot'
+import type { WeekClosureSnapshot } from '@/lib/spi/types'
 import type { SPISection, SectionField, SPISession, SPITask } from '@/lib/spi/types'
 import { titleForLevel, type SessionXP } from '@/lib/spi/gamification'
 import { quarterOfMonthKey, monthOfSpiWeek, labelForPeriod, weekOfQuarter } from '@/lib/projection/period'
@@ -749,6 +752,12 @@ function ActiveSession({
         onRemove={onRemoveTask}
         onPush={onPushTask}
       />
+
+      {/* KPIs de hábitos de la semana — espejo del snapshot mensual.
+          Si la sesión está cerrada y tiene snapshot guardado, mostramos
+          la imagen CONGELADA. Si está abierta o cerrada sin snapshot,
+          calculamos en vivo desde habitsStore. */}
+      <WeekSnapshotContainer session={session} />
     </div>
   )
 }
@@ -2494,5 +2503,171 @@ function ContextCard({
         {exists ? children : <span className="italic text-zinc-600">— sin plan —</span>}
       </div>
     </a>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// WEEK HABITS SNAPSHOT (frozen al cierre o live durante la semana)
+// ─────────────────────────────────────────────────────────────────────
+/** Decide entre snapshot CONGELADO (capturado al cerrar la sesión) y
+ *  cálculo EN VIVO desde habitsStore. Mismo patrón que MonthSnapshotContainer
+ *  en ProjectionPage. */
+function WeekSnapshotContainer({ session }: { session: SPISession }) {
+  // Suscripción a habits para que el cálculo live se actualice cuando
+  // marcamos un hábito durante la semana en curso.
+  const habits = useHabitsStore((s) => s.habits)
+  const liveSnapshot = useMemo(() => {
+    if (session.weekSnapshot) return null
+    return buildWeekSnapshot(session.weekStartDate)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.weekSnapshot, session.weekStartDate, habits])
+
+  const snapshot = session.weekSnapshot ?? liveSnapshot
+  if (!snapshot || snapshot.habits.length === 0) return null
+  const isLive = !session.weekSnapshot
+  return <WeekHabitsBlock snapshot={snapshot} isLive={isLive} />
+}
+
+/** Renderiza la imagen de hábitos de la semana — grid 7 días × hábito.
+ *  `Sáb · Dom · Lun · Mar · Mié · Jue · Vie`. Cada celda blanco/negro/N/A
+ *  matching el lenguaje visual de HabitsPage. */
+function WeekHabitsBlock({
+  snapshot, isLive,
+}: { snapshot: WeekClosureSnapshot; isLive: boolean }) {
+  const [yStr, mStr, dStr] = snapshot.weekStartDate.split('-').map(Number)
+  const sat = new Date(yStr, mStr - 1, dStr)
+  const dayLabels = ['Sáb', 'Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie']
+  const dayNumbers = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(sat)
+    d.setDate(sat.getDate() + i)
+    return d.getDate()
+  })
+
+  const capturedDate = new Date(snapshot.capturedAt).toLocaleDateString('es-AR', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  })
+
+  // Promedio semanal: media de los completionPct de hábitos que tuvieron
+  // al menos un día contado (no todos future, no todos skipped).
+  const ratedHabits = snapshot.habits.filter((h) =>
+    h.days.some((d) => d === 'done' || d === 'missed')
+  )
+  const weekAvg = ratedHabits.length > 0
+    ? Math.round(ratedHabits.reduce((acc, h) => acc + h.completionPct, 0) / ratedHabits.length)
+    : 0
+
+  return (
+    <div className="bg-zinc-950/60 border border-emerald-500/20 rounded-2xl p-4 space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-[10px] font-mono uppercase tracking-wider text-emerald-300/80">
+          🎯 {isLive ? 'Vista en vivo' : 'Snapshot del cierre'} · Hábitos de la semana
+        </p>
+        <span className="text-[10px] text-zinc-600 font-mono">
+          {isLive ? 'calculado en vivo desde tus datos' : `capturado el ${capturedDate}`}
+        </span>
+      </div>
+
+      {/* Resumen KPI: promedio semanal */}
+      {ratedHabits.length > 0 && (
+        <div className="flex items-baseline gap-1.5 border-b border-zinc-800 pb-2">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+            Promedio semanal
+          </span>
+          <span className="text-2xl font-bold text-emerald-300 tabular-nums">{weekAvg}%</span>
+          <span className="text-[10px] text-zinc-600">
+            · {ratedHabits.length} hábito{ratedHabits.length === 1 ? '' : 's'} con tracking esta semana
+          </span>
+        </div>
+      )}
+
+      {/* Tabla — header (días) + rows (un hábito por row) */}
+      <div className="overflow-x-auto -mx-1 px-1">
+        <table className="min-w-full text-[11px]">
+          <thead>
+            <tr>
+              <th className="text-left text-[9px] font-mono uppercase tracking-wider text-zinc-600 pr-3 pb-2 font-normal sticky left-0 bg-zinc-950/60">
+                Hábito
+              </th>
+              {dayLabels.map((label, i) => (
+                <th key={i} className="px-1 pb-2 font-normal">
+                  <div className="text-[9px] font-mono uppercase text-zinc-600">{label}</div>
+                  <div className="text-[10px] text-zinc-500 tabular-nums">{dayNumbers[i]}</div>
+                </th>
+              ))}
+              <th className="text-right text-[9px] font-mono uppercase tracking-wider text-zinc-600 pl-3 pb-2 font-normal">
+                %
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {snapshot.habits.map((h) => (
+              <tr key={h.id} className="border-t border-zinc-900">
+                <td className="py-1.5 pr-3 sticky left-0 bg-zinc-950/60">
+                  <span className="mr-1.5">{h.icon}</span>
+                  <span className="text-zinc-300">{h.name}</span>
+                </td>
+                {h.days.map((status, i) => (
+                  <td key={i} className="px-0.5 py-1.5 text-center">
+                    <WeekHabitCell status={status} />
+                  </td>
+                ))}
+                <td className="py-1.5 pl-3 text-right tabular-nums">
+                  <span className={
+                    h.completionPct >= 80 ? 'text-emerald-400 font-semibold'
+                      : h.completionPct >= 50 ? 'text-amber-400'
+                      : 'text-zinc-500'
+                  }>
+                    {h.completionPct}%
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="text-[10px] text-zinc-600 flex items-center gap-3 flex-wrap pt-1">
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-white" /> hecho
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-2.5 h-2.5 rounded-full border border-white/70" /> vacío
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-zinc-700" /> N/A
+        </span>
+        <span className="flex items-center gap-1 text-zinc-700">
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-zinc-900" /> futuro
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/** Celda individual del grid semanal — matchea el lenguaje visual de
+ *  HabitsPage: celda negra + punto blanco / anillo blanco / minus / vacío. */
+function WeekHabitCell({ status }: { status: 'done' | 'skipped' | 'missed' | 'future' }) {
+  if (status === 'future') {
+    return <span className="inline-block w-5 h-5 rounded bg-zinc-900/60" />
+  }
+  if (status === 'skipped') {
+    return (
+      <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-zinc-800">
+        <span className="block w-1.5 h-px bg-zinc-500" />
+      </span>
+    )
+  }
+  if (status === 'done') {
+    return (
+      <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-black">
+        <span className="block w-2 h-2 rounded-full bg-white" />
+      </span>
+    )
+  }
+  // missed = celda negra con anillo blanco vacío (igual que "no marcado" en HabitsPage)
+  return (
+    <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-black">
+      <span className="block w-2 h-2 rounded-full border border-white/70" />
+    </span>
   )
 }

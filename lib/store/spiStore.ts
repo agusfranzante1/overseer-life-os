@@ -5,6 +5,7 @@ import { DEFAULT_SPI_TEMPLATE } from '@/lib/spi/template'
 import type { SPISession, SPITask, SPITemplate, BitacoraEntry } from '@/lib/spi/types'
 import { useTasksStore } from './tasksStore'
 import { computeSessionXP, totalXPFromSessions, levelFromXP, didLevelUp, type SessionXP } from '@/lib/spi/gamification'
+import { buildWeekSnapshot } from '@/lib/spi/weekSnapshot'
 
 function genId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
@@ -228,6 +229,11 @@ export const useSPIStore = create<SPIState>()(
             mood: args.mood ?? session.mood,
             mainChecklist: autoCheckedMain,
           }),
+          // Snapshot congelado de hábitos al cierre — espejo del
+          // MonthClosureSnapshot pero con 7 días. Vive con la sesión
+          // así la revisión histórica no depende del estado live de
+          // habitsStore (que puede borrar/renombrar hábitos después).
+          weekSnapshot: buildWeekSnapshot(session.weekStartDate),
         }
         set((s) => ({
           sessions: s.sessions.map((sess) => sess.id === id ? closedSession : sess),

@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware'
 import { Task, Project, Subtask, CustomStatus } from '@/types'
 import { DEFAULT_STATUSES, PROJECT_COLORS } from '@/lib/utils/constants'
 import { dateKeyInTz } from '@/lib/utils/dateInTz'
+import { nextRecurrenceDueDate } from '@/lib/utils/taskRecurrence'
 
 function genId() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
@@ -211,19 +212,70 @@ export const useTasksStore = create<TasksState>()(
 
       completeTask: (id) =>
         set((s) => {
-          const proj = s.projects[s.tasks[id]?.projectId]
+          const task = s.tasks[id]
+          if (!task) return s
+          const proj = s.projects[task.projectId]
           const doneStatus = proj?.statuses.find((st) => st.countsAsDone)?.label ?? 'Done'
-          return {
-            tasks: {
-              ...s.tasks,
-              [id]: {
-                ...s.tasks[id],
-                status: doneStatus,
-                completedAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-              },
+          const now = new Date().toISOString()
+
+          const updatedTasks = {
+            ...s.tasks,
+            [id]: {
+              ...task,
+              status: doneStatus,
+              completedAt: now,
+              updatedAt: now,
             },
           }
+          let updatedProjects = s.projects
+
+          // ── Recurrencia: si la tarea tiene regla y dueDate, spawn la
+          // siguiente instancia con el próximo dueDate calculado. La
+          // instancia completada queda histórica como cualquier otra
+          // (auto-archive eventual). Si la siguiente fecha cae más allá
+          // del `until`, no se crea nada.
+          if (task.recurrence && task.dueDate) {
+            const nextDueDate = nextRecurrenceDueDate(task.dueDate, task.recurrence)
+            if (nextDueDate) {
+              const newId = genId()
+              const todoStatus = proj?.statuses[0]?.label ?? 'To Do'
+              // Subtareas se "resetean": copiamos las plantillas (título,
+              // priority, parentId) pero sin completedAt/archivedAt para
+              // que el usuario las empiece de cero la próxima ocurrencia.
+              const freshSubs: Subtask[] = task.subtasks
+                .filter((sub) => !sub.archivedAt)
+                .map((sub) => ({
+                  ...sub,
+                  id: genId(),
+                  completed: false,
+                  completedAt: undefined,
+                  status: todoStatus,
+                }))
+              updatedTasks[newId] = {
+                ...task,
+                id: newId,
+                dueDate: nextDueDate,
+                status: todoStatus,
+                completedAt: undefined,
+                archivedAt: undefined,
+                createdAt: now,
+                updatedAt: now,
+                postponedCount: 0,
+                subtasks: freshSubs,
+              }
+              if (proj) {
+                updatedProjects = {
+                  ...s.projects,
+                  [proj.id]: {
+                    ...proj,
+                    taskIds: [...proj.taskIds, newId],
+                  },
+                }
+              }
+            }
+          }
+
+          return { tasks: updatedTasks, projects: updatedProjects }
         }),
 
       deleteTask: (id) =>

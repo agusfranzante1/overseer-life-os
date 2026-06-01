@@ -46,6 +46,14 @@ interface State {
   removeHabit: (id: string) => void
   renameHabit: (id: string, name: string) => void
   toggleDate: (id: string, date: string) => void
+  /** Resetea el historial de tracking de un hábito al mismo estado que
+   *  tendría si lo hubieras creado HOY: borra todos los completed
+   *  pasados y marca todos los días entre el primer hábito y AYER como
+   *  skipped (N/A). Útil para hábitos viejos que querés que dejen de
+   *  arrastrar stats — por ej. los que sumaste antes de que existiera
+   *  el auto-skip de fechas pasadas en `addHabit`. El `createdAt` no
+   *  se toca para no perder la fecha real de creación. */
+  resetHabitHistory: (id: string) => void
   /** Reorder habits to match the given ID sequence. Missing IDs are dropped,
    *  unknown IDs are ignored, habits not in the new order get appended at end
    *  in their previous relative order. */
@@ -125,6 +133,37 @@ export const useHabitsStore = create<State>()(
           return { ...h, skippedDates: skipped.filter((d) => d !== date) }
         }),
       })),
+      resetHabitHistory: (id) => set((s) => {
+        // Mismo cálculo que en addHabit: skipped desde el día más viejo
+        // registrado en CUALQUIER hábito (incluido el que reseteamos)
+        // hasta AYER. Así el hábito reseteado queda "transparente" para
+        // el histórico — los días vacíos no cuentan ni a favor ni en
+        // contra del % diario.
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        const todayStrVal = dateToStr(today)
+        let skipped: string[] = []
+        const earliest = s.habits
+          .map((existing) => existing.createdAt)
+          .filter(Boolean)
+          .sort()[0]
+        if (earliest && earliest < todayStrVal) {
+          const [ey, em, ed] = earliest.split('-').map(Number)
+          const cursor = new Date(ey, em - 1, ed)
+          cursor.setHours(0, 0, 0, 0)
+          while (cursor < today) {
+            skipped.push(dateToStr(cursor))
+            cursor.setDate(cursor.getDate() + 1)
+          }
+        }
+        return {
+          habits: s.habits.map((h) => h.id !== id ? h : {
+            ...h,
+            completedDates: [],
+            skippedDates: skipped,
+          }),
+        }
+      }),
       reorderHabits: (orderedIds) => set((s) => {
         const byId = new Map(s.habits.map((h) => [h.id, h]))
         const reordered: Habit[] = []

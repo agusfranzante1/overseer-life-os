@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Activity, Plus, Trash2, Flame, Trophy, X,
-  ChevronLeft, ChevronRight, TrendingUp, GripVertical, ArrowUpDown, Check, Minus,
+  ChevronLeft, ChevronRight, TrendingUp, GripVertical, ArrowUpDown, Check, Minus, RotateCcw,
 } from 'lucide-react'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -65,7 +65,7 @@ function computeStreak(completedDates: string[]): number {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function HabitsPage() {
-  const { habits, addHabit, removeHabit, toggleDate, reorderHabits } = useHabitsStore()
+  const { habits, addHabit, removeHabit, toggleDate, reorderHabits, resetHabitHistory } = useHabitsStore()
   const timezone = useAppStore((s) => s.timezone)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name: '', icon: '🎯', color: COLORS[0], category: 'Salud' })
@@ -426,12 +426,32 @@ export function HabitsPage() {
                   )
                 })()}
 
-                {/* Delete — hidden in reorder mode to avoid accidental clicks */}
+                {/* Reset history + Delete — ambos hidden en reorder mode
+                    para evitar clicks accidentales. Aparecen al hover de
+                    la fila. */}
                 {!reorderMode && (
-                  <button onClick={() => removeHabit(habit.id)}
-                    className="shrink-0 text-zinc-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button
+                      onClick={() => {
+                        const ok = confirm(
+                          `¿Resetear el historial de "${habit.name}"?\n\n` +
+                          `Esto borra todas las marcas pasadas (✓ y N/A) y deja el hábito como si lo hubieras creado HOY. ` +
+                          `Los días anteriores quedan marcados como N/A (no afectan tus stats). La fecha de creación original no se toca.\n\n` +
+                          `No se puede deshacer.`
+                        )
+                        if (ok) resetHabitHistory(habit.id)
+                      }}
+                      title="Resetear historial — marca todo lo pasado como N/A para no afectar stats"
+                      className="shrink-0 text-zinc-700 hover:text-amber-400 transition-colors"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => removeHabit(habit.id)}
+                      title="Borrar hábito"
+                      className="shrink-0 text-zinc-700 hover:text-red-400 transition-colors">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 )}
               </motion.div>
             )

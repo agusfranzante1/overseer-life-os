@@ -1,12 +1,13 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Task, Project, Priority } from '@/types'
+import { Task, Project, Priority, TaskRecurrence, TaskRecurrenceKind } from '@/types'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTranslation } from '@/hooks/useTranslation'
-import { X, Plus, Trash2, CheckCircle2, ChevronRight, ArrowRightLeft, Check, GitMerge } from 'lucide-react'
+import { X, Plus, Trash2, CheckCircle2, ChevronRight, ArrowRightLeft, Check, GitMerge, Repeat, Bell } from 'lucide-react'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { SubtaskDetailModal } from './SubtaskDetailModal'
+import { recurrenceLabel } from '@/lib/utils/taskRecurrence'
 
 interface Props {
   task: Task | null
@@ -328,16 +329,42 @@ export function TaskDetail({ task, project, onClose }: Props) {
               </div>
             </div>
 
-            {/* Due date */}
+            {/* Due date + time + recurrence + notify lead time */}
             <div>
               <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">{t('tasks.dueDate')}</label>
-              <input
-                type="date"
-                value={effective.dueDate ?? ''}
-                onChange={(e) => updateTask(effective.id, { dueDate: e.target.value || undefined })}
-                className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 w-full"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={effective.dueDate ?? ''}
+                  onChange={(e) => updateTask(effective.id, { dueDate: e.target.value || undefined })}
+                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 flex-1"
+                />
+                <input
+                  type="time"
+                  value={effective.dueTime ?? ''}
+                  onChange={(e) => updateTask(effective.id, { dueTime: e.target.value || undefined })}
+                  disabled={!effective.dueDate}
+                  title={effective.dueDate ? 'Hora opcional — habilita notificaciones con hora exacta' : 'Elegí primero una fecha'}
+                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 w-28 disabled:opacity-40"
+                />
+              </div>
             </div>
+
+            {/* Recurrence */}
+            <RecurrencePicker
+              recurrence={effective.recurrence}
+              onChange={(r) => updateTask(effective.id, { recurrence: r })}
+              hasDueDate={!!effective.dueDate}
+            />
+
+            {/* Notify lead time (per-task override) — solo aplica si hay
+                dueDate, porque sin fecha no hay nada que notificar. */}
+            {effective.dueDate && (
+              <NotifyLeadTimePicker
+                notifyBeforeMinutes={effective.notifyBeforeMinutes}
+                onChange={(m) => updateTask(effective.id, { notifyBeforeMinutes: m })}
+              />
+            )}
 
             {/* Description */}
             <div>
@@ -500,6 +527,176 @@ function SubtaskRow({ title, completed, onToggle, onRename, onOpenDetail, onDele
       >
         <Trash2 className="w-3 h-3" />
       </button>
+    </div>
+  )
+}
+
+// ─── RecurrencePicker ────────────────────────────────────────────────
+/** Picker para configurar la regla de recurrencia de una tarea. Si la
+ *  tarea no tiene dueDate, el picker queda deshabilitado con un hint —
+ *  la recurrencia depende de tener una fecha base para calcular la
+ *  próxima instancia. */
+const DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+
+function RecurrencePicker({
+  recurrence, onChange, hasDueDate,
+}: {
+  recurrence: TaskRecurrence | undefined
+  onChange: (r: TaskRecurrence | undefined) => void
+  hasDueDate: boolean
+}) {
+  const kind: TaskRecurrenceKind | 'none' = recurrence?.kind ?? 'none'
+  const daysOfWeek = recurrence?.daysOfWeek ?? []
+
+  const setKind = (k: TaskRecurrenceKind | 'none') => {
+    if (k === 'none') return onChange(undefined)
+    if (k === 'weekly') return onChange({ kind: 'weekly', daysOfWeek: daysOfWeek.length > 0 ? daysOfWeek : undefined, until: recurrence?.until })
+    onChange({ kind: k, until: recurrence?.until })
+  }
+  const toggleDay = (d: number) => {
+    const current = recurrence?.daysOfWeek ?? []
+    const next = current.includes(d) ? current.filter((x) => x !== d) : [...current, d].sort()
+    onChange({ ...(recurrence ?? { kind: 'weekly' }), kind: 'weekly', daysOfWeek: next.length > 0 ? next : undefined })
+  }
+  const setUntil = (until: string | undefined) => {
+    if (!recurrence) return
+    onChange({ ...recurrence, until })
+  }
+
+  const options: { value: TaskRecurrenceKind | 'none'; label: string }[] = [
+    { value: 'none',     label: 'Sin repetición' },
+    { value: 'daily',    label: 'Todos los días' },
+    { value: 'weekdays', label: 'Lun-Vie' },
+    { value: 'weekly',   label: 'Semanal · día(s)' },
+    { value: 'monthly',  label: 'Cada mes' },
+  ]
+
+  return (
+    <div>
+      <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
+        <Repeat className="w-3 h-3" /> Recurrencia
+      </label>
+      {!hasDueDate ? (
+        <p className="text-[11px] text-zinc-600 italic">
+          Asigná una fecha de vencimiento para habilitar la recurrencia.
+        </p>
+      ) : (
+        <>
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as TaskRecurrenceKind | 'none')}
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500"
+          >
+            {options.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+
+          {kind === 'weekly' && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {DAY_LABELS.map((label, i) => {
+                const active = daysOfWeek.includes(i)
+                return (
+                  <button
+                    key={i}
+                    onClick={() => toggleDay(i)}
+                    className={`px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider transition-colors ${
+                      active ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'bg-zinc-900 text-zinc-500 border border-zinc-800 hover:border-zinc-700'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+              {daysOfWeek.length === 0 && (
+                <p className="text-[10px] text-zinc-600 italic basis-full mt-1">
+                  Sin días seleccionados → usa el día de la fecha base.
+                </p>
+              )}
+            </div>
+          )}
+
+          {kind !== 'none' && (
+            <div className="mt-2 flex items-center gap-2">
+              <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-600 whitespace-nowrap">
+                Termina el
+              </label>
+              <input
+                type="date"
+                value={recurrence?.until ?? ''}
+                onChange={(e) => setUntil(e.target.value || undefined)}
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
+              />
+              {recurrence?.until && (
+                <button
+                  onClick={() => setUntil(undefined)}
+                  title="Repetir indefinidamente"
+                  className="text-zinc-500 hover:text-zinc-200 p-1"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          )}
+
+          {recurrence && (
+            <p className="text-[10px] text-zinc-600 mt-2 italic">
+              Al completar esta tarea se crea automáticamente la siguiente: <span className="text-zinc-400">{recurrenceLabel(recurrence)}</span>.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ─── NotifyLeadTimePicker ────────────────────────────────────────────
+/** Override por-tarea del lead time de notificación. `undefined` = usar
+ *  el global de Settings (notificationPrefs.taskDueLeadMinutes). Lista
+ *  cerrada de opciones para evitar valores raros. */
+const LEAD_TIME_OPTIONS: { value: number | undefined; label: string }[] = [
+  { value: undefined, label: 'Usar default global' },
+  { value: 0,         label: 'En el momento' },
+  { value: 5,         label: '5 min antes' },
+  { value: 15,        label: '15 min antes' },
+  { value: 30,        label: '30 min antes' },
+  { value: 60,        label: '1 hora antes' },
+  { value: 120,       label: '2 horas antes' },
+  { value: 240,       label: '4 horas antes' },
+  { value: 24 * 60,   label: '1 día antes' },
+  { value: 48 * 60,   label: '2 días antes' },
+]
+
+function NotifyLeadTimePicker({
+  notifyBeforeMinutes, onChange,
+}: {
+  notifyBeforeMinutes: number | undefined
+  onChange: (m: number | undefined) => void
+}) {
+  // El value del select usa string para que `undefined` quepa.
+  const stringValue = notifyBeforeMinutes === undefined ? 'global' : String(notifyBeforeMinutes)
+  return (
+    <div>
+      <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
+        <Bell className="w-3 h-3" /> Notificarme
+      </label>
+      <select
+        value={stringValue}
+        onChange={(e) => {
+          const v = e.target.value
+          onChange(v === 'global' ? undefined : parseInt(v, 10))
+        }}
+        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500"
+      >
+        {LEAD_TIME_OPTIONS.map((o) => (
+          <option key={o.value === undefined ? 'global' : o.value} value={o.value === undefined ? 'global' : String(o.value)}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <p className="text-[10px] text-zinc-600 mt-1 italic">
+        Sobrescribe el ajuste global de notificaciones para esta tarea.
+      </p>
     </div>
   )
 }

@@ -836,6 +836,22 @@ function NotificationPrefsSection() {
     },
   ]
 
+  // Opciones discretas de lead time, compartidas entre los canales que
+  // soportan "cuánto antes". Lista cerrada para evitar valores raros.
+  const LEAD_TIME_OPTIONS: { value: number; label: string }[] = [
+    { value: 0,         label: 'En el momento' },
+    { value: 5,         label: '5 min antes' },
+    { value: 15,        label: '15 min antes' },
+    { value: 30,        label: '30 min antes' },
+    { value: 60,        label: '1 hora antes' },
+    { value: 120,       label: '2 horas antes' },
+    { value: 240,       label: '4 horas antes' },
+    { value: 24 * 60,   label: '1 día antes' },
+    { value: 48 * 60,   label: '2 días antes' },
+  ]
+  const taskDueLead = notificationPrefs.taskDueLeadMinutes ?? 60
+  const spiLead = notificationPrefs.spiNewSessionLeadMinutes ?? 0
+
   return (
     <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
       <div className="flex items-center gap-2">
@@ -851,35 +867,68 @@ function NotificationPrefsSection() {
         {channels.map((ch) => {
           // Default ON (undefined → true) — coincide con el initial state.
           const enabled = notificationPrefs[ch.key] !== false
+          // Cada canal puede tener su propio "lead time" — cuánto antes
+          // de disparar. Sólo aplicamos el control a los canales que
+          // tienen ese concepto (vencimiento, SPI nuevo).
+          const leadTimeKey: 'taskDueLeadMinutes' | 'spiNewSessionLeadMinutes' | null =
+            ch.key === 'taskDueSoon' ? 'taskDueLeadMinutes'
+            : ch.key === 'spiNewSession' ? 'spiNewSessionLeadMinutes'
+            : null
+          const currentLead = leadTimeKey === 'taskDueLeadMinutes' ? taskDueLead
+            : leadTimeKey === 'spiNewSessionLeadMinutes' ? spiLead
+            : null
           return (
-            <label
+            <div
               key={ch.key}
-              className="flex items-start gap-3 p-3 rounded-xl border border-zinc-800 bg-zinc-950/40 hover:border-zinc-700 transition-colors cursor-pointer"
+              className="rounded-xl border border-zinc-800 bg-zinc-950/40 hover:border-zinc-700 transition-colors"
             >
-              <span className="text-lg shrink-0 mt-0.5">{ch.emoji}</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-zinc-200">{ch.title}</p>
-                <p className="text-[11px] text-zinc-500 mt-0.5">{ch.description}</p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={enabled}
-                onClick={() => setNotificationPref(ch.key, !enabled)}
-                className={`shrink-0 w-10 h-6 rounded-full transition-colors relative ${
-                  enabled ? 'bg-emerald-500' : 'bg-zinc-700'
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow ${
-                    enabled ? 'translate-x-[18px]' : 'translate-x-0.5'
+              <label className="flex items-start gap-3 p-3 cursor-pointer">
+                <span className="text-lg shrink-0 mt-0.5">{ch.emoji}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-zinc-200">{ch.title}</p>
+                  <p className="text-[11px] text-zinc-500 mt-0.5">{ch.description}</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={enabled}
+                  onClick={() => setNotificationPref(ch.key, !enabled)}
+                  className={`shrink-0 w-10 h-6 rounded-full transition-colors relative ${
+                    enabled ? 'bg-emerald-500' : 'bg-zinc-700'
                   }`}
-                />
-              </button>
-            </label>
+                >
+                  <span
+                    className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow ${
+                      enabled ? 'translate-x-[18px]' : 'translate-x-0.5'
+                    }`}
+                  />
+                </button>
+              </label>
+              {/* Lead-time selector — solo para canales que soportan
+                  "cuánto antes" Y que están habilitados. */}
+              {leadTimeKey && enabled && currentLead !== null && (
+                <div className="px-3 pb-3 -mt-1 flex items-center gap-2 border-t border-zinc-900 pt-2 ml-9">
+                  <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-600 whitespace-nowrap">
+                    Cuánto antes
+                  </label>
+                  <select
+                    value={String(currentLead)}
+                    onChange={(e) => setNotificationPref(leadTimeKey, parseInt(e.target.value, 10))}
+                    className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-[11px] text-zinc-300 focus:outline-none focus:border-fuchsia-500/40"
+                  >
+                    {LEAD_TIME_OPTIONS.map((o) => (
+                      <option key={o.value} value={String(o.value)}>{o.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
           )
         })}
       </div>
+      <p className="text-[10px] text-zinc-600 italic">
+        ⓘ Las tareas pueden tener su propio override del "cuánto antes" desde el detalle de la tarea — sobrescribe el ajuste global de acá.
+      </p>
     </section>
   )
 }

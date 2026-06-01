@@ -62,8 +62,16 @@ interface AppState {
     taskDueSoon?: boolean      // Tareas con dueDate hoy/mañana
     taskOverdue?: boolean      // Tareas vencidas
     habitReminder?: boolean    // Reminder diario de hábitos no marcados
+    /** Cuántos minutos ANTES del dueDate/dueTime se dispara la notificación
+     *  "vencimiento de tareas". Default: 60 min (1 hora antes). Si la tarea
+     *  no tiene `dueTime`, se asume 9:00 AM como hora del día. Override
+     *  por-tarea vía `Task.notifyBeforeMinutes`. */
+    taskDueLeadMinutes?: number
+    /** Cuántos minutos antes del sábado a la madrugada disparar el aviso
+     *  "Nuevo SPI habilitado". Default: 0 (en el momento). */
+    spiNewSessionLeadMinutes?: number
   }
-  setNotificationPref: (key: keyof AppState['notificationPrefs'], value: boolean) => void
+  setNotificationPref: (key: keyof AppState['notificationPrefs'], value: boolean | number) => void
 
   setLanguage: (lang: Language) => void
   toggleSidebar: () => void
@@ -113,6 +121,8 @@ export const useAppStore = create<AppState>()(
         taskDueSoon: true,
         taskOverdue: true,
         habitReminder: false,
+        taskDueLeadMinutes: 60,         // 1 hora antes por default
+        spiNewSessionLeadMinutes: 0,    // en el momento
       },
       metrics: {
         focus: 72,

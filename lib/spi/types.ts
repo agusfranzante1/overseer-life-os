@@ -158,4 +158,38 @@ export interface SPISession {
   /** Template version this session was built against — for backward
    *  compat when we change the template in the future. */
   templateVersion: number
+
+  /** Snapshot capturado al cerrar la semana — grid de 7 días por hábito
+   *  + KPIs de la semana. Imagen congelada para que la revisión histórica
+   *  sobreviva a cambios futuros en el hábito (renombrar, borrar, etc.). */
+  weekSnapshot?: WeekClosureSnapshot
+}
+
+/** Captura al cerrar una semana SPI: estado de hábitos de los 7 días que
+ *  cubre la semana (Sáb → Vie). Mismo concepto que `MonthClosureSnapshot`
+ *  pero con horizonte de 7 días y sin ingresos (eso se ve mejor a nivel
+ *  mensual). */
+export interface WeekClosureSnapshot {
+  /** Para cada hábito, qué pasó cada uno de los 7 días de la semana.
+   *   - 'done'    → marcado como cumplido
+   *   - 'skipped' → N/A (no cuenta)
+   *   - 'missed'  → ni done ni skipped (perdido)
+   *   - 'future'  → día posterior a hoy al cierre (cuando cerrás antes
+   *                 de que termine la semana, los días futuros se
+   *                 marcan así para no contarlos en contra). */
+  habits: Array<{
+    id: string
+    name: string
+    icon: string
+    color: string
+    /** Array de 7 entradas, Sáb → Vie (índice 0 = sábado, 6 = viernes). */
+    days: Array<'done' | 'skipped' | 'missed' | 'future'>
+    /** % de cumplimiento sobre días NO-skipped y NO-future. */
+    completionPct: number
+  }>
+  /** ISO YYYY-MM-DD del sábado que arranca la semana — duplicado de
+   *  `weekStartDate` para que el render no dependa del session padre. */
+  weekStartDate: string
+  /** ISO timestamp del cierre. */
+  capturedAt: string
 }

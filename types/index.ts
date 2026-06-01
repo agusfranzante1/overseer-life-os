@@ -49,6 +49,24 @@ export interface Subtask {
   description?: string
 }
 
+/** Recurrence rule for a Task. Used by the store to auto-spawn the next
+ *  instance when the current one is completed. The original dueDate
+ *  defines the "anchor" — daily continues each day, weekly continues
+ *  same weekday (or any weekday listed in `daysOfWeek`), monthly continues
+ *  same day-of-month, etc.
+ *
+ *  When `until` is set, no new instance is spawned after that date. */
+export type TaskRecurrenceKind = 'daily' | 'weekdays' | 'weekly' | 'monthly'
+
+export interface TaskRecurrence {
+  kind: TaskRecurrenceKind
+  /** Para 'weekly': días de la semana en los que se repite. 0=Dom … 6=Sáb.
+   *  Si no se especifica, usamos el día de la semana del dueDate original. */
+  daysOfWeek?: number[]
+  /** Fecha tope (YYYY-MM-DD, inclusive) — no se generan instancias después. */
+  until?: string
+}
+
 export interface Task {
   id: string
   projectId: string
@@ -58,6 +76,10 @@ export interface Task {
   priority: Priority
   importance: Impact
   dueDate?: string
+  /** Hora opcional para la dueDate (HH:MM, 24h). Cuando está presente +
+   *  hay dueDate, el calendario y las notificaciones lo tratan como un
+   *  evento "con hora", no "all-day". */
+  dueTime?: string
   energyEstimate?: number
   notes?: string
   subtasks: Subtask[]
@@ -73,6 +95,12 @@ export interface Task {
   updatedAt: string
   postponedCount?: number
   category?: string
+  /** Regla de recurrencia opcional. Al completar, el store crea la
+   *  siguiente instancia automáticamente (ver `tasksStore.completeTask`). */
+  recurrence?: TaskRecurrence
+  /** Override por-tarea de "cuánto tiempo antes" notificar. Si no está
+   *  definido, se usa el valor global de `notificationPrefs.taskDueLeadMinutes`. */
+  notifyBeforeMinutes?: number
 }
 
 export interface Project {

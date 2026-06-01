@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from '@/hooks/useTranslation'
 import { useTasksStore } from '@/lib/store/tasksStore'
+import { expandRecurrenceInRange } from '@/lib/utils/taskRecurrence'
 import { useGoogleCalendarStore, resolveEventColor, contrastText, type GEvent, type GCalendar } from '@/lib/store/googleCalendarStore'
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
@@ -125,9 +126,25 @@ export function CalendarPage() {
     return map
   }, [gcal.calendars])
 
+  // Una tarea aparece en un día si:
+  //   - Tiene `dueDate === ese día`, O
+  //   - Tiene `recurrence` y la serie pega en ese día (la instancia
+  //     materializada — que se crea al completar — todavía no existe,
+  //     pero el calendario igual la previsualiza).
   const getTasksForDay = (date: Date) => {
     const dateStr = format(date, 'yyyy-MM-dd')
-    return Object.values(tasks).filter((t) => t.dueDate === dateStr)
+    return Object.values(tasks).filter((t) => {
+      if (!t.dueDate) return false
+      if (t.dueDate === dateStr) return true
+      if (!t.recurrence) return false
+      // Expandimos solo hacia adelante (dueDate < dateStr) — las
+      // instancias ya completadas se materializan como tareas reales
+      // con su propio dueDate, así que no necesitamos buscar hacia
+      // atrás. Cortamos en el día actual para no explotar.
+      if (t.dueDate >= dateStr) return false
+      const occurrences = expandRecurrenceInRange(t.dueDate, t.recurrence, dateStr, dateStr)
+      return occurrences.length > 0
+    })
   }
 
   const selectedDayTasks = selectedDay ? getTasksForDay(selectedDay) : []
@@ -563,7 +580,15 @@ export function CalendarPage() {
                 })
                 gcal.createEvent(data)
                   .then(() => setBanner({ kind: 'success', text: 'Evento creado ✓' }))
-                  .catch((e) => setBanner({ kind: 'error', text: `Error: ${e instanceof Error ? e.message : 'unknown'}` }))
+                  .catch((e) => {
+                    // Log a consola además del banner — si el usuario no
+                    // ve el toast por algún motivo, al menos queda en
+                    // devtools. Antes los errores recurrentes pasaban
+                    // desapercibidos y se perdían silenciosamente.
+                    const msg = e instanceof Error ? e.message : 'unknown'
+                    console.error('[calendar] createEvent failed:', msg, data)
+                    setBanner({ kind: 'error', text: `No se pudo crear "${data.summary}": ${msg}` })
+                  })
                 return
               }
               if (showEventModal.event) {
@@ -742,7 +767,7 @@ interface EventModalProps {
   onClose: () => void
   /** Fire-and-forget: parent closes the modal + shows a banner. The modal
    *  itself doesn't need to await this. */
-  onSave: (data: Omit<GEvent, 'id'> & { recurrence?: string[] }) => void
+  onSave: (data: Omit<GEvent, 'id'> & { recurrence?: string[]; timeZone?: string }) => void
   onDelete: () => void
 }
 
@@ -820,9 +845,33 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
         return `${dateStr}T${timeStr}:00${sign}${offH}:${offM}`
       }
 
+      // BUG FIX: para eventos all-day, Google Calendar exige que
+      // `end.date` sea EXCLUSIVO — el día siguiente al último día del
+      // evento. Si el usuario deja `endDate === startDate` (default del
+      // modal), GCal devuelve 400 "invalid time range" y el insert
+      // falla silenciosamente (el error sube por el banner pero es
+      // fácil no notarlo). Lo normalizamos acá: si end <= start en
+      // modo all-day, lo bumpeamos al día siguiente del start. Si el
+      // usuario eligió explícitamente un end posterior, lo respetamos.
+      let normalizedEndDate = endDate
+      if (allDay && endDate <= startDate) {
+        const [y, m, d] = startDate.split('-').map(Number)
+        const next = new Date(y, m - 1, d)
+        next.setDate(next.getDate() + 1)
+        normalizedEndDate = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`
+      }
+
       const startISO = allDay ? startDate : toLocalISO(startDate, startTime)
-      const endISO   = allDay ? endDate   : toLocalISO(endDate, endTime)
+      const endISO   = allDay ? normalizedEndDate : toLocalISO(endDate, endTime)
       const recurrenceRule = mode === 'create' ? buildRecurrenceRule(recurrence) : undefined
+      // IANA timezone del browser (ej. "America/Argentina/Buenos_Aires").
+      // Google Calendar REQUIERE start.timeZone + end.timeZone para
+      // eventos recurrentes con horario — sin esto el insert devuelve
+      // 400 "Recurring events must have a time zone" y falla silente.
+      // Para eventos one-off no es obligatorio pero igual lo mandamos
+      // así el calendario lo guarda con la TZ correcta (evita bugs de
+      // DST en otra parte). Fallback a UTC si Intl no está disponible.
+      const tz = (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC'
       onSave({
         calendarId,
         summary: summary.trim(),
@@ -831,6 +880,7 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
         start: startISO,
         end: endISO,
         allDay,
+        timeZone: tz,
         ...(recurrenceRule ? { recurrence: recurrenceRule } : {}),
       })
     } catch {
@@ -878,7 +928,19 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
           </div>
 
           <label className="flex items-center gap-2 text-sm text-zinc-300">
-            <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)}
+            <input type="checkbox" checked={allDay} onChange={(e) => {
+              const next = e.target.checked
+              setAllDay(next)
+              // Al activar "Todo el día", si endDate quedó <= startDate
+              // (caso común: ambos iguales por default), bumpeamos endDate
+              // un día — GCal requiere end > start para eventos date-based.
+              if (next && endDate <= startDate) {
+                const [y, m, d] = startDate.split('-').map(Number)
+                const nd = new Date(y, m - 1, d)
+                nd.setDate(nd.getDate() + 1)
+                setEndDate(`${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}-${String(nd.getDate()).padStart(2, '0')}`)
+              }
+            }}
               className="accent-indigo-500" />
             Todo el día
           </label>
@@ -985,7 +1047,7 @@ function isHourHidden(h: number, start: number, end: number, enabled: boolean): 
 interface WeekViewProps {
   anchor: Date
   events: GEvent[]
-  tasks: { id: string; title: string; dueDate?: string; projectId: string }[]
+  tasks: { id: string; title: string; dueDate?: string; projectId: string; recurrence?: import('@/types').TaskRecurrence }[]
   projects: Record<string, { color: string; name: string } | undefined> | Record<string, { color: string; name: string }>
   calendarById: Map<string, GCalendar>
   selectedDay: Date | null
@@ -1065,13 +1127,27 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
 
   const tasksByDay = useMemo(() => {
     const map = new Map<string, typeof tasks>()
+    // Rango visible de la semana — para expandir las recurrentes
+    // dentro de esos 7 días sin tener que iterar todas las fechas.
+    const weekStartStr = format(weekStart, 'yyyy-MM-dd')
+    const weekEndStr = format(weekEnd, 'yyyy-MM-dd')
     for (const t of tasks) {
       if (!t.dueDate) continue
+      // Instancia base (la del store).
       if (!map.has(t.dueDate)) map.set(t.dueDate, [])
       map.get(t.dueDate)!.push(t)
+      // Instancias recurrentes proyectadas hacia adelante.
+      if (t.recurrence) {
+        const occurrences = expandRecurrenceInRange(t.dueDate, t.recurrence, weekStartStr, weekEndStr)
+        for (const occ of occurrences) {
+          if (occ === t.dueDate) continue  // ya la metimos arriba
+          if (!map.has(occ)) map.set(occ, [])
+          map.get(occ)!.push(t)
+        }
+      }
     }
     return map
-  }, [tasks])
+  }, [tasks, weekStart, weekEnd])
 
   // Visible hours (whole hours rendered as cells)
   const visibleHours = useMemo(

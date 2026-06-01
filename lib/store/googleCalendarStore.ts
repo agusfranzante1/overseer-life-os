@@ -131,9 +131,11 @@ interface State {
   loadEvents: () => Promise<void>
   disconnect: () => Promise<void>
 
-  /** Create an event. If `recurrence` (array of RRULE strings) is included
+  /** Create an event. `timeZone` (IANA) es requerido por Google para
+   *  eventos recurrentes con horario — mandalo siempre desde el cliente.
+   *  Si `recurrence` (array of RRULE strings) is included
    *  in `input`, Google creates a recurring series. */
-  createEvent: (input: Omit<GEvent, 'id'> & { recurrence?: string[] }) => Promise<void>
+  createEvent: (input: Omit<GEvent, 'id'> & { recurrence?: string[]; timeZone?: string }) => Promise<void>
   /** Patch a Google Calendar event.
    *  - For one-off events, omit `applyToSeries`.
    *  - For RECURRING instances, set `applyToSeries: true` AND pass the
