@@ -2072,9 +2072,22 @@ function ProjectionContext({
     return {
       areaKey: k,
       areaLabel: ({
-        fisica: 'Salud Física', mental: 'Salud Mental', emocional: 'Salud Emocional',
-        espiritual: 'Conexión Espiritual', relaciones: 'Relaciones Personales',
-        profesional: 'Profesional', financiera: 'Salud Financiera', legado: 'Propósito / Legado',
+        fisica: 'Salud Física',
+        mental_emocional: 'Salud Mental/Emocional',
+        // Legacy keys — pre-v2 plans had `mental` and `emocional` separados.
+        // Si el cascade del trimestre/mes todavía referencia esas keys
+        // viejas (porque el usuario no abrió Anual desde la migración),
+        // las renderizamos con su label original así no aparecen como
+        // texto crudo. La migración del store se encarga de pasarlas a
+        // mental_emocional la próxima vez que carga.
+        mental: 'Salud Mental',
+        emocional: 'Salud Emocional',
+        espiritual: 'Conexión Espiritual',
+        relaciones: 'Relaciones Personales',
+        profesional: 'Profesional',
+        financiera: 'Salud Financiera',
+        legado: 'Propósito / Legado',
+        hobbies: 'Hobbies / Pasiones',
       } as Record<string, string>)[k] ?? k,
       subgoals: subs,
     }

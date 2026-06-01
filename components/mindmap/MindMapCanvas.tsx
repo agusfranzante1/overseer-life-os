@@ -970,7 +970,20 @@ function NodeBox({
   // user controls shrinking via the manual resize handle. This way the
   // node "remembers" how big you sized it once, and grows further only if
   // you keep typing past that.
+  //
+  // IMPORTANT: `node.height` is intentionally NOT in the dep array. The
+  // effect SETS height — if we depended on it, every update would
+  // re-trigger the effect and (for the view-mode path below, where the
+  // measured element is h-full) cause an infinite grow loop. Without it,
+  // the effect only re-runs when the inputs that affect content height
+  // change (text, font size, width, edit mode).
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  // Stable ref to the parent callback so we can omit it from deps without
+  // staleness — parent identity is recreated each render and would
+  // otherwise re-trigger the effect on every parent re-render.
+  const onAutoGrowHeightRef = useRef(onAutoGrowHeight)
+  useEffect(() => { onAutoGrowHeightRef.current = onAutoGrowHeight }, [onAutoGrowHeight])
+
   useEffect(() => {
     if (!editing) return
     const ta = textareaRef.current
@@ -978,21 +991,25 @@ function NodeBox({
     // The textarea fills the node minus padding. Its scrollHeight tells us
     // the minimum height needed to render `draft` without scrolling.
     const needed = ta.scrollHeight + NODE_TEXT_PADDING_Y
-    if (needed > node.height) onAutoGrowHeight(needed)
-  }, [draft, editing, fontSize, node.width, node.height, onAutoGrowHeight])
+    if (needed > node.height) onAutoGrowHeightRef.current(needed)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, editing, fontSize, node.width])
 
   // Auto-grow (read-only path): even when NOT editing, the text might
   // outgrow the box — e.g. after the user bumped the font size from the
-  // toolbar, or after a programmatic text change. Measure the view-mode
-  // div the same way and bump height if needed.
-  const viewRef = useRef<HTMLDivElement | null>(null)
+  // toolbar, or after a programmatic text change. We measure an INNER
+  // wrapper div (see JSX: `viewMeasureRef`) that has natural height —
+  // NOT the outer h-full flex container, whose scrollHeight is just the
+  // node's set height and would create a runaway feedback loop.
+  const viewMeasureRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     if (editing) return
-    const el = viewRef.current
+    const el = viewMeasureRef.current
     if (!el) return
     const needed = el.scrollHeight + NODE_TEXT_PADDING_Y
-    if (needed > node.height) onAutoGrowHeight(needed)
-  }, [node.text, fontSize, node.width, node.height, editing, onAutoGrowHeight])
+    if (needed > node.height) onAutoGrowHeightRef.current(needed)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node.text, fontSize, node.width, editing])
 
   return (
     <>
@@ -1046,13 +1063,20 @@ function NodeBox({
           />
         ) : (
           <div
-            ref={viewRef}
             className="w-full h-full flex items-center justify-center text-center px-2 font-medium leading-snug select-none break-words"
             style={{ color, fontSize }}
           >
-            {/* Empty-text placeholder. Matches the textarea's placeholder
-                "Idea" so the visual is consistent between view and edit modes. */}
-            {node.text || <span className="opacity-40 italic">Idea</span>}
+            {/* Inner wrapper with NATURAL height — this is the element the
+                auto-grow effect measures. The outer flex container is h-full
+                (= node.height), so measuring it would just echo back the
+                current node height and loop forever. The inner div sits at
+                full width but only as tall as the text needs to be, so
+                `scrollHeight` returns the true content height. */}
+            <div ref={viewMeasureRef} className="w-full">
+              {/* Empty-text placeholder. Matches the textarea's placeholder
+                  "Idea" so the visual is consistent between view and edit modes. */}
+              {node.text || <span className="opacity-40 italic">Idea</span>}
+            </div>
           </div>
         )}
 

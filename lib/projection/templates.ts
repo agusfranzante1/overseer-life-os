@@ -56,14 +56,14 @@ export const EAGLE_TEMPLATE: ProjectionTemplate = {
       title: 'Rueda de la vida · ¿dónde estás hoy?',
       intro: 'Puntuá cada área del 0 al 100 según cómo la sentís HOY. Es un diagnóstico, no un objetivo. Las áreas más bajas son las que más mueven la aguja si las subís.',
       fields: [
-        { key: 'fisica',       label: 'Salud Física',           type: 'score', hint: 'Energía, fuerza, entrenamiento, descanso.' },
-        { key: 'mental',       label: 'Salud Mental',           type: 'score', hint: 'Claridad, foco, descanso cognitivo.' },
-        { key: 'emocional',    label: 'Salud Emocional',        type: 'score', hint: 'Cómo manejás tus emociones, autorregulación.' },
-        { key: 'espiritual',   label: 'Conexión Espiritual',    type: 'score', hint: 'Sentido de algo más grande, prácticas internas.' },
-        { key: 'relaciones',   label: 'Relaciones Personales',  type: 'score', hint: 'Familia, pareja, amigos, vínculos cercanos.' },
-        { key: 'profesional',  label: 'Profesional / Carrera',  type: 'score', hint: 'Trabajo, propósito vocacional, ejecución.' },
-        { key: 'financiera',   label: 'Salud Financiera',       type: 'score', hint: 'Ingresos, ahorro, gestión, sostenibilidad.' },
-        { key: 'legado',       label: 'Propósito / Legado',     type: 'score', hint: 'Aporte al mundo, contribución, juego infinito.' },
+        { key: 'fisica',            label: 'Salud Física',              type: 'score', hint: 'Energía, fuerza, entrenamiento, descanso.' },
+        { key: 'mental_emocional',  label: 'Salud Mental/Emocional',    type: 'score', hint: 'Claridad, foco, descanso cognitivo, autorregulación, cómo manejás tus emociones.' },
+        { key: 'espiritual',        label: 'Conexión Espiritual',       type: 'score', hint: 'Sentido de algo más grande, prácticas internas.' },
+        { key: 'relaciones',        label: 'Relaciones Personales',     type: 'score', hint: 'Familia, pareja, amigos, vínculos cercanos.' },
+        { key: 'profesional',       label: 'Profesional / Carrera',     type: 'score', hint: 'Trabajo, propósito vocacional, ejecución.' },
+        { key: 'financiera',        label: 'Salud Financiera',          type: 'score', hint: 'Ingresos, ahorro, gestión, sostenibilidad.' },
+        { key: 'legado',            label: 'Propósito / Legado',        type: 'score', hint: 'Aporte al mundo, contribución, juego infinito.' },
+        { key: 'hobbies',           label: 'Hobbies / Pasiones',        type: 'score', hint: 'Instrumentos, idiomas, deportes recreativos, pintura, lectura, lo que te enciende fuera del trabajo.' },
       ],
     },
 
@@ -101,7 +101,7 @@ export const EAGLE_TEMPLATE: ProjectionTemplate = {
       intro: 'Mirá tu rueda de arriba. No todas las áreas pesan igual. Vamos a encontrar las 1-2 que, si las movés, mueven todo.',
       fields: [
         { key: 'rueda_mas_baja', label: '¿Qué área(s) están MÁS bajas y por qué?', type: 'textarea', hint: 'No te juzgues — describí la situación con honestidad.' },
-        { key: 'area_palanca', label: '¿Cuál de las 8 áreas, si la subís 30 puntos, eleva a las demás?', type: 'textarea', hint: 'A veces no es la más baja, es la que tiene mejor ROI.' },
+        { key: 'area_palanca', label: '¿Cuál de las áreas, si la subís 30 puntos, eleva a las demás?', type: 'textarea', hint: 'A veces no es la más baja, es la que tiene mejor ROI.' },
         { key: 'movida_80_20', label: '¿Qué movida del 20% mueve el 80% del resultado en esas áreas?', type: 'textarea' },
       ],
     },
@@ -154,14 +154,14 @@ export const EAGLE_TEMPLATE: ProjectionTemplate = {
       title: 'Borrador de metas por área',
       intro: 'Salida del examen. Escribí 1-2 metas tentativas por área (las que sentís después de los carriles anteriores). Esto es BORRADOR — después lo pulís en Anual con tranquilidad.',
       fields: [
-        { key: 'borrador_fisica',      label: 'Borrador · Salud Física',         type: 'textarea' },
-        { key: 'borrador_mental',      label: 'Borrador · Salud Mental',         type: 'textarea' },
-        { key: 'borrador_emocional',   label: 'Borrador · Salud Emocional',      type: 'textarea' },
-        { key: 'borrador_espiritual',  label: 'Borrador · Conexión Espiritual',  type: 'textarea' },
-        { key: 'borrador_relaciones',  label: 'Borrador · Relaciones',           type: 'textarea' },
-        { key: 'borrador_profesional', label: 'Borrador · Profesional / Carrera',type: 'textarea' },
-        { key: 'borrador_financiera',  label: 'Borrador · Salud Financiera',     type: 'textarea' },
-        { key: 'borrador_legado',      label: 'Borrador · Propósito / Legado',   type: 'textarea' },
+        { key: 'borrador_fisica',           label: 'Borrador · Salud Física',              type: 'textarea' },
+        { key: 'borrador_mental_emocional', label: 'Borrador · Salud Mental/Emocional',    type: 'textarea' },
+        { key: 'borrador_espiritual',       label: 'Borrador · Conexión Espiritual',       type: 'textarea' },
+        { key: 'borrador_relaciones',       label: 'Borrador · Relaciones',                type: 'textarea' },
+        { key: 'borrador_profesional',      label: 'Borrador · Profesional / Carrera',     type: 'textarea' },
+        { key: 'borrador_financiera',       label: 'Borrador · Salud Financiera',          type: 'textarea' },
+        { key: 'borrador_legado',           label: 'Borrador · Propósito / Legado',        type: 'textarea' },
+        { key: 'borrador_hobbies',          label: 'Borrador · Hobbies / Pasiones',        type: 'textarea' },
       ],
     },
     {
@@ -222,16 +222,16 @@ export const ANNUAL_TEMPLATE: ProjectionTemplate = {
       key: 'metas_anuales',
       emoji: '🎯',
       title: 'Metas del año',
-      intro: 'Una meta por área (las mismas 8 de la rueda). Después marcá las que vas a trabajar activamente como PRINCIPALES — pueden ser 1, 2, 3 o las que necesites. Las demás son referencia, no se trabajan activamente.',
+      intro: 'Una meta por área (las mismas de la rueda). Después marcá las que vas a trabajar activamente como PRINCIPALES — pueden ser 1, 2, 3 o las que necesites. Las demás son referencia, no se trabajan activamente.',
       fields: [
-        { key: 'fisica',      label: 'Meta · Salud Física',         type: 'textarea', hint: 'Ej: "Correr media maratón sub-2hs", "5 entrenamientos/semana sostenidos".' },
-        { key: 'mental',      label: 'Meta · Salud Mental',         type: 'textarea', hint: 'Ej: "Meditar 10min/día", "Terminar 12 libros".' },
-        { key: 'emocional',   label: 'Meta · Salud Emocional',      type: 'textarea', hint: 'Ej: "Journal diario", "Terapia mensual".' },
-        { key: 'espiritual',  label: 'Meta · Conexión Espiritual',  type: 'textarea', hint: 'Ej: "Retiro silencioso 1x/año", "Práctica de gratitud".' },
-        { key: 'relaciones',  label: 'Meta · Relaciones Personales',type: 'textarea', hint: 'Ej: "Cena familiar semanal", "Llamar a un amigo viejo cada mes".' },
-        { key: 'profesional', label: 'Meta · Profesional / Carrera',type: 'textarea', hint: 'Ej: "USD 10k MRR", "Cuenta fondeada de USD 100k".' },
-        { key: 'financiera',  label: 'Meta · Salud Financiera',     type: 'textarea', hint: 'Ej: "USD 50k ahorrado", "30% de ingresos invertido cada mes".' },
-        { key: 'legado',      label: 'Meta · Propósito / Legado',   type: 'textarea', hint: 'Ej: "Lanzar curso público", "Mentoría a 10 personas".' },
+        { key: 'fisica',           label: 'Meta · Salud Física',              type: 'textarea', hint: 'Ej: "Correr media maratón sub-2hs", "5 entrenamientos/semana sostenidos".' },
+        { key: 'mental_emocional', label: 'Meta · Salud Mental/Emocional',    type: 'textarea', hint: 'Ej: "Meditar 10min/día", "Journal diario", "Terapia mensual", "Terminar 12 libros".' },
+        { key: 'espiritual',       label: 'Meta · Conexión Espiritual',       type: 'textarea', hint: 'Ej: "Retiro silencioso 1x/año", "Práctica de gratitud".' },
+        { key: 'relaciones',       label: 'Meta · Relaciones Personales',     type: 'textarea', hint: 'Ej: "Cena familiar semanal", "Llamar a un amigo viejo cada mes".' },
+        { key: 'profesional',      label: 'Meta · Profesional / Carrera',     type: 'textarea', hint: 'Ej: "USD 10k MRR", "Cuenta fondeada de USD 100k".' },
+        { key: 'financiera',       label: 'Meta · Salud Financiera',          type: 'textarea', hint: 'Ej: "USD 50k ahorrado", "30% de ingresos invertido cada mes".' },
+        { key: 'legado',           label: 'Meta · Propósito / Legado',        type: 'textarea', hint: 'Ej: "Lanzar curso público", "Mentoría a 10 personas".' },
+        { key: 'hobbies',          label: 'Meta · Hobbies / Pasiones',        type: 'textarea', hint: 'Ej: "Tocar 3 canciones nuevas en guitarra", "B1 de italiano", "Volver a pintar 1x/semana".' },
       ],
     },
     {
@@ -449,12 +449,20 @@ export const ALL_TEMPLATES: Record<'eagle' | 'year' | 'quarter' | 'month', Proje
  *  from a single source of truth. Must match the field keys in the
  *  `wheel_of_life` section above. */
 export const WHEEL_AREAS: { key: string; label: string }[] = [
-  { key: 'fisica',      label: 'Física' },
-  { key: 'mental',      label: 'Mental' },
-  { key: 'emocional',   label: 'Emocional' },
-  { key: 'espiritual',  label: 'Espiritual' },
-  { key: 'relaciones',  label: 'Relaciones' },
-  { key: 'profesional', label: 'Profesional' },
-  { key: 'financiera',  label: 'Financiera' },
-  { key: 'legado',      label: 'Legado' },
+  { key: 'fisica',            label: 'Física' },
+  // v2: 'mental' + 'emocional' fused into a single area. The two
+  // overlapped in practice — autoregulación, claridad y descanso
+  // cognitivo viven en el mismo eje. Old data is migrated on rehydrate
+  // by projectionStore (see `onRehydrateStorage`).
+  { key: 'mental_emocional',  label: 'Mental/Emocional' },
+  { key: 'espiritual',        label: 'Espiritual' },
+  { key: 'relaciones',        label: 'Relaciones' },
+  { key: 'profesional',       label: 'Profesional' },
+  { key: 'financiera',        label: 'Financiera' },
+  { key: 'legado',            label: 'Legado' },
+  // v2: nueva área para hobbies / pasiones / aprendizaje recreativo
+  // (instrumentos, idiomas, deportes recreativos, pintura, lectura,
+  // etc). Existing plans no tendrán este campo → se ve vacío hasta que
+  // el usuario lo complete.
+  { key: 'hobbies',           label: 'Hobbies' },
 ]
