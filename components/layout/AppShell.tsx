@@ -228,15 +228,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           '--sidebar-width': `${sidebarWidth}px`,
         } as React.CSSProperties}
       >
-        {/* Mobile top bar — visible only <sm. Holds the hamburger so the
-            user can reach the sidebar without it eating screen estate. */}
-        <div className="sm:hidden sticky top-0 z-30 flex items-center gap-3 px-3 py-2.5 bg-zinc-900/95 backdrop-blur border-b border-zinc-800">
+        {/* Mobile top bar — visible only <sm. Holds the hamburger so el
+            user can reach the sidebar without it eating screen estate.
+            En iPhone/Android con notch o dynamic island, el `top-0` queda
+            DEBAJO del recorte de la pantalla → el botón hamburguesa caía
+            tapado por la curva superior. Solución: padding-top que respeta
+            `env(safe-area-inset-top)` (variable definida por iOS/Android
+            cuando la app corre como PWA / standalone). En desktop o
+            cuando no hay notch, ese env devuelve 0 y el padding queda
+            igual al anterior. */}
+        <div
+          className="sm:hidden sticky top-0 z-30 flex items-center gap-3 px-3 pb-2.5 bg-zinc-900/95 backdrop-blur border-b border-zinc-800"
+          style={{
+            paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.625rem)',
+          }}
+        >
           <button
             onClick={() => setMobileNavOpen(true)}
-            className="w-9 h-9 rounded-lg bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-700 flex items-center justify-center text-zinc-300 transition-colors"
+            className="w-10 h-10 rounded-lg bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-700 flex items-center justify-center text-zinc-300 transition-colors"
             aria-label="Abrir menú"
           >
-            <Menu className="w-4 h-4" />
+            <Menu className="w-5 h-5" />
           </button>
           <Image src="/logo.png" alt="Overseer" width={26} height={26} className="rounded-md" />
           <span className="font-bold text-white text-sm tracking-wider uppercase">Overseer</span>
