@@ -4,8 +4,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Infinity as InfinityIcon, Plus, ChevronDown, ChevronRight, Flame, Trophy,
   Check, Calendar, Star, Trash2, Sparkles, History, X, ArrowRight, Zap, TrendingUp,
-  Settings2, FlaskConical,
+  Settings2, FlaskConical, Copy,
 } from 'lucide-react'
+import { sessionToMarkdown, copyMarkdownToClipboard } from '@/lib/projection/exportMarkdown'
 import Link from 'next/link'
 import { useLabStore } from '@/lib/store/labStore'
 import { LAB_CATEGORIES, exercisesByCategory, findCategory, findExercise } from '@/lib/lab/templates'
@@ -606,23 +607,26 @@ function ActiveSession({
               </p>
             )}
           </div>
-          {!isClosed && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={onCancelRequest}
-                title="Descartar esta sesión sin guardarla (no afecta tu streak ni XP)"
-                className="px-2.5 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-red-500/40 hover:text-red-400 text-zinc-500 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
-              >
-                <X className="w-3.5 h-3.5" /> Cancelar
-              </button>
-              <button
-                onClick={onCloseRequest}
-                className="px-3 py-1.5 bg-emerald-500/15 border border-emerald-500/40 hover:bg-emerald-500/25 text-emerald-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
-              >
-                <Trophy className="w-3.5 h-3.5" /> Cerrar SPI
-              </button>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <CopySessionButton session={session} template={template} />
+            {!isClosed && (
+              <>
+                <button
+                  onClick={onCancelRequest}
+                  title="Descartar esta sesión sin guardarla (no afecta tu streak ni XP)"
+                  className="px-2.5 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-red-500/40 hover:text-red-400 text-zinc-500 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
+                >
+                  <X className="w-3.5 h-3.5" /> Cancelar
+                </button>
+                <button
+                  onClick={onCloseRequest}
+                  className="px-3 py-1.5 bg-emerald-500/15 border border-emerald-500/40 hover:bg-emerald-500/25 text-emerald-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
+                >
+                  <Trophy className="w-3.5 h-3.5" /> Cerrar SPI
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Main checklist */}
@@ -2937,5 +2941,29 @@ function WeekHabitCell({ status }: { status: 'done' | 'skipped' | 'missed' | 'fu
     <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-black">
       <span className="block w-2 h-2 rounded-full border border-white/70" />
     </span>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// COPY SESSION BUTTON — markdown export del SPI semanal
+// ─────────────────────────────────────────────────────────────────────
+function CopySessionButton({ session, template }: { session: SPISession; template: ReturnType<typeof useSPIStore.getState>['template'] }) {
+  const [status, setStatus] = useState<'idle' | 'copied' | 'error'>('idle')
+  const handle = async () => {
+    const md = sessionToMarkdown(session, template)
+    const ok = await copyMarkdownToClipboard(md)
+    setStatus(ok ? 'copied' : 'error')
+    setTimeout(() => setStatus('idle'), 2000)
+  }
+  return (
+    <button
+      onClick={handle}
+      title="Copiar todo el contenido de la sesión a markdown — útil para pegar en un chat y pedir ayuda."
+      className="px-2.5 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 hover:text-zinc-200 text-zinc-400 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
+    >
+      {status === 'copied' ? <><Check className="w-3.5 h-3.5 text-emerald-400" /> Copiado</>
+        : status === 'error' ? <><X className="w-3.5 h-3.5 text-red-400" /> Falló</>
+        : <><Copy className="w-3.5 h-3.5" /> Copiar</>}
+    </button>
   )
 }

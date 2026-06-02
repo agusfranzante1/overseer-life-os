@@ -93,11 +93,22 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
         if (canvasRef.current) canvasRef.current.style.cursor = ''
       }
     }
+    // Si el usuario pierde foco con Space presionado (alt-tab, click fuera),
+    // el keyup nunca dispara y el ref se queda "stuck" en true. Lo limpiamos
+    // proactivamente al perder visibilidad / foco.
+    const clearStuck = () => {
+      spaceHeldRef.current = false
+      if (canvasRef.current) canvasRef.current.style.cursor = ''
+    }
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
+    window.addEventListener('blur', clearStuck)
+    document.addEventListener('visibilitychange', clearStuck)
     return () => {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
+      window.removeEventListener('blur', clearStuck)
+      document.removeEventListener('visibilitychange', clearStuck)
     }
   }, [])
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
@@ -309,22 +320,23 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
       return
     }
 
-    // Modo PAN: spacebar held, middle-mouse (button=1), right-click (2),
-    // o si el shift+arrastrar (deja box-select como default para click izquierdo).
-    const isPanGesture = spaceHeldRef.current || e.button === 1 || e.button === 2
-    if (isPanGesture) {
-      dragPanRef.current = {
-        pointerStartX: e.clientX, pointerStartY: e.clientY,
-        panStartX: pan.x, panStartY: pan.y,
-      }
+    // Box-SELECT: SHIFT + drag en lienzo vacío (estándar Figma/Miro).
+    // Mientras tenés Shift presionado, el cursor cambió a crosshair y
+    // sabés que vas a dibujar un rectángulo de selección.
+    if (e.shiftKey) {
+      clearSelection()
+      setBoxSelect({ sx: e.clientX, sy: e.clientY, ex: e.clientX, ey: e.clientY })
       return
     }
 
-    // Default en click izquierdo + drag en lienzo vacío: BOX-SELECT estilo
-    // Windows. Si el usuario suelta sin moverse (umbral 4px), tratamos
-    // como "deseleccionar todo" igual que antes.
+    // Default: PAN (mantenemos el muscle memory del usuario que arrastra
+    // libremente el lienzo para moverlo). También accesible con space,
+    // middle-mouse y right-click para teclado-only / mouse pros.
     clearSelection()
-    setBoxSelect({ sx: e.clientX, sy: e.clientY, ex: e.clientX, ey: e.clientY })
+    dragPanRef.current = {
+      pointerStartX: e.clientX, pointerStartY: e.clientY,
+      panStartX: pan.x, panStartY: pan.y,
+    }
   }
 
   // ── Mouse move on the canvas — track cursor for the ghost edge ──
@@ -694,7 +706,7 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
         onDoubleClick={onCanvasDoubleClick}
         onContextMenu={(e) => e.preventDefault()}
         className={`flex-1 relative overflow-hidden select-none ${
-          drawingFromId ? 'cursor-crosshair' : dragPanRef.current ? 'cursor-grabbing' : boxSelect ? 'cursor-crosshair' : 'cursor-default'
+          drawingFromId ? 'cursor-crosshair' : dragPanRef.current ? 'cursor-grabbing' : boxSelect ? 'cursor-crosshair' : 'cursor-grab'
         }`}
         style={{
           backgroundImage: 'radial-gradient(circle at 1px 1px, #27272a 1px, transparent 0)',
@@ -918,12 +930,13 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
           const maxY = Math.max(boxSelect.sy, boxSelect.ey) - rect.top
           return (
             <div
-              className="absolute pointer-events-none border border-indigo-400 bg-indigo-500/10"
+              className="absolute pointer-events-none border-2 border-dashed border-indigo-400 bg-indigo-500/15 rounded"
               style={{
                 left: minX,
                 top: minY,
                 width: maxX - minX,
                 height: maxY - minY,
+                boxShadow: '0 0 12px rgba(99,102,241,0.4)',
               }}
             />
           )
@@ -934,6 +947,13 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
         {selectedNodeIds.length > 1 && (
           <div className="absolute top-14 left-3 z-30 px-2.5 py-1 rounded-lg bg-indigo-500/15 border border-indigo-500/40 text-indigo-200 text-[11px] font-mono">
             {selectedNodeIds.length} nodos seleccionados · arrastrá uno para mover todos
+          </div>
+        )}
+
+        {/* Hint del atajo de selección múltiple — bottom-left, sutil. */}
+        {selectedNodeIds.length === 0 && !boxSelect && !drawingFromId && (
+          <div className="absolute bottom-3 left-3 z-20 px-2 py-1 rounded text-[10px] font-mono text-zinc-600 bg-zinc-950/60 backdrop-blur pointer-events-none">
+            Shift + arrastrar = selección múltiple · arrastrar = mover lienzo
           </div>
         )}
 

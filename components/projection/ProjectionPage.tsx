@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Telescope, ChevronLeft, ChevronRight, ChevronDown, Calendar, Target,
-  Trophy, X, RotateCcw, ArrowRight, Infinity as InfinityIcon,
+  Trophy, X, RotateCcw, ArrowRight, Infinity as InfinityIcon, Copy, Check,
 } from 'lucide-react'
 import { SPIPage } from '@/components/spi/SPIPage'
 import { useProjectionStore } from '@/lib/store/projectionStore'
@@ -25,7 +25,8 @@ import {
   quarterMonths, yearOfQuarter, yearOfMonth, quarterOfMonthKey,
   labelForPeriod, shiftPeriod, monthOfSpiWeek, weekOfQuarter,
 } from '@/lib/projection/period'
-import type { ProjectionLevel, ProjectionPlan, SPISection, SectionField } from '@/lib/projection/types'
+import type { ProjectionLevel, ProjectionPlan, ProjectionTemplate, SPISection, SectionField } from '@/lib/projection/types'
+import { planToMarkdown, copyMarkdownToClipboard } from '@/lib/projection/exportMarkdown'
 
 export function ProjectionPage() {
   const {
@@ -352,9 +353,12 @@ function PlanCard({
             className="overflow-hidden"
           >
             <div className="border-t border-zinc-800/60 p-5 space-y-4">
-              {/* Top action row: close / reopen */}
+              {/* Top action row: copy / close / reopen */}
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs text-zinc-500 italic leading-relaxed flex-1">{template.intro}</p>
+                {plan && (
+                  <CopyPlanButton plan={plan} template={template} />
+                )}
                 {plan?.closedAt ? (
                   <button
                     onClick={() => reopenPlan(plan.id)}
@@ -1898,5 +1902,33 @@ function MonthKpisAggregate({ periodKey }: { periodKey: string }) {
         Suma para counters · promedio para percent · semanas cumplidas para boolean. Solo se computan las semanas SPI cerradas del mes.
       </p>
     </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// COPY PLAN BUTTON
+// ─────────────────────────────────────────────────────────────────────
+/** Botón "Copiar" que serializa el plan completo a markdown copy-paste-ready
+ *  (titulado, secciones, fields con valor no vacío, cascade, mood/notes
+ *  de cierre si aplica) y lo manda al clipboard. Pensado para pegar en un
+ *  chat IA que te ayude a completar el plan. */
+function CopyPlanButton({ plan, template }: { plan: ProjectionPlan; template: ProjectionTemplate }) {
+  const [status, setStatus] = useState<'idle' | 'copied' | 'error'>('idle')
+  const handle = async () => {
+    const md = planToMarkdown(plan, template)
+    const ok = await copyMarkdownToClipboard(md)
+    setStatus(ok ? 'copied' : 'error')
+    setTimeout(() => setStatus('idle'), 2000)
+  }
+  return (
+    <button
+      onClick={handle}
+      title="Copiar todo el contenido del plan a markdown — útil para pegar en un chat y pedir ayuda."
+      className="px-2.5 py-1.5 bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 shrink-0"
+    >
+      {status === 'copied' ? <><Check className="w-3.5 h-3.5 text-emerald-400" /> Copiado</>
+        : status === 'error' ? <><X className="w-3.5 h-3.5 text-red-400" /> Falló</>
+        : <><Copy className="w-3.5 h-3.5" /> Copiar</>}
+    </button>
   )
 }
