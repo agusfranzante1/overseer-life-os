@@ -42,7 +42,7 @@ export default function LoginForm() {
       const supabase = getSupabaseBrowser()
 
       if (mode === 'signup') {
-        const { error: signUpError } = await supabase.auth.signUp({
+        const { data, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
           options: {
@@ -54,9 +54,17 @@ export default function LoginForm() {
 
         if (signUpError) throw signUpError
 
-        setInfo(
-          'Cuenta creada. Revisá tu mail para confirmar si Email Confirmation está activado en Supabase.'
-        )
+        // Con Email Confirmation DESACTIVADA en Supabase, signUp devuelve
+        // una sesión activa de una — el usuario ya está logueado. Lo
+        // mandamos directo al dashboard. Si por alguna razón no devolvió
+        // sesión (config cambió, race, etc.), caemos al login con un
+        // mensaje neutro en vez del confuso "revisá tu mail".
+        if (data.session) {
+          router.push(next)
+          router.refresh()
+          return
+        }
+        setInfo('Cuenta creada. Iniciá sesión para entrar.')
         setMode('login')
       } else {
         const { error: signInError } = await supabase.auth.signInWithPassword({

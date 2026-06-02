@@ -50,7 +50,56 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
   const duplicateNode = useMindMapStore((s) => s.duplicateNode)
 
   // Selection — either a node or an edge.
-  const [selection, setSelection] = useState<{ kind: 'node' | 'edge'; id: string } | null>(null)
+  // Selection model:
+  //   - `selectedNodeIds`: array de nodos seleccionados (multi-select).
+  //     0 = nada, 1 = "primary node" (la toolbar muestra color/forma/etc),
+  //     2+ = multi (drag mueve todos juntos, delete borra todos).
+  //   - `selection`: SOLO usa kind='edge' ahora. La selección de nodos
+  //     migró a `selectedNodeIds`. Mantenemos `kind` para que el resto
+  //     del código que lee edges no se rompa.
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
+  const [selection, setSelection] = useState<{ kind: 'edge'; id: string } | null>(null)
+  // Helper para reemplazar el patrón viejo "seleccionar un solo nodo".
+  const selectOnlyNode = (id: string) => {
+    setSelection(null)
+    setSelectedNodeIds([id])
+  }
+  // Helper para limpiar TODO (deselect global).
+  const clearSelection = () => {
+    setSelection(null)
+    setSelectedNodeIds([])
+  }
+  // Box-select: el usuario arrastra desde el lienzo vacío para dibujar
+  // un rectángulo de selección. Coordenadas en SCREEN px (no content),
+  // así el rectángulo visible no se distorsiona con el zoom.
+  const [boxSelect, setBoxSelect] = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null)
+  const boxSelectRef = useRef<typeof boxSelect>(null)
+  useEffect(() => { boxSelectRef.current = boxSelect }, [boxSelect])
+  // Spacebar para forzar PAN cuando la acción default sería box-select.
+  // (Estilo Figma/Miro.) Right-mouse o middle-mouse drag también panea.
+  const spaceHeldRef = useRef(false)
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        const t = e.target as HTMLElement | null
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+        spaceHeldRef.current = true
+        if (canvasRef.current) canvasRef.current.style.cursor = 'grab'
+      }
+    }
+    const up = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        spaceHeldRef.current = false
+        if (canvasRef.current) canvasRef.current.style.cursor = ''
+      }
+    }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+    }
+  }, [])
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
   // Hover (one node at a time) — drives the "+" connector affordance.
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
@@ -98,8 +147,51 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
           y: d.panStartY + (e.clientY - d.pointerStartY),
         })
       }
+      if (boxSelectRef.current) {
+        setBoxSelect((prev) => prev ? { ...prev, ex: e.clientX, ey: e.clientY } : null)
+      }
     }
-    const onUp = () => { dragPanRef.current = null }
+    const onUp = () => {
+      dragPanRef.current = null
+      // Commit del box-select: si el rectángulo es chico (<4px ambos
+      // ejes) → tratamos como click vacío (deseleccionar todo, ya lo hicimos
+      // en down). Si es grande → seleccionamos nodos que INTERSECTAN.
+      const box = boxSelectRef.current
+      if (box) {
+        const minX = Math.min(box.sx, box.ex)
+        const maxX = Math.max(box.sx, box.ex)
+        const minY = Math.min(box.sy, box.ey)
+        const maxY = Math.max(box.sy, box.ey)
+        const movedEnough = (maxX - minX) > 4 || (maxY - minY) > 4
+        if (movedEnough) {
+          // Convertir el rectángulo de SCREEN coords a CONTENT coords
+          // (donde viven node.x/y). Usamos el screenToContent helper
+          // pero por dentro hace `(client - rect.left - pan) / zoom`.
+          const rect = canvasRef.current?.getBoundingClientRect()
+          if (rect) {
+            const z = zoomRef.current
+            const p = panRef.current
+            const cMinX = (minX - rect.left - p.x) / z
+            const cMaxX = (maxX - rect.left - p.x) / z
+            const cMinY = (minY - rect.top - p.y) / z
+            const cMaxY = (maxY - rect.top - p.y) / z
+            // Selección por INTERSECCIÓN: cualquier nodo cuya bounding
+            // box toque el rectángulo se selecciona. Más permisivo que
+            // "contención total" — el usuario rara vez encierra cosas
+            // perfectas y se frustra si las que tocó el borde no entran.
+            const hits: string[] = []
+            for (const n of (map?.nodes ?? [])) {
+              const nMaxX = n.x + n.width
+              const nMaxY = n.y + n.height
+              const intersects = !(nMaxX < cMinX || n.x > cMaxX || nMaxY < cMinY || n.y > cMaxY)
+              if (intersects) hits.push(n.id)
+            }
+            setSelectedNodeIds(hits)
+          }
+        }
+        setBoxSelect(null)
+      }
+    }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
     window.addEventListener('pointercancel', onUp)
@@ -108,7 +200,8 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
       window.removeEventListener('pointerup', onUp)
       window.removeEventListener('pointercancel', onUp)
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map?.nodes])
 
   // ─── Wheel zoom ────────────────────────────────────────────────────
   // Attached as a NON-PASSIVE native listener so we can preventDefault and
@@ -161,19 +254,27 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
           setCursorPos(null)
           return
         }
-        setSelection(null)
+        clearSelection()
         return
       }
-      if (!selection) return
       if (e.key !== 'Delete' && e.key !== 'Backspace') return
-      e.preventDefault()
-      if (selection.kind === 'node') removeNode(mapId, selection.id)
-      else removeEdge(mapId, selection.id)
-      setSelection(null)
+      // Nodes — borrar TODOS los seleccionados de una.
+      if (selectedNodeIds.length > 0) {
+        e.preventDefault()
+        for (const id of selectedNodeIds) removeNode(mapId, id)
+        setSelectedNodeIds([])
+        return
+      }
+      // Edge selected
+      if (selection?.kind === 'edge') {
+        e.preventDefault()
+        removeEdge(mapId, selection.id)
+        setSelection(null)
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [selection, drawingFromId, mapId, removeNode, removeEdge])
+  }, [selection, selectedNodeIds, drawingFromId, mapId, removeNode, removeEdge])
 
   // Convert a screen-space pointer event into CONTENT coords (the same space
   // that node.x/y live in — i.e. canvas-local, minus pan, divided by zoom).
@@ -191,19 +292,15 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
   // ── Empty-canvas pointer-down ──
   const onCanvasPointerDown = (e: React.PointerEvent) => {
     if (e.target !== e.currentTarget) return
-    setSelection(null)
     if (drawingFromId) {
       // Drawing + click en lienzo vacío → CREAR un nodo nuevo donde se
-      // hizo click y conectarlo automáticamente desde el origen. Antes
-      // este branch cancelaba el drawing, lo cual era confuso porque el
-      // affordance natural es "tap acá y aparece la otra punta de la
-      // flecha". Para cancelar el drawing seguís teniendo Escape.
+      // hizo click y conectarlo automáticamente desde el origen.
       const p = screenToContent(e.clientX, e.clientY)
       if (p) {
         const newId = addNode(mapId, { x: p.x - 80, y: p.y - 32 })
         if (newId) {
           addEdge(mapId, drawingFromId, newId)
-          setSelection({ kind: 'node', id: newId })
+          selectOnlyNode(newId)
           setEditingNodeId(newId)
         }
       }
@@ -211,10 +308,23 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
       setCursorPos(null)
       return
     }
-    dragPanRef.current = {
-      pointerStartX: e.clientX, pointerStartY: e.clientY,
-      panStartX: pan.x, panStartY: pan.y,
+
+    // Modo PAN: spacebar held, middle-mouse (button=1), right-click (2),
+    // o si el shift+arrastrar (deja box-select como default para click izquierdo).
+    const isPanGesture = spaceHeldRef.current || e.button === 1 || e.button === 2
+    if (isPanGesture) {
+      dragPanRef.current = {
+        pointerStartX: e.clientX, pointerStartY: e.clientY,
+        panStartX: pan.x, panStartY: pan.y,
+      }
+      return
     }
+
+    // Default en click izquierdo + drag en lienzo vacío: BOX-SELECT estilo
+    // Windows. Si el usuario suelta sin moverse (umbral 4px), tratamos
+    // como "deseleccionar todo" igual que antes.
+    clearSelection()
+    setBoxSelect({ sx: e.clientX, sy: e.clientY, ex: e.clientX, ey: e.clientY })
   }
 
   // ── Mouse move on the canvas — track cursor for the ghost edge ──
@@ -230,13 +340,14 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
     const p = screenToContent(e.clientX, e.clientY)
     if (!p) return
     const id = addNode(mapId, { x: p.x - 80, y: p.y - 32 })
-    setSelection({ kind: 'node', id })
+    selectOnlyNode(id)
     setEditingNodeId(id)
   }
 
   // ── Click on a node ──
   // If drawing → commit edge. Else → just select (drag is also handled).
-  const handleNodeClick = (nodeId: string) => {
+  // Shift/Cmd/Ctrl + click → TOGGLE en la selección múltiple (add/remove).
+  const handleNodeClick = (nodeId: string, modifiers?: { multi?: boolean }) => {
     if (drawingFromId) {
       if (drawingFromId !== nodeId) {
         addEdge(mapId, drawingFromId, nodeId)
@@ -245,12 +356,19 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
       setCursorPos(null)
       return
     }
-    setSelection({ kind: 'node', id: nodeId })
+    if (modifiers?.multi) {
+      setSelection(null)
+      setSelectedNodeIds((prev) =>
+        prev.includes(nodeId) ? prev.filter((x) => x !== nodeId) : [...prev, nodeId]
+      )
+      return
+    }
+    selectOnlyNode(nodeId)
   }
 
   // ── Click the "+" handle below a hovered/selected node → start drawing ──
   const startDrawingFrom = (node: MindMapNode) => {
-    setSelection(null)
+    clearSelection()
     setDrawingFromId(node.id)
     // Seed cursor at the node's bottom-center so the ghost line doesn't
     // jump from (0,0) until the user moves the mouse.
@@ -296,7 +414,7 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
         const newId = addNode(mapId, { x: p.x - 80, y: p.y - 32 })
         if (newId) {
           addEdge(mapId, sourceNodeId, newId)
-          setSelection({ kind: 'node', id: newId })
+          selectOnlyNode(newId)
           setEditingNodeId(newId)
         }
       }
@@ -348,7 +466,7 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
   const startNodeResize = (e: React.PointerEvent, node: MindMapNode) => {
     e.stopPropagation()
     e.preventDefault()
-    setSelection({ kind: 'node', id: node.id })
+    selectOnlyNode(node.id)
 
     const startClientX = e.clientX
     const startClientY = e.clientY
@@ -397,12 +515,40 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
       handleNodeClick(node.id)
       return
     }
-    setSelection({ kind: 'node', id: node.id })
+
+    // Multi-drag: si el nodo clickeado YA estaba en la selección múltiple,
+    // movemos TODOS los seleccionados por el mismo delta. Si no estaba,
+    // tratamos como "click + drag normal" → seleccionamos solo este y
+    // movemos solo este.
+    const isModifierClick = e.shiftKey || e.metaKey || e.ctrlKey
+    const isAlreadySelected = selectedNodeIds.includes(node.id)
+    let movingIds: string[]
+    if (isModifierClick) {
+      // Shift+drag NUNCA mueve — solo toggle de selección (lo manejará el click handler).
+      // Sin embargo el click handler corre en onClick, no acá. Dejamos el drag
+      // como noop si se está mod-clickeando — el pointer-up va a soltar y
+      // el click se procesa normal.
+      return
+    }
+    if (isAlreadySelected && selectedNodeIds.length > 1) {
+      movingIds = selectedNodeIds
+    } else {
+      // Click sobre nodo no-seleccionado → seleccionar SOLO este y mover.
+      selectOnlyNode(node.id)
+      movingIds = [node.id]
+    }
+
+    // Snapshot de posiciones iniciales para calcular deltas — necesario
+    // porque map.nodes cambia en cada update y necesitamos la referencia
+    // del momento del pointerdown.
+    const startPositions = new Map<string, { x: number; y: number }>()
+    for (const id of movingIds) {
+      const n = map?.nodes.find((m) => m.id === id)
+      if (n) startPositions.set(id, { x: n.x, y: n.y })
+    }
 
     const startClientX = e.clientX
     const startClientY = e.clientY
-    const startNodeX = node.x
-    const startNodeY = node.y
     const pointerId = e.pointerId
     const el = e.currentTarget as HTMLElement
     let hasMoved = false
@@ -413,15 +559,17 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
       if (ev.pointerId !== pointerId) return
       const dx = ev.clientX - startClientX
       const dy = ev.clientY - startClientY
-      // Still measure the click-vs-drag threshold in SCREEN pixels (4px feels
-      // the same regardless of zoom). But translate the actual node delta
-      // into CONTENT pixels by dividing by current zoom — otherwise dragging
-      // a node 100 screen-px right while zoomed 2x would move it 100 in
-      // content coords (which is 50 visual px), feeling sluggish.
       if (!hasMoved && Math.hypot(dx, dy) < 4) return
       hasMoved = true
       const z = zoomRef.current
-      updateNode(mapId, node.id, { x: startNodeX + dx / z, y: startNodeY + dy / z })
+      const cdx = dx / z
+      const cdy = dy / z
+      // Aplicar el MISMO delta a TODOS los nodos que estamos moviendo.
+      // Si es uno solo, es el comportamiento de antes. Si son varios,
+      // se mueven juntos manteniendo su disposición relativa.
+      for (const [id, start] of startPositions) {
+        updateNode(mapId, id, { x: start.x + cdx, y: start.y + cdy })
+      }
     }
     const onUp = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return
@@ -447,8 +595,11 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
   const selectedEdge = selection?.kind === 'edge'
     ? map.edges.find((e) => e.id === selection.id) ?? null
     : null
-  const selectedNode = selection?.kind === 'node'
-    ? map.nodes.find((n) => n.id === selection.id) ?? null
+  // Toolbar muestra el color/forma/font solo cuando hay UN nodo en
+  // la selección. Multi-selección NO se edita por toolbar (deselect
+  // y reselect el que querés cambiar).
+  const selectedNode = selectedNodeIds.length === 1
+    ? map.nodes.find((n) => n.id === selectedNodeIds[0]) ?? null
     : null
 
   return (
@@ -458,29 +609,36 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
         selectedNode={selectedNode}
         selectedEdge={selectedEdge}
         onChangeNodeColor={(color) => {
-          if (selection?.kind === 'node') updateNode(mapId, selection.id, { color })
+          // Aplica color a TODOS los nodos seleccionados (1 o N).
+          for (const id of selectedNodeIds) updateNode(mapId, id, { color })
         }}
         onChangeNodeShape={(shape) => {
-          if (selection?.kind === 'node') setNodeShape(mapId, selection.id, shape)
+          for (const id of selectedNodeIds) setNodeShape(mapId, id, shape)
         }}
         onChangeNodeFontSize={(fontSize) => {
-          if (selection?.kind === 'node') setNodeFontSize(mapId, selection.id, fontSize)
+          for (const id of selectedNodeIds) setNodeFontSize(mapId, id, fontSize)
         }}
         onChangeEdgeShape={(shape) => {
           if (selection?.kind === 'edge') setEdgeShape(mapId, selection.id, shape)
         }}
         onDeleteSelection={() => {
-          if (!selection) return
-          if (selection.kind === 'node') removeNode(mapId, selection.id)
-          else removeEdge(mapId, selection.id)
-          setSelection(null)
+          // Borrar TODOS los nodos seleccionados + la edge si hay.
+          if (selectedNodeIds.length > 0) {
+            for (const id of selectedNodeIds) removeNode(mapId, id)
+            setSelectedNodeIds([])
+            return
+          }
+          if (selection?.kind === 'edge') {
+            removeEdge(mapId, selection.id)
+            setSelection(null)
+          }
         }}
         onAddNode={() => {
           const rect = canvasRef.current?.getBoundingClientRect()
           const cx = rect ? rect.width / 2 - pan.x - 80 : 100
           const cy = rect ? rect.height / 2 - pan.y - 32 : 100
           const id = addNode(mapId, { x: cx, y: cy })
-          setSelection({ kind: 'node', id })
+          selectOnlyNode(id)
           setEditingNodeId(id)
         }}
         onResetPan={() => { setPan({ x: 0, y: 0 }); setZoom(1) }}
@@ -534,8 +692,9 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
         onPointerDown={onCanvasPointerDown}
         onPointerMove={onCanvasPointerMove}
         onDoubleClick={onCanvasDoubleClick}
+        onContextMenu={(e) => e.preventDefault()}
         className={`flex-1 relative overflow-hidden select-none ${
-          drawingFromId ? 'cursor-crosshair' : dragPanRef.current ? 'cursor-grabbing' : 'cursor-grab'
+          drawingFromId ? 'cursor-crosshair' : dragPanRef.current ? 'cursor-grabbing' : boxSelect ? 'cursor-crosshair' : 'cursor-default'
         }`}
         style={{
           backgroundImage: 'radial-gradient(circle at 1px 1px, #27272a 1px, transparent 0)',
@@ -690,7 +849,7 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
           }}
         >
           {map.nodes.map((node) => {
-            const isSelected = selection?.kind === 'node' && selection.id === node.id
+            const isSelected = selectedNodeIds.includes(node.id)
             const isHovered = hoveredNodeId === node.id
             // Show the "+" handle when hovered OR selected. Hide while editing
             // or while we're already drawing FROM this same node (no point).
@@ -727,12 +886,12 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
                 }}
                 onDuplicate={() => {
                   const newId = duplicateNode(mapId, node.id)
-                  if (newId) setSelection({ kind: 'node', id: newId })
+                  if (newId) selectOnlyNode(newId)
                 }}
-                onClick={() => handleNodeClick(node.id)}
+                onClick={(modifierKey) => handleNodeClick(node.id, { multi: modifierKey })}
                 onDoubleClick={() => {
                   setEditingNodeId(node.id)
-                  setSelection({ kind: 'node', id: node.id })
+                  selectOnlyNode(node.id)
                 }}
                 onTextChange={(text) => updateNode(mapId, node.id, { text })}
                 onEndEdit={() => setEditingNodeId(null)}
@@ -744,6 +903,39 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
             )
           })}
         </div>
+
+        {/* Box-select overlay — rectángulo de selección visible mientras
+            el usuario arrastra desde lienzo vacío. Coordenadas en SCREEN
+            px (relativas a la viewport), pero el div está dentro del
+            container del canvas que es relative, así que lo posicionamos
+            con left/top respecto al canvas. */}
+        {boxSelect && (() => {
+          const rect = canvasRef.current?.getBoundingClientRect()
+          if (!rect) return null
+          const minX = Math.min(boxSelect.sx, boxSelect.ex) - rect.left
+          const maxX = Math.max(boxSelect.sx, boxSelect.ex) - rect.left
+          const minY = Math.min(boxSelect.sy, boxSelect.ey) - rect.top
+          const maxY = Math.max(boxSelect.sy, boxSelect.ey) - rect.top
+          return (
+            <div
+              className="absolute pointer-events-none border border-indigo-400 bg-indigo-500/10"
+              style={{
+                left: minX,
+                top: minY,
+                width: maxX - minX,
+                height: maxY - minY,
+              }}
+            />
+          )
+        })()}
+
+        {/* Counter de multi-selección — chip flotante arriba a la izquierda
+            que muestra cuántos nodos hay seleccionados. Visible solo con 2+. */}
+        {selectedNodeIds.length > 1 && (
+          <div className="absolute top-14 left-3 z-30 px-2.5 py-1 rounded-lg bg-indigo-500/15 border border-indigo-500/40 text-indigo-200 text-[11px] font-mono">
+            {selectedNodeIds.length} nodos seleccionados · arrastrá uno para mover todos
+          </div>
+        )}
 
         {/* Empty state */}
         {map.nodes.length === 0 && (
@@ -1037,7 +1229,8 @@ function NodeBox({
   /** Fired when the user clicks the "duplicar" button (top-right on hover).
    *  Parent creates a copy of this node and selects the new one. */
   onDuplicate: () => void
-  onClick: () => void
+  /** modifier=true cuando shift/ctrl/cmd está held — multi-select toggle. */
+  onClick: (modifier: boolean) => void
   onDoubleClick: () => void
   onTextChange: (text: string) => void
   onEndEdit: () => void
@@ -1115,7 +1308,7 @@ function NodeBox({
         // what node (if any) the user released the pointer over.
         data-node-id={node.id}
         onPointerDown={onPointerDown}
-        onClick={(e) => { e.stopPropagation(); onClick() }}
+        onClick={(e) => { e.stopPropagation(); onClick(e.shiftKey || e.metaKey || e.ctrlKey) }}
         onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick() }}
         onPointerEnter={() => onHover(true)}
         onPointerLeave={() => onHover(false)}
