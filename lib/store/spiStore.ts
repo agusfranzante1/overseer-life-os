@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware'
 import { DEFAULT_SPI_TEMPLATE } from '@/lib/spi/template'
 import type { SPISession, SPITask, SPITemplate, BitacoraEntry } from '@/lib/spi/types'
 import { useTasksStore } from './tasksStore'
+import { useKpisStore } from './kpisStore'
 import { computeSessionXP, totalXPFromSessions, levelFromXP, didLevelUp, type SessionXP } from '@/lib/spi/gamification'
 import { buildWeekSnapshot } from '@/lib/spi/weekSnapshot'
 
@@ -180,19 +181,15 @@ export const useSPIStore = create<SPIState>()(
         const inheritedIds = new Set(prevSession?.selectedKpiIds ?? [])
         // Sumamos también los KPIs activos creados en la library DESPUÉS
         // del weekStartDate de la sesión previa (o si no hay previa,
-        // todos los activos hasta hoy). Lazy-load del kpisStore para
-        // evitar import circular.
-        try {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const { useKpisStore } = require('./kpisStore') as typeof import('./kpisStore')
-          const allActive = useKpisStore.getState().definitions.filter(
-            (d) => !d.archivedAt && d.activatedAt <= target
-          )
-          const prevCutoff = prevSession?.weekStartDate ?? ''
-          for (const d of allActive) {
-            if (d.activatedAt > prevCutoff) inheritedIds.add(d.id)
-          }
-        } catch { /* noop — sin kpisStore disponible, dejamos vacío */ }
+        // todos los activos hasta hoy). Leemos via getState() para no
+        // suscribirnos — es un cálculo one-shot al crear la sesión.
+        const allActive = useKpisStore.getState().definitions.filter(
+          (d) => !d.archivedAt && d.activatedAt <= target
+        )
+        const prevCutoff = prevSession?.weekStartDate ?? ''
+        for (const d of allActive) {
+          if (d.activatedAt > prevCutoff) inheritedIds.add(d.id)
+        }
         fresh.selectedKpiIds = Array.from(inheritedIds)
 
         set((s) => ({

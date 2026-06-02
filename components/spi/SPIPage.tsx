@@ -1320,7 +1320,16 @@ function AreaKpiChips({
   selectedKpiIds: string[]
   onSelectedChange: (next: string[]) => void
 }) {
-  const areaKpis = useKpisStore((s) => s.kpisByArea(areaKey))
+  // IMPORTANTE: el selector NO puede hacer `.filter()` adentro porque
+  // devuelve un array nuevo en cada render → React detecta referencia
+  // distinta → re-render → loop infinito que crashea la página entera.
+  // Suscribimos al array completo (referencia estable) y filtramos en
+  // useMemo. Mismo patrón que usamos en todos los demás stores.
+  const definitions = useKpisStore((s) => s.definitions)
+  const areaKpis = useMemo(
+    () => definitions.filter((d) => !d.archivedAt && d.areaKey === areaKey),
+    [definitions, areaKey]
+  )
   const addKpi = useKpisStore((s) => s.addKpi)
   const [showCreate, setShowCreate] = useState(false)
 
