@@ -808,6 +808,9 @@ function NotificationPrefsSection() {
     title: string
     description: string
     emoji: string
+    /** Tipo de notificación que dispara el endpoint de test-dispatch
+     *  para este canal — usado por el botón "Probar ahora". */
+    testType?: 'habit_reminder' | 'task_due' | 'task_overdue' | 'spi_new'
   }
   const channels: Channel[] = [
     {
@@ -815,26 +818,57 @@ function NotificationPrefsSection() {
       title: 'Nuevo SPI habilitado',
       description: 'Aviso el sábado AM cuando una sesión SPI nueva está disponible para arrancar.',
       emoji: '📐',
+      testType: 'spi_new',
     },
     {
       key: 'taskDueSoon',
       title: 'Vencimiento de tareas',
       description: 'Aviso cuando una tarea con dueDate vence hoy o mañana.',
       emoji: '📋',
+      testType: 'task_due',
     },
     {
       key: 'taskOverdue',
       title: 'Tareas vencidas',
       description: 'Aviso recurrente si tenés tareas con dueDate ya pasada y todavía abiertas.',
       emoji: '⚠️',
+      testType: 'task_overdue',
     },
     {
       key: 'habitReminder',
       title: 'Recordatorio diario de hábitos',
       description: 'Aviso al final del día con los hábitos del día que todavía no marcaste.',
       emoji: '🟢',
+      testType: 'habit_reminder',
     },
   ]
+
+  // Estado para los botones "Probar ahora" — qué canal está enviando
+  // ahora mismo (para mostrar el spinner) y el último resultado.
+  const [testingChannel, setTestingChannel] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<{ kind: 'ok' | 'err'; msg: string; ch: string } | null>(null)
+
+  const triggerTest = async (channelKey: string, testType: string) => {
+    setTestingChannel(channelKey)
+    setTestResult(null)
+    try {
+      const r = await fetch('/api/notifications/test-dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: testType }),
+      })
+      const j = await r.json()
+      if (j.ok) {
+        setTestResult({ kind: 'ok', msg: `✓ Enviada a ${j.sent} dispositivo${j.sent === 1 ? '' : 's'}`, ch: channelKey })
+      } else {
+        setTestResult({ kind: 'err', msg: j.error ?? 'Falló', ch: channelKey })
+      }
+    } catch (e) {
+      setTestResult({ kind: 'err', msg: e instanceof Error ? e.message : 'unknown', ch: channelKey })
+    } finally {
+      setTestingChannel(null)
+    }
+  }
 
   // Opciones discretas de lead time, compartidas entre los canales que
   // soportan "cuánto antes". Lista cerrada para evitar valores raros.
@@ -877,6 +911,10 @@ function NotificationPrefsSection() {
           const currentLead = leadTimeKey === 'taskDueLeadMinutes' ? taskDueLead
             : leadTimeKey === 'spiNewSessionLeadMinutes' ? spiLead
             : null
+          // Para el canal `habitReminder`, mostramos un input <time>
+          // que setea hour/minute. El server (cron dispatcher) dispara
+          // todos los días alrededor de esa hora en TZ local del usuario.
+          const isHabitChannel = ch.key === 'habitReminder'
           return (
             <div
               key={ch.key}
@@ -927,6 +965,48 @@ function NotificationPrefsSection() {
                       <option key={o.value} value={String(o.value)}>{o.label}</option>
                     ))}
                   </select>
+                </div>
+              )}
+              {/* Botón "Probar ahora" — manda un push ya mismo, ignorando
+                  ventana y dedupe. Útil para verificar que la cadena
+                  end-to-end funciona (server → push → SW → notif). */}
+              {enabled && ch.testType && (
+                <div className="px-3 pb-3 -mt-1 flex items-center gap-2 border-t border-zinc-900 pt-2 ml-9">
+                  <button
+                    type="button"
+                    disabled={testingChannel === ch.key}
+                    onClick={() => triggerTest(ch.key, ch.testType!)}
+                    className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-300 hover:text-fuchsia-200 hover:bg-fuchsia-500/10 transition-colors px-2 py-1 rounded disabled:opacity-40"
+                  >
+                    {testingChannel === ch.key ? 'enviando…' : '🔔 probar ahora'}
+                  </button>
+                  {testResult?.ch === ch.key && (
+                    <span className={`text-[10px] ${testResult.kind === 'ok' ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {testResult.msg}
+                    </span>
+                  )}
+                </div>
+              )}
+              {/* Hora del recordatorio diario de hábitos — solo para
+                  el canal `habitReminder` y solo si está habilitado. */}
+              {isHabitChannel && enabled && (
+                <div className="px-3 pb-3 -mt-1 flex items-center gap-2 border-t border-zinc-900 pt-2 ml-9">
+                  <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-600 whitespace-nowrap">
+                    A qué hora
+                  </label>
+                  <input
+                    type="time"
+                    value={`${String(notificationPrefs.habitReminderHour ?? 21).padStart(2, '0')}:${String(notificationPrefs.habitReminderMinute ?? 0).padStart(2, '0')}`}
+                    onChange={(e) => {
+                      const [hh, mm] = e.target.value.split(':').map(Number)
+                      if (Number.isFinite(hh)) setNotificationPref('habitReminderHour', hh)
+                      if (Number.isFinite(mm)) setNotificationPref('habitReminderMinute', mm)
+                    }}
+                    className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-[11px] text-zinc-300 focus:outline-none focus:border-fuchsia-500/40"
+                  />
+                  <span className="text-[10px] text-zinc-600 italic">
+                    en tu hora local
+                  </span>
                 </div>
               )}
             </div>

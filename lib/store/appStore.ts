@@ -3,7 +3,22 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { Language, DayType, DayTypeConfig, MetricEntry } from '@/types'
 import { detectTimezone } from '@/lib/utils/dateInTz'
+import { syncUserSettingsToSupabase } from '@/lib/supabase/userSettingsSync'
 
+// Debounce el sync a Supabase — el usuario puede togglear varios switches
+// seguidos; queremos un solo upsert al final, no uno por click.
+let syncTimer: ReturnType<typeof setTimeout> | null = null
+function debouncedSyncSettings() {
+  if (typeof window === 'undefined') return
+  if (syncTimer) clearTimeout(syncTimer)
+  syncTimer = setTimeout(() => {
+    const state = useAppStore.getState()
+    syncUserSettingsToSupabase(state.notificationPrefs, state.timezone)
+  }, 800)
+}
+
+// AppState se exporta debajo, antes del export del store. Tipo público
+// para que helpers externos (sync, dispatcher) tipen los argumentos.
 export interface ScheduleSlot {
   label: string
   time: string
@@ -37,7 +52,7 @@ export const DEFAULT_DAY_TYPES: DayTypeConfig[] = [
   { id: 'content',   label: 'Content',    color: '#ec4899', icon: '📷' },
 ]
 
-interface AppState {
+export interface AppState {
   language: Language
   sidebarCollapsed: boolean
   dayType: DayType | null
@@ -70,6 +85,11 @@ interface AppState {
     /** Cuántos minutos antes del sábado a la madrugada disparar el aviso
      *  "Nuevo SPI habilitado". Default: 0 (en el momento). */
     spiNewSessionLeadMinutes?: number
+    /** Hora del día (0-23) en HORA LOCAL del usuario en la que el server
+     *  dispara el recordatorio de hábitos pendientes. Default: 21. */
+    habitReminderHour?: number
+    /** Minuto del día (0-59) en HORA LOCAL del usuario. Default: 0. */
+    habitReminderMinute?: number
   }
   setNotificationPref: (key: keyof AppState['notificationPrefs'], value: boolean | number) => void
 
@@ -123,6 +143,8 @@ export const useAppStore = create<AppState>()(
         habitReminder: false,
         taskDueLeadMinutes: 60,         // 1 hora antes por default
         spiNewSessionLeadMinutes: 0,    // en el momento
+        habitReminderHour: 21,          // 21:00 hora local
+        habitReminderMinute: 0,
       },
       metrics: {
         focus: 72,
@@ -164,9 +186,16 @@ export const useAppStore = create<AppState>()(
       })),
       setTimezone: (tz) => set({ timezone: tz }),
       setAutoPurgeCompletedTasks: (v) => set({ autoPurgeCompletedTasks: v }),
-      setNotificationPref: (key, value) => set((s) => ({
-        notificationPrefs: { ...s.notificationPrefs, [key]: value },
-      })),
+      setNotificationPref: (key, value) => {
+        set((s) => ({
+          notificationPrefs: { ...s.notificationPrefs, [key]: value },
+        }))
+        // Sync best-effort al server para que el dispatcher de notificaciones
+        // (que corre del lado server desde un cron job) lea las prefs
+        // actualizadas. Falla silenciosamente si no hay sesión Supabase —
+        // las prefs locales del cliente ya quedaron persistidas en zustand.
+        debouncedSyncSettings()
+      },
       setActiveSection: (activeSection) => set({ activeSection }),
       updateMetric: (key, value) =>
         set((s) => ({ metrics: { ...s.metrics, [key]: value } })),
