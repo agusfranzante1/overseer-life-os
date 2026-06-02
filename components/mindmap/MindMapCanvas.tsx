@@ -1486,19 +1486,22 @@ function NodeBox({
             el.addEventListener('pointercancel', onUp)
           }}
           title="Arrastrá hasta otro nodo o al lienzo vacío para crear uno nuevo"
-          className="absolute z-10 w-7 h-7 rounded-full border-2 flex items-center justify-center shadow-lg transition-transform hover:scale-110 active:scale-95"
+          className="absolute z-10 w-4 h-4 rounded-full border flex items-center justify-center shadow-md transition-transform hover:scale-125 active:scale-95"
           style={{
-            left: node.x + pan.x + node.width / 2 - 14,
-            // -14 = the button's top is 14px above the node's bottom, so the
-            // button straddles the bottom edge (overlap zone, no gap).
-            top: node.y + pan.y + node.height - 14,
+            // Button es 16×16px; centramos horizontalmente con offset 8,
+            // y verticalmente lo apoyamos en el borde inferior con
+            // offset 8 también (la mitad queda dentro del nodo, mitad
+            // afuera — zona de overlap para que el cursor no pierda
+            // hover al bajar).
+            left: node.x + pan.x + node.width / 2 - 8,
+            top: node.y + pan.y + node.height - 8,
             background: '#09090b',
             borderColor: color,
             color,
             touchAction: 'none',
           }}
         >
-          <Plus className="w-3.5 h-3.5" strokeWidth={2.5} />
+          <Plus className="w-2.5 h-2.5" strokeWidth={2.5} />
         </button>
       )}
     </>
