@@ -59,6 +59,16 @@ export interface GEvent {
    *  the UI to offer "this event only" vs "all events in the series"
    *  when editing/moving a recurring instance. */
   recurringEventId?: string
+  /** Cuando es true, este "evento" en realidad es una TASK de Overseer
+   *  con dueTime — renderizada como bloque timeado en el calendario
+   *  pero no es un evento GCal real. El click en este bloque debe abrir
+   *  el TaskDetail, no el modal de evento. `linkedTaskId` apunta a la
+   *  task de origen. */
+  isTask?: boolean
+  linkedTaskId?: string
+  /** Color del proyecto al que pertenece la task — para colorear el
+   *  bloque sin tener que mirar el calendar.bg. */
+  projectColor?: string
 }
 
 // Standard Google Calendar event color palette (matches the colors users see in calendar.google.com)
@@ -147,6 +157,7 @@ interface State {
     patch: Partial<Omit<GEvent, 'id' | 'calendarId'>> & {
       applyToSeries?: boolean
       recurringEventId?: string
+      timeZone?: string
     }
   ) => Promise<void>
   /** Delete an event. Pass `scope='series'` + `recurringEventId` to remove

@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Settings as SettingsIcon, Bot, Eye, EyeOff, Check, X, Loader2, ExternalLink, AlertCircle, Calendar, Copy, CheckCheck, Link2, Link2Off, Upload, Database, FileJson } from 'lucide-react'
 import { useAppStore } from '@/lib/store/appStore'
+import { useGoogleCalendarStore } from '@/lib/store/googleCalendarStore'
 import { useFoodStore } from '@/lib/store/foodStore'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useHabitsStore } from '@/lib/store/habitsStore'
@@ -580,9 +581,104 @@ export function SettingsPage() {
       <PushNotificationsSection />
       <NotificationPrefsSection />
       <GoogleCalendarSection />
+      <GCalTasksSyncSection />
       <HealthWebhookSection />
       <BackupImportSection />
     </motion.div>
+  )
+}
+
+/** Sync de tareas-con-horario a Google Calendar — un toggle que decide
+ *  si las tasks con `dueTime` se espejan como eventos GCal, y un picker
+ *  para elegir en qué calendario se crean. */
+function GCalTasksSyncSection() {
+  const cfg = useAppStore((s) => s.gcalTasksSync)
+  const setCfg = useAppStore((s) => s.setGcalTasksSync)
+  const gcal = useGoogleCalendarStore()
+  const writableCalendars = (gcal.calendars ?? []).filter(
+    (c) => c.accessRole === 'owner' || c.accessRole === 'writer'
+  )
+  const enabled = !!cfg.enabled
+  const ready = gcal.connected && writableCalendars.length > 0
+
+  return (
+    <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <span className="text-lg">🗓️</span>
+        <h2 className="text-sm font-bold text-white">Sync de tareas-evento a Google Calendar</h2>
+      </div>
+      <p className="text-xs text-zinc-500 leading-relaxed">
+        Las tareas con <strong>fecha + hora</strong> se materializan como eventos en tu Google Calendar
+        elegido. Las tareas <strong>sin hora</strong> siguen viviendo solo en Tasks (no van al calendario).
+        Duración default: 1 hora (editable por task).
+      </p>
+
+      {!gcal.connected && (
+        <p className="text-[11px] text-amber-300 italic">
+          Primero conectá Google Calendar arriba.
+        </p>
+      )}
+      {gcal.connected && writableCalendars.length === 0 && (
+        <p className="text-[11px] text-amber-300 italic">
+          No tenés ningún calendario con permisos de escritura en tu cuenta de Google.
+        </p>
+      )}
+
+      <div className="space-y-3">
+        <label className="flex items-start gap-3 p-3 rounded-xl border border-zinc-800 bg-zinc-950/40 cursor-pointer">
+          <span className="text-lg shrink-0 mt-0.5">🔄</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-zinc-200">Activar el sync</p>
+            <p className="text-[11px] text-zinc-500 mt-0.5">
+              Cada tarea con hora se crea/actualiza/borra en el calendario destino. Sin hora, nada al calendario.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            disabled={!ready}
+            onClick={() => setCfg({ enabled: !enabled })}
+            className={`shrink-0 w-10 h-6 rounded-full transition-colors relative disabled:opacity-40 ${
+              enabled ? 'bg-emerald-500' : 'bg-zinc-700'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-[left,right] duration-150 ${
+                enabled ? 'left-0.5 right-auto' : 'left-auto right-0.5'
+              }`}
+            />
+          </button>
+        </label>
+
+        {enabled && ready && (
+          <div className="px-3 pb-3 pt-1 ml-9">
+            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+              Calendario destino
+            </label>
+            <select
+              value={cfg.calendarId ?? ''}
+              onChange={(e) => setCfg({ calendarId: e.target.value })}
+              className="mt-1 w-full bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-[11px] text-zinc-300 focus:outline-none focus:border-fuchsia-500/40"
+            >
+              <option value="">— elegir calendario —</option>
+              {writableCalendars.map((c) => (
+                <option key={c.id} value={c.id}>{c.summary}{c.primary ? ' (primary)' : ''}</option>
+              ))}
+            </select>
+            {!cfg.calendarId && (
+              <p className="text-[10px] text-amber-300/80 mt-1 italic">
+                Elegí un calendario para que el sync arranque.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <p className="text-[10px] text-zinc-600 italic">
+        ⓘ El sync es una sola dirección por ahora (Task → GCal). Si editás un evento desde Google directamente, el cambio no vuelve a la task. Eso queda para la próxima fase.
+      </p>
+    </section>
   )
 }
 

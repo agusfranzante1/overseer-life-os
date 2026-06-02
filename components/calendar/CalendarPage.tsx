@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from '@/hooks/useTranslation'
 import { useTasksStore } from '@/lib/store/tasksStore'
+import { TaskDetail } from '@/components/tasks/TaskDetail'
 import { expandRecurrenceInRange } from '@/lib/utils/taskRecurrence'
 import { useGoogleCalendarStore, resolveEventColor, contrastText, type GEvent, type GCalendar } from '@/lib/store/googleCalendarStore'
 import {
@@ -22,7 +23,9 @@ type ViewMode = 'month' | 'week'
 
 export function CalendarPage() {
   const { t } = useTranslation()
-  const { tasks, projects } = useTasksStore()
+  const { tasks, projects, updateTask } = useTasksStore()
+  // Selección de task para abrir el detalle al click en un bloque sintético.
+  const [selectedTask, setSelectedTask] = useState<import('@/types').Task | null>(null)
   const gcal = useGoogleCalendarStore()
 
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -110,21 +113,98 @@ export function CalendarPage() {
   const days = eachDayOfInterval({ start: calStart, end: calEnd })
 
   const eventsByDay = useMemo(() => {
+    // Incluye eventos GCal reales + bloques sintéticos de tasks-with-time.
+    // Lo merge se hace acá mismo en lugar de depender de `mergedEvents`
+    // (que aplica solo a la vista WeekView) — el mes usa este index.
     const map = new Map<string, GEvent[]>()
+    // 1) Eventos GCal — exceptuando los linkeados a una task (para no
+    //    renderear dos veces el mismo bloque).
+    const linkedIds = new Set<string>()
+    for (const t of Object.values(tasks)) {
+      if (t.gcalEventId) linkedIds.add(t.gcalEventId)
+    }
     for (const ev of gcal.events) {
-      // For all-day events ev.start is YYYY-MM-DD; for timed it's full ISO
+      if (linkedIds.has(ev.id)) continue
       const dateKey = ev.start.slice(0, 10)
       if (!map.has(dateKey)) map.set(dateKey, [])
       map.get(dateKey)!.push(ev)
     }
+    // 2) Tasks con hora → bloque sintético al día correspondiente.
+    for (const t of Object.values(tasks)) {
+      if (t.archivedAt || t.completedAt) continue
+      if (!t.dueDate || !t.dueTime) continue
+      const [y, m, d] = t.dueDate.split('-').map(Number)
+      const [hh, mm] = t.dueTime.split(':').map(Number)
+      const start = new Date(y, m - 1, d, hh, mm, 0)
+      const duration = t.durationMinutes ?? 60
+      const end = new Date(start.getTime() + duration * 60_000)
+      const project = projects[t.projectId]
+      const ev: GEvent = {
+        id: `task:${t.id}`,
+        calendarId: '__overseer_tasks__',
+        summary: t.title,
+        description: t.description ?? undefined,
+        start: start.toISOString(),
+        end: end.toISOString(),
+        allDay: false,
+        isTask: true,
+        linkedTaskId: t.id,
+        projectColor: project?.color,
+      }
+      if (!map.has(t.dueDate)) map.set(t.dueDate, [])
+      map.get(t.dueDate)!.push(ev)
+    }
     return map
-  }, [gcal.events])
+  }, [gcal.events, tasks, projects])
 
   const calendarById = useMemo(() => {
     const map = new Map<string, GCalendar>()
     for (const c of gcal.calendars) map.set(c.id, c)
     return map
   }, [gcal.calendars])
+
+  // ── Tasks-as-events ────────────────────────────────────────────────
+  // Las tareas con dueDate + dueTime se renderean como bloques timeados
+  // en el calendario. Construimos `syntheticTaskEvents` con shape GEvent
+  // para reusar todo el render pipeline. Y filtramos del array de
+  // GCal.events los que ya están linkeados a una task — así no se ven
+  // dos veces (el evento sincronizado en Google + el bloque de la task).
+  const mergedEvents = useMemo(() => {
+    const linkedGcalIds = new Set<string>()
+    const syntheticEvents: GEvent[] = []
+    for (const t of Object.values(tasks)) {
+      if (t.archivedAt || t.completedAt) continue
+      if (!t.dueDate || !t.dueTime) continue
+      // Marcamos el GCal event como "ya cubierto por la task" para
+      // evitar duplicar en el render.
+      if (t.gcalEventId) linkedGcalIds.add(t.gcalEventId)
+      const [y, m, d] = t.dueDate.split('-').map(Number)
+      const [hh, mm] = t.dueTime.split(':').map(Number)
+      const start = new Date(y, m - 1, d, hh, mm, 0)
+      const duration = t.durationMinutes ?? 60
+      const end = new Date(start.getTime() + duration * 60_000)
+      const project = projects[t.projectId]
+      // Construimos como GEvent sintético, con `isTask` + `linkedTaskId`
+      // para que el WeekView/MonthView sepa que el click abre TaskDetail.
+      syntheticEvents.push({
+        id: `task:${t.id}`,
+        calendarId: '__overseer_tasks__',
+        summary: t.title,
+        description: t.description ?? undefined,
+        start: start.toISOString(),
+        end: end.toISOString(),
+        allDay: false,
+        isTask: true,
+        linkedTaskId: t.id,
+        projectColor: project?.color,
+      })
+    }
+    // Filtrar duplicados: los eventos GCal cuyo id está en linkedGcalIds
+    // se reemplazan por el bloque sintético de la task (más rico, lleva
+    // el color del proyecto y al click abre TaskDetail).
+    const filteredGcal = gcal.events.filter((ev) => !linkedGcalIds.has(ev.id))
+    return [...filteredGcal, ...syntheticEvents]
+  }, [tasks, projects, gcal.events])
 
   // Una tarea aparece en un día si:
   //   - Tiene `dueDate === ese día`, O
@@ -383,7 +463,7 @@ export function CalendarPage() {
         ) : (
           <WeekView
             anchor={currentDate}
-            events={gcal.events}
+            events={mergedEvents}
             tasks={Object.values(tasks)}
             projects={projects}
             calendarById={calendarById}
@@ -392,9 +472,31 @@ export function CalendarPage() {
             hideNight={gcal.hideNight}
             hideStart={gcal.hideStart}
             hideEnd={gcal.hideEnd}
-            onEventClick={(ev) => setShowEventModal({ mode: 'edit', event: ev })}
+            onEventClick={(ev) => {
+              // Click sobre un bloque sintético de task → abrir TaskDetail
+              // en lugar del modal de evento GCal.
+              if (ev.isTask && ev.linkedTaskId) {
+                const task = tasks[ev.linkedTaskId]
+                if (task) setSelectedTask(task)
+                return
+              }
+              setShowEventModal({ mode: 'edit', event: ev })
+            }}
             onCreateAt={(date, hour) => setShowEventModal({ mode: 'create', date, startHour: hour })}
             onEventMove={async (ev, newStart, newEnd) => {
+              // Mover un bloque de task → actualizar dueDate + dueTime
+              // + durationMinutes de la task. El sync GCal corre solo.
+              if (ev.isTask && ev.linkedTaskId) {
+                const task = tasks[ev.linkedTaskId]
+                if (!task) return
+                const startD = new Date(newStart)
+                const endD = new Date(newEnd)
+                const dueDate = `${startD.getFullYear()}-${String(startD.getMonth() + 1).padStart(2, '0')}-${String(startD.getDate()).padStart(2, '0')}`
+                const dueTime = `${String(startD.getHours()).padStart(2, '0')}:${String(startD.getMinutes()).padStart(2, '0')}`
+                const durationMinutes = Math.max(5, Math.round((endD.getTime() - startD.getTime()) / 60_000))
+                updateTask(ev.linkedTaskId, { dueDate, dueTime, durationMinutes })
+                return
+              }
               if (ev.recurringEventId) {
                 // Recurring → ask which scope before firing the API.
                 setMoveScopePrompt({ ev, newStart, newEnd })
@@ -752,6 +854,17 @@ export function CalendarPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* TaskDetail — abierto al clickear un bloque sintético de task
+          dentro del calendario. Reusamos el componente del task manager
+          para no duplicar UI. */}
+      {selectedTask && (
+        <TaskDetail
+          task={selectedTask}
+          project={projects[selectedTask.projectId] ?? null}
+          onClose={() => setSelectedTask(null)}
+        />
+      )}
     </motion.div>
   )
 }
@@ -1360,7 +1473,11 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                   if (!layout) return null
                   const { top, height } = layout
                   const cal = calendarById.get(ev.calendarId)
-                  const color = resolveEventColor(ev, cal?.backgroundColor)
+                  // Para eventos sintéticos de task usamos el color del
+                  // proyecto. Los GCal events normales usan resolveEventColor.
+                  const color = ev.isTask
+                    ? (ev.projectColor ?? '#6366f1')
+                    : resolveEventColor(ev, cal?.backgroundColor)
                   const fg = contrastText(color)
                   const isBeingDragged = dragState?.evId === ev.id
                   // While dragging, render at proposed position. Otherwise
@@ -1453,17 +1570,21 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                       }`}
                       style={{
                         top: visualTop, height,
-                        background: color,
-                        color: fg,
+                        // Para tasks usamos un fondo más translúcido + border
+                        // dasheado/sólido para distinguir de eventos GCal.
+                        background: ev.isTask ? `${color}55` : color,
+                        border: ev.isTask ? `1.5px dashed ${color}` : undefined,
+                        color: ev.isTask ? '#ffffff' : fg,
                         minHeight: 18,
                         boxShadow: isBeingDragged
                           ? '0 8px 24px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(0,0,0,0.06)'
                           : 'inset 0 0 0 1px rgba(0,0,0,0.06)',
                         touchAction: 'none',  // prevent mobile scrolling while dragging
                       }}
-                      title={`${ev.summary}\n${format(parseISO(ev.start), 'HH:mm')} – ${format(parseISO(ev.end), 'HH:mm')}${ev.recurringEventId ? '\n(recurrente · arrastrá para reagendar)' : ''}`}
+                      title={`${ev.isTask ? '📋 ' : ''}${ev.summary}\n${format(parseISO(ev.start), 'HH:mm')} – ${format(parseISO(ev.end), 'HH:mm')}${ev.recurringEventId ? '\n(recurrente · arrastrá para reagendar)' : ''}${ev.isTask ? '\n(task · click para abrir)' : ''}`}
                     >
                       <p className="text-[11px] font-medium truncate leading-tight">
+                        {ev.isTask && <span className="opacity-80 mr-1">📋</span>}
                         {ev.summary}
                         {ev.recurringEventId && <span className="ml-1 opacity-70">↻</span>}
                       </p>

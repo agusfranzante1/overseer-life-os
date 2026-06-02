@@ -5,6 +5,7 @@ import { Task, Project, Subtask, CustomStatus } from '@/types'
 import { DEFAULT_STATUSES, PROJECT_COLORS } from '@/lib/utils/constants'
 import { dateKeyInTz } from '@/lib/utils/dateInTz'
 import { nextRecurrenceDueDate } from '@/lib/utils/taskRecurrence'
+import { syncTaskToGcal, unlinkTaskFromGcal } from '@/lib/utils/taskGcalSync'
 
 function genId() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
@@ -167,7 +168,13 @@ export const useTasksStore = create<TasksState>()(
       addTask: (t) => {
         const id = genId()
         const now = new Date().toISOString()
-        const task: Task = { ...t, id, createdAt: now, updatedAt: now }
+        // Si la task viene con dueTime y NO viene durationMinutes, default a
+        // 60 (1 hora). Si no viene dueTime, NO le seteamos duration — sin
+        // hora no aplica.
+        const withDefaults: Omit<Task, 'id' | 'createdAt' | 'updatedAt'> = t.dueTime && !t.durationMinutes
+          ? { ...t, durationMinutes: 60 }
+          : t
+        const task: Task = { ...withDefaults, id, createdAt: now, updatedAt: now }
         set((s) => ({
           tasks: { ...s.tasks, [id]: task },
           projects: {
@@ -178,10 +185,21 @@ export const useTasksStore = create<TasksState>()(
             },
           },
         }))
+        // GCal sync fire-and-forget — no bloqueamos la respuesta del store.
+        // El sync helper persiste los IDs del evento creado de vuelta vía
+        // updateTask cuando termina.
+        ;(async () => {
+          const patch = await syncTaskToGcal(task)
+          if (patch.gcalEventId || patch.gcalCalendarId) {
+            get().updateTask(id, patch)
+          }
+        })()
         return id
       },
 
-      updateTask: (id, patch) =>
+      updateTask: (id, patch) => {
+        let nextTask: Task | null = null
+        let shouldSync = false
         set((s) => {
           const prev = s.tasks[id]
           if (!prev) return s
@@ -202,15 +220,66 @@ export const useTasksStore = create<TasksState>()(
             }
           }
 
+          // Si la patch toca dueDate/dueTime y agrega dueTime, default
+          // durationMinutes a 60 si no venía.
+          const durationPatch: { durationMinutes?: number } = {}
+          if (patch.dueTime && !prev.durationMinutes && patch.durationMinutes === undefined) {
+            durationPatch.durationMinutes = 60
+          }
+
+          const merged = { ...prev, ...patch, ...completedAtPatch, ...durationPatch, updatedAt: new Date().toISOString() }
+          nextTask = merged
+
+          // Decidir si re-sincronizar a GCal. Trigger cuando cambia algo
+          // que afecta el evento: title, dueDate, dueTime, durationMinutes,
+          // description, completedAt (deselectea), archivedAt.
+          const eventRelevantKeys = ['title', 'dueDate', 'dueTime', 'durationMinutes', 'description', 'completedAt', 'archivedAt'] as const
+          shouldSync = eventRelevantKeys.some((k) => k in patch) ||
+            'completedAt' in completedAtPatch ||
+            'durationMinutes' in durationPatch
+
           return {
             tasks: {
               ...s.tasks,
-              [id]: { ...prev, ...patch, ...completedAtPatch, updatedAt: new Date().toISOString() },
+              [id]: merged,
             },
           }
-        }),
+        })
+        // Sync fire-and-forget — el patch que devuelve syncTaskToGcal
+        // contiene los IDs del evento creado/borrado; lo aplicamos vía
+        // un segundo set() bypaseando esta misma updateTask (para no
+        // disparar otro sync recursivo).
+        if (shouldSync && nextTask) {
+          ;(async () => {
+            const syncPatch = await syncTaskToGcal(nextTask!)
+            if (syncPatch.gcalEventId !== undefined || syncPatch.gcalCalendarId !== undefined) {
+              set((s) => {
+                const cur = s.tasks[id]
+                if (!cur) return s
+                return {
+                  tasks: {
+                    ...s.tasks,
+                    [id]: {
+                      ...cur,
+                      gcalEventId: syncPatch.gcalEventId,
+                      gcalCalendarId: syncPatch.gcalCalendarId,
+                    },
+                  },
+                }
+              })
+            }
+          })()
+        }
+      },
 
-      completeTask: (id) =>
+      completeTask: (id) => {
+        // Unlink del evento GCal — la task completada deja de ocupar
+        // espacio en el calendario. Pre-set para tener los IDs antes
+        // de que el state.tasks[id] cambie.
+        const taskBefore = get().tasks[id]
+        if (taskBefore?.gcalEventId && taskBefore?.gcalCalendarId) {
+          unlinkTaskFromGcal(taskBefore).catch(() => { /* noop */ })
+        }
         set((s) => {
           const task = s.tasks[id]
           if (!task) return s
@@ -276,9 +345,16 @@ export const useTasksStore = create<TasksState>()(
           }
 
           return { tasks: updatedTasks, projects: updatedProjects }
-        }),
+        })
+      },
 
-      deleteTask: (id) =>
+      deleteTask: (id) => {
+        // Unlink del evento GCal ANTES de borrar la task del store, así
+        // tenemos los IDs para llamar a la API.
+        const task = get().tasks[id]
+        if (task?.gcalEventId && task?.gcalCalendarId) {
+          unlinkTaskFromGcal(task).catch(() => { /* noop */ })
+        }
         set((s) => {
           const task = s.tasks[id]
           if (!task) return s
@@ -315,7 +391,8 @@ export const useTasksStore = create<TasksState>()(
               },
             },
           }
-        }),
+        })
+      },
 
       archiveCompletedBefore: (todayKey, timezone) => {
         let archived = 0

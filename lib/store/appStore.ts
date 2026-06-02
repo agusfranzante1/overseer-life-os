@@ -91,6 +91,17 @@ export interface AppState {
     /** Minuto del día (0-59) en HORA LOCAL del usuario. Default: 0. */
     habitReminderMinute?: number
   }
+
+  /** Sync de tareas-con-horario a Google Calendar.
+   *   - `gcalSyncTasks`: master toggle. Default false.
+   *   - `gcalSyncCalendarId`: calendar destino donde se crean los eventos.
+   *     Si está vacío y `gcalSyncTasks=true`, el sync espera a que el user
+   *     elija un calendario (no hace nada). */
+  gcalTasksSync: {
+    enabled?: boolean
+    calendarId?: string
+  }
+  setGcalTasksSync: (patch: Partial<AppState['gcalTasksSync']>) => void
   setNotificationPref: (key: keyof AppState['notificationPrefs'], value: boolean | number) => void
 
   setLanguage: (lang: Language) => void
@@ -146,6 +157,10 @@ export const useAppStore = create<AppState>()(
         habitReminderHour: 21,          // 21:00 hora local
         habitReminderMinute: 0,
       },
+      gcalTasksSync: {
+        enabled: false,
+        calendarId: '',
+      },
       metrics: {
         focus: 72,
         energy: 61,
@@ -186,6 +201,9 @@ export const useAppStore = create<AppState>()(
       })),
       setTimezone: (tz) => set({ timezone: tz }),
       setAutoPurgeCompletedTasks: (v) => set({ autoPurgeCompletedTasks: v }),
+      setGcalTasksSync: (patch) => set((s) => ({
+        gcalTasksSync: { ...s.gcalTasksSync, ...patch },
+      })),
       setNotificationPref: (key, value) => {
         set((s) => ({
           notificationPrefs: { ...s.notificationPrefs, [key]: value },

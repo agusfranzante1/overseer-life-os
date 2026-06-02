@@ -29,11 +29,15 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       // propagates the change across the entire series. For time-only
       // moves, we also shift the master's start/end by the same delta.
       applyToSeries, recurringEventId,
+      // Opcional: IANA timezone que se aplica a start/end cuando son
+      // dateTime (no all-day). Sin tz, Google usa la del calendar.
+      timeZone,
     } = await req.json() as {
       summary?: string; description?: string; location?: string
       start?: string; end?: string; allDay?: boolean
       applyToSeries?: boolean
       recurringEventId?: string
+      timeZone?: string
     }
 
     const calendar = google.calendar({ version: 'v3', auth })
@@ -89,8 +93,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (summary !== undefined) patch.summary = summary
     if (description !== undefined) patch.description = description
     if (location !== undefined) patch.location = location
-    if (start) patch.start = allDay ? { date: start.slice(0, 10) } : { dateTime: start }
-    if (end)   patch.end   = allDay ? { date: end.slice(0, 10)   } : { dateTime: end }
+    if (start) patch.start = allDay ? { date: start.slice(0, 10) } : { dateTime: start, ...(timeZone ? { timeZone } : {}) }
+    if (end)   patch.end   = allDay ? { date: end.slice(0, 10)   } : { dateTime: end,   ...(timeZone ? { timeZone } : {}) }
 
     const res = await calendar.events.patch({ calendarId, eventId: id, requestBody: patch })
     return NextResponse.json({ ok: true, event: res.data, scope: 'instance' })

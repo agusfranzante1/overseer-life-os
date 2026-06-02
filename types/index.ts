@@ -80,6 +80,20 @@ export interface Task {
    *  hay dueDate, el calendario y las notificaciones lo tratan como un
    *  evento "con hora", no "all-day". */
   dueTime?: string
+  /** Duración del bloque en minutos. Solo aplica cuando hay `dueTime`
+   *  — sin hora, una tarea es un "to-do del día" y no tiene duración.
+   *  Default 60 (una hora). Lo usa el calendario para dibujar el alto
+   *  del bloque y el sync GCal para `end = start + duration`. */
+  durationMinutes?: number
+  /** ID del evento de Google Calendar linkeado a esta tarea (cuando el
+   *  user tiene el sync activado y la task tiene `dueTime`). Vacío
+   *  significa "no hay sync para esta task". Lo seteamos al crear el
+   *  evento; lo borramos al eliminarlo. */
+  gcalEventId?: string
+  /** Calendario de Google en el que vive el evento linkeado. Necesario
+   *  para actualizarlo/borrarlo después (la API de GCal requiere
+   *  calendarId además de eventId). */
+  gcalCalendarId?: string
   energyEstimate?: number
   notes?: string
   subtasks: Subtask[]

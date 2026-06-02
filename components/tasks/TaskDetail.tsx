@@ -344,10 +344,47 @@ export function TaskDetail({ task, project, onClose }: Props) {
                   value={effective.dueTime ?? ''}
                   onChange={(e) => updateTask(effective.id, { dueTime: e.target.value || undefined })}
                   disabled={!effective.dueDate}
-                  title={effective.dueDate ? 'Hora opcional — habilita notificaciones con hora exacta' : 'Elegí primero una fecha'}
+                  title={effective.dueDate ? 'Hora opcional — habilita notificaciones con hora exacta y agrega al calendario' : 'Elegí primero una fecha'}
                   className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 w-28 disabled:opacity-40"
                 />
               </div>
+              {/* Duration — solo aplica con dueTime. Sin hora una tarea es
+                  to-do del día, no tiene duración. Default 1 hora. */}
+              {effective.dueDate && effective.dueTime && (
+                <div className="mt-2">
+                  <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Duración</label>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {[15, 30, 60, 90, 120].map((m) => {
+                      const active = (effective.durationMinutes ?? 60) === m
+                      return (
+                        <button
+                          key={m}
+                          onClick={() => updateTask(effective.id, { durationMinutes: m })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                            active
+                              ? 'bg-indigo-500/20 border border-indigo-500/50 text-indigo-200'
+                              : 'bg-zinc-800 border border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                          }`}
+                        >
+                          {m < 60 ? `${m}m` : m === 60 ? '1h' : `${m / 60}h`}
+                        </button>
+                      )
+                    })}
+                    <input
+                      type="number"
+                      min={5} max={1440} step={5}
+                      value={effective.durationMinutes ?? 60}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10)
+                        if (Number.isFinite(v) && v > 0) updateTask(effective.id, { durationMinutes: v })
+                      }}
+                      className="w-20 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
+                      title="Minutos custom"
+                    />
+                    <span className="text-[10px] text-zinc-600 self-center">min</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Recurrence */}
