@@ -11,6 +11,7 @@ import { TitleUpdater } from './TitleUpdater'
 import { ChatBox } from '@/components/chat/ChatBox'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useSupabaseSync } from '@/lib/supabase/sync'
+import { initMultitabSync } from '@/lib/utils/initMultitabSync'
 import { todayKeyInTz } from '@/lib/utils/dateInTz'
 
 const AUTH_PATHS = ['/login', '/signup']
@@ -34,6 +35,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   //   3. Recursive midnight scheduler — re-arms itself each day so the
   //      purge keeps happening even if the user never refreshes
   //   4. Periodic safety net every 30min for the same reason
+  // Multi-tab sync: listenamos el evento `storage` para re-hidratar los
+  // zustand stores persistidos cuando OTRA pestaña escribe localStorage.
+  // Sin esto, una tab que tiene estado viejo en memoria sobreescribe
+  // los cambios hechos en otra tab → tareas/notas/etc se perdían.
+  // (Ver `lib/utils/multitabSync.ts` para el detalle del bug.)
+  useEffect(() => {
+    initMultitabSync()
+  }, [])
+
   useEffect(() => {
     if (!autoPurgeCompletedTasks) return
 
