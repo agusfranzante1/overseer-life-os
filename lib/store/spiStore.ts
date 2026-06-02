@@ -105,6 +105,10 @@ interface SPIState {
    *  Empty array shows the picker; non-empty filters which sections render. */
   setSessionLanes: (sessionId: string, lanes: string[]) => void
 
+  /** Set the list of KPIs activos para esta semana. El scoreboard del
+   *  SPI semanal renderea solo estos IDs. */
+  setSessionKpis: (sessionId: string, kpiIds: string[]) => void
+
   // ─── Generated tasks ──────────────────────────────────────────────
   addTask: (sessionId: string, task: Omit<SPITask, 'id'>) => string
   updateTask: (sessionId: string, taskId: string, patch: Partial<SPITask>) => void
@@ -163,6 +167,34 @@ export const useSPIStore = create<SPIState>()(
           return existing.id
         }
         const fresh = emptySession(get().template, target)
+        // ── Auto-herencia de KPIs activos ─────────────────────────────
+        // La sesión nueva arranca con los mismos KPIs que tenía activos
+        // la sesión más reciente ANTERIOR + cualquier KPI nuevo creado
+        // desde entonces (cuyo `activatedAt <= target`). Así NO hay que
+        // re-elegir todos los KPIs cada sábado — la continuidad es por
+        // default; el usuario solo edita si esta semana hace algún cambio
+        // (sacar guitarra, sumar piano, etc.).
+        const prevSession = [...get().sessions]
+          .sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate))
+          .find((s) => s.weekStartDate < target)
+        const inheritedIds = new Set(prevSession?.selectedKpiIds ?? [])
+        // Sumamos también los KPIs activos creados en la library DESPUÉS
+        // del weekStartDate de la sesión previa (o si no hay previa,
+        // todos los activos hasta hoy). Lazy-load del kpisStore para
+        // evitar import circular.
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { useKpisStore } = require('./kpisStore') as typeof import('./kpisStore')
+          const allActive = useKpisStore.getState().definitions.filter(
+            (d) => !d.archivedAt && d.activatedAt <= target
+          )
+          const prevCutoff = prevSession?.weekStartDate ?? ''
+          for (const d of allActive) {
+            if (d.activatedAt > prevCutoff) inheritedIds.add(d.id)
+          }
+        } catch { /* noop — sin kpisStore disponible, dejamos vacío */ }
+        fresh.selectedKpiIds = Array.from(inheritedIds)
+
         set((s) => ({
           sessions: [fresh, ...s.sessions],
           activeSessionId: fresh.id,
@@ -229,11 +261,19 @@ export const useSPIStore = create<SPIState>()(
             mood: args.mood ?? session.mood,
             mainChecklist: autoCheckedMain,
           }),
-          // Snapshot congelado de hábitos al cierre — espejo del
-          // MonthClosureSnapshot pero con 7 días. Vive con la sesión
-          // así la revisión histórica no depende del estado live de
-          // habitsStore (que puede borrar/renombrar hábitos después).
-          weekSnapshot: buildWeekSnapshot(session.weekStartDate),
+          // Snapshot congelado de hábitos + KPIs al cierre — espejo
+          // del MonthClosureSnapshot pero con 7 días. Vive con la
+          // sesión así la revisión histórica no depende del estado
+          // live de habits/kpis stores (pueden borrar/renombrar
+          // después). Pasamos la sesión actualizada (con notes/mood
+          // recién cargados) por si los KPIs leen de ahí.
+          weekSnapshot: buildWeekSnapshot(session.weekStartDate, {
+            ...session,
+            tasks: updatedTasks,
+            mood: args.mood ?? session.mood,
+            notes: args.notes ?? session.notes,
+            mainChecklist: autoCheckedMain,
+          }),
         }
         set((s) => ({
           sessions: s.sessions.map((sess) => sess.id === id ? closedSession : sess),
@@ -362,6 +402,17 @@ export const useSPIStore = create<SPIState>()(
           ),
         })),
 
+      setSessionKpis: (sessionId, kpiIds) =>
+        set((s) => ({
+          sessions: s.sessions.map((sess) =>
+            sess.id !== sessionId ? sess : {
+              ...sess,
+              selectedKpiIds: kpiIds,
+              updatedAt: new Date().toISOString(),
+            }
+          ),
+        })),
+
       addTask: (sessionId, task) => {
         const id = genId()
         set((s) => ({
@@ -483,6 +534,27 @@ export const useSPIStore = create<SPIState>()(
           const hasOldQueBuscamos = queBuscamos?.fields?.some((f) => f.key === 'meta_pro_q' || f.key === 'meta_per_q')
           if (isV3 && hasOldQueBuscamos) {
             state.template = DEFAULT_SPI_TEMPLATE
+          }
+
+          // v4 → v5 upgrade: la sección "que_buscamos" YA NO TIENE
+          // fields hardcoded — SPIPage renderiza un bloque dinámico
+          // (WeeklyGoalsByArea) que itera las áreas principales del plan
+          // anual. Si el template persistido todavía trae fields ahí
+          // (típicamente `meta_pro_sem` y `meta_per_sem` de la v4), los
+          // limpiamos. Las values escritas se mantienen en session.values
+          // pero quedan inertes — el bloque dinámico no las renderiza.
+          const sectionsArr = state.template?.sections
+          if (Array.isArray(sectionsArr)) {
+            const idx = sectionsArr.findIndex((sec) => sec.key === 'que_buscamos')
+            if (idx >= 0 && (sectionsArr[idx].fields?.length ?? 0) > 0) {
+              const newSections = [...sectionsArr]
+              newSections[idx] = { ...newSections[idx], fields: [] }
+              state.template = {
+                ...state.template!,
+                sections: newSections,
+                version: (state.template?.version ?? 0) + 1,
+              }
+            }
           }
 
           // Migrate value keys: v1/v2 used nested paths like "aaa.intencion.intencion"

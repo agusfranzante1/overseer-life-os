@@ -2,8 +2,11 @@
  *  Espejo de `buildMonthSnapshot` pero con horizonte de 7 días (Sáb→Vie)
  *  y sin ingresos (eso lo cubre el cierre mensual). */
 
-import type { WeekClosureSnapshot } from './types'
+import type { WeekClosureSnapshot, SPISession } from './types'
+import type { KPISnapshot } from '@/lib/kpi/types'
 import { useHabitsStore } from '@/lib/store/habitsStore'
+import { useKpisStore, kpiCompletionPct } from '@/lib/store/kpisStore'
+import { readKpiValue, readKpiTargetOverride } from '@/lib/kpi/sessionHelpers'
 
 function dateToStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -13,7 +16,10 @@ function dateToStr(d: Date): string {
  *  (formato YYYY-MM-DD). Lee del estado live de habitsStore (sin
  *  suscripciones — se llama una sola vez al cerrar la sesión, o desde
  *  el container live cuando no hay snapshot guardado). */
-export function buildWeekSnapshot(weekStartDate: string): WeekClosureSnapshot {
+export function buildWeekSnapshot(
+  weekStartDate: string,
+  session?: SPISession,
+): WeekClosureSnapshot {
   const [yStr, mStr, dStr] = weekStartDate.split('-').map(Number)
   const sat = new Date(yStr, mStr - 1, dStr)
   sat.setHours(0, 0, 0, 0)
@@ -59,9 +65,43 @@ export function buildWeekSnapshot(weekStartDate: string): WeekClosureSnapshot {
     }
   })
 
+  // ── KPIs ──
+  // Solo snapshoteamos los KPIs que el usuario "activó" para esta semana
+  // vía `session.selectedKpiIds`. El valor se lee de session.values.kpis;
+  // el target prioriza el override per-session sobre el de la library.
+  let kpiSnapshot: KPISnapshot[] | undefined
+  if (session && Array.isArray(session.selectedKpiIds) && session.selectedKpiIds.length > 0) {
+    const library = useKpisStore.getState().definitions
+    const libById = new Map(library.map((k) => [k.id, k]))
+    kpiSnapshot = session.selectedKpiIds
+      .map((kpiId) => {
+        const def = libById.get(kpiId)
+        if (!def) return null  // KPI fue borrado de la library; no podemos snapshotear sin meta
+        const value = readKpiValue(session, kpiId, def.kind)
+        const override = readKpiTargetOverride(session, kpiId)
+        const target = override ?? def.target
+        const pct = kpiCompletionPct(value, target, def.kind)
+        const snap: KPISnapshot = {
+          id: def.id,
+          name: def.name,
+          icon: def.icon,
+          color: def.color,
+          kind: def.kind,
+          group: def.group,
+          areaKey: def.areaKey,
+          target,
+          value,
+          completionPct: pct ?? undefined,
+        }
+        return snap
+      })
+      .filter((s): s is KPISnapshot => s !== null)
+  }
+
   return {
     habits: habitsSnapshot,
     weekStartDate,
     capturedAt: new Date().toISOString(),
+    kpis: kpiSnapshot,
   }
 }

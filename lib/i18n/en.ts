@@ -12,6 +12,7 @@ export const en: Record<string, any> = {
     trading: 'Trading',
     health: 'Health',
     habits: 'Habits',
+    kpis: 'KPIs',
     gym: 'Gym',
     food: 'Food & Diet',
     settings: 'Settings',

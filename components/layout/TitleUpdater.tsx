@@ -30,6 +30,7 @@ const ROUTE_TO_NAV: ReadonlyArray<readonly [string, string, string]> = [
   ['/trading',     'trading',   '📈'],
   ['/health',      'health',    '❤️'],
   ['/habits',      'habits',    '🟢'],
+  ['/kpis',        'kpis',      '🎯'],
   ['/gym',         'gym',       '🏋️'],
   ['/food',        'food',      '🍽️'],
   ['/settings',    'settings',  '⚙️'],

@@ -18,8 +18,10 @@ import { useSPIStore, lastSaturdayYmd } from '@/lib/store/spiStore'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useProjectionStore } from '@/lib/store/projectionStore'
 import { useHabitsStore } from '@/lib/store/habitsStore'
+import { useKpisStore } from '@/lib/store/kpisStore'
 import { buildWeekSnapshot } from '@/lib/spi/weekSnapshot'
 import type { WeekClosureSnapshot } from '@/lib/spi/types'
+import { KpiScoreboard } from './KpiScoreboard'
 import type { SPISection, SectionField, SPISession, SPITask } from '@/lib/spi/types'
 import { titleForLevel, type SessionXP } from '@/lib/spi/gamification'
 import { quarterOfMonthKey, monthOfSpiWeek, labelForPeriod, weekOfQuarter } from '@/lib/projection/period'
@@ -30,7 +32,7 @@ export function SPIPage() {
     createOrOpenCurrentWeek, setActiveSession,
     toggleChecklistItem, updateValue, closeSession, deleteSession,
     addTask, updateTask, removeTask, pushTaskToManager,
-    updateTemplate, resetTemplate, setSessionLanes,
+    updateTemplate, resetTemplate, setSessionLanes, setSessionKpis,
     bitacoraEntries, addBitacoraEntry, updateBitacoraEntry, removeBitacoraEntry,
     getStreak, getLevel,
   } = useSPIStore()
@@ -169,6 +171,7 @@ export function SPIPage() {
         onValueChange={updateValue}
         onChecklistToggle={toggleChecklistItem}
         onSetLanes={setSessionLanes}
+        onSetKpis={setSessionKpis}
         onAddTask={addTask}
         onUpdateTask={updateTask}
         onRemoveTask={removeTask}
@@ -208,6 +211,7 @@ export function SPIPage() {
           onValueChange={updateValue}
           onChecklistToggle={toggleChecklistItem}
           onSetLanes={setSessionLanes}
+          onSetKpis={setSessionKpis}
           onAddTask={addTask}
           onUpdateTask={updateTask}
           onRemoveTask={removeTask}
@@ -238,6 +242,7 @@ export function SPIPage() {
           onValueChange={updateValue}
           onChecklistToggle={toggleChecklistItem}
           onSetLanes={setSessionLanes}
+          onSetKpis={setSessionKpis}
           onAddTask={addTask}
           onUpdateTask={updateTask}
           onRemoveTask={removeTask}
@@ -316,7 +321,7 @@ function WeekCard({
   weekStartDate, isCurrent, session, template,
   projectsById, taskMap, projectionPlans,
   bitacoraEntries, onBitacoraAdd, onBitacoraUpdate, onBitacoraRemove,
-  onStart, onValueChange, onChecklistToggle, onSetLanes,
+  onStart, onValueChange, onChecklistToggle, onSetLanes, onSetKpis,
   onAddTask, onUpdateTask, onRemoveTask, onPushTask,
   onCloseRequest, onDeleteRequest,
 }: {
@@ -336,6 +341,7 @@ function WeekCard({
   onValueChange: (sessionId: string, sectionKey: string, fieldKey: string, value: string) => void
   onChecklistToggle: (sessionId: string, key: string) => void
   onSetLanes: (sessionId: string, lanes: string[]) => void
+  onSetKpis: (sessionId: string, kpiIds: string[]) => void
   onAddTask: (sessionId: string, t: Omit<SPITask, 'id'>) => string
   onUpdateTask: (sessionId: string, taskId: string, patch: Partial<SPITask>) => void
   onRemoveTask: (sessionId: string, taskId: string) => void
@@ -437,6 +443,7 @@ function WeekCard({
                   onChecklistToggle={(key) => onChecklistToggle(session.id, key)}
                   onValueChange={(secKey, fieldKey, v) => onValueChange(session.id, secKey, fieldKey, v)}
                   onSetLanes={(lanes) => onSetLanes(session.id, lanes)}
+                  onSetKpis={(kpiIds) => onSetKpis(session.id, kpiIds)}
                   onAddTask={(t) => onAddTask(session.id, t)}
                   onUpdateTask={(taskId, patch) => onUpdateTask(session.id, taskId, patch)}
                   onRemoveTask={(taskId) => onRemoveTask(session.id, taskId)}
@@ -519,7 +526,7 @@ function EmptyState({
 function ActiveSession({
   session, template, projectsById, taskMap, projectionPlans,
   bitacoraEntries, onBitacoraAdd, onBitacoraUpdate, onBitacoraRemove,
-  onChecklistToggle, onValueChange, onSetLanes,
+  onChecklistToggle, onValueChange, onSetLanes, onSetKpis,
   onAddTask, onUpdateTask, onRemoveTask, onPushTask,
   onCloseRequest, onCancelRequest,
 }: {
@@ -535,6 +542,7 @@ function ActiveSession({
   onChecklistToggle: (key: string) => void
   onValueChange: (sectionKey: string, fieldKey: string, value: string) => void
   onSetLanes: (lanes: string[]) => void
+  onSetKpis: (kpiIds: string[]) => void
   onAddTask: (t: Omit<SPITask, 'id'>) => string
   onUpdateTask: (taskId: string, patch: Partial<SPITask>) => void
   onRemoveTask: (taskId: string) => void
@@ -718,6 +726,7 @@ function ActiveSession({
                   session={session}
                   parentKey=""
                   onValueChange={onValueChange}
+                  onSetKpis={onSetKpis}
                 />
               ))}
             </div>
@@ -734,6 +743,7 @@ function ActiveSession({
             session={session}
             parentKey=""
             onValueChange={onValueChange}
+            onSetKpis={onSetKpis}
           />
         ))}
 
@@ -751,6 +761,17 @@ function ActiveSession({
         onUpdate={onUpdateTask}
         onRemove={onRemoveTask}
         onPush={onPushTask}
+      />
+
+      {/* Scoreboard de KPIs — métricas de output que el usuario trackea
+          esta semana. Solo se renderean los KPIs en session.selectedKpiIds.
+          El botón "Editar KPIs activos" abre el picker contra la library
+          de /kpis. */}
+      <KpiScoreboard
+        session={session}
+        isClosed={isClosed}
+        onSelectedChange={onSetKpis}
+        onValueChange={onValueChange}
       />
 
       {/* KPIs de hábitos de la semana — espejo del snapshot mensual.
@@ -1118,11 +1139,12 @@ const AREA_LABEL_MAP: Record<string, string> = {
 }
 
 function WeeklyGoalsByArea({
-  session, fullKey, onValueChange,
+  session, fullKey, onValueChange, onSetKpis,
 }: {
   session: SPISession
   fullKey: string
   onValueChange: (sectionKey: string, fieldKey: string, value: string) => void
+  onSetKpis: (kpiIds: string[]) => void
 }) {
   const plans = useProjectionStore((s) => s.plans)
   // La semana SPI arranca el SÁBADO y cubre 7 días (Sáb → Vie). Cuando
@@ -1264,9 +1286,191 @@ function WeeklyGoalsByArea({
               minRows={2}
               className="w-full text-xs bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
             />
+            {/* Chips de KPIs filtrados por esta área. Toggle para
+                activar/desactivar en la semana, "+ KPI" para crear uno
+                nuevo de esta área en la library inline. */}
+            <AreaKpiChips
+              areaKey={k}
+              areaLabel={label}
+              selectedKpiIds={session.selectedKpiIds ?? []}
+              onSelectedChange={onSetKpis}
+            />
           </div>
         )
       })}
+    </div>
+  )
+}
+
+/** Chips de KPIs filtrados por área. Cada chip representa un KPI de la
+ *  library cuyo `areaKey` coincide; al togglear se agrega/quita de
+ *  `session.selectedKpiIds` (los KPIs activos para ESTA semana).
+ *
+ *  El botón "+ KPI" abre un mini-modal para crear un KPI nuevo con el
+ *  área pre-cargada. Al crearlo, se suma a la library Y se activa en
+ *  la semana actual (queda chequeado).
+ *
+ *  La herencia semana a semana ocurre en el store (al crear sesión);
+ *  acá solo manejamos el set ACTUAL. */
+function AreaKpiChips({
+  areaKey, areaLabel, selectedKpiIds, onSelectedChange,
+}: {
+  areaKey: string
+  areaLabel: string
+  selectedKpiIds: string[]
+  onSelectedChange: (next: string[]) => void
+}) {
+  const areaKpis = useKpisStore((s) => s.kpisByArea(areaKey))
+  const addKpi = useKpisStore((s) => s.addKpi)
+  const [showCreate, setShowCreate] = useState(false)
+
+  const toggle = (id: string) => {
+    if (selectedKpiIds.includes(id)) onSelectedChange(selectedKpiIds.filter((x) => x !== id))
+    else onSelectedChange([...selectedKpiIds, id])
+  }
+
+  return (
+    <div className="mt-1.5">
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="text-[9px] font-mono uppercase tracking-wider text-fuchsia-300/60 mr-1 self-center">
+          KPIs a trackear:
+        </span>
+        {areaKpis.map((kpi) => {
+          const active = selectedKpiIds.includes(kpi.id)
+          return (
+            <button
+              key={kpi.id}
+              onClick={() => toggle(kpi.id)}
+              title={active ? 'Click para sacarlo de esta semana' : 'Click para activarlo esta semana'}
+              className={`px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors flex items-center gap-1 ${
+                active
+                  ? 'bg-fuchsia-500/15 border-fuchsia-500/40 text-fuchsia-200'
+                  : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'
+              }`}
+            >
+              <span>{kpi.icon}</span>
+              <span>{kpi.name}</span>
+              {kpi.target !== undefined && (
+                <span className="text-zinc-600 ml-0.5">/{kpi.target}{kpi.kind === 'percent' ? '%' : ''}</span>
+              )}
+            </button>
+          )
+        })}
+        <button
+          onClick={() => setShowCreate(true)}
+          className="px-2 py-0.5 rounded-full text-[10px] font-medium border border-dashed border-fuchsia-500/40 text-fuchsia-300/80 hover:border-fuchsia-500 hover:bg-fuchsia-500/10 hover:text-fuchsia-200 transition-colors flex items-center gap-1"
+        >
+          + KPI
+        </button>
+      </div>
+
+      {showCreate && (
+        <QuickKpiModal
+          areaKey={areaKey}
+          areaLabel={areaLabel}
+          onClose={() => setShowCreate(false)}
+          onCreate={(input) => {
+            const id = addKpi(input)
+            // Lo activamos en la semana actual ya que recién lo creó.
+            onSelectedChange([...selectedKpiIds, id])
+            setShowCreate(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+/** Mini-modal de creación rápida de KPI con el área pre-cargada. */
+function QuickKpiModal({
+  areaKey, areaLabel, onClose, onCreate,
+}: {
+  areaKey: string
+  areaLabel: string
+  onClose: () => void
+  onCreate: (input: Parameters<ReturnType<typeof useKpisStore.getState>['addKpi']>[0]) => void
+}) {
+  const [name, setName] = useState('')
+  const [icon, setIcon] = useState('🎯')
+  const [kind, setKind] = useState<'count' | 'percent' | 'boolean'>('count')
+  const [target, setTarget] = useState('')
+
+  const canSubmit = name.trim().length > 0
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-zinc-800">
+          <h2 className="text-sm font-bold text-white">+ KPI para {areaLabel}</h2>
+          <p className="text-[10px] text-zinc-500 mt-0.5">
+            Lo agrega a tu library y lo activa esta semana. Editás detalles después en /kpis.
+          </p>
+        </div>
+        <div className="p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <input
+              value={icon}
+              onChange={(e) => setIcon(e.target.value.slice(0, 2))}
+              className="w-12 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-2 text-center text-lg focus:outline-none focus:border-fuchsia-500"
+              maxLength={4}
+            />
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Nombre — ej. Sesiones de guitarra"
+              className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+            />
+          </div>
+          <div className="grid grid-cols-3 gap-1.5">
+            {(['count', 'percent', 'boolean'] as const).map((k) => (
+              <button
+                key={k}
+                onClick={() => setKind(k)}
+                className={`px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${
+                  kind === k ? 'bg-fuchsia-500/20 border border-fuchsia-500/50 text-fuchsia-200' : 'bg-zinc-800 border border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                }`}
+              >
+                {k === 'count' && 'Contador'}
+                {k === 'percent' && '%'}
+                {k === 'boolean' && 'Sí/No'}
+              </button>
+            ))}
+          </div>
+          {kind !== 'boolean' && (
+            <input
+              type="number"
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              placeholder={`Target ${kind === 'percent' ? '0-100' : '(opcional)'}`}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+            />
+          )}
+        </div>
+        <div className="px-5 py-3 border-t border-zinc-800 flex gap-2">
+          <button onClick={onClose} className="flex-1 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold">
+            Cancelar
+          </button>
+          <button
+            disabled={!canSubmit}
+            onClick={() => {
+              const tNum = target.trim() ? parseFloat(target) : undefined
+              onCreate({
+                name: name.trim(),
+                icon: icon || '🎯',
+                color: '#a855f7',
+                kind,
+                target: Number.isFinite(tNum) ? tNum : undefined,
+                areaKey,
+                group: areaLabel,
+              })
+            }}
+            className="flex-1 px-3 py-1.5 rounded-lg bg-fuchsia-500/15 border border-fuchsia-500/30 hover:bg-fuchsia-500/25 disabled:opacity-40 text-fuchsia-300 text-xs font-bold"
+          >
+            Crear y activar
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1275,12 +1479,15 @@ function WeeklyGoalsByArea({
 // SECTION (recursive — supports subsections)
 // ─────────────────────────────────────────────────────────────────────
 function Section({
-  section, session, parentKey, onValueChange,
+  section, session, parentKey, onValueChange, onSetKpis,
 }: {
   section: SPISection
   session: SPISession
   parentKey: string
   onValueChange: (sectionKey: string, fieldKey: string, value: string) => void
+  /** Solo lo usa la subsección `que_buscamos` para los chips de KPI por
+   *  área. El resto lo ignora. */
+  onSetKpis?: (kpiIds: string[]) => void
 }) {
   // Always start COLLAPSED — the user explicitly asked for everything to
   // be closed by default in every SPI/Proyección view (Vista de Águila,
@@ -1324,6 +1531,7 @@ function Section({
                   session={session}
                   fullKey={fullKey}
                   onValueChange={onValueChange}
+                  onSetKpis={onSetKpis ?? (() => {})}
                 />
               )}
               {section.fields?.map((field) => (
@@ -1341,6 +1549,7 @@ function Section({
                   session={session}
                   parentKey={fullKey}
                   onValueChange={onValueChange}
+                  onSetKpis={onSetKpis}
                 />
               ))}
             </div>
@@ -2513,17 +2722,22 @@ function ContextCard({
  *  cálculo EN VIVO desde habitsStore. Mismo patrón que MonthSnapshotContainer
  *  en ProjectionPage. */
 function WeekSnapshotContainer({ session }: { session: SPISession }) {
-  // Suscripción a habits para que el cálculo live se actualice cuando
-  // marcamos un hábito durante la semana en curso.
+  // Suscripción a habits y a kpis para que el cálculo live se actualice
+  // cuando marcamos un hábito o cambiamos un KPI durante la semana.
   const habits = useHabitsStore((s) => s.habits)
+  const kpisLibrary = useKpisStore((s) => s.definitions)
   const liveSnapshot = useMemo(() => {
     if (session.weekSnapshot) return null
-    return buildWeekSnapshot(session.weekStartDate)
+    // Pasamos la sesión completa así el snapshot live ALSO incluye KPIs.
+    return buildWeekSnapshot(session.weekStartDate, session)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.weekSnapshot, session.weekStartDate, habits])
+  }, [session, session.weekSnapshot, session.weekStartDate, habits, kpisLibrary])
 
   const snapshot = session.weekSnapshot ?? liveSnapshot
-  if (!snapshot || snapshot.habits.length === 0) return null
+  if (!snapshot) return null
+  const hasHabits = snapshot.habits.length > 0
+  const hasKpis = (snapshot.kpis?.length ?? 0) > 0
+  if (!hasHabits && !hasKpis) return null
   const isLive = !session.weekSnapshot
   return <WeekHabitsBlock snapshot={snapshot} isLive={isLive} />
 }
@@ -2640,6 +2854,51 @@ function WeekHabitsBlock({
           <span className="inline-block w-2.5 h-2.5 rounded-full bg-zinc-900" /> futuro
         </span>
       </div>
+
+      {/* KPIs del snapshot — congelados al cierre o live mientras se
+          edita la semana. Solo mostramos esta tabla si el snapshot
+          captured KPIs (sólo cuando el usuario tenía KPIs seleccionados
+          al cierre). */}
+      {snapshot.kpis && snapshot.kpis.length > 0 && (
+        <div className="border-t border-zinc-800 pt-3 mt-3">
+          <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-300/80 mb-2">
+            🎯 KPIs de la semana
+          </p>
+          <table className="min-w-full text-[11px]">
+            <tbody>
+              {snapshot.kpis.map((k) => {
+                const pct = k.completionPct
+                const color = pct === undefined ? '#71717a'
+                  : pct >= 100 ? '#10b981'
+                  : pct >= 75 ? '#34d399'
+                  : pct >= 50 ? '#f59e0b'
+                  : '#ef4444'
+                const label = k.kind === 'boolean'
+                  ? (k.value > 0 ? '✓ Sí' : '✗ No')
+                  : k.kind === 'percent'
+                    ? `${Math.round(k.value)}%`
+                    : k.target !== undefined
+                      ? `${k.value}/${k.target}`
+                      : String(k.value)
+                return (
+                  <tr key={k.id} className="border-t border-zinc-900 first:border-t-0">
+                    <td className="py-1.5 pr-3">
+                      <span className="mr-1.5">{k.icon}</span>
+                      <span className="text-zinc-300">{k.name}</span>
+                    </td>
+                    <td className="py-1.5 text-right tabular-nums" style={{ color }}>
+                      {label}
+                      {pct !== undefined && (
+                        <span className="text-[10px] text-zinc-600 ml-1">· {pct}%</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

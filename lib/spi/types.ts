@@ -159,6 +159,13 @@ export interface SPISession {
    *  compat when we change the template in the future. */
   templateVersion: number
 
+  /** IDs de KPIs (definidos en kpisStore) que el usuario "activó" para
+   *  esta semana. El scoreboard semanal solo renderea estos. Los valores
+   *  van en `values.kpis[kpiId]`; los overrides de target por-sesión
+   *  (cuando el usuario quiere cambiar el target SOLO esta semana) van
+   *  en `values.kpiTargets[kpiId]`. */
+  selectedKpiIds?: string[]
+
   /** Snapshot capturado al cerrar la semana — grid de 7 días por hábito
    *  + KPIs de la semana. Imagen congelada para que la revisión histórica
    *  sobreviva a cambios futuros en el hábito (renombrar, borrar, etc.). */
@@ -192,4 +199,8 @@ export interface WeekClosureSnapshot {
   weekStartDate: string
   /** ISO timestamp del cierre. */
   capturedAt: string
+  /** KPIs activos esta semana, snapshot del valor cargado por el usuario.
+   *  Snapshot porque la library puede cambiar después; lo congelado acá
+   *  preserva nombre/target/valor del momento del cierre. */
+  kpis?: import('@/lib/kpi/types').KPISnapshot[]
 }

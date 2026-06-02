@@ -415,6 +415,12 @@ function PlanCard({
               {plan && level === 'month' && (
                 <MonthSnapshotContainer plan={plan} periodKey={periodKey} />
               )}
+              {/* Agregado mensual de KPIs — pulla las 4-5 weekSnapshot.kpis
+                  de las sesiones SPI del mes y los suma/promedia contra
+                  los targets. Solo aparece si hubo KPIs trackeados. */}
+              {plan && level === 'month' && (
+                <MonthKpisAggregate periodKey={periodKey} />
+              )}
 
               {/* Cascade from annual is rendered inside Section via the
                   special 'principal_cascade' key — no extra wiring here. */}
@@ -1765,5 +1771,132 @@ function ClosePlanModal({
         </div>
       </motion.div>
     </motion.div>
+  )
+}
+
+
+// ─────────────────────────────────────────────────────────────────────
+// MONTH KPIS AGGREGATE
+// ─────────────────────────────────────────────────────────────────────
+/** Agrega los KPIs de las 4-5 sesiones SPI cuya semana pertenece al mes
+ *  `periodKey` (YYYY-MM). Por cada KPI distinto:
+ *   - count   → suma de los valores semanales
+ *   - percent → promedio
+ *   - boolean → cuántas semanas en SÍ
+ *  Compara contra `target × N_semanas_con_data` para el % de cumplimiento.
+ *  Pulla todos los datos de session.weekSnapshot.kpis (frozen). Si una
+ *  semana del mes está sin cerrar, sus valores live NO se computan acá
+ *  (es la vista mensual: solo se evalúa lo cerrado). */
+function MonthKpisAggregate({ periodKey }: { periodKey: string }) {
+  const sessions = useSPIStore((s) => s.sessions)
+
+  const aggregate = useMemo(() => {
+    // Sesiones cerradas con weekSnapshot.kpis cuyo "mes mayoritario"
+    // matchea periodKey. Mismo criterio de "mes mayoritario" que el
+    // WeeklyGoalsByArea usa para deducir el monthly plan.
+    const monthMatching = sessions.filter((sess) => {
+      if (!sess.weekSnapshot?.kpis || sess.weekSnapshot.kpis.length === 0) return false
+      const [yStr, mStr, dStr] = sess.weekStartDate.split('-').map(Number)
+      const sat = new Date(yStr, mStr - 1, dStr)
+      const counts = new Map<string, number>()
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(sat)
+        d.setDate(sat.getDate() + i)
+        const mk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        counts.set(mk, (counts.get(mk) ?? 0) + 1)
+      }
+      let best = ''; let bestC = 0
+      for (const [mk, c] of counts) if (c >= bestC) { best = mk; bestC = c }
+      return best === periodKey
+    }).sort((a, b) => a.weekStartDate.localeCompare(b.weekStartDate))
+
+    // Por kpiId, juntar todos los snapshots presentes en las semanas.
+    const byKpi = new Map<string, { id: string; name: string; icon: string; color: string; kind: 'count' | 'percent' | 'boolean'; group?: string; target?: number; values: number[] }>()
+    for (const sess of monthMatching) {
+      for (const ks of sess.weekSnapshot?.kpis ?? []) {
+        const existing = byKpi.get(ks.id)
+        if (existing) {
+          existing.values.push(ks.value)
+        } else {
+          byKpi.set(ks.id, {
+            id: ks.id, name: ks.name, icon: ks.icon, color: ks.color, kind: ks.kind,
+            group: ks.group, target: ks.target, values: [ks.value],
+          })
+        }
+      }
+    }
+
+    const result = Array.from(byKpi.values()).map((k) => {
+      const total = k.values.reduce((a, b) => a + b, 0)
+      const avg = k.values.length > 0 ? total / k.values.length : 0
+      const weeksCount = k.values.length
+      let aggValue: number
+      let aggTarget: number | undefined
+      if (k.kind === 'percent') {
+        aggValue = Math.round(avg)
+        aggTarget = k.target  // target es 0-100; usamos directo
+      } else if (k.kind === 'boolean') {
+        aggValue = total       // cuántas semanas en SÍ
+        aggTarget = weeksCount // target implícito = todas las semanas
+      } else {
+        aggValue = total       // suma de count
+        aggTarget = k.target !== undefined ? k.target * weeksCount : undefined
+      }
+      const pct = aggTarget && aggTarget > 0 ? Math.min(100, Math.round((aggValue / aggTarget) * 100)) : null
+      return {
+        id: k.id, name: k.name, icon: k.icon, color: k.color, kind: k.kind, group: k.group,
+        weeksCount, aggValue, aggTarget, pct,
+      }
+    })
+    return { kpis: result, weeksWithData: monthMatching.length }
+  }, [sessions, periodKey])
+
+  if (aggregate.kpis.length === 0) return null
+
+  return (
+    <div className="bg-zinc-950/60 border border-fuchsia-500/20 rounded-2xl p-4 space-y-3">
+      <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-300/80">
+        📊 KPIs del mes · agregado de {aggregate.weeksWithData} semana{aggregate.weeksWithData === 1 ? '' : 's'} cerrada{aggregate.weeksWithData === 1 ? '' : 's'}
+      </p>
+      <table className="min-w-full text-[11px]">
+        <tbody>
+          {aggregate.kpis.map((k) => {
+            const pct = k.pct
+            const color = pct === null ? '#71717a'
+              : pct >= 100 ? '#10b981'
+              : pct >= 75 ? '#34d399'
+              : pct >= 50 ? '#f59e0b'
+              : '#ef4444'
+            const label = k.kind === 'boolean'
+              ? `${k.aggValue}/${k.aggTarget} semanas`
+              : k.kind === 'percent'
+                ? `${Math.round(k.aggValue)}% promedio`
+                : k.aggTarget !== undefined
+                  ? `${k.aggValue}/${k.aggTarget}`
+                  : String(k.aggValue)
+            return (
+              <tr key={k.id} className="border-t border-zinc-900 first:border-t-0">
+                <td className="py-2 pr-3">
+                  <span className="mr-1.5">{k.icon}</span>
+                  <span className="text-zinc-300">{k.name}</span>
+                  {k.group && (
+                    <span className="ml-2 text-[10px] text-zinc-600">· {k.group}</span>
+                  )}
+                </td>
+                <td className="py-2 text-right tabular-nums" style={{ color }}>
+                  {label}
+                  {pct !== null && (
+                    <span className="text-[10px] text-zinc-600 ml-1">· {pct}%</span>
+                  )}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+      <p className="text-[10px] text-zinc-600 italic">
+        Suma para counters · promedio para percent · semanas cumplidas para boolean. Solo se computan las semanas SPI cerradas del mes.
+      </p>
+    </div>
   )
 }

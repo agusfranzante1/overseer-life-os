@@ -8,7 +8,7 @@ import {
   Globe, WalletCards, Activity, Dumbbell, Utensils, HeartPulse, Menu,
   TrendingUp, GripVertical, Check, RotateCcw, Settings2, Cog, LogOut,
   Clock, Search, X as XIcon, Infinity as InfinityIcon, Telescope, FlaskConical,
-  Network, ChevronUp, ChevronDown,
+  Network, ChevronUp, ChevronDown, Target,
 } from 'lucide-react'
 import { listTimezones, formatTzOffset, detectTimezone } from '@/lib/utils/dateInTz'
 import Image from 'next/image'
@@ -36,6 +36,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/trading',   icon: TrendingUp,      key: 'trading' },
   { href: '/health',    icon: HeartPulse,      key: 'health' },
   { href: '/habits',    icon: Activity,        key: 'habits' },
+  { href: '/kpis',      icon: Target,          key: 'kpis' },
   { href: '/gym',       icon: Dumbbell,        key: 'gym' },
   { href: '/food',      icon: Utensils,        key: 'food' },
   { href: '/settings',  icon: Cog,             key: 'settings' },
