@@ -35,34 +35,33 @@ Vercel Dashboard → tu proyecto → **Settings → Environment Variables**. Ver
 
 - [ ] Variables verificadas
 
-## 4. Confirmar `vercel.json` en el repo
+## 4. Scheduler — GitHub Actions (NO Vercel cron)
 
-El archivo `vercel.json` (raíz del repo) ya tiene el cron definido:
-```json
-{
-  "crons": [
-    { "path": "/api/notifications/dispatch", "schedule": "*/5 * * * *" }
-  ]
-}
-```
+**Por qué GitHub Actions:** Vercel Hobby plan limita los crons a **una vez por día**, y nuestro cron necesita correr cada 5 min para que las notificaciones de tareas due-soon caigan dentro de la ventana de tiempo. GitHub Actions tiene cron gratis sin esa restricción.
 
-- [ ] Archivo confirmado en main
+El workflow ya está en el repo: `.github/workflows/notifications-cron.yml`.
 
-**Nota Vercel cron:**
-- Vercel Hobby plan: cron limitado (1-2 jobs, frecuencia mínima alta). Si te tira error de plan, sube a Pro o usá **GitHub Actions** como alternativa:
-  ```yaml
-  # .github/workflows/notifications-cron.yml
-  on:
-    schedule:
-      - cron: '*/5 * * * *'
-  jobs:
-    dispatch:
-      runs-on: ubuntu-latest
-      steps:
-        - run: |
-            curl -X POST "${{ secrets.APP_URL }}/api/notifications/dispatch" \
-              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+**Setup (una sola vez):**
+
+1. Ir a tu repo en GitHub → **Settings → Secrets and variables → Actions**.
+2. Click **New repository secret** y crear estos dos:
+   - `APP_URL` → la URL de producción de tu app en Vercel (sin trailing slash). Ej: `https://overseer-life-os.vercel.app`
+   - `CRON_SECRET` → el MISMO string que pusiste en Vercel Env Vars en el paso 3.
+
+- [ ] Secrets creados
+
+3. Listo. El workflow corre automáticamente cada 5 min a partir del próximo deploy a `main`.
+
+**Manual trigger (testear sin esperar):**
+- Repo → **Actions** tab → **Notifications dispatcher cron** → **Run workflow** button.
+- Ver los logs en tiempo real — debería printear el HTTP status (200) y el body JSON con las stats del dispatch.
+
+**Si querés usar Vercel cron en su lugar (Pro plan o conformarte con 1×/día)**:
+- Agregale al `vercel.json`:
+  ```json
+  { "crons": [{ "path": "/api/notifications/dispatch", "schedule": "0 9 * * *" }] }
   ```
+- Daily a las 9am UTC. Solo sirve para habit reminders y SPI sábado; no para task due-soon de hora específica.
 
 ## 5. Deploy
 

@@ -1,0 +1,47 @@
+# Cron job que dispara el endpoint /api/notifications/dispatch cada 5 min.
+#
+# ¿Por qué GitHub Actions y no Vercel Cron?
+# Vercel Hobby plan limita los crons a UNA VEZ POR DÍA. Cron de cada 5 min
+# requiere Vercel Pro ($20/mo). GitHub Actions corre cron gratis sin esa
+# restricción (mínimo 5 min entre runs, perfecto para nosotros).
+#
+# Setup:
+#   1. Repo → Settings → Secrets and variables → Actions → New secret
+#      - APP_URL = https://tu-app.vercel.app (sin trailing slash)
+#      - CRON_SECRET = el mismo string que tenés en Vercel Env Vars
+#   2. Listo. Se ejecuta automáticamente.
+#
+# Manual trigger:
+#   Repo → Actions → "Notifications dispatcher cron" → Run workflow
+#   Útil para testear sin esperar al próximo tick.
+
+name: Notifications dispatcher cron
+
+on:
+  schedule:
+    # Cada 5 minutos. Cron de GitHub Actions corre en UTC.
+    - cron: '*/5 * * * *'
+  # Permite disparar manualmente desde la UI de Actions.
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Call /api/notifications/dispatch
+        run: |
+          response=$(curl -s -o /tmp/body.json -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/notifications/dispatch")
+          echo "HTTP status: $response"
+          echo "Body:"
+          cat /tmp/body.json
+          # No fallamos el workflow si el body es ok=false — el dispatcher
+          # devuelve 200 con stats incluso cuando algunos canales skipean.
+          # Solo fallamos en errores HTTP duros (>= 500) o en timeouts.
+          if [ "$response" -ge 500 ]; then
+            echo "::error::Dispatcher devolvió status $response"
+            exit 1
+          fi
