@@ -438,15 +438,23 @@ export function HabitsPage() {
                           </button>
                         )}
                       </label>
-                      {/* Días en los que aplica el hábito (📅 ícono).
-                          Click → popover con presets + chips individuales. */}
-                      <TargetDaysPicker
-                        targetDays={habit.targetDays}
-                        onChange={(days) => setHabitTargetDays(habit.id, days)}
-                        compact
-                      />
                     </div>
                   </div>
+                </div>
+
+                {/* Days picker — slot propio FUERA del meta row para que
+                    el 📅 quede en la misma columna en TODAS las filas.
+                    Si lo dejábamos dentro del meta row, los items
+                    variables (streak `2d`/`11d`/vacío, time `--:--`/`08:00`)
+                    lo corrían de lugar y se veía desalineado entre filas.
+                    Ahora `shrink-0` + posición fija a la izquierda del
+                    weekly grid → alineación perfecta. */}
+                <div className="shrink-0">
+                  <TargetDaysPicker
+                    targetDays={habit.targetDays}
+                    onChange={(days) => setHabitTargetDays(habit.id, days)}
+                    compact
+                  />
                 </div>
 
                 {/* Weekly dots — clickable Mon→Sun. Tri-state cycle on click:
