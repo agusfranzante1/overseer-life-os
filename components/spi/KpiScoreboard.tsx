@@ -130,12 +130,25 @@ export function KpiScoreboard({
               y creá el primero — o agregalo desde una sección de área en "Qué buscás esta semana".
             </p>
           ) : !isClosed ? (
-            <button
-              onClick={() => setShowPicker(true)}
-              className="text-[11px] font-mono text-fuchsia-300 hover:text-fuchsia-200 hover:bg-fuchsia-500/10 transition-colors px-3 py-1.5 rounded inline-flex items-center gap-1"
-            >
-              <Plus className="w-3 h-3" /> Activar KPIs
-            </button>
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+              <button
+                onClick={() => setShowPicker(true)}
+                className="text-[11px] font-mono text-fuchsia-300 hover:text-fuchsia-200 hover:bg-fuchsia-500/10 transition-colors px-3 py-1.5 rounded inline-flex items-center gap-1"
+              >
+                <Plus className="w-3 h-3" /> Elegir KPIs
+              </button>
+              {/* Atajo: activar TODOS los KPIs de la library de una. Cuando
+                  el user tiene KPIs creados (ya sea desde el SPI o desde
+                  /kpis library) pero ninguno en `selectedKpiIds`, este
+                  botón los suma todos a la sesión actual de un click. */}
+              <button
+                onClick={() => onSelectedChange(eligibleLibrary.map((k) => k.id))}
+                className="text-[11px] font-mono text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/10 transition-colors px-3 py-1.5 rounded inline-flex items-center gap-1"
+                title={`Activa los ${eligibleLibrary.length} KPIs de tu library en la sesión de esta semana`}
+              >
+                <Plus className="w-3 h-3" /> Activar todos ({eligibleLibrary.length})
+              </button>
+            </div>
           ) : null}
         </div>
       ) : (

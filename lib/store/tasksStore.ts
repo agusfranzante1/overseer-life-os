@@ -37,6 +37,30 @@ interface TasksState {
   updateTask: (id: string, patch: Partial<Task>) => void
   completeTask: (id: string) => void
   deleteTask: (id: string) => void
+  /** Duplica una task COMPLETA con todas sus subtareas (1 y 2 nivel),
+   *  generando nuevos ids para todos. Útil para usar tasks como plantilla
+   *  de proceso: el user arma una tarea madre con sub-pasos, y la
+   *  duplica cada vez que repite el proceso.
+   *
+   *  Reglas del duplicado:
+   *   - Se generan nuevos ids para la task y todas sus subtasks.
+   *   - parentId de las subtask2 se re-mapea a los nuevos ids de subtask1.
+   *   - Subtasks archivadas NO se copian (ruido del histórico).
+   *   - Todo el estado de progreso se resetea: completed=false, sin
+   *     completedAt, sin archivedAt, status → primer status open del
+   *     proyecto. La copia arranca limpia.
+   *   - createdAt/updatedAt = ahora. postponedCount = 0.
+   *   - Sin linkage a GCal (eventId/calendarId limpios — si el user
+   *     quiere, lo re-vincula vía el sync al editar fecha/hora).
+   *   - Recurrencia se preserva (si el original era recurrente, la copia
+   *     también, pero por el momento puede confundir — el user puede
+   *     borrarla con un click).
+   *   - La copia se inserta INMEDIATAMENTE DESPUÉS de la original en
+   *     `project.taskIds` (no al final) — visualmente queda al lado.
+   *   - Título: "Original (copia)" — el user lo edita después.
+   *
+   *  Devuelve el id de la nueva task, o null si la fuente no existe. */
+  duplicateTask: (id: string) => string | null
   /** Moves all completed tasks (status countsAsDone) into the archive
    *  ("papelera") if their completedAt date — computed in the given IANA
    *  timezone — is strictly before todayKey. Archived tasks stay in the
@@ -346,6 +370,82 @@ export const useTasksStore = create<TasksState>()(
 
           return { tasks: updatedTasks, projects: updatedProjects }
         })
+      },
+
+      duplicateTask: (id) => {
+        const source = get().tasks[id]
+        if (!source) return null
+        const nowIso = new Date().toISOString()
+        const newTaskId = genId()
+        const proj = get().projects[source.projectId]
+        const firstOpenStatus =
+          proj?.statuses.find((st) => !st.countsAsDone)?.label
+          ?? proj?.statuses[0]?.label
+          ?? 'To Do'
+
+        // Map old subtask id → new subtask id, para re-mapear parentId.
+        // Solo incluimos subtasks NO archivadas — la archive es ruido
+        // histórico que no querés arrastrar al duplicado.
+        const liveSubs = source.subtasks.filter((sub) => !sub.archivedAt)
+        const subIdMap = new Map<string, string>()
+        for (const sub of liveSubs) {
+          subIdMap.set(sub.id, genId())
+        }
+
+        // Construir las subtasks nuevas: ids frescos, estado de progreso
+        // reseteado, parentId re-mapeado a los nuevos ids.
+        const newSubtasks: Subtask[] = liveSubs.map((sub) => ({
+          ...sub,
+          id: subIdMap.get(sub.id)!,
+          completed: false,
+          completedAt: undefined,
+          archivedAt: undefined,
+          status: firstOpenStatus,
+          // Si el parentId original existe en el map, re-mapeamos. Si no
+          // (parentId apuntaba a una subtask archivada), queda como top-level.
+          parentId: sub.parentId ? subIdMap.get(sub.parentId) ?? undefined : undefined,
+        }))
+
+        // Build the duplicate task — clean slate de progreso + sin GCal.
+        const newTask: Task = {
+          ...source,
+          id: newTaskId,
+          title: `${source.title} (copia)`,
+          subtasks: newSubtasks,
+          status: firstOpenStatus,
+          completedAt: undefined,
+          archivedAt: undefined,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          postponedCount: 0,
+          // GCal: la copia es una task fresca. Si el original tenía evento
+          // sincronizado, el nuevo NO empieza con uno — el sync lo crea
+          // (solo si el user le pone dueTime/duration luego).
+          gcalEventId: undefined,
+          gcalCalendarId: undefined,
+        }
+
+        set((s) => {
+          // Insertamos la copia INMEDIATAMENTE DESPUÉS del original en
+          // el orden del proyecto — así visualmente queda al lado.
+          const sourceProj = s.projects[source.projectId]
+          const taskIds = [...(sourceProj?.taskIds ?? [])]
+          const idx = taskIds.indexOf(id)
+          if (idx === -1) taskIds.push(newTaskId)
+          else taskIds.splice(idx + 1, 0, newTaskId)
+          return {
+            tasks: { ...s.tasks, [newTaskId]: newTask },
+            projects: {
+              ...s.projects,
+              [source.projectId]: {
+                ...sourceProj,
+                taskIds,
+              },
+            },
+          }
+        })
+
+        return newTaskId
       },
 
       deleteTask: (id) => {

@@ -796,12 +796,22 @@ async function pullSPI(): Promise<boolean> {
     created_at: string; updated_at: string
   }
 
-  // Sanitize: sessions stored before fields like `selectedLanes`,
-  // `mainChecklist`, `tasks`, `values` existed need defaults so renderers
-  // (which do `session.selectedLanes.length` etc.) don't crash.
+  // Sanitize: sessions stored before fields como `selectedLanes`,
+  // `mainChecklist`, `tasks`, `values` existieran necesitan defaults para
+  // que los renderers (que hacen `session.selectedLanes.length` etc.) no
+  // crasheen.
+  //
+  // IMPORTANTE: spread `...s` PRIMERO para preservar cualquier campo
+  // opcional (selectedKpiIds, weekSnapshot, etc.). Si solo enumerábamos
+  // explícitamente, cualquier campo nuevo se perdía silenciosamente al
+  // hacer pull. Antes pasaba con `selectedKpiIds` — el push subía la
+  // session entera al payload JSONB pero el pull la sanitizaba dejando
+  // solo los campos enumerados → los KPIs activados se borraban al
+  // refrescar la página.
   const sanitize = (raw: unknown): import('@/lib/spi/types').SPISession => {
     const s = (raw ?? {}) as Partial<import('@/lib/spi/types').SPISession>
     return {
+      ...s,
       id: s.id ?? '',
       weekStartDate: s.weekStartDate ?? '',
       createdAt: s.createdAt ?? new Date().toISOString(),
@@ -815,6 +825,9 @@ async function pullSPI(): Promise<boolean> {
       score: s.score,
       notes: s.notes,
       templateVersion: s.templateVersion ?? 1,
+      // Campos opcionales nuevos — el spread los preserva, pero los
+      // sanitizamos por las dudas para que sean del tipo correcto.
+      selectedKpiIds: Array.isArray(s.selectedKpiIds) ? s.selectedKpiIds : undefined,
     }
   }
 

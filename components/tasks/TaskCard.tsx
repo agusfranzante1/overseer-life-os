@@ -8,7 +8,7 @@ import { useTaskUiStore } from '@/lib/store/taskUiStore'
 import { effectivePriority } from '@/lib/utils/taskPriority'
 import { sortSubtasks, type KanbanSort } from '@/lib/utils/taskSort'
 import { useTranslation } from '@/hooks/useTranslation'
-import { CheckCircle2, Clock, Trash2, ChevronDown, ChevronUp, Plus, Flag, GripVertical, CornerDownRight, MoreHorizontal, ChevronRight, Calendar, X } from 'lucide-react'
+import { CheckCircle2, Clock, Trash2, ChevronDown, ChevronUp, Plus, Flag, GripVertical, CornerDownRight, MoreHorizontal, ChevronRight, Calendar, X, Copy } from 'lucide-react'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { format } from 'date-fns'
 import { SubtaskDetailModal } from './SubtaskDetailModal'
@@ -33,7 +33,7 @@ interface Props {
 const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
 export function TaskCard({ task, project, onClick, showProjectBadge = false, subtaskSortMode = 'manual' }: Props) {
-  const { completeTask, postponeTask, deleteTask, toggleSubtask, addSubtask, updateSubtask, deleteSubtask, updateTask, convertTaskToSubtask } = useTasksStore()
+  const { completeTask, postponeTask, deleteTask, duplicateTask, toggleSubtask, addSubtask, updateSubtask, deleteSubtask, updateTask, convertTaskToSubtask } = useTasksStore()
   const { t } = useTranslation()
   // Estado de UI (expanded del card, colapso de cada sub-tarea-1) vive
   // en su propio store persistido. Refrescar la página ya no resetea el
@@ -479,6 +479,18 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
               title={t('tasks.postpone')}
             >
               <Clock className="w-3.5 h-3.5" />
+            </button>
+            {/* Duplicar tarea madre completa con todas sus subtasks — para
+                usar tasks como plantilla de proceso. La copia se inserta
+                inmediatamente debajo de la original con título "X (copia)"
+                y estado reseteado a "To Do" para arrancar limpia. */}
+            <button
+              data-interactive
+              onClick={(e) => { e.stopPropagation(); duplicateTask(task.id) }}
+              className="text-zinc-600 hover:text-indigo-300 transition-colors p-1"
+              title="Duplicar tarea con todas sus subtareas (plantilla de proceso)"
+            >
+              <Copy className="w-3.5 h-3.5" />
             </button>
             <button
               data-interactive

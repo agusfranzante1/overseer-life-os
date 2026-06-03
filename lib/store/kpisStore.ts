@@ -62,6 +62,35 @@ export const useKpisStore = create<State>()(
           activatedAt: todayYmd(),
         }
         set((s) => ({ definitions: [...s.definitions, def] }))
+
+        // Auto-activar en la sesión SPI de la semana en curso.
+        //
+        // Sin esto, un KPI creado desde la página /kpis (library view)
+        // quedaba "huérfano" — aparecía en library pero el scoreboard
+        // mostraba "Sin KPIs activos esta semana". El user tenía que ir
+        // a "Editar KPIs" del scoreboard y activarlo a mano. UX confusa.
+        //
+        // (Los KPIs creados desde los chips de SPI ya hacen esto desde
+        // el componente, pero está OK ser idempotente — agregar dos
+        // veces el mismo id no rompe nada porque chequeamos `includes`.)
+        //
+        // Hacemos lazy require por ESM circular dep: spiStore importa
+        // kpisStore. Si importáramos useSPIStore en top-level, sería un
+        // ciclo. En runtime el módulo ya está cargado cuando se llama
+        // addKpi, así que dynamic import es seguro.
+        if (typeof window !== 'undefined') {
+          import('./spiStore').then(({ useSPIStore, lastSaturdayYmd }) => {
+            const spi = useSPIStore.getState()
+            const session = spi.sessions.find((s) => s.id === spi.activeSessionId)
+              ?? spi.sessions.find((s) => s.weekStartDate === lastSaturdayYmd())
+            if (!session) return
+            const currentIds = session.selectedKpiIds ?? []
+            if (!currentIds.includes(id)) {
+              spi.setSessionKpis(session.id, [...currentIds, id])
+            }
+          }).catch(() => { /* noop — el KPI quedó en library igual */ })
+        }
+
         return id
       },
 

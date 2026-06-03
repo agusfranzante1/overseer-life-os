@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Task, Project, Priority, TaskRecurrence, TaskRecurrenceKind } from '@/types'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTranslation } from '@/hooks/useTranslation'
-import { X, Plus, Trash2, CheckCircle2, ChevronRight, ArrowRightLeft, Check, GitMerge, Repeat, Bell } from 'lucide-react'
+import { X, Plus, Trash2, CheckCircle2, ChevronRight, ArrowRightLeft, Check, GitMerge, Repeat, Bell, Copy } from 'lucide-react'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { SubtaskDetailModal } from './SubtaskDetailModal'
 import { recurrenceLabel } from '@/lib/utils/taskRecurrence'
@@ -19,7 +19,7 @@ interface Props {
 const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
 export function TaskDetail({ task, project, onClose }: Props) {
-  const { updateTask, addSubtask, toggleSubtask, deleteSubtask, updateSubtask, moveTask, projects, tasks, convertTaskToSubtask } = useTasksStore()
+  const { updateTask, addSubtask, toggleSubtask, deleteSubtask, updateSubtask, moveTask, projects, tasks, convertTaskToSubtask, duplicateTask } = useTasksStore()
   const { t } = useTranslation()
   // Read the task LIVE from the store so edits reflect immediately.
   const liveTask = useTasksStore((s) => (task ? s.tasks[task.id] : undefined))
@@ -139,6 +139,19 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 rows={1}
                 className="flex-1 bg-transparent text-xl font-bold text-white focus:outline-none border-b border-transparent focus:border-indigo-500 pb-1 transition-colors resize-none leading-tight overflow-hidden"
               />
+              {/* Duplicar task con todas sus subtareas — plantilla de
+                  proceso. Cierra el modal y abre... bueno, no abre nada:
+                  el user verá la copia en la lista del proyecto. */}
+              <button
+                onClick={() => {
+                  const newId = duplicateTask(effective.id)
+                  if (newId) onClose()
+                }}
+                className="text-zinc-500 hover:text-indigo-300 transition-colors shrink-0 mt-1"
+                title="Duplicar tarea con todas sus subtareas (plantilla de proceso)"
+              >
+                <Copy className="w-5 h-5" />
+              </button>
               <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0 mt-1">
                 <X className="w-5 h-5" />
               </button>
