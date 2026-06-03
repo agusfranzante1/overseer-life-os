@@ -1119,6 +1119,38 @@ async function pushAppPrefs() {
     anthropicModel: s.anthropicModel,
     metrics: s.metrics,
   }
+  // Piggyback al sync de prefs: ALSO actualizamos `user_settings` que es
+  // la tabla que lee el dispatcher de notificaciones del lado server.
+  //
+  // Bug que arreglamos: el dispatcher leía timezone='UTC' (default) cuando
+  // el user nunca había tocado un toggle de notification settings — porque
+  // `user_settings` solo se pusheaba al togglear una pref. Resultado:
+  // habit reminders configurados a las 21:00 local (Argentina) NUNCA
+  // disparaban porque el dispatcher chequeaba "es 21:00 en UTC?" cuando
+  // en Argentina recién eran las 18:00. Para los 21:00 reales en AR,
+  // el dispatcher veía 00:00 UTC del día siguiente → no match.
+  //
+  // Ahora se sincroniza en cada init/edit de prefs, así el timezone está
+  // siempre fresco en user_settings. Fire-and-forget para no bloquear.
+  void sb.from('user_settings').upsert({
+    user_id: uid,
+    timezone: s.timezone,
+    notification_prefs: {
+      spiNewSession: s.notificationPrefs.spiNewSession ?? true,
+      taskDueSoon: s.notificationPrefs.taskDueSoon ?? true,
+      taskOverdue: s.notificationPrefs.taskOverdue ?? true,
+      habitReminder: s.notificationPrefs.habitReminder ?? false,
+      habitSpecificReminders: s.notificationPrefs.habitSpecificReminders ?? true,
+    },
+    habit_reminder_hour: s.notificationPrefs.habitReminderHour ?? 21,
+    habit_reminder_minute: s.notificationPrefs.habitReminderMinute ?? 0,
+    task_due_lead_minutes: s.notificationPrefs.taskDueLeadMinutes ?? 60,
+    spi_new_lead_minutes: s.notificationPrefs.spiNewSessionLeadMinutes ?? 0,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_id' }).then((r: { error: { message: string } | null }) => {
+    if (r.error) console.warn('[user_settings sync from pushAppPrefs] failed:', r.error.message)
+  })
+
   const r = await sb.from('app_preferences').upsert(
     { user_id: uid, payload, updated_at: new Date().toISOString() },
     { onConflict: 'user_id' },

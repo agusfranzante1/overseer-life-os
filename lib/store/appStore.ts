@@ -204,7 +204,14 @@ export const useAppStore = create<AppState>()(
       updateDayType: (id, patch) => set((s) => ({
         dayTypes: s.dayTypes.map((d) => d.id === id ? { ...d, ...patch } : d),
       })),
-      setTimezone: (tz) => set({ timezone: tz }),
+      setTimezone: (tz) => {
+        set({ timezone: tz })
+        // Disparar sync a user_settings — el dispatcher de notificaciones
+        // lo necesita para matchear horas locales. Antes este setter no
+        // sincronizaba y si el user cambiaba TZ desde Settings, el
+        // dispatcher seguía con el TZ viejo (o UTC default).
+        debouncedSyncSettings()
+      },
       setAutoPurgeCompletedTasks: (v) => set({ autoPurgeCompletedTasks: v }),
       setGcalTasksSync: (patch) => set((s) => ({
         gcalTasksSync: { ...s.gcalTasksSync, ...patch },
