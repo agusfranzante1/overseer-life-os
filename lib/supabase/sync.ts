@@ -15,6 +15,10 @@ import { useProjectionStore } from '@/lib/store/projectionStore'
 import { useLabStore } from '@/lib/store/labStore'
 import { useAppStore } from '@/lib/store/appStore'
 import { useMindMapStore } from '@/lib/store/mindmapStore'
+import {
+  startPulling, endPulling,
+  markModifiedIfNotPulling, markSynced, hasUnsyncedChanges,
+} from './syncTracking'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
@@ -185,10 +189,13 @@ async function pushTasks() {
   await deleteSurplus(sb, 'subtasks', state.userId!, subtaskRows.map((r) => r.id))
   await deleteSurplus(sb, 'tasks', state.userId!, taskRows.map((r) => r.id))
   await deleteSurplus(sb, 'projects', state.userId!, projectRows.map((r) => r.id))
+  markSynced('tasks')
 }
 
 async function pullTasks(): Promise<{ projects: number; tasks: number } | null> {
   if (!state.userId) return null
+  startPulling('tasks')
+  try {
   const sb = getSupabaseBrowser()
 
   const [projectsRes, tasksRes, subtasksRes] = await Promise.all([
@@ -203,6 +210,7 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
   }
 
   if ((projectsRes.data?.length ?? 0) === 0 && (tasksRes.data?.length ?? 0) === 0) {
+    markSynced('tasks')
     return { projects: 0, tasks: 0 }
   }
 
@@ -266,7 +274,11 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
     } as any])),
   })
 
+  markSynced('tasks')
   return { projects: projectsRes.data?.length ?? 0, tasks: tasksRes.data?.length ?? 0 }
+  } finally {
+    endPulling('tasks')
+  }
 }
 
 // ─── WALLET ───────────────────────────────────────────────────────────────────
@@ -372,10 +384,13 @@ async function pushWallet() {
       await sb.from('wallet_currencies').delete().eq('user_id', uid).in('code', toDelete)
     }
   }
+  markSynced('wallet')
 }
 
 async function pullWallet(): Promise<boolean> {
   if (!state.userId) return false
+  startPulling('wallet')
+  try {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
@@ -399,7 +414,7 @@ async function pullWallet(): Promise<boolean> {
   }
 
   const hasData = (wallRes.data?.length ?? 0) > 0 || (txRes.data?.length ?? 0) > 0
-  if (!hasData && !cfgRes.data) return false
+  if (!hasData && !cfgRes.data) { markSynced('wallet'); return false }
 
   useWalletStore.setState({
     currencies: (curRes.data ?? []).map((c: Row) => ({
@@ -465,7 +480,11 @@ async function pullWallet(): Promise<boolean> {
     ),
   })
 
+  markSynced('wallet')
   return true
+  } finally {
+    endPulling('wallet')
+  }
 }
 
 // ─── TRADING ──────────────────────────────────────────────────────────────────
@@ -560,10 +579,13 @@ async function pushTrading() {
     reportSyncError(`trading_scaling_config upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_trading_scaling.sql.`)
     throw r.error
   }
+  markSynced('trading')
 }
 
 async function pullTrading(): Promise<boolean> {
   if (!state.userId) return false
+  startPulling('trading')
+  try {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
@@ -671,7 +693,11 @@ async function pullTrading(): Promise<boolean> {
       : {}),
   })
 
+  markSynced('trading')
   return true
+  } finally {
+    endPulling('trading')
+  }
 }
 
 // ─── HABITS ───────────────────────────────────────────────────────────────────
@@ -695,10 +721,13 @@ async function pushHabits() {
 
   if (rows.length > 0) await sb.from('habits').upsert(rows)
   await deleteSurplus(sb, 'habits', uid, rows.map((r) => r.id))
+  markSynced('habits')
 }
 
 async function pullHabits(): Promise<boolean> {
   if (!state.userId) return false
+  startPulling('habits')
+  try {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
@@ -711,7 +740,7 @@ async function pullHabits(): Promise<boolean> {
     console.error('Habits pull failed', res.error)
     return false
   }
-  if ((res.data?.length ?? 0) === 0) return false
+  if ((res.data?.length ?? 0) === 0) { markSynced('habits'); return false }
 
   useHabitsStore.setState({
     habits: (res.data ?? []).map((h: Row) => ({
@@ -727,7 +756,11 @@ async function pullHabits(): Promise<boolean> {
       reminderTime: (h.reminder_time as string | null) ?? undefined,
     })),
   })
+  markSynced('habits')
   return true
+  } finally {
+    endPulling('habits')
+  }
 }
 
 // ─── SPI (weekly planning sessions) ───────────────────────────────────────────
@@ -767,10 +800,13 @@ async function pushSPI() {
   }))
   if (bitRows.length > 0) await sb.from('spi_bitacora').upsert(bitRows)
   await deleteSurplus(sb, 'spi_bitacora', uid, bitRows.map((r) => r.id))
+  markSynced('spi')
 }
 
 async function pullSPI(): Promise<boolean> {
   if (!state.userId) return false
+  startPulling('spi')
+  try {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
@@ -786,7 +822,7 @@ async function pullSPI(): Promise<boolean> {
 
   const hasSessions = (sessRes.data?.length ?? 0) > 0
   const hasBitacora = (bitRes.data?.length ?? 0) > 0
-  if (!hasSessions && !hasBitacora) return false
+  if (!hasSessions && !hasBitacora) { markSynced('spi'); return false }
 
   type SessRow = { payload: unknown }
   type BitRow = {
@@ -843,7 +879,11 @@ async function pullSPI(): Promise<boolean> {
       updatedAt: r.updated_at,
     })),
   })
+  markSynced('spi')
   return true
+  } finally {
+    endPulling('spi')
+  }
 }
 
 // ─── PROYECCIÓN (annual / quarterly / monthly plans) ──────────────────────────
@@ -867,17 +907,20 @@ async function pushProjection() {
 
   if (rows.length > 0) await sb.from('projection_plans').upsert(rows)
   await deleteSurplus(sb, 'projection_plans', uid, rows.map((r) => r.id))
+  markSynced('projection')
 }
 
 async function pullProjection(): Promise<boolean> {
   if (!state.userId) return false
+  startPulling('projection')
+  try {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
   const res = await sb.from('projection_plans').select('*').eq('user_id', uid)
     .order('period_key', { ascending: false })
   if (res.error) { console.error('Projection pull failed', res.error); return false }
-  if ((res.data?.length ?? 0) === 0) return false
+  if ((res.data?.length ?? 0) === 0) { markSynced('projection'); return false }
 
   type Row = { payload: unknown }
   const sanitize = (raw: unknown): import('@/lib/projection/types').ProjectionPlan => {
@@ -900,7 +943,11 @@ async function pullProjection(): Promise<boolean> {
   useProjectionStore.setState({
     plans: (res.data ?? []).map((r: Row) => sanitize(r.payload)),
   })
+  markSynced('projection')
   return true
+  } finally {
+    endPulling('projection')
+  }
 }
 
 // ─── LAB (mind/emotion exercise sessions) ────────────────────────────────────
@@ -949,10 +996,13 @@ async function pushLab() {
     }
   }
   await deleteSurplus(sb, 'lab_beliefs', uid, beliefRows.map((r) => r.id))
+  markSynced('lab')
 }
 
 async function pullLab(): Promise<boolean> {
   if (!state.userId) return false
+  startPulling('lab')
+  try {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
@@ -991,7 +1041,7 @@ async function pullLab(): Promise<boolean> {
 
   const hasSessions = (sessionRes.data?.length ?? 0) > 0
   const hasBeliefs = beliefs.length > 0
-  if (!hasSessions && !hasBeliefs) return false
+  if (!hasSessions && !hasBeliefs) { markSynced('lab'); return false }
 
   type LabRow = { payload: unknown }
   const sanitize = (raw: unknown): import('@/lib/lab/types').LabSession => {
@@ -1016,7 +1066,11 @@ async function pullLab(): Promise<boolean> {
     sessions: (sessionRes.data ?? []).map((r: LabRow) => sanitize(r.payload)),
     beliefs,
   })
+  markSynced('lab')
   return true
+  } finally {
+    endPulling('lab')
+  }
 }
 
 // ─── MIND MAPS (mapas mentales) ──────────────────────────────────────────────
@@ -1044,10 +1098,13 @@ async function pushMindMaps() {
     }
   }
   await deleteSurplus(sb, 'mindmaps', uid, rows.map((r) => r.id))
+  markSynced('mindmaps')
 }
 
 async function pullMindMaps(): Promise<boolean> {
   if (!state.userId) return false
+  startPulling('mindmaps')
+  try {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
@@ -1057,7 +1114,7 @@ async function pullMindMaps(): Promise<boolean> {
     console.error('Mindmaps pull failed (run migration_mindmaps.sql?):', res.error)
     return false
   }
-  if ((res.data?.length ?? 0) === 0) return false
+  if ((res.data?.length ?? 0) === 0) { markSynced('mindmaps'); return false }
 
   type MapRow = { payload: unknown }
   const sanitize = (raw: unknown): import('@/lib/store/mindmapStore').MindMap => {
@@ -1074,7 +1131,11 @@ async function pullMindMaps(): Promise<boolean> {
   useMindMapStore.setState({
     maps: (res.data ?? []).map((r: MapRow) => sanitize(r.payload)),
   })
+  markSynced('mindmaps')
   return true
+  } finally {
+    endPulling('mindmaps')
+  }
 }
 
 // ─── APP PREFERENCES (sidebar nav order, language, timezone, schedule, etc.) ─
@@ -1159,15 +1220,18 @@ async function pushAppPrefs() {
     reportSyncError(`app_preferences upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_app_preferences.sql.`)
     throw r.error
   }
+  markSynced('appPrefs')
 }
 
 async function pullAppPrefs(): Promise<boolean> {
   if (!state.userId) return false
+  startPulling('appPrefs')
+  try {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const res = await sb.from('app_preferences').select('*').eq('user_id', uid).maybeSingle()
   if (res.error) { console.error('App prefs pull failed', res.error); return false }
-  if (!res.data) return false
+  if (!res.data) { markSynced('appPrefs'); return false }
   const p = ((res.data as { payload: unknown }).payload ?? {}) as AppPrefsPayload
   // Merge: only overwrite fields actually present in the remote payload.
   // Anything missing stays at the local/default value — important for
@@ -1186,7 +1250,11 @@ async function pullAppPrefs(): Promise<boolean> {
     ...(p.anthropicModel !== undefined ? { anthropicModel: p.anthropicModel } : {}),
     ...(p.metrics !== undefined ? { metrics: p.metrics } : {}),
   }))
+  markSynced('appPrefs')
   return true
+  } finally {
+    endPulling('appPrefs')
+  }
 }
 
 // ─── GYM (weight entries + config + routines + sessions) ──────────────────────
@@ -1236,10 +1304,13 @@ async function pushGym() {
   }))
   if (sessionRows.length > 0) await sb.from('gym_sessions').upsert(sessionRows)
   await deleteSurplus(sb, 'gym_sessions', uid, sessionRows.map((r) => r.id))
+  markSynced('gym')
 }
 
 async function pullGym(): Promise<boolean> {
   if (!state.userId) return false
+  startPulling('gym')
+  try {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
@@ -1261,7 +1332,7 @@ async function pullGym(): Promise<boolean> {
     !!cfgRes.data ||
     (routinesRes.data?.length ?? 0) > 0 ||
     (sessionsRes.data?.length ?? 0) > 0
-  if (!hasData) return false
+  if (!hasData) { markSynced('gym'); return false }
 
   const patch: Partial<ReturnType<typeof useGymStore.getState>> = {}
 
@@ -1307,7 +1378,11 @@ async function pullGym(): Promise<boolean> {
   }
 
   useGymStore.setState(patch)
+  markSynced('gym')
   return true
+  } finally {
+    endPulling('gym')
+  }
 }
 
 // Aliases for backwards compatibility with previous "basics-only" naming.
@@ -1353,10 +1428,13 @@ async function pushHealth() {
     { user_id: uid, sleep_goal_minutes: baseline.sleepGoalMinutes, updated_at: new Date().toISOString() },
     { onConflict: 'user_id' }
   )
+  markSynced('health')
 }
 
 async function pullHealth(): Promise<boolean> {
   if (!state.userId) return false
+  startPulling('health')
+  try {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
@@ -1371,7 +1449,7 @@ async function pullHealth(): Promise<boolean> {
   }
 
   const hasData = (snapRes.data?.length ?? 0) > 0 || !!cfgRes.data
-  if (!hasData) return false
+  if (!hasData) { markSynced('health'); return false }
 
   const snapMap: Record<string, import('@/lib/store/healthStore').HealthSnapshot> = {}
   for (const s of (snapRes.data ?? []) as Row[]) {
@@ -1404,7 +1482,11 @@ async function pullHealth(): Promise<boolean> {
     lastSyncAt: Date.now(),
   })
   useHealthStore.getState().computeBaseline()
+  markSynced('health')
   return true
+  } finally {
+    endPulling('health')
+  }
 }
 
 // ─── CHAT ─────────────────────────────────────────────────────────────────────
@@ -1422,10 +1504,13 @@ async function pushChat() {
 
   if (rows.length > 0) await sb.from('chat_messages').upsert(rows)
   await deleteSurplus(sb, 'chat_messages', uid, rows.map((r) => r.id))
+  markSynced('chat')
 }
 
 async function pullChat(): Promise<boolean> {
   if (!state.userId) return false
+  startPulling('chat')
+  try {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
@@ -1434,7 +1519,7 @@ async function pullChat(): Promise<boolean> {
     console.error('Chat pull failed', res.error)
     return false
   }
-  if ((res.data?.length ?? 0) === 0) return false
+  if ((res.data?.length ?? 0) === 0) { markSynced('chat'); return false }
 
   useChatStore.setState({
     messages: (res.data ?? []).map((m: Row) => ({
@@ -1445,7 +1530,11 @@ async function pullChat(): Promise<boolean> {
       actionCard: (m.action_card as import('@/types').ChatActionCard | null) ?? undefined,
     })),
   })
+  markSynced('chat')
   return true
+  } finally {
+    endPulling('chat')
+  }
 }
 
 // ─── FOOD (singleton row, JSONB blobs for nested data) ────────────────────────
@@ -1466,10 +1555,13 @@ async function pushFood() {
     },
     { onConflict: 'user_id' }
   )
+  markSynced('food')
 }
 
 async function pullFood(): Promise<boolean> {
   if (!state.userId) return false
+  startPulling('food')
+  try {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
@@ -1478,7 +1570,7 @@ async function pullFood(): Promise<boolean> {
     console.error('Food pull failed', res.error)
     return false
   }
-  if (!res.data) return false
+  if (!res.data) { markSynced('food'); return false }
 
   const d = res.data as Row
   useFoodStore.setState({
@@ -1488,7 +1580,11 @@ async function pullFood(): Promise<boolean> {
     currentStageId: (d.current_stage_id as string) ?? '',
     notes: (d.notes as string) ?? '',
   })
+  markSynced('food')
   return true
+  } finally {
+    endPulling('food')
+  }
 }
 
 // ─── Scheduled pushes ─────────────────────────────────────────────────────────
@@ -1532,12 +1628,20 @@ function scheduleMindMaps()   { schedule(mindmapPushTimer,    pushMindMaps,   (t
 async function initAllDomains() {
   if (!state.userId) return
 
+  // hasUnsyncedChanges(domain) lee timestamps de localStorage:
+  //   lastModified > lastSynced → SI, hay cambios locales sin pushear.
+  // Si SI → push-then-pull (preserva los cambios locales).
+  // Si NO → pull-then-(quizás)push (remote es source of truth en este device).
+  //
+  // Esto arregla el bug multi-device donde un device con localStorage VIEJO
+  // hacía push-first con deleteSurplus y borraba el trabajo de otro device.
+
   // ─── Tasks ────────────────────────────────────────────────────────────
   if (!state.tasksInit) {
     state.tasksInit = true
     const { projects, tasks } = useTasksStore.getState()
     const hasLocal = Object.keys(projects).length > 0 || Object.keys(tasks).length > 0
-    if (hasLocal) {
+    if (hasLocal && hasUnsyncedChanges('tasks')) {
       await pushTasks().catch((e) => console.error('Tasks initial push failed', e))
     }
     await pullTasks()
@@ -1548,7 +1652,7 @@ async function initAllDomains() {
     state.walletInit = true
     const { wallets, transactions, currencies } = useWalletStore.getState()
     const hasLocal = wallets.length > 0 || transactions.length > 0 || currencies.length > 0
-    if (hasLocal) {
+    if (hasLocal && hasUnsyncedChanges('wallet')) {
       await pushWallet().catch((e) => console.error('Wallet initial push failed', e))
     }
     await pullWallet()
@@ -1559,7 +1663,7 @@ async function initAllDomains() {
     state.tradingInit = true
     const { firms, accounts, trades } = useTradingStore.getState()
     const hasLocal = firms.length > 0 || accounts.length > 0 || trades.length > 0
-    if (hasLocal) {
+    if (hasLocal && hasUnsyncedChanges('trading')) {
       await pushTrading().catch((e) => console.error('Trading initial push failed', e))
     }
     await pullTrading()
@@ -1569,7 +1673,7 @@ async function initAllDomains() {
   if (!state.habitsInit) {
     state.habitsInit = true
     const { habits } = useHabitsStore.getState()
-    if (habits.length > 0) {
+    if (habits.length > 0 && hasUnsyncedChanges('habits')) {
       await pushHabits().catch((e) => console.error('Habits initial push failed', e))
     }
     await pullHabits()
@@ -1583,7 +1687,7 @@ async function initAllDomains() {
       || routines.length > 0
       || sessions.length > 0
       || Object.keys(trainingPlan).length > 0
-    if (hasLocal) {
+    if (hasLocal && hasUnsyncedChanges('gym')) {
       await pushGymBasics().catch((e) => console.error('Gym basics initial push failed', e))
     }
     await pullGymBasics()
@@ -1594,7 +1698,7 @@ async function initAllDomains() {
     state.healthInit = true
     const { snapshots } = useHealthStore.getState()
     const hasLocal = Object.keys(snapshots).length > 0
-    if (hasLocal) {
+    if (hasLocal && hasUnsyncedChanges('health')) {
       await pushHealth().catch((e) => console.error('Health initial push failed', e))
     }
     await pullHealth()
@@ -1604,7 +1708,7 @@ async function initAllDomains() {
   if (!state.chatInit) {
     state.chatInit = true
     const { messages } = useChatStore.getState()
-    if (messages.length > 0) {
+    if (messages.length > 0 && hasUnsyncedChanges('chat')) {
       await pushChat().catch((e) => console.error('Chat initial push failed', e))
     }
     await pullChat()
@@ -1615,7 +1719,7 @@ async function initAllDomains() {
     state.foodInit = true
     const { stages, shopping, notes } = useFoodStore.getState()
     const hasLocal = stages.length > 0 || shopping.length > 0 || !!notes
-    if (hasLocal) {
+    if (hasLocal && hasUnsyncedChanges('food')) {
       await pushFood().catch((e) => console.error('Food initial push failed', e))
     }
     await pullFood()
@@ -1626,7 +1730,7 @@ async function initAllDomains() {
     state.spiInit = true
     const { sessions, bitacoraEntries } = useSPIStore.getState()
     const hasLocal = sessions.length > 0 || bitacoraEntries.length > 0
-    if (hasLocal) {
+    if (hasLocal && hasUnsyncedChanges('spi')) {
       await pushSPI().catch((e) => console.error('SPI initial push failed', e))
     }
     await pullSPI()
@@ -1636,7 +1740,7 @@ async function initAllDomains() {
   if (!state.projectionInit) {
     state.projectionInit = true
     const { plans } = useProjectionStore.getState()
-    if (plans.length > 0) {
+    if (plans.length > 0 && hasUnsyncedChanges('projection')) {
       await pushProjection().catch((e) => console.error('Projection initial push failed', e))
     }
     await pullProjection()
@@ -1647,21 +1751,22 @@ async function initAllDomains() {
     state.labInit = true
     const { sessions, beliefs } = useLabStore.getState()
     const hasLocal = sessions.length > 0 || beliefs.length > 0
-    if (hasLocal) {
+    if (hasLocal && hasUnsyncedChanges('lab')) {
       await pushLab().catch((e) => console.error('Lab initial push failed', e))
     }
     await pullLab()
   }
 
   // ─── App preferences ──────────────────────────────────────────────────
-  // Excepción: fila única por user_id, sin deleteSurplus. El local store
-  // SIEMPRE tiene defaults — pusheamos siempre. Esto garantiza que los
-  // cambios de prefs (timezone, schedule, ideal hours, notif settings,
-  // navOrder, etc.) sobrevivan al refresh, sin riesgo de borrar nada
-  // remoto.
+  // Excepción: fila única por user_id, sin deleteSurplus. Pusheamos solo
+  // si hay cambios locales sin sincronizar — sino, pull primero (multi-device
+  // safe). El local store SIEMPRE tiene defaults pero eso no significa que
+  // tengamos cambios sin syncronizar.
   if (!state.appPrefsInit) {
     state.appPrefsInit = true
-    await pushAppPrefs().catch((e) => console.error('App prefs initial push failed', e))
+    if (hasUnsyncedChanges('appPrefs')) {
+      await pushAppPrefs().catch((e) => console.error('App prefs initial push failed', e))
+    }
     await pullAppPrefs()
   }
 
@@ -1669,7 +1774,7 @@ async function initAllDomains() {
   if (!state.mindmapInit) {
     state.mindmapInit = true
     const { maps } = useMindMapStore.getState()
-    if (maps.length > 0) {
+    if (maps.length > 0 && hasUnsyncedChanges('mindmaps')) {
       await pushMindMaps().catch((e) => console.error('Mindmaps initial push failed', e))
     }
     await pullMindMaps()
@@ -1696,19 +1801,23 @@ export function useSupabaseSync() {
     // Subscribe to local store changes
     if (!subscribedRef.current) {
       subscribedRef.current = true
-      useTasksStore.subscribe(() => { if (state.userId) scheduleTasks() })
-      useWalletStore.subscribe(() => { if (state.userId) scheduleWallet() })
-      useTradingStore.subscribe(() => { if (state.userId) scheduleTrading() })
-      useHabitsStore.subscribe(() => { if (state.userId) scheduleHabits() })
-      useGymStore.subscribe(() => { if (state.userId) scheduleGymBasics() })
-      useHealthStore.subscribe(() => { if (state.userId) scheduleHealth() })
-      useChatStore.subscribe(() => { if (state.userId) scheduleChat() })
-      useFoodStore.subscribe(() => { if (state.userId) scheduleFood() })
-      useSPIStore.subscribe(() => { if (state.userId) scheduleSPI() })
-      useProjectionStore.subscribe(() => { if (state.userId) scheduleProjection() })
-      useLabStore.subscribe(() => { if (state.userId) scheduleLab() })
-      useAppStore.subscribe(() => { if (state.userId) scheduleAppPrefs() })
-      useMindMapStore.subscribe(() => { if (state.userId) scheduleMindMaps() })
+      // markModifiedIfNotPulling: registra que el user hizo un cambio
+      // local, IGNORANDO el setState que viene de un pull en curso. Sin
+      // este filtro, cada pull hidrataría el store y dispararía subscribe,
+      // marcando "modified" cuando en realidad es "remoto vino para acá".
+      useTasksStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('tasks'); scheduleTasks() } })
+      useWalletStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('wallet'); scheduleWallet() } })
+      useTradingStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('trading'); scheduleTrading() } })
+      useHabitsStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('habits'); scheduleHabits() } })
+      useGymStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('gym'); scheduleGymBasics() } })
+      useHealthStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('health'); scheduleHealth() } })
+      useChatStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('chat'); scheduleChat() } })
+      useFoodStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('food'); scheduleFood() } })
+      useSPIStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('spi'); scheduleSPI() } })
+      useProjectionStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('projection'); scheduleProjection() } })
+      useLabStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('lab'); scheduleLab() } })
+      useAppStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('appPrefs'); scheduleAppPrefs() } })
+      useMindMapStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('mindmaps'); scheduleMindMaps() } })
     }
 
     // Auth state changes — when the user signs in *after* mount (e.g. from

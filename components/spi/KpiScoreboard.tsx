@@ -2,11 +2,13 @@
 import { useMemo, useState } from 'react'
 import { Target, Plus, Minus, ChevronDown, ChevronUp, Pencil, X } from 'lucide-react'
 import { useKpisStore, parseKpiValue, kpiCompletionPct, serializeKpiValue } from '@/lib/store/kpisStore'
+import { useSPIStore } from '@/lib/store/spiStore'
 import type { KPIDefinition } from '@/lib/kpi/types'
 import type { SPISession } from '@/lib/spi/types'
 import {
   readKpiValue, readKpiTargetOverride,
   KPI_VALUES_SECTION,
+  sumCumulativeKpi, expectedCumulativeByNow,
 } from '@/lib/kpi/sessionHelpers'
 import Link from 'next/link'
 
@@ -303,6 +305,30 @@ function KpiRow({
   const value = readKpiValue(session, kpi.id, kpi.kind)
   const pct = kpiCompletionPct(value, target, kpi.kind)
 
+  // Meta acumulada — solo aplica si el KPI la tiene seteada (kind=count).
+  // Sumamos los valores de TODAS las sesiones desde cumulativeStartDate.
+  // Suscribimos al array completo de sesiones; el filtro+sumatoria lo
+  // hace useMemo para no recalcular en cada render.
+  const allSessions = useSPIStore((s) => s.sessions)
+  const cumulative = useMemo(() => {
+    if (!kpi.cumulativeTarget || !kpi.cumulativeStartDate) return null
+    const total = sumCumulativeKpi(kpi.id, kpi.kind, allSessions, kpi.cumulativeStartDate)
+    const goalPct = kpi.cumulativeTarget > 0
+      ? Math.min(100, Math.round((total / kpi.cumulativeTarget) * 100))
+      : 0
+    // Si hay deadline, calculamos dónde "debería" ir a esta altura.
+    let expected: number | null = null
+    let onPaceDelta: number | null = null
+    if (kpi.cumulativeDeadline) {
+      const todayYmd = new Date().toISOString().slice(0, 10)
+      expected = expectedCumulativeByNow(
+        kpi.cumulativeTarget, kpi.cumulativeStartDate, kpi.cumulativeDeadline, todayYmd
+      )
+      onPaceDelta = total - expected
+    }
+    return { total, goalPct, expected, onPaceDelta }
+  }, [kpi.cumulativeTarget, kpi.cumulativeStartDate, kpi.cumulativeDeadline, kpi.id, kpi.kind, allSessions])
+
   const setValue = (v: number) => {
     onValueChange(KPI_VALUES_SECTION, kpi.id, serializeKpiValue(v, kpi.kind))
   }
@@ -313,6 +339,17 @@ function KpiRow({
     : pct >= 75 ? '#34d399'
     : pct >= 50 ? '#f59e0b'
     : '#ef4444'
+
+  // Color del bar acumulado — verde si vas en hora o adelantado, ámbar
+  // si te falta un poco, rojo si vas claramente atrasado contra el
+  // expected. Si no hay deadline, neutro fucsia.
+  const cumColor = !cumulative
+    ? '#a855f7'
+    : cumulative.onPaceDelta === null
+      ? '#a855f7'
+      : cumulative.onPaceDelta >= 0 ? '#10b981'
+      : cumulative.onPaceDelta >= -(kpi.cumulativeTarget ?? 0) * 0.1 ? '#f59e0b'
+      : '#ef4444'
 
   return (
     <div
@@ -329,13 +366,58 @@ function KpiRow({
             </span>
           )}
         </div>
-        {/* Barra de progreso solo cuando hay target. */}
+        {/* Barra de progreso semanal — value/target esta semana. */}
         {pct !== null && (
           <div className="mt-1 h-1 bg-zinc-800 rounded-full overflow-hidden">
             <div
               className="h-full transition-all"
               style={{ width: `${pct}%`, backgroundColor: barColor }}
             />
+          </div>
+        )}
+        {/* Barra acumulada — opcional, solo si el KPI tiene meta total.
+            Suma de todos los valores semanales desde cumulativeStartDate
+            vs cumulativeTarget. Si hay deadline, muestra un tick "expected"
+            sobre la barra y un texto "voy en hora / atrasado X". */}
+        {cumulative && kpi.cumulativeTarget && (
+          <div className="mt-2">
+            <div className="flex items-center justify-between text-[10px] font-mono mb-0.5">
+              <span className="text-zinc-500">
+                Acumulado{' '}
+                <span className="text-zinc-300 font-semibold tabular-nums">
+                  {cumulative.total}
+                </span>
+                <span className="text-zinc-600">/{kpi.cumulativeTarget}</span>
+                <span className="ml-1" style={{ color: cumColor }}>
+                  ({cumulative.goalPct}%)
+                </span>
+              </span>
+              {cumulative.expected !== null && cumulative.onPaceDelta !== null && (
+                <span style={{ color: cumColor }}>
+                  {cumulative.onPaceDelta >= 0
+                    ? `+${cumulative.onPaceDelta} vs ritmo`
+                    : `${cumulative.onPaceDelta} vs ritmo`}
+                </span>
+              )}
+            </div>
+            <div className="relative h-1 bg-zinc-800 rounded-full overflow-hidden">
+              <div
+                className="h-full transition-all"
+                style={{ width: `${cumulative.goalPct}%`, backgroundColor: cumColor }}
+              />
+              {/* Tick "expected" — sobreposición tenue marcando dónde
+                  debería ir si fueras a ritmo lineal contra la deadline.
+                  Solo aparece si hay deadline. */}
+              {cumulative.expected !== null && kpi.cumulativeTarget > 0 && (
+                <div
+                  className="absolute top-[-2px] bottom-[-2px] w-px bg-white/60"
+                  style={{
+                    left: `${Math.min(100, Math.round((cumulative.expected / kpi.cumulativeTarget) * 100))}%`,
+                  }}
+                  title={`Ritmo esperado: ${cumulative.expected}/${kpi.cumulativeTarget}`}
+                />
+              )}
+            </div>
           </div>
         )}
       </div>

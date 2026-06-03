@@ -330,12 +330,25 @@ function KpiEditModal({
   )
   const [areaKey, setAreaKey] = useState<string>(initial?.areaKey ?? '')
   const [group, setGroup] = useState<string>(initial?.group ?? '')
+  // Meta acumulada — opcional, solo para kind='count'. Si está seteada,
+  // el scoreboard muestra un segundo progress bar de "X/Total" además
+  // del semanal.
+  const [cumulativeTarget, setCumulativeTarget] = useState<string>(
+    initial?.cumulativeTarget !== undefined ? String(initial.cumulativeTarget) : ''
+  )
+  const [cumulativeStartDate, setCumulativeStartDate] = useState<string>(
+    initial?.cumulativeStartDate ?? ''
+  )
+  const [cumulativeDeadline, setCumulativeDeadline] = useState<string>(
+    initial?.cumulativeDeadline ?? ''
+  )
 
   const canSubmit = name.trim().length > 0
 
   const submit = () => {
     if (!canSubmit) return
     const parsedTarget = target.trim() ? parseFloat(target) : undefined
+    const parsedCumTarget = cumulativeTarget.trim() ? parseFloat(cumulativeTarget) : undefined
     onSubmit({
       name: name.trim(),
       icon,
@@ -344,6 +357,15 @@ function KpiEditModal({
       target: Number.isFinite(parsedTarget) ? parsedTarget : undefined,
       areaKey: areaKey || undefined,
       group: group.trim() || undefined,
+      // Meta acumulada: solo se persiste si tiene número Y kind es count.
+      // Si el user borra el campo, los 3 vuelven a undefined.
+      ...(kind === 'count' && Number.isFinite(parsedCumTarget) && parsedCumTarget !== undefined
+        ? {
+            cumulativeTarget: parsedCumTarget,
+            cumulativeStartDate: cumulativeStartDate || new Date().toISOString().slice(0, 10),
+            ...(cumulativeDeadline ? { cumulativeDeadline } : {}),
+          }
+        : {}),
       ...(initial?.archivedAt ? { archivedAt: initial.archivedAt } : {}),
     })
   }
@@ -445,7 +467,7 @@ function KpiEditModal({
           {kind !== 'boolean' && (
             <div>
               <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-                Target {kind === 'percent' ? '(0-100)' : ''}
+                Target {kind === 'percent' ? '(0-100)' : ''} {kind === 'count' ? 'por semana' : ''}
               </label>
               <input
                 type="number"
@@ -455,8 +477,72 @@ function KpiEditModal({
                 className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
               />
               <p className="text-[10px] text-zinc-600 mt-1 italic">
-                Opcional — dejá vacío si no querés un techo (verás solo el conteo).
+                {kind === 'count'
+                  ? 'Cuántos por semana. Ej. "30 sesiones de backtest semanales".'
+                  : 'Opcional — dejá vacío si no querés un techo (verás solo el conteo).'}
               </p>
+            </div>
+          )}
+
+          {/* Meta acumulada — opcional, solo aplica a kind=count. Si el
+              user tiene un objetivo grande de largo plazo (ej. "300
+              sesiones totales") y el target semanal es solo el ritmo
+              deseado, acá lo declara y el scoreboard muestra DOS bars
+              (semanal + acumulado contra esta meta). */}
+          {kind === 'count' && (
+            <div className="bg-zinc-950/40 border border-fuchsia-500/15 rounded-lg p-3 space-y-3">
+              <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-300/80">
+                Meta acumulada (opcional)
+              </p>
+              <p className="text-[10px] text-zinc-500 -mt-2 italic leading-relaxed">
+                Para objetivos de largo plazo donde el target semanal es el ritmo y
+                la meta real es el total. Ej. &quot;300 sesiones de backtest&quot; +
+                target semanal 30 = se completa en ~10 semanas.
+              </p>
+              <div>
+                <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                  Total a alcanzar
+                </label>
+                <input
+                  type="number"
+                  value={cumulativeTarget}
+                  onChange={(e) => setCumulativeTarget(e.target.value)}
+                  placeholder="Ej. 300"
+                  className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+                />
+              </div>
+              {cumulativeTarget.trim() && (
+                <>
+                  <div>
+                    <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                      Desde cuándo cuenta
+                    </label>
+                    <input
+                      type="date"
+                      value={cumulativeStartDate}
+                      onChange={(e) => setCumulativeStartDate(e.target.value)}
+                      className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+                    />
+                    <p className="text-[10px] text-zinc-600 mt-1 italic">
+                      Default = hoy. Backdate-alo si la meta arrancó antes.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                      Fecha objetivo (opcional)
+                    </label>
+                    <input
+                      type="date"
+                      value={cumulativeDeadline}
+                      onChange={(e) => setCumulativeDeadline(e.target.value)}
+                      className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+                    />
+                    <p className="text-[10px] text-zinc-600 mt-1 italic">
+                      Si la ponés, el scoreboard te dice si vas en hora o atrasado.
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

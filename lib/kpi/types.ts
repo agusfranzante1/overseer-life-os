@@ -39,6 +39,27 @@ export interface KPIDefinition {
   activatedAt: string
   createdAt: string
   updatedAt: string
+
+  /** ─── Meta ACUMULADA opcional (solo aplica a kind='count') ─────────
+   *  Para objetivos de largo plazo donde el `target` semanal es solo el
+   *  ritmo deseado y la meta real es la SUMA TOTAL a lo largo de varias
+   *  semanas. Ejemplo: "hacer 300 sesiones de backtesting" — `target=30`
+   *  por semana, `cumulativeTarget=300`. El scoreboard muestra DOS bars:
+   *  el del valor semanal vs `target`, y el del acumulado total vs
+   *  `cumulativeTarget` (sumando todas las semanas desde
+   *  `cumulativeStartDate`).
+   *
+   *  Si no se setean, el KPI sigue siendo puramente semanal (compat con
+   *  todo el código viejo). */
+  cumulativeTarget?: number
+  /** YYYY-MM-DD — desde qué semana empieza a sumar para el acumulado.
+   *  Default al setearlo: la fecha de hoy (semana en curso). El user lo
+   *  puede backdate-ar si la meta arrancó hace tiempo. */
+  cumulativeStartDate?: string
+  /** YYYY-MM-DD opcional — fecha tope para cumplir el `cumulativeTarget`.
+   *  Si se setea, el scoreboard también dice "deberías ir en X/300 a
+   *  esta altura, vas Y" — visibilidad de "voy en hora / atrasado". */
+  cumulativeDeadline?: string
 }
 
 /** Valor de un KPI capturado en una semana específica. Vive DENTRO de la
