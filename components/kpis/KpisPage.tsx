@@ -90,6 +90,32 @@ function LibraryView() {
   const archiveKpi = useKpisStore((s) => s.archiveKpi)
   const unarchiveKpi = useKpisStore((s) => s.unarchiveKpi)
   const deleteKpi = useKpisStore((s) => s.deleteKpi)
+  // Sesión SPI de la semana en curso — para indicar qué KPIs están
+  // habilitados ESTA semana en cada fila. Necesario porque sin este
+  // dato la library no muestra ninguna diferencia entre "activo en la
+  // semana" y "solo en la library", y al user le parecía que los KPIs
+  // creados desde SPI no quedaban habilitados.
+  const sessions = useSPIStore((s) => s.sessions)
+  const activeSessionId = useSPIStore((s) => s.activeSessionId)
+  const currentSat = useMemo(() => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    const day = d.getDay()
+    const back = day === 6 ? 0 : day + 1
+    d.setDate(d.getDate() - back)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }, [])
+  const currentSession = useMemo(() => {
+    // Priorizamos la sesión que el user está editando (activeSessionId).
+    // Fallback a la sesión cuyo weekStartDate matchea el sábado en curso.
+    return sessions.find((s) => s.id === activeSessionId)
+      ?? sessions.find((s) => s.weekStartDate === currentSat)
+      ?? null
+  }, [sessions, activeSessionId, currentSat])
+  const currentSelectedIds = useMemo(
+    () => new Set(currentSession?.selectedKpiIds ?? []),
+    [currentSession]
+  )
 
   const [editing, setEditing] = useState<KPIDefinition | null>(null)
   const [creating, setCreating] = useState(false)
@@ -154,6 +180,7 @@ function LibraryView() {
                   <KpiRow
                     key={d.id}
                     kpi={d}
+                    activeThisWeek={currentSelectedIds.has(d.id)}
                     onEdit={() => setEditing(d)}
                     onArchive={() => archiveKpi(d.id)}
                   />
@@ -223,9 +250,13 @@ function LibraryView() {
 // ─── Fila simple en la library ──────────────────────────────────────
 
 function KpiRow({
-  kpi, onEdit, onArchive,
+  kpi, activeThisWeek, onEdit, onArchive,
 }: {
   kpi: KPIDefinition
+  /** Si está en el `selectedKpiIds` de la sesión SPI en curso. Muestra
+   *  un chip "Activo esta semana" en verde para que el user vea de un
+   *  vistazo qué KPIs está trackeando ahora. */
+  activeThisWeek: boolean
   onEdit: () => void
   onArchive: () => void
 }) {
@@ -237,8 +268,16 @@ function KpiRow({
     >
       <span className="text-lg shrink-0">{kpi.icon}</span>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-medium text-zinc-200 truncate">{kpi.name}</span>
+          {activeThisWeek && (
+            <span
+              className="text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"
+              title="Está habilitado en la sesión SPI de esta semana"
+            >
+              ● Activo esta semana
+            </span>
+          )}
           <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-600">
             {kpi.kind}
           </span>

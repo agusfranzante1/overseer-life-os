@@ -8,6 +8,7 @@ import { X, Plus, Trash2, CheckCircle2, ChevronRight, ArrowRightLeft, Check, Git
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { SubtaskDetailModal } from './SubtaskDetailModal'
 import { recurrenceLabel } from '@/lib/utils/taskRecurrence'
+import { sortSubtasks, type KanbanSort } from '@/lib/utils/taskSort'
 
 interface Props {
   task: Task | null
@@ -423,20 +424,34 @@ export function TaskDetail({ task, project, onClose }: Props) {
             <div>
               <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">{t('tasks.subtasks')}</label>
               <div className="space-y-1.5 mb-2">
-                {effective.subtasks.filter((s) => !s.parentId).map((sub) => (
-                  <SubtaskRow
-                    key={sub.id}
-                    title={sub.title}
-                    completed={sub.completed}
-                    onToggle={() => toggleSubtask(effective.id, sub.id)}
-                    onRename={(newTitle) => {
-                      const t = newTitle.trim()
-                      if (t && t !== sub.title) updateSubtask(effective.id, sub.id, { title: t })
-                    }}
-                    onOpenDetail={() => setOpenSubtaskId(sub.id)}
-                    onDelete={() => deleteSubtask(effective.id, sub.id)}
-                  />
-                ))}
+                {/* Sorted con el mismo modo elegido en la TasksPage para
+                    consistencia (leído de localStorage). Default 'priority'
+                    porque es el modo más usado y "urgente arriba" tiene
+                    sentido cuando estás trabajando en una tarea. */}
+                {(() => {
+                  const mode: KanbanSort = typeof window !== 'undefined'
+                    ? ((localStorage.getItem('overseer-tasks-kanban-sort') as KanbanSort) ?? 'priority')
+                    : 'priority'
+                  const roots = sortSubtasks(
+                    effective.subtasks.filter((s) => !s.parentId && !s.archivedAt),
+                    mode,
+                    project,
+                  )
+                  return roots.map((sub) => (
+                    <SubtaskRow
+                      key={sub.id}
+                      title={sub.title}
+                      completed={sub.completed}
+                      onToggle={() => toggleSubtask(effective.id, sub.id)}
+                      onRename={(newTitle) => {
+                        const t = newTitle.trim()
+                        if (t && t !== sub.title) updateSubtask(effective.id, sub.id, { title: t })
+                      }}
+                      onOpenDetail={() => setOpenSubtaskId(sub.id)}
+                      onDelete={() => deleteSubtask(effective.id, sub.id)}
+                    />
+                  ))
+                })()}
               </div>
               <form onSubmit={handleAddSubtask} className="flex items-center gap-2">
                 <input

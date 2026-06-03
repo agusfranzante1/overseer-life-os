@@ -10,6 +10,19 @@ import {
 } from '@/lib/kpi/sessionHelpers'
 import Link from 'next/link'
 
+/** Suma `n` días a una fecha YYYY-MM-DD. Lo hacemos parseando los
+ *  componentes en local time para evitar problemas de timezone con
+ *  Date(string) que asume UTC. */
+function addDaysYmd(ymd: string, n: number): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  const dt = new Date(y, m - 1, d)
+  dt.setDate(dt.getDate() + n)
+  const yy = dt.getFullYear()
+  const mm = String(dt.getMonth() + 1).padStart(2, '0')
+  const dd = String(dt.getDate()).padStart(2, '0')
+  return `${yy}-${mm}-${dd}`
+}
+
 /** Scoreboard de KPIs dentro de una sesión SPI semanal. Renderea los
  *  KPIs activos PARA ESTA SEMANA — los que están en `session.selectedKpiIds`.
  *  Esa lista se hereda automáticamente de la sesión anterior al crear
@@ -40,11 +53,26 @@ export function KpiScoreboard({
       .filter((d): d is KPIDefinition => !!d && !d.archivedAt)
   }, [selected, library])
 
-  // Library elegible: KPIs activos + ya activados antes del sábado de
-  // esta sesión. Es lo que el picker muestra como opciones.
+  // Library elegible: KPIs activos + activados ANTES del FINAL de la
+  // semana de esta sesión (sábado+6 = viernes siguiente).
+  //
+  // Bug que arreglamos: antes filtrábamos por `activatedAt <= weekStartDate`,
+  // o sea "activado antes del sábado de la sesión". Eso excluía cualquier
+  // KPI creado entre lunes y viernes para LA SEMANA EN CURSO (porque su
+  // activatedAt era posterior al sábado anterior). Como SPI sí los metía
+  // en selectedKpiIds al crearlos desde los chips de área, el scoreboard
+  // los mostraba pero el picker "Editar" no — el user se confundía y
+  // pensaba que el KPI no estaba habilitado.
+  //
+  // Nueva regla: weekEnd = weekStartDate + 6 días (viernes siguiente).
+  // Un KPI es elegible si fue activado en o antes de ese viernes. Eso
+  // incluye KPIs creados durante esa semana. Para semanas pasadas ya
+  // cerradas, los KPIs creados POSTERIORMENTE siguen NO siendo elegibles
+  // (preserva el principio de "no retroactividad" en historial).
   const eligibleLibrary = useMemo(() => {
+    const weekEnd = addDaysYmd(session.weekStartDate, 6)
     return library.filter(
-      (d) => !d.archivedAt && d.activatedAt <= session.weekStartDate
+      (d) => !d.archivedAt && d.activatedAt <= weekEnd
     )
   }, [library, session.weekStartDate])
 

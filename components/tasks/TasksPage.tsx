@@ -411,9 +411,11 @@ function ColorDot({ color, onChange }: { color: string; onChange: (c: string) =>
   )
 }
 
-// Sort mode used for both list view and Kanban view. The name "KanbanSort"
-// is historical — it now drives ordering everywhere.
-type KanbanSort = 'priority' | 'priorityAsc' | 'status' | 'statusReverse' | 'dueDate' | 'alphabetical' | 'newest' | 'oldest' | 'manual'
+// Sort mode used for list view, Kanban view, AND subtasks within each
+// TaskCard. El mismo modo se propaga a los tres niveles (madre +
+// subtask1 + subtask2). Para subtasks vive en `sortSubtasks` (util
+// compartido). Acá mantenemos solo el sort de tasks top-level.
+import type { KanbanSort } from '@/lib/utils/taskSort'
 
 const PRIORITY_RANK: Record<string, number> = {
   urgent: 0,
@@ -1117,6 +1119,7 @@ export function TasksPage() {
                     task={task}
                     project={activeProject}
                     onClick={() => setSelectedTask(task)}
+                    subtaskSortMode={sortMode}
                   />
                 ))
               )}
@@ -1256,6 +1259,7 @@ export function TasksPage() {
                                 task={task}
                                 project={proj}
                                 onClick={() => setSelectedTask(task)}
+                                subtaskSortMode={sortMode}
                               />
                             ))}
                             {/* The "add new task" affordance lives at the
@@ -1470,7 +1474,7 @@ function KanbanBoard({ project, tasks, sortMode, onTaskClick }: { project: Proje
                       onDragStart={() => setDragId(task.id)}
                       onDragEnd={() => setDragId(null)}
                       style={{ opacity: dragId === task.id ? 0.4 : 1, cursor: 'grab' }}>
-                      <TaskCard task={task} project={project} onClick={() => onTaskClick(task)} />
+                      <TaskCard task={task} project={project} onClick={() => onTaskClick(task)} subtaskSortMode={sortMode} />
                     </div>
                   ))
                 )}
@@ -1540,7 +1544,7 @@ function AllProjectsKanban({ projects, tasks, sortMode, onTaskClick }: { project
                         onDragStart={() => setDragId(task.id)}
                         onDragEnd={() => setDragId(null)}
                         style={{ opacity: dragId === task.id ? 0.4 : 1, cursor: 'grab' }}>
-                        <TaskCard task={task} project={proj} onClick={() => onTaskClick(task)} showProjectBadge />
+                        <TaskCard task={task} project={proj} onClick={() => onTaskClick(task)} showProjectBadge subtaskSortMode={sortMode} />
                       </div>
                     )
                   })

@@ -6,6 +6,7 @@ import { Task, Project, Priority, Subtask } from '@/types'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTaskUiStore } from '@/lib/store/taskUiStore'
 import { effectivePriority } from '@/lib/utils/taskPriority'
+import { sortSubtasks, type KanbanSort } from '@/lib/utils/taskSort'
 import { useTranslation } from '@/hooks/useTranslation'
 import { CheckCircle2, Clock, Trash2, ChevronDown, ChevronUp, Plus, Flag, GripVertical, CornerDownRight, MoreHorizontal, ChevronRight, Calendar, X } from 'lucide-react'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
@@ -20,11 +21,18 @@ interface Props {
    *  from multiple projects (All Projects Kanban) so the user knows which
    *  project owns each card. Defaults to false. */
   showProjectBadge?: boolean
+  /** Modo de sort que aplicamos a las sub-tareas dentro de esta card.
+   *  Si no se pasa, usamos 'manual' (orden manual del drag). Cuando se
+   *  pasa, se aplica el mismo criterio que las tasks top-level del
+   *  proyecto — así "urgente arriba" o "por estado" aplica también a
+   *  subtask1 y subtask2. La regla "completadas primero" sigue siendo
+   *  inquebrantable y se aplica antes que cualquier modo. */
+  subtaskSortMode?: KanbanSort
 }
 
 const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
-export function TaskCard({ task, project, onClick, showProjectBadge = false }: Props) {
+export function TaskCard({ task, project, onClick, showProjectBadge = false, subtaskSortMode = 'manual' }: Props) {
   const { completeTask, postponeTask, deleteTask, toggleSubtask, addSubtask, updateSubtask, deleteSubtask, updateTask, convertTaskToSubtask } = useTasksStore()
   const { t } = useTranslation()
   // Estado de UI (expanded del card, colapso de cada sub-tarea-1) vive
@@ -187,21 +195,18 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
   const detailSubtask = task.subtasks.find((s) => s.id === detailSubtaskId) ?? null
 
   // Build tree: roots + children grouped by parentId. Archived subtasks
-  // are excluded so the tree only renders what's still active.
+  // are excluded so el tree solo renderea lo activo.
   //
-  // Sort order: COMPLETED first (grouped at the top), incomplete below.
-  // Within each group, preserve the original order so manual rearranging
-  // is still respected. This keeps the active "to-do" items in the lower
-  // half where the user is actively working, and the completed ones
-  // stacked together up top instead of mixed in between.
+  // Sort: aplicamos `sortSubtasks` con el modo que viene del proyecto
+  // (subtaskSortMode). La regla "completadas primero" es inquebrantable
+  // y vive dentro del helper. El modo decide el ordenamiento SECUNDARIO
+  // dentro de cada grupo (completas vs incompletas).
+  //
+  // Aplica a ambos niveles: roots (subtask1) Y children (subtask2). Así
+  // si el user elige "urgente arriba", las subtask1 ordenan por urgencia,
+  // y dentro de cada subtask1 sus subtask2 también ordenan por urgencia.
   const subtaskTree = useMemo(() => {
-    const sorted = [...visibleSubtasks].sort((a, b) => {
-      // Primary: completed first (true=1 sorts before false=0 when we
-      // invert the boolean → completed gets a lower value → comes first)
-      if (a.completed !== b.completed) return a.completed ? -1 : 1
-      // Secondary: respect the user's manual order within each group
-      return a.order - b.order
-    })
+    const sorted = sortSubtasks(visibleSubtasks, subtaskSortMode, project)
     const roots = sorted.filter((s) => !s.parentId)
     const childrenByParent = new Map<string, Subtask[]>()
     for (const s of sorted) {
@@ -211,7 +216,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false }: P
       }
     }
     return { roots, childrenByParent }
-  }, [visibleSubtasks])
+  }, [visibleSubtasks, subtaskSortMode, project])
 
   const handleAddSubtask = (e: React.FormEvent) => {
     e.preventDefault()

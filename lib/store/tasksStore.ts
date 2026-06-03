@@ -693,7 +693,8 @@ export const useTasksStore = create<TasksState>()(
                 if (st.id !== subtaskId) return st
                 let completedPatch: Partial<typeof st> = {}
                 // If the status changed, mirror Task: stamp/clear completedAt
-                // when transitioning across the countsAsDone boundary.
+                // when transitioning across the countsAsDone boundary. El
+                // auto-purge usa completedAt para archivar al día siguiente.
                 if (typeof patch.status === 'string' && patch.status !== st.status) {
                   const newStatusDef = proj?.statuses.find((sd) => sd.label === patch.status)
                   const oldStatusDef = proj?.statuses.find((sd) => sd.label === st.status)
@@ -717,6 +718,11 @@ export const useTasksStore = create<TasksState>()(
           // "done-ish" and the first non-done status, so the visual stays
           // consistent. Looks up the parent project's status list to find
           // the matching done/non-done labels.
+          //
+          // NO hacemos cascade UP a la task madre — la madre se archiva
+          // por su propio ciclo (cuando el user la marca como done). Las
+          // subtasks se archivan independientemente al día siguiente de
+          // su completedAt, igual que las tasks top-level.
           const task = s.tasks[taskId]
           const proj = s.projects[task?.projectId]
           const doneLabel = proj?.statuses.find((st) => st.countsAsDone)?.label
@@ -739,8 +745,8 @@ export const useTasksStore = create<TasksState>()(
                     completed: nowCompleted,
                     status: newStatus,
                     // Mirror the Task contract: stamp completedAt when
-                    // checking, clear it when unchecking. The auto-purge
-                    // uses this to decide when to archive.
+                    // checking, clear it when unchecking. El auto-purge
+                    // nocturno usa esto para archivar al día siguiente.
                     completedAt: nowCompleted ? nowIso : undefined,
                   }
                 }),

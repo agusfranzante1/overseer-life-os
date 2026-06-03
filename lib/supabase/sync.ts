@@ -167,6 +167,13 @@ async function pushTasks() {
       order: s.order,
       notes: s.notes ?? null,
       priority: s.priority ?? null,
+      // Campos de ciclo de vida — sin esto el auto-purge nocturno no
+      // podía archivar subtasks porque al hacer pull se perdía completedAt.
+      // Requiere migration_subtasks_completion_fields.sql aplicada.
+      completed_at: s.completedAt ?? null,
+      archived_at:  s.archivedAt  ?? null,
+      due_date:     s.dueDate     ?? null,
+      description:  s.description ?? null,
     }))
   )
 
@@ -239,6 +246,14 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
         notes: (s.notes as string) ?? undefined,
         priority: (s.priority as 'low' | 'medium' | 'high' | 'urgent' | null) ?? undefined,
         parentId: (s.parent_id as string) ?? undefined,
+        // Ciclo de vida — necesario para que el auto-purge nocturno
+        // pueda archivar subtasks completadas el día anterior. Sin esto
+        // el pull pisaba `completedAt` con undefined y el archive las
+        // ignoraba por su guard `!st.completedAt`.
+        completedAt: (s.completed_at as string) ?? undefined,
+        archivedAt:  (s.archived_at  as string) ?? undefined,
+        dueDate:     (s.due_date     as string) ?? undefined,
+        description: (s.description  as string) ?? undefined,
       })),
       createdAt: t.created_at as string,
       scheduledFor: (t.scheduled_for as 'today' | 'tomorrow') ?? undefined,
