@@ -106,11 +106,17 @@ function LibraryView() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   }, [])
   const currentSession = useMemo(() => {
-    // Priorizamos la sesión que el user está editando (activeSessionId).
-    // Fallback a la sesión cuyo weekStartDate matchea el sábado en curso.
-    return sessions.find((s) => s.id === activeSessionId)
-      ?? sessions.find((s) => s.weekStartDate === currentSat)
-      ?? null
+    // Priorizar la activeSessionId si matchea con currentSat — protege
+    // contra el caso de múltiples sesiones para el mismo weekStartDate
+    // (data dup por sync multi-device). Fallback: la más recientemente
+    // actualizada entre las que matcheen weekStartDate=currentSat.
+    if (activeSessionId) {
+      const active = sessions.find((s) => s.id === activeSessionId)
+      if (active && active.weekStartDate === currentSat) return active
+    }
+    const matching = sessions.filter((s) => s.weekStartDate === currentSat)
+    if (matching.length === 0) return null
+    return matching.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))[0]
   }, [sessions, activeSessionId, currentSat])
   const currentSelectedIds = useMemo(
     () => new Set(currentSession?.selectedKpiIds ?? []),
@@ -622,13 +628,11 @@ function HistoryView() {
  *  KPIs desde acá aunque no hayas abierto el SPI todavía. */
 function ThisWeekView() {
   const sessions = useSPIStore((s) => s.sessions)
+  const activeSessionId = useSPIStore((s) => s.activeSessionId)
   const createOrOpen = useSPIStore((s) => s.createOrOpenCurrentWeek)
   const updateValue = useSPIStore((s) => s.updateValue)
   const setSessionKpis = useSPIStore((s) => s.setSessionKpis)
 
-  // Buscamos la sesión activa de la semana actual. Si no hay, la creamos
-  // lazy — el side-effect del onClick "Activar" abajo, así no creamos
-  // sesiones por renderear esta vista vacía.
   const [needsCreate, setNeedsCreate] = useState(false)
   const currentSat = useMemo(() => {
     // Mismo cálculo que lastSaturdayYmd en el store — duplicado mínimo
@@ -640,7 +644,29 @@ function ThisWeekView() {
     d.setDate(d.getDate() - back)
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   }, [])
-  const current = sessions.find((s) => s.weekStartDate === currentSat) ?? null
+
+  // Resolución de "cuál es la sesión de esta semana":
+  //
+  // 1. Si hay activeSessionId Y matchea con currentSat → usar ESA. Esto
+  //    es importante porque cuando el user edita KPIs desde /spi, las
+  //    actualizaciones van a la activeSession. Si acá agarrábamos
+  //    cualquier sesión con weekStartDate=currentSat sin chequear el
+  //    activeSessionId, podía pasar que haya 2 sesiones para la misma
+  //    semana (data dup por sync entre devices, history viejo, etc.) y
+  //    /kpis mostraba una vacía mientras la activa tenía los KPIs.
+  //
+  // 2. Si no, buscar TODAS las matching y quedarnos con la más reciente
+  //    actualizada — más robusto contra dups. updatedAt determina cuál
+  //    es la "real" del user.
+  const current = useMemo(() => {
+    if (activeSessionId) {
+      const active = sessions.find((s) => s.id === activeSessionId)
+      if (active && active.weekStartDate === currentSat) return active
+    }
+    const matching = sessions.filter((s) => s.weekStartDate === currentSat)
+    if (matching.length === 0) return null
+    return matching.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))[0]
+  }, [sessions, activeSessionId, currentSat])
 
   if (!current && !needsCreate) {
     return (

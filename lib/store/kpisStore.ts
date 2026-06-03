@@ -81,9 +81,30 @@ export const useKpisStore = create<State>()(
         if (typeof window !== 'undefined') {
           import('./spiStore').then(({ useSPIStore, lastSaturdayYmd }) => {
             const spi = useSPIStore.getState()
-            const session = spi.sessions.find((s) => s.id === spi.activeSessionId)
-              ?? spi.sessions.find((s) => s.weekStartDate === lastSaturdayYmd())
+            const target = lastSaturdayYmd()
+
+            // Resolución de "qué sesión activar":
+            //   1. activeSession SI Y SOLO SI es de la semana en curso.
+            //      Esto evita el bug donde el user está editando una
+            //      sesión vieja y los KPIs nuevos terminaban activados
+            //      en esa semana vieja, no en la actual.
+            //   2. Fallback: sesión más recientemente actualizada con
+            //      weekStartDate === target. Maneja el caso de
+            //      múltiples sesiones para la misma semana (dups por
+            //      sync multi-device, history viejo, etc.).
+            let session = null
+            if (spi.activeSessionId) {
+              const active = spi.sessions.find((s) => s.id === spi.activeSessionId)
+              if (active && active.weekStartDate === target) session = active
+            }
+            if (!session) {
+              const matching = spi.sessions
+                .filter((s) => s.weekStartDate === target)
+                .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
+              session = matching[0] ?? null
+            }
             if (!session) return
+
             const currentIds = session.selectedKpiIds ?? []
             if (!currentIds.includes(id)) {
               spi.setSessionKpis(session.id, [...currentIds, id])
