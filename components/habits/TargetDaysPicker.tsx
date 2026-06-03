@@ -15,8 +15,15 @@ import { useState, useRef, useEffect } from 'react'
  *  `targetDays === []` significa "todos los días" (convención del store
  *  para back-compat con hábitos viejos sin filtro). */
 
-const DAY_LABELS = ['D', 'L', 'M', 'M', 'J', 'V', 'S']
-const DAY_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+// Orden visual: empezamos en LUNES para que matchee la grilla semanal
+// de hábitos (que también arranca el lunes). Los valores son JS
+// `Date.getDay()` → 0=Dom..6=Sáb. NO cambiamos el storage — `targetDays`
+// sigue guardando day-of-week values (0-6 sun-sat), solo el orden de
+// render es diferente. Esto mantiene compatible al dispatcher que también
+// usa `getDay()`.
+const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
+const DAY_LABELS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'] // posicional con DAY_ORDER
+const DAY_NAMES_BY_DOW = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
 
 interface Props {
   targetDays: number[]
@@ -57,10 +64,13 @@ export function TargetDaysPicker({ targetDays, onChange, compact = false }: Prop
   const setWeekdays = () => onChange([1, 2, 3, 4, 5])
   const setWeekends = () => onChange([0, 6])
 
-  // Resumen para el tooltip del trigger.
+  // Resumen para el tooltip del trigger — ordenado Lun..Dom para matchear
+  // la grilla. (Filtramos sobre DAY_ORDER en vez de DAY_NAMES_BY_DOW.)
   const summary = isAllDays
     ? 'Todos los días'
-    : DAY_NAMES.filter((_, i) => activeSet.has(i)).join(' · ')
+    : DAY_ORDER.filter((dow) => activeSet.has(dow))
+        .map((dow) => DAY_NAMES_BY_DOW[dow])
+        .join(' · ')
 
   const popupSize = compact ? 'w-7 h-7 text-[11px]' : 'w-8 h-8 text-xs'
 
@@ -117,15 +127,19 @@ export function TargetDaysPicker({ targetDays, onChange, compact = false }: Prop
               Fin de sem
             </button>
           </div>
-          {/* Chips individuales — gris activo / borde inactivo */}
+          {/* Chips individuales — gris activo / borde inactivo.
+              Renderizados en orden Lun→Dom (DAY_ORDER) para matchear la
+              grilla semanal de hábitos. El valor que toggleamos es el
+              day-of-week JS (0=Dom..6=Sáb), no el índice visual. */}
           <div className="grid grid-cols-7 gap-1">
-            {DAY_LABELS.map((label, i) => {
-              const active = activeSet.has(i)
+            {DAY_ORDER.map((dow, idx) => {
+              const label = DAY_LABELS[idx]
+              const active = activeSet.has(dow)
               return (
                 <button
-                  key={i}
-                  onClick={() => toggle(i)}
-                  title={DAY_NAMES[i]}
+                  key={dow}
+                  onClick={() => toggle(dow)}
+                  title={DAY_NAMES_BY_DOW[dow]}
                   className={`${popupSize} rounded font-mono font-bold transition-colors flex items-center justify-center ${
                     active
                       ? 'bg-zinc-200 text-zinc-900'
