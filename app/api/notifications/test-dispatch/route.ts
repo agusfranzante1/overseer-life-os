@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { sendPushToMany, type StoredSubscription } from '@/lib/push/server'
 import {
   buildHabitReminderPayload,
+  buildHabitSpecificPayload,
   buildTaskDuePayload,
   buildTaskOverduePayload,
   buildSpiNewPayload,
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
   let body: { type?: string } = {}
   try { body = await req.json() } catch { /* empty body OK */ }
   const type = (body.type ?? 'habit_reminder') as
-    'habit_reminder' | 'task_due' | 'task_overdue' | 'spi_new'
+    'habit_reminder' | 'habit_specific' | 'task_due' | 'task_overdue' | 'spi_new'
 
   const sb = getSupabaseAdmin()
 
@@ -60,6 +61,9 @@ export async function POST(req: NextRequest) {
         { name: 'Tomar agua', icon: '💧' },
         { name: 'Leer 30min', icon: '📚' },
       ])
+      break
+    case 'habit_specific':
+      payload = buildHabitSpecificPayload({ name: 'Meditar 10min', icon: '🧘' }, '08:00')
       break
     case 'task_due':
       payload = buildTaskDuePayload({ id: 'test', title: 'Tarea de ejemplo' }, 60)

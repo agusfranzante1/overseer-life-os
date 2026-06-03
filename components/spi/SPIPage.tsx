@@ -2949,8 +2949,12 @@ function WeekHabitCell({ status }: { status: 'done' | 'skipped' | 'missed' | 'fu
 // ─────────────────────────────────────────────────────────────────────
 function CopySessionButton({ session, template }: { session: SPISession; template: ReturnType<typeof useSPIStore.getState>['template'] }) {
   const [status, setStatus] = useState<'idle' | 'copied' | 'error'>('idle')
+  // Pulleamos TODOS los planes + KPIs para que el export resuelva las
+  // secciones dinámicas (qué buscás esta semana, KPIs activos, etc).
+  const allPlans = useProjectionStore((s) => s.plans)
+  const kpiDefinitions = useKpisStore((s) => s.definitions)
   const handle = async () => {
-    const md = sessionToMarkdown(session, template)
+    const md = sessionToMarkdown(session, template, { allPlans, kpiDefinitions })
     const ok = await copyMarkdownToClipboard(md)
     setStatus(ok ? 'copied' : 'error')
     setTimeout(() => setStatus('idle'), 2000)

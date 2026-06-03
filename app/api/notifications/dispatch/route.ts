@@ -6,6 +6,7 @@ import { withinWindow, withinWindowAt } from '@/lib/notifications/timeWindow'
 import { wasSent, logSent } from '@/lib/notifications/idempotency'
 import {
   buildHabitReminderPayload,
+  buildHabitSpecificPayload,
   buildTaskDuePayload,
   buildTaskOverduePayload,
   buildSpiNewPayload,
@@ -31,6 +32,7 @@ const WINDOW_MIN = 5
 
 interface DispatchStats {
   habit: number
+  habit_specific: number
   task_due: number
   task_overdue: number
   spi_new: number
@@ -47,7 +49,7 @@ export async function POST(req: NextRequest) {
   const sb = getSupabaseAdmin()
   const now = new Date()
   const stats: DispatchStats = {
-    habit: 0, task_due: 0, task_overdue: 0, spi_new: 0,
+    habit: 0, habit_specific: 0, task_due: 0, task_overdue: 0, spi_new: 0,
     skipped: 0, errors: 0, gone_subs_removed: 0,
   }
 
@@ -113,6 +115,36 @@ export async function POST(req: NextRequest) {
           } else {
             stats.skipped++
           }
+        }
+      }
+
+      // ── CANAL 1b: habit_specific (push puntual a la hora de cada hábito) ──
+      // Para cada hábito del user con `reminder_time` seteado, chequeamos
+      // si la hora local actual cae en la ventana del reminder Y el hábito
+      // todavía no fue marcado hoy. Dedupe por hábito por día.
+      if (prefs.habitSpecificReminders !== false) {
+        const habits = await fetchUserHabits(sb, userId)
+        for (const h of habits) {
+          const rt = h.reminder_time
+          if (!rt) continue
+          const [rh, rm] = rt.split(':').map(Number)
+          if (!Number.isFinite(rh) || !Number.isFinite(rm)) continue
+          if (!withinWindow(local.hour, local.minute, rh, rm, WINDOW_MIN)) continue
+          // Target day check (si tiene targetDays, hoy debe estar; sino aplica siempre)
+          const [yT, mT, dT] = local.ymd.split('-').map(Number)
+          const dow = new Date(yT, mT - 1, dT).getDay()
+          const td = h.target_days ?? []
+          if (td.length > 0 && !td.includes(dow)) continue
+          // Hábito YA marcado o skipped hoy → skip
+          if ((h.completed_dates ?? []).includes(local.ymd)) { stats.skipped++; continue }
+          if ((h.skipped_dates ?? []).includes(local.ymd)) { stats.skipped++; continue }
+          const dedupe = `habit-time:${h.id}:${local.ymd}`
+          if (await wasSent(sb, userId, 'habit_specific', dedupe)) { stats.skipped++; continue }
+          const payload = buildHabitSpecificPayload({ name: h.name, icon: h.icon }, rt)
+          const result = await sendPushToMany(subs, payload)
+          await pruneGoneSubs(sb, result.gone, stats)
+          await logSent(sb, userId, 'habit_specific', dedupe, payload, result)
+          stats.habit_specific++
         }
       }
 
@@ -258,10 +290,11 @@ interface HabitRow {
   target_days: number[] | null
   completed_dates: string[] | null
   skipped_dates: string[] | null
+  reminder_time: string | null
 }
 
 async function fetchUserHabits(sb: ReturnType<typeof getSupabaseAdmin>, userId: string): Promise<HabitRow[]> {
-  const { data } = await sb.from('habits').select('id, name, icon, target_days, completed_dates, skipped_dates').eq('user_id', userId)
+  const { data } = await sb.from('habits').select('id, name, icon, target_days, completed_dates, skipped_dates, reminder_time').eq('user_id', userId)
   return data ?? []
 }
 

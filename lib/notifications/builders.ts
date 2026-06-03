@@ -24,6 +24,17 @@ interface MinimalTask {
   dueTime?: string
 }
 
+/** Recordatorio puntual para UN hábito específico a su hora elegida.
+ *  Diferente del recordatorio nocturno general (que arma una lista). */
+export function buildHabitSpecificPayload(habit: MinimalHabit, hhmm: string): PushPayload {
+  return {
+    title: `${habit.icon ?? '🟢'} ${hhmm} · ${habit.name}`,
+    body: 'Tocá para marcarlo como hecho.',
+    url: '/habits',
+    tag: `habit-time-${habit.name}`,
+  }
+}
+
 export function buildHabitReminderPayload(pending: MinimalHabit[]): PushPayload {
   const names = pending.slice(0, 3).map((h) => `${h.icon} ${h.name}`).join(', ')
   const extra = pending.length > 3 ? ` +${pending.length - 3} más` : ''

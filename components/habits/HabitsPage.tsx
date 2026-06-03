@@ -11,6 +11,7 @@ import {
 import { useHabitsStore, type Habit } from '@/lib/store/habitsStore'
 import { useAppStore } from '@/lib/store/appStore'
 import { todayKeyInTz } from '@/lib/utils/dateInTz'
+import { TargetDaysPicker } from './TargetDaysPicker'
 
 const COLORS = ['#10b981', '#6366f1', '#f59e0b', '#ec4899', '#3b82f6', '#f97316', '#8b5cf6', '#ef4444']
 const ICONS = ['🏋️', '🧘', '📚', '🏃', '💧', '🥗', '😴', '💊', '🧠', '✍️', '🎯', '🚴']
@@ -65,10 +66,10 @@ function computeStreak(completedDates: string[]): number {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function HabitsPage() {
-  const { habits, addHabit, removeHabit, toggleDate, reorderHabits, resetHabitHistory } = useHabitsStore()
+  const { habits, addHabit, removeHabit, toggleDate, reorderHabits, resetHabitHistory, setHabitReminderTime, setHabitTargetDays } = useHabitsStore()
   const timezone = useAppStore((s) => s.timezone)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ name: '', icon: '🎯', color: COLORS[0], category: 'Salud' })
+  const [form, setForm] = useState({ name: '', icon: '🎯', color: COLORS[0], category: 'Salud', reminderTime: '', targetDays: [] as number[] })
   const [weekAnchor, setWeekAnchor] = useState(() => startOfWeekMonday(new Date()))
   const [chartMonth, setChartMonth] = useState(() => {
     const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d
@@ -130,9 +131,10 @@ export function HabitsPage() {
       icon: form.icon,
       color: form.color,
       category: form.category,
-      targetDays: [],
+      targetDays: form.targetDays,
+      reminderTime: form.reminderTime || undefined,
     })
-    setForm({ name: '', icon: '🎯', color: COLORS[0], category: 'Salud' })
+    setForm({ name: '', icon: '🎯', color: COLORS[0], category: 'Salud', reminderTime: '', targetDays: [] })
     setShowForm(false)
   }
 
@@ -239,6 +241,50 @@ export function HabitsPage() {
                 {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
               </select>
             </div>
+            {/* Hora opcional para recordatorio push. Si la dejás vacía,
+                no se manda notificación específica para este hábito (el
+                recordatorio nocturno general sigue funcionando si lo
+                tenés activado). */}
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 whitespace-nowrap">
+                Recordatorio
+              </label>
+              <input
+                type="time"
+                value={form.reminderTime}
+                onChange={(e) => setForm((f) => ({ ...f, reminderTime: e.target.value }))}
+                className="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:border-pink-500"
+              />
+              {form.reminderTime && (
+                <button
+                  onClick={() => setForm((f) => ({ ...f, reminderTime: '' }))}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-200 px-1.5"
+                  title="Sin recordatorio"
+                >
+                  ✕
+                </button>
+              )}
+              <span className="text-[10px] text-zinc-600 italic">
+                opcional · push a esa hora si no lo marcaste
+              </span>
+            </div>
+            {/* Días en los que aplica el hábito. `[]` = todos los días
+                (back-compat: los hábitos viejos no tenían filtro). Si
+                marcás un subconjunto, el dispatcher no manda push los
+                otros días y los días "no target" no cuentan para stats. */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 whitespace-nowrap">
+                Días
+              </label>
+              <TargetDaysPicker
+                targetDays={form.targetDays}
+                onChange={(days) => setForm((f) => ({ ...f, targetDays: days }))}
+                accentColor={form.color}
+              />
+              <span className="text-[10px] text-zinc-600 italic">
+                p.ej. Journal trading solo entre semana
+              </span>
+            </div>
             <div className="flex gap-2">
               <button onClick={handleAdd} className="flex-1 bg-pink-600 hover:bg-pink-500 text-white rounded-lg py-2 text-sm font-semibold transition-colors">
                 Crear hábito
@@ -341,6 +387,39 @@ export function HabitsPage() {
                           <Flame className="w-3 h-3" />{streak}d
                         </span>
                       )}
+                      {/* Mini-input para editar la hora del recordatorio
+                          directamente desde la fila. Si está vacío, no
+                          hay push específico para este hábito. */}
+                      <label className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors">
+                        <span className="opacity-50">🔔</span>
+                        <input
+                          type="time"
+                          value={habit.reminderTime ?? ''}
+                          onChange={(e) => setHabitReminderTime(habit.id, e.target.value || undefined)}
+                          className="bg-transparent border-0 outline-none text-zinc-400 hover:text-zinc-200 cursor-pointer w-[60px]"
+                          title={habit.reminderTime
+                            ? `Push diario a las ${habit.reminderTime} si no lo marcaste`
+                            : 'Agregar recordatorio'
+                          }
+                        />
+                        {habit.reminderTime && (
+                          <button
+                            onClick={(e) => { e.preventDefault(); setHabitReminderTime(habit.id, undefined) }}
+                            className="text-zinc-600 hover:text-red-400"
+                            title="Sin recordatorio"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </label>
+                      {/* Días en los que aplica el hábito (compact picker).
+                          Click → popover con presets + chips individuales. */}
+                      <TargetDaysPicker
+                        targetDays={habit.targetDays}
+                        onChange={(days) => setHabitTargetDays(habit.id, days)}
+                        accentColor={habit.color}
+                        compact
+                      />
                     </div>
                   </div>
                 </div>

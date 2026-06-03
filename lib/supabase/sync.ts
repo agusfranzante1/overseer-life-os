@@ -675,6 +675,7 @@ async function pushHabits() {
     skipped_dates: h.skippedDates ?? [],
     category: h.category, created_at: h.createdAt,
     sort_order: idx,
+    reminder_time: h.reminderTime ?? null,
   }))
 
   if (rows.length > 0) await sb.from('habits').upsert(rows)
@@ -708,6 +709,7 @@ async function pullHabits(): Promise<boolean> {
       skippedDates: (h.skipped_dates as string[]) ?? [],
       category: h.category as string,
       createdAt: h.created_at as string,
+      reminderTime: (h.reminder_time as string | null) ?? undefined,
     })),
   })
   return true

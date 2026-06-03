@@ -90,6 +90,10 @@ export interface AppState {
     habitReminderHour?: number
     /** Minuto del día (0-59) en HORA LOCAL del usuario. Default: 0. */
     habitReminderMinute?: number
+    /** Master toggle para los recordatorios POR-HÁBITO (cada hábito puede
+     *  tener su propia hora en `Habit.reminderTime`). Independiente del
+     *  recordatorio general nocturno (`habitReminder`). */
+    habitSpecificReminders?: boolean
   }
 
   /** Sync de tareas-con-horario a Google Calendar.
@@ -156,6 +160,7 @@ export const useAppStore = create<AppState>()(
         spiNewSessionLeadMinutes: 0,    // en el momento
         habitReminderHour: 21,          // 21:00 hora local
         habitReminderMinute: 0,
+        habitSpecificReminders: true,   // los reminders por-hábito están ON por default
       },
       gcalTasksSync: {
         enabled: false,

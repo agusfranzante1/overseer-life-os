@@ -29,6 +29,7 @@ export async function syncUserSettingsToSupabase(
         taskDueSoon: prefs.taskDueSoon ?? true,
         taskOverdue: prefs.taskOverdue ?? true,
         habitReminder: prefs.habitReminder ?? false,
+        habitSpecificReminders: prefs.habitSpecificReminders ?? true,
       },
       habit_reminder_hour: prefs.habitReminderHour ?? 21,
       habit_reminder_minute: prefs.habitReminderMinute ?? 0,

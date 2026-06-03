@@ -906,7 +906,7 @@ function NotificationPrefsSection() {
     emoji: string
     /** Tipo de notificación que dispara el endpoint de test-dispatch
      *  para este canal — usado por el botón "Probar ahora". */
-    testType?: 'habit_reminder' | 'task_due' | 'task_overdue' | 'spi_new'
+    testType?: 'habit_reminder' | 'habit_specific' | 'task_due' | 'task_overdue' | 'spi_new'
   }
   const channels: Channel[] = [
     {
@@ -936,6 +936,13 @@ function NotificationPrefsSection() {
       description: 'Aviso al final del día con los hábitos del día que todavía no marcaste.',
       emoji: '🟢',
       testType: 'habit_reminder',
+    },
+    {
+      key: 'habitSpecificReminders',
+      title: 'Recordatorios por hábito (hora específica)',
+      description: 'Si configurás una hora a un hábito (ej. Meditar a las 8:00), recibís un push a esa hora solo si no lo marcaste.',
+      emoji: '⏰',
+      testType: 'habit_specific',
     },
   ]
 

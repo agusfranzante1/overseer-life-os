@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-export type NotificationType = 'habit_reminder' | 'task_due' | 'task_overdue' | 'spi_new'
+export type NotificationType = 'habit_reminder' | 'habit_specific' | 'task_due' | 'task_overdue' | 'spi_new'
 
 /** Pregunta a la tabla `notification_log` si ya se envió esta notificación
  *  a este usuario con esta `dedupe_key`. Si SÍ → caller skipea.

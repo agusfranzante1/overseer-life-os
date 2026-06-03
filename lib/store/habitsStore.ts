@@ -16,6 +16,12 @@ export interface Habit {
   skippedDates?: string[]
   category: string
   createdAt: string
+  /** Hora específica del día (HH:MM, 24h) en hora LOCAL del user para
+   *  recordatorio puntual. Opcional. Si está seteada y el toggle global
+   *  `habitSpecificReminders` está activo, el dispatcher manda 1 push
+   *  ese día a esa hora SI el hábito no fue marcado todavía Y el día
+   *  es target. */
+  reminderTime?: string
 }
 
 function genId() { return Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3) }
@@ -45,6 +51,10 @@ interface State {
   addHabit: (h: Omit<Habit, 'id' | 'createdAt' | 'completedDates'>) => string
   removeHabit: (id: string) => void
   renameHabit: (id: string, name: string) => void
+  /** Setea o limpia (con `undefined`) la hora de recordatorio del hábito. */
+  setHabitReminderTime: (id: string, time: string | undefined) => void
+  /** Cambia los días en los que aplica el hábito. `[]` = todos los días. */
+  setHabitTargetDays: (id: string, days: number[]) => void
   toggleDate: (id: string, date: string) => void
   /** Resetea el historial de tracking de un hábito al mismo estado que
    *  tendría si lo hubieras creado HOY: borra todos los completed
@@ -105,6 +115,23 @@ export const useHabitsStore = create<State>()(
       removeHabit: (id) => set((s) => ({ habits: s.habits.filter((h) => h.id !== id) })),
       renameHabit: (id, name) => set((s) => ({
         habits: s.habits.map((h) => h.id === id ? { ...h, name } : h),
+      })),
+      setHabitTargetDays: (id, days) => set((s) => ({
+        habits: s.habits.map((h) =>
+          h.id === id
+            ? { ...h, targetDays: [...new Set(days)].sort((a, b) => a - b) }
+            : h
+        ),
+      })),
+      setHabitReminderTime: (id, time) => set((s) => ({
+        habits: s.habits.map((h) => {
+          if (h.id !== id) return h
+          if (!time) {
+            const { reminderTime: _gone, ...rest } = h
+            return rest
+          }
+          return { ...h, reminderTime: time }
+        }),
       })),
       /** 3-state cycle per click:
        *    empty → completed → skipped (N/A) → empty

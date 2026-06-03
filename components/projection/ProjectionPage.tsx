@@ -12,6 +12,7 @@ import { useProjectionStore } from '@/lib/store/projectionStore'
 import { useSPIStore } from '@/lib/store/spiStore'
 import { useHabitsStore } from '@/lib/store/habitsStore'
 import { useWalletStore } from '@/lib/store/walletStore'
+import { useKpisStore } from '@/lib/store/kpisStore'
 import { buildMonthSnapshot } from '@/lib/projection/monthSnapshot'
 import { ALL_TEMPLATES, WHEEL_AREAS } from '@/lib/projection/templates'
 import {
@@ -1914,8 +1915,12 @@ function MonthKpisAggregate({ periodKey }: { periodKey: string }) {
  *  chat IA que te ayude a completar el plan. */
 function CopyPlanButton({ plan, template }: { plan: ProjectionPlan; template: ProjectionTemplate }) {
   const [status, setStatus] = useState<'idle' | 'copied' | 'error'>('idle')
+  // Pulleamos TODOS los planes + KPIs para que el export pueda resolver
+  // las secciones dinámicas (principal_cascade tira sobre el anual, etc).
+  const allPlans = useProjectionStore((s) => s.plans)
+  const kpiDefinitions = useKpisStore((s) => s.definitions)
   const handle = async () => {
-    const md = planToMarkdown(plan, template)
+    const md = planToMarkdown(plan, template, { allPlans, kpiDefinitions })
     const ok = await copyMarkdownToClipboard(md)
     setStatus(ok ? 'copied' : 'error')
     setTimeout(() => setStatus('idle'), 2000)
