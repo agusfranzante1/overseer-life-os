@@ -768,12 +768,14 @@ function ActiveSession({
       />
 
       {/* Scoreboard de KPIs — métricas de output que el usuario trackea
-          esta semana. Solo se renderean los KPIs en session.selectedKpiIds.
-          El botón "Editar KPIs activos" abre el picker contra la library
-          de /kpis. */}
+          DURANTE TODA LA SEMANA, no solo al planear. Por eso si el SPI
+          está cerrado PERO la semana sigue siendo la actual, los KPIs
+          siguen editables.
+          Cerramos los KPIs solo cuando la sesión es de una semana pasada
+          (sesión vieja en historial) — ahí sí es snapshot congelado. */}
       <KpiScoreboard
         session={session}
-        isClosed={isClosed}
+        isClosed={isClosed && session.weekStartDate !== lastSaturdayYmd()}
         onSelectedChange={onSetKpis}
         onValueChange={onValueChange}
       />

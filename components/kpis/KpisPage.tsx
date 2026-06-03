@@ -690,15 +690,43 @@ function ThisWeekView() {
   const session = current ?? sessions.find((s) => s.weekStartDate === currentSat)
   if (!session) return null
 
+  // Los KPIs son MÉTRICAS SEMANALES que el user trackea durante toda la
+  // semana (no solo al planear). El SPI semanal, en cambio, es la
+  // planificación — el user puede cerrarlo apenas termina de planear
+  // (Lunes a la mañana por ejemplo) y eso bloquea el resto del SPI.
+  //
+  // Bug que esto arregla: cuando el user cerraba el SPI temprano, el
+  // scoreboard tomaba `isClosed=true` y ocultaba "Activar todos" + bloqueaba
+  // la edición de valores. Resultado: no podía trackear sus KPIs durante
+  // la semana.
+  //
+  // Fix: en /kpis ThisWeek SIEMPRE tratamos los KPIs como editables. Si
+  // la sesión está cerrada (planificación congelada), mostramos un banner
+  // aclarando que la planificación quedó congelada pero los KPIs siguen
+  // editables hasta el próximo sábado.
+  const sessionClosed = !!session.closedAt
   return (
     <div className="space-y-3">
+      {sessionClosed && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-[11px] text-amber-200/90 flex items-start gap-2">
+          <span className="text-base leading-none">ℹ️</span>
+          <span>
+            El SPI semanal ya está cerrado (la planificación quedó congelada),
+            pero los <strong>KPIs siguen editables</strong> hasta el próximo sábado —
+            cargá tus valores acá durante toda la semana.
+          </span>
+        </div>
+      )}
       <p className="text-[11px] text-zinc-500">
         Cargá los valores acá o desde el SPI semanal — escriben al mismo lugar.
         Los KPIs activos se heredan automáticamente; podés ajustar con &quot;Editar&quot; en el header.
       </p>
       <KpiScoreboard
         session={session}
-        isClosed={!!session.closedAt}
+        // Forzamos editable: estamos en /kpis ThisWeek y la sesión ES de
+        // esta semana (por la lógica de currentSat). Los KPIs son
+        // editables aun si el resto del SPI está cerrado.
+        isClosed={false}
         onSelectedChange={(next) => setSessionKpis(session.id, next)}
         onValueChange={(sectionKey, fieldKey, value) => updateValue(session.id, sectionKey, fieldKey, value)}
       />
