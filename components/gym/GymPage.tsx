@@ -7,13 +7,14 @@ import {
 import {
   Dumbbell, Play, Square, Plus, Trash2, ChevronDown, ChevronRight,
   Clock, Zap, Target, BarChart3, X, Scale, Edit3, ArrowRight, Sparkles,
-  Home, Building2, TrendingUp, TrendingDown, Minus, Trophy,
+  Home, Building2, TrendingUp, TrendingDown, Minus, Trophy, CalendarDays,
 } from 'lucide-react'
 import {
   useGymStore, type WorkoutSession, type GymType, type GymRoutine, type WeightEntry,
   type TrainingPhase, analyzeExercise, uniqueRoutineExercises,
 } from '@/lib/store/gymStore'
 import { useHealthStore } from '@/lib/store/healthStore'
+import { TrainingDistribution } from './TrainingDistribution'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -29,13 +30,14 @@ function fmtDelta(n: number) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type GymTab = 'sesiones' | 'rutinas' | 'peso' | 'progresion'
+type GymTab = 'sesiones' | 'distribucion' | 'rutinas' | 'peso' | 'progresion'
 
 const GYM_TAB_META: Record<GymTab, { label: string; Icon: typeof Dumbbell }> = {
-  sesiones:   { label: 'Sesiones',   Icon: Dumbbell },
-  rutinas:    { label: 'Rutinas',    Icon: BarChart3 },
-  peso:       { label: 'Peso',       Icon: Scale },
-  progresion: { label: 'Progresión', Icon: TrendingUp },
+  sesiones:     { label: 'Sesiones',     Icon: Dumbbell },
+  distribucion: { label: 'Distribución', Icon: CalendarDays },
+  rutinas:      { label: 'Rutinas',      Icon: BarChart3 },
+  peso:         { label: 'Peso',         Icon: Scale },
+  progresion:   { label: 'Progresión',   Icon: TrendingUp },
 }
 
 export function GymPage() {
@@ -73,6 +75,13 @@ export function GymPage() {
           <CoachCard />
           <SessionManager />
           <SessionHistory />
+        </>
+      )}
+
+      {/* DISTRIBUCIÓN — plan semanal por categoría (gym/run/bike/dep/cali) */}
+      {tab === 'distribucion' && (
+        <>
+          <TrainingDistribution />
         </>
       )}
 

@@ -1449,79 +1449,170 @@ function scheduleMindMaps()   { schedule(mindmapPushTimer,    pushMindMaps,   (t
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
-/** Pull-then-maybe-push each domain. Idempotent — gated by *Init flags so it
- *  only runs once per logged-in user. Called on initial mount AND on auth
- *  state change so that logins after mount (e.g. fresh incognito) still
- *  trigger the initial hydration. */
+/** Push-then-pull cada dominio. Idempotente — gated por *Init flags.
+ *
+ *  Por qué push-then-pull y no pull-then-push:
+ *  ──────────────────────────────────────────
+ *  Los pushes están debounced 1500ms (ver `schedule()`). Si el user edita
+ *  cualquier cosa y refresca en <1.5s, el push pendiente nunca se dispara
+ *  y el cambio queda solo en localStorage. En el siguiente mount, si
+ *  primero pullábamos, el pull traía el estado viejo de Supabase y lo
+ *  escribía sobre el localStorage → pérdida silenciosa de data.
+ *
+ *  Fix: si hay datos locales (persist hidrató algo), pusheamos PRIMERO.
+ *  Eso sube cualquier edición pendiente. Después pull mergea con cambios
+ *  de otros dispositivos (last-write-wins por id).
+ *
+ *  Edge case "device fresh, local vacío": el guard `hasLocal === false`
+ *  evita el push (que con su deleteSurplus borraría todo el remoto), y
+ *  el pull trae los datos del primer dispositivo. ✓
+ *
+ *  appPrefs es excepción: es una fila única por user_id sin deleteSurplus,
+ *  y el local siempre tiene defaults — pusheamos siempre, después pull. */
 async function initAllDomains() {
   if (!state.userId) return
 
+  // ─── Tasks ────────────────────────────────────────────────────────────
   if (!state.tasksInit) {
     state.tasksInit = true
-    const pulled = await pullTasks()
-    if (pulled && pulled.projects === 0 && pulled.tasks === 0) {
+    const { projects, tasks } = useTasksStore.getState()
+    const hasLocal = Object.keys(projects).length > 0 || Object.keys(tasks).length > 0
+    if (hasLocal) {
       await pushTasks().catch((e) => console.error('Tasks initial push failed', e))
     }
+    await pullTasks()
   }
+
+  // ─── Wallet ───────────────────────────────────────────────────────────
   if (!state.walletInit) {
     state.walletInit = true
-    const had = await pullWallet()
-    if (!had) await pushWallet().catch((e) => console.error('Wallet initial push failed', e))
+    const { wallets, transactions, currencies } = useWalletStore.getState()
+    const hasLocal = wallets.length > 0 || transactions.length > 0 || currencies.length > 0
+    if (hasLocal) {
+      await pushWallet().catch((e) => console.error('Wallet initial push failed', e))
+    }
+    await pullWallet()
   }
+
+  // ─── Trading ──────────────────────────────────────────────────────────
   if (!state.tradingInit) {
     state.tradingInit = true
-    const had = await pullTrading()
-    if (!had) await pushTrading().catch((e) => console.error('Trading initial push failed', e))
+    const { firms, accounts, trades } = useTradingStore.getState()
+    const hasLocal = firms.length > 0 || accounts.length > 0 || trades.length > 0
+    if (hasLocal) {
+      await pushTrading().catch((e) => console.error('Trading initial push failed', e))
+    }
+    await pullTrading()
   }
+
+  // ─── Habits ───────────────────────────────────────────────────────────
   if (!state.habitsInit) {
     state.habitsInit = true
-    const had = await pullHabits()
-    if (!had) await pushHabits().catch((e) => console.error('Habits initial push failed', e))
+    const { habits } = useHabitsStore.getState()
+    if (habits.length > 0) {
+      await pushHabits().catch((e) => console.error('Habits initial push failed', e))
+    }
+    await pullHabits()
   }
+
+  // ─── Gym basics ───────────────────────────────────────────────────────
   if (!state.gymBasicsInit) {
     state.gymBasicsInit = true
-    const had = await pullGymBasics()
-    if (!had) await pushGymBasics().catch((e) => console.error('Gym basics initial push failed', e))
+    const { weightEntries, routines, sessions, trainingPlan } = useGymStore.getState()
+    const hasLocal = weightEntries.length > 0
+      || routines.length > 0
+      || sessions.length > 0
+      || Object.keys(trainingPlan).length > 0
+    if (hasLocal) {
+      await pushGymBasics().catch((e) => console.error('Gym basics initial push failed', e))
+    }
+    await pullGymBasics()
   }
+
+  // ─── Health ───────────────────────────────────────────────────────────
   if (!state.healthInit) {
     state.healthInit = true
-    const had = await pullHealth()
-    if (!had) await pushHealth().catch((e) => console.error('Health initial push failed', e))
+    const { snapshots } = useHealthStore.getState()
+    const hasLocal = Object.keys(snapshots).length > 0
+    if (hasLocal) {
+      await pushHealth().catch((e) => console.error('Health initial push failed', e))
+    }
+    await pullHealth()
   }
+
+  // ─── Chat ─────────────────────────────────────────────────────────────
   if (!state.chatInit) {
     state.chatInit = true
-    const had = await pullChat()
-    if (!had) await pushChat().catch((e) => console.error('Chat initial push failed', e))
+    const { messages } = useChatStore.getState()
+    if (messages.length > 0) {
+      await pushChat().catch((e) => console.error('Chat initial push failed', e))
+    }
+    await pullChat()
   }
+
+  // ─── Food ─────────────────────────────────────────────────────────────
   if (!state.foodInit) {
     state.foodInit = true
-    const had = await pullFood()
-    if (!had) await pushFood().catch((e) => console.error('Food initial push failed', e))
+    const { stages, shopping, notes } = useFoodStore.getState()
+    const hasLocal = stages.length > 0 || shopping.length > 0 || !!notes
+    if (hasLocal) {
+      await pushFood().catch((e) => console.error('Food initial push failed', e))
+    }
+    await pullFood()
   }
+
+  // ─── SPI ──────────────────────────────────────────────────────────────
   if (!state.spiInit) {
     state.spiInit = true
-    const had = await pullSPI()
-    if (!had) await pushSPI().catch((e) => console.error('SPI initial push failed', e))
+    const { sessions, bitacoraEntries } = useSPIStore.getState()
+    const hasLocal = sessions.length > 0 || bitacoraEntries.length > 0
+    if (hasLocal) {
+      await pushSPI().catch((e) => console.error('SPI initial push failed', e))
+    }
+    await pullSPI()
   }
+
+  // ─── Projection ───────────────────────────────────────────────────────
   if (!state.projectionInit) {
     state.projectionInit = true
-    const had = await pullProjection()
-    if (!had) await pushProjection().catch((e) => console.error('Projection initial push failed', e))
+    const { plans } = useProjectionStore.getState()
+    if (plans.length > 0) {
+      await pushProjection().catch((e) => console.error('Projection initial push failed', e))
+    }
+    await pullProjection()
   }
+
+  // ─── Lab ──────────────────────────────────────────────────────────────
   if (!state.labInit) {
     state.labInit = true
-    const had = await pullLab()
-    if (!had) await pushLab().catch((e) => console.error('Lab initial push failed', e))
+    const { sessions, beliefs } = useLabStore.getState()
+    const hasLocal = sessions.length > 0 || beliefs.length > 0
+    if (hasLocal) {
+      await pushLab().catch((e) => console.error('Lab initial push failed', e))
+    }
+    await pullLab()
   }
+
+  // ─── App preferences ──────────────────────────────────────────────────
+  // Excepción: fila única por user_id, sin deleteSurplus. El local store
+  // SIEMPRE tiene defaults — pusheamos siempre. Esto garantiza que los
+  // cambios de prefs (timezone, schedule, ideal hours, notif settings,
+  // navOrder, etc.) sobrevivan al refresh, sin riesgo de borrar nada
+  // remoto.
   if (!state.appPrefsInit) {
     state.appPrefsInit = true
-    const had = await pullAppPrefs()
-    if (!had) await pushAppPrefs().catch((e) => console.error('App prefs initial push failed', e))
+    await pushAppPrefs().catch((e) => console.error('App prefs initial push failed', e))
+    await pullAppPrefs()
   }
+
+  // ─── Mind maps ────────────────────────────────────────────────────────
   if (!state.mindmapInit) {
     state.mindmapInit = true
-    const had = await pullMindMaps()
-    if (!had) await pushMindMaps().catch((e) => console.error('Mindmaps initial push failed', e))
+    const { maps } = useMindMapStore.getState()
+    if (maps.length > 0) {
+      await pushMindMaps().catch((e) => console.error('Mindmaps initial push failed', e))
+    }
+    await pullMindMaps()
   }
 }
 

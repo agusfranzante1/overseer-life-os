@@ -43,6 +43,35 @@ export interface WeightEntry {
 export type GymType = 'home' | 'commercial'
 export type TrainingPhase = 'cut' | 'maintenance' | 'bulk'
 
+// ─── Weekly training distribution ─────────────────────────────────────────────
+//
+// "Plan semanal" — qué tipos de entrenamiento hacés cada día. NO es tracking
+// (eso lo hacen las sesiones), es planificación: "los lunes gym, los martes
+// running, etc.". Multi-categoría por día permitido (p.ej. lunes gym +
+// calistenia). El día de la semana usa la convención JS `Date.getDay()`:
+// 0=Dom, 1=Lun, ..., 6=Sáb (consistente con habits/dispatcher).
+
+export type TrainingCategory = 'gym' | 'running' | 'biking' | 'deporte' | 'calistenia'
+
+export interface TrainingCategoryMeta {
+  id: TrainingCategory
+  label: string
+  emoji: string
+  color: string  // tailwind-friendly hex para chips/borders
+}
+
+export const TRAINING_CATEGORIES: TrainingCategoryMeta[] = [
+  { id: 'gym',        label: 'Gimnasio',   emoji: '🏋️', color: '#f59e0b' },
+  { id: 'running',    label: 'Running',    emoji: '🏃', color: '#3b82f6' },
+  { id: 'biking',     label: 'Biking',     emoji: '🚴', color: '#10b981' },
+  { id: 'deporte',    label: 'Deporte',    emoji: '⚽', color: '#8b5cf6' },
+  { id: 'calistenia', label: 'Calistenia', emoji: '💪', color: '#ec4899' },
+]
+
+/** Map por day-of-week (0=Dom..6=Sáb) → array de categorías planeadas.
+ *  Default vacío. Persiste con el resto del gymStore. */
+export type WeeklyTrainingPlan = Record<number, TrainingCategory[]>
+
 export interface RoutineExercise {
   id: string
   name: string
@@ -71,6 +100,19 @@ interface GymState {
   weightGoalKg: number | null
   gymType: GymType
   phase: TrainingPhase
+
+  /** Plan semanal de distribución de entrenamiento. Keys son day-of-week
+   *  JS (0=Dom..6=Sáb). Valores son arrays de categorías planeadas para
+   *  ese día (multi-categoría permitido). */
+  trainingPlan: WeeklyTrainingPlan
+
+  /** Toggle de una categoría en un día específico — si estaba, sale;
+   *  si no, entra. Mantiene orden estable según TRAINING_CATEGORIES. */
+  toggleTrainingPlan: (dow: number, category: TrainingCategory) => void
+  /** Setea la lista completa de categorías para un día (reemplaza). */
+  setTrainingPlanDay: (dow: number, categories: TrainingCategory[]) => void
+  /** Borra el plan entero (los 7 días). Útil para resetear. */
+  clearTrainingPlan: () => void
 
   setGymType: (t: GymType) => void
   setPhase: (p: TrainingPhase) => void
@@ -152,6 +194,25 @@ export const useGymStore = create<GymState>()(
       weightGoalKg: null,
       gymType: 'home',
       phase: 'maintenance',
+
+      trainingPlan: {},
+
+      toggleTrainingPlan: (dow, category) => set((s) => {
+        const current = s.trainingPlan[dow] ?? []
+        const has = current.includes(category)
+        // Mantener orden canónico según TRAINING_CATEGORIES — así si el user
+        // toggle "biking" y después "gym", se ve "gym, biking" (no en orden
+        // de inserción). Más prolijo visualmente.
+        const order = TRAINING_CATEGORIES.map((c) => c.id)
+        const next = has
+          ? current.filter((c) => c !== category)
+          : [...current, category].sort((a, b) => order.indexOf(a) - order.indexOf(b))
+        return { trainingPlan: { ...s.trainingPlan, [dow]: next } }
+      }),
+      setTrainingPlanDay: (dow, categories) => set((s) => ({
+        trainingPlan: { ...s.trainingPlan, [dow]: categories },
+      })),
+      clearTrainingPlan: () => set({ trainingPlan: {} }),
 
       setGymType: (t) => set({ gymType: t }),
       setPhase: (p) => set({ phase: p }),
