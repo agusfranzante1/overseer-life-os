@@ -81,6 +81,24 @@ interface TasksState {
    *  because the subtask model only supports 1 level of nesting.
    *  No-op if sourceTaskId === targetTaskId or either doesn't exist. */
   convertTaskToSubtask: (sourceTaskId: string, targetTaskId: string) => void
+  /** Reverso de convertTaskToSubtask: agarra una subtask1 (top-level
+   *  dentro de una task madre) y la PROMUEVE a tarea madre dentro del
+   *  mismo proyecto. Si la subtask1 tiene subtask2 (children con
+   *  parentId apuntando a ella), esas se mudan también — quedan como
+   *  subtask1 (top-level) de la nueva madre.
+   *
+   *  Casos cubiertos:
+   *   - Si `subtaskId` no es una subtask top-level (tiene parentId),
+   *     no hace nada — solo subtask1 se promueven a madres.
+   *   - Subtask y children archivados NO se traen (ruido histórico).
+   *   - Status/priority/dueDate/notes/description/completedAt de la
+   *     subtask se preservan en la nueva task.
+   *   - Children se les genera id fresco para evitar colisiones.
+   *   - La nueva task se inserta INMEDIATAMENTE después de la task
+   *     madre original en `project.taskIds` (queda al lado).
+   *
+   *  Devuelve el id de la nueva task, o null si no hay nada que hacer. */
+  promoteSubtaskToTask: (taskId: string, subtaskId: string) => string | null
   postponeTask: (id: string) => void
   pushRemainingToTomorrow: () => void
   planNext2h: () => Task[]
@@ -695,6 +713,94 @@ export const useTasksStore = create<TasksState>()(
 
           return { tasks: newTasks, projects: newProjects }
         }),
+
+      promoteSubtaskToTask: (taskId, subtaskId) => {
+        const source = get().tasks[taskId]
+        if (!source) return null
+        const sub = source.subtasks.find((st) => st.id === subtaskId)
+        if (!sub) return null
+        // Solo subtask1 (top-level) puede promoverse. Si es una subtask2
+        // (tiene parentId), el user debería primero "desagrupar" (sacarle
+        // el parentId) y después promover.
+        if (sub.parentId) return null
+        if (sub.archivedAt) return null
+
+        const proj = get().projects[source.projectId]
+        if (!proj) return null
+
+        const nowIso = new Date().toISOString()
+        const newTaskId = genId()
+
+        // Children directos de la subtask que estamos promoviendo
+        // (subtask2 con parentId === subtaskId). Estos se vuelven
+        // subtask1 top-level de la nueva madre. Archivados se descartan.
+        const childSubs = source.subtasks.filter(
+          (st) => st.parentId === subtaskId && !st.archivedAt
+        )
+        // Mapeo old → new id por si en el futuro se permite más
+        // anidamiento. Hoy es plano (1 nivel) — solo evita colisiones.
+        const childIdMap = new Map<string, string>()
+        for (const c of childSubs) childIdMap.set(c.id, genId())
+
+        const newRootSubs: Subtask[] = childSubs.map((c, idx) => ({
+          ...c,
+          id: childIdMap.get(c.id)!,
+          parentId: undefined,  // ahora son top-level de la NUEVA madre
+          order: idx,
+        }))
+
+        // Inferir importance — Subtask no la tiene, así que defaulteamos
+        // a la importance de la task madre original (preserva contexto).
+        const newTask: Task = {
+          id: newTaskId,
+          projectId: source.projectId,
+          title: sub.title,
+          description: sub.description,
+          status: sub.status,
+          priority: sub.priority ?? 'medium',
+          importance: source.importance,
+          dueDate: sub.dueDate,
+          notes: sub.notes,
+          subtasks: newRootSubs,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          // Si la subtask estaba completada, lo respetamos en la task.
+          completedAt: sub.completedAt,
+        }
+
+        set((s) => {
+          // Sacar de la task madre: la propia subtask + todos sus children.
+          const sourceTask = s.tasks[taskId]
+          if (!sourceTask) return s
+          const removeIds = new Set<string>([subtaskId, ...childSubs.map((c) => c.id)])
+          const updatedSource: Task = {
+            ...sourceTask,
+            subtasks: sourceTask.subtasks.filter((st) => !removeIds.has(st.id)),
+            updatedAt: nowIso,
+          }
+
+          // Insertar la nueva task INMEDIATAMENTE DESPUÉS de la original
+          // en project.taskIds — visualmente queda al lado, fácil de
+          // encontrar después de promover.
+          const projTaskIds = [...(s.projects[source.projectId]?.taskIds ?? [])]
+          const idx = projTaskIds.indexOf(taskId)
+          if (idx === -1) projTaskIds.push(newTaskId)
+          else projTaskIds.splice(idx + 1, 0, newTaskId)
+
+          return {
+            tasks: { ...s.tasks, [taskId]: updatedSource, [newTaskId]: newTask },
+            projects: {
+              ...s.projects,
+              [source.projectId]: {
+                ...s.projects[source.projectId],
+                taskIds: projTaskIds,
+              },
+            },
+          }
+        })
+
+        return newTaskId
+      },
 
       postponeTask: (id) =>
         set((s) => ({

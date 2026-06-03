@@ -33,7 +33,7 @@ interface Props {
 const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
 export function TaskCard({ task, project, onClick, showProjectBadge = false, subtaskSortMode = 'manual' }: Props) {
-  const { completeTask, postponeTask, deleteTask, duplicateTask, toggleSubtask, addSubtask, updateSubtask, deleteSubtask, updateTask, convertTaskToSubtask } = useTasksStore()
+  const { completeTask, postponeTask, deleteTask, duplicateTask, toggleSubtask, addSubtask, updateSubtask, deleteSubtask, updateTask, convertTaskToSubtask, promoteSubtaskToTask } = useTasksStore()
   const { t } = useTranslation()
   // Estado de UI (expanded del card, colapso de cada sub-tarea-1) vive
   // en su propio store persistido. Refrescar la página ya no resetea el
@@ -557,6 +557,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                     onStatusChange={(s) => updateSubtask(task.id, root.id, { status: s })}
                     onDueDateChange={(d) => updateSubtask(task.id, root.id, { dueDate: d })}
                     onDelete={() => deleteSubtask(task.id, root.id)}
+                    onPromoteToTask={() => promoteSubtaskToTask(task.id, root.id)}
                     onOpenDetail={() => setDetailSubtaskId(root.id)}
                     onDragStart={onSubDragStart(root.id, hasChildren)}
                     onDragOver={onSubDragOver(root.id)}
@@ -842,6 +843,10 @@ interface InlineSubtaskProps {
   onDueDateChange: (date: string | undefined) => void
   onDelete: () => void
   onUngroup?: () => void
+  /** Para subtask1 (root, sin parentId): promueve esta subtask a una
+   *  task madre nueva en el mismo proyecto, llevándose sus subtask2
+   *  como subtask1 de la nueva madre. */
+  onPromoteToTask?: () => void
   onOpenDetail: () => void
   onDragStart: (e: React.DragEvent) => void
   onDragOver: (e: React.DragEvent) => void
@@ -854,7 +859,7 @@ function InlineSubtask({
   subtask, hasChildren, childrenCollapsed, onToggleCollapse, isChild, progressLabel, isDragging, isOver,
   projectStatuses,
   onToggle, onRename, onPriorityChange, onStatusChange, onDueDateChange,
-  onDelete, onUngroup, onOpenDetail,
+  onDelete, onUngroup, onPromoteToTask, onOpenDetail,
   onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd,
 }: InlineSubtaskProps) {
   const [editing, setEditing] = useState(false)
@@ -1090,18 +1095,48 @@ function InlineSubtask({
           status/date chips end up at slightly different horizontal
           positions between parent and child rows. */}
       <div className="flex items-center gap-0.5 shrink-0">
-        <button
-          data-interactive
-          onClick={(e) => { e.stopPropagation(); if (isChild && onUngroup) onUngroup() }}
-          title={isChild && onUngroup ? 'Sacar del grupo' : ''}
-          aria-hidden={!isChild || !onUngroup}
-          tabIndex={!isChild || !onUngroup ? -1 : undefined}
-          className={`text-zinc-600 hover:text-zinc-200 transition-all text-[11px] px-1 ${
-            isChild && onUngroup ? 'opacity-0 group-hover:opacity-100' : 'invisible pointer-events-none'
-          }`}
-        >
-          ↶
-        </button>
+        {/* Slot izquierdo: dos botones distintos según sea subtask1 o subtask2.
+            - subtask2 (isChild): ↶ "Sacar del grupo" — quita parentId, queda subtask1.
+            - subtask1 (!isChild): ↗ "Promover a tarea madre" — saca la
+              subtask de la task madre y la convierte en una nueva task
+              top-level del proyecto, llevándose sus subtask2 como subtask1
+              de la nueva madre.
+            Cuando no aplica, el slot queda invisible (no `display:none`)
+            así no corre los chips de status/fecha de su columna. */}
+        {isChild ? (
+          <button
+            data-interactive
+            onClick={(e) => { e.stopPropagation(); if (onUngroup) onUngroup() }}
+            title={onUngroup ? 'Sacar del grupo (queda como subtarea de la madre)' : ''}
+            aria-hidden={!onUngroup}
+            tabIndex={!onUngroup ? -1 : undefined}
+            className={`text-zinc-600 hover:text-zinc-200 transition-all text-[11px] px-1 ${
+              onUngroup ? 'opacity-0 group-hover:opacity-100' : 'invisible pointer-events-none'
+            }`}
+          >
+            ↶
+          </button>
+        ) : (
+          <button
+            data-interactive
+            onClick={(e) => {
+              e.stopPropagation()
+              if (!onPromoteToTask) return
+              const msg = hasChildren
+                ? 'Promover esta subtarea a tarea madre del proyecto?\n\nSus subtareas internas también se mudan con ella como subtareas de la nueva madre.'
+                : 'Promover esta subtarea a tarea madre del proyecto?'
+              if (confirm(msg)) onPromoteToTask()
+            }}
+            title={onPromoteToTask ? 'Promover a tarea madre del proyecto (se lleva sus subtareas)' : ''}
+            aria-hidden={!onPromoteToTask}
+            tabIndex={!onPromoteToTask ? -1 : undefined}
+            className={`text-zinc-600 hover:text-emerald-300 transition-all text-[11px] px-1 ${
+              onPromoteToTask ? 'opacity-0 group-hover:opacity-100' : 'invisible pointer-events-none'
+            }`}
+          >
+            ↗
+          </button>
+        )}
         <button
           data-interactive
           onClick={(e) => { e.stopPropagation(); onOpenDetail() }}
