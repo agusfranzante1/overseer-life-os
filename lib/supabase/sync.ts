@@ -15,6 +15,7 @@ import { useProjectionStore } from '@/lib/store/projectionStore'
 import { useLabStore } from '@/lib/store/labStore'
 import { useAppStore } from '@/lib/store/appStore'
 import { useMindMapStore } from '@/lib/store/mindmapStore'
+import { useKpisStore } from '@/lib/store/kpisStore'
 import {
   startPulling, endPulling,
   markModifiedIfNotPulling, markSynced, hasUnsyncedChanges,
@@ -38,6 +39,7 @@ interface SyncState {
   labInit: boolean
   appPrefsInit: boolean
   mindmapInit: boolean
+  kpisInit: boolean
 }
 
 const state: SyncState = {
@@ -56,6 +58,7 @@ const state: SyncState = {
   labInit: false,
   appPrefsInit: false,
   mindmapInit: false,
+  kpisInit: false,
 }
 
 // ─── Push timers (debounced per domain) ───────────────────────────────────────
@@ -73,6 +76,7 @@ let projectionPushTimer: ReturnType<typeof setTimeout> | null = null
 let labPushTimer: ReturnType<typeof setTimeout> | null = null
 let appPrefsPushTimer: ReturnType<typeof setTimeout> | null = null
 let mindmapPushTimer: ReturnType<typeof setTimeout> | null = null
+let kpisPushTimer: ReturnType<typeof setTimeout> | null = null
 
 function schedule(
   timer: ReturnType<typeof setTimeout> | null,
@@ -181,9 +185,21 @@ async function pushTasks() {
     }))
   )
 
-  if (projectRows.length > 0) await sb.from('projects').upsert(projectRows)
-  if (taskRows.length > 0)    await sb.from('tasks').upsert(taskRows)
-  if (subtaskRows.length > 0) await sb.from('subtasks').upsert(subtaskRows)
+  if (projectRows.length > 0) {
+    const r = await sb.from('projects').upsert(projectRows)
+    if (r.error) { reportSyncError(`projects upsert failed: ${r.error.message}`); throw r.error }
+  }
+  if (taskRows.length > 0) {
+    const r = await sb.from('tasks').upsert(taskRows)
+    if (r.error) { reportSyncError(`tasks upsert failed: ${r.error.message}`); throw r.error }
+  }
+  if (subtaskRows.length > 0) {
+    const r = await sb.from('subtasks').upsert(subtaskRows)
+    if (r.error) {
+      reportSyncError(`subtasks upsert failed: ${r.error.message}. ¿Falta correr migration_subtasks_completion_fields.sql?`)
+      throw r.error
+    }
+  }
 
   // Delete surplus
   await deleteSurplus(sb, 'subtasks', state.userId!, subtaskRows.map((r) => r.id))
@@ -719,7 +735,19 @@ async function pushHabits() {
     reminder_time: h.reminderTime ?? null,
   }))
 
-  if (rows.length > 0) await sb.from('habits').upsert(rows)
+  if (rows.length > 0) {
+    const r = await sb.from('habits').upsert(rows)
+    if (r.error) {
+      // CRÍTICO: si fallaba silencioso (RLS, missing column de migration
+      // no aplicada, etc.), igual llamábamos markSynced más abajo →
+      // mentíamos que estaba en sync → al recargar pull-first pisaba
+      // las marcas locales. Ahora throw → schedule().catch lo agarra →
+      // markSynced NO corre → lastModified > lastSynced → próximo
+      // reload push-first reintenta.
+      reportSyncError(`habits upsert failed: ${r.error.message}. ¿Falta aplicar alguna migration de habits?`)
+      throw r.error
+    }
+  }
   await deleteSurplus(sb, 'habits', uid, rows.map((r) => r.id))
   markSynced('habits')
 }
@@ -784,7 +812,10 @@ async function pushSPI() {
     closed_at: sess.closedAt ?? null,
     payload: sess,
   }))
-  if (sessRows.length > 0) await sb.from('spi_sessions').upsert(sessRows)
+  if (sessRows.length > 0) {
+    const r = await sb.from('spi_sessions').upsert(sessRows)
+    if (r.error) { reportSyncError(`spi_sessions upsert failed: ${r.error.message}`); throw r.error }
+  }
   await deleteSurplus(sb, 'spi_sessions', uid, sessRows.map((r) => r.id))
 
   // ── Bitácora (cross-session) ──────────────────────────────────────
@@ -798,7 +829,10 @@ async function pushSPI() {
     created_at: e.createdAt,
     updated_at: e.updatedAt,
   }))
-  if (bitRows.length > 0) await sb.from('spi_bitacora').upsert(bitRows)
+  if (bitRows.length > 0) {
+    const r = await sb.from('spi_bitacora').upsert(bitRows)
+    if (r.error) { reportSyncError(`spi_bitacora upsert failed: ${r.error.message}`); throw r.error }
+  }
   await deleteSurplus(sb, 'spi_bitacora', uid, bitRows.map((r) => r.id))
   markSynced('spi')
 }
@@ -905,7 +939,10 @@ async function pushProjection() {
     payload: plan,
   }))
 
-  if (rows.length > 0) await sb.from('projection_plans').upsert(rows)
+  if (rows.length > 0) {
+    const r = await sb.from('projection_plans').upsert(rows)
+    if (r.error) { reportSyncError(`projection_plans upsert failed: ${r.error.message}`); throw r.error }
+  }
   await deleteSurplus(sb, 'projection_plans', uid, rows.map((r) => r.id))
   markSynced('projection')
 }
@@ -1270,7 +1307,10 @@ async function pushGym() {
     id: e.id, user_id: uid, date: e.date, kg: e.kg,
     note: e.note ?? null, created_at: e.createdAt,
   }))
-  if (weightRows.length > 0) await sb.from('gym_weight_entries').upsert(weightRows)
+  if (weightRows.length > 0) {
+    const r = await sb.from('gym_weight_entries').upsert(weightRows)
+    if (r.error) { reportSyncError(`gym_weight_entries upsert failed: ${r.error.message}`); throw r.error }
+  }
   await deleteSurplus(sb, 'gym_weight_entries', uid, weightRows.map((r) => r.id))
 
   // Config (singleton)
@@ -1290,7 +1330,10 @@ async function pushGym() {
     id: r.id, user_id: uid, name: r.name, day_label: r.dayLabel,
     exercises: r.exercises,
   }))
-  if (routineRows.length > 0) await sb.from('gym_routines').upsert(routineRows)
+  if (routineRows.length > 0) {
+    const r = await sb.from('gym_routines').upsert(routineRows)
+    if (r.error) { reportSyncError(`gym_routines upsert failed: ${r.error.message}`); throw r.error }
+  }
   await deleteSurplus(sb, 'gym_routines', uid, routineRows.map((r) => r.id))
 
   // Sessions (nested exercises + sets as JSONB). activeSession is local-only.
@@ -1302,7 +1345,10 @@ async function pushGym() {
     ended_at: s.endedAt ?? null,
     notes: s.notes ?? null,
   }))
-  if (sessionRows.length > 0) await sb.from('gym_sessions').upsert(sessionRows)
+  if (sessionRows.length > 0) {
+    const r = await sb.from('gym_sessions').upsert(sessionRows)
+    if (r.error) { reportSyncError(`gym_sessions upsert failed: ${r.error.message}`); throw r.error }
+  }
   await deleteSurplus(sb, 'gym_sessions', uid, sessionRows.map((r) => r.id))
   markSynced('gym')
 }
@@ -1411,7 +1457,8 @@ async function pushHealth() {
   }))
 
   if (snapRows.length > 0) {
-    await sb.from('health_snapshots').upsert(snapRows, { onConflict: 'user_id,date' })
+    const r = await sb.from('health_snapshots').upsert(snapRows, { onConflict: 'user_id,date' })
+    if (r.error) { reportSyncError(`health_snapshots upsert failed: ${r.error.message}`); throw r.error }
   }
 
   // Delete snapshots no longer present locally
@@ -1502,7 +1549,10 @@ async function pushChat() {
     timestamp: m.timestamp, action_card: m.actionCard ?? null,
   }))
 
-  if (rows.length > 0) await sb.from('chat_messages').upsert(rows)
+  if (rows.length > 0) {
+    const r = await sb.from('chat_messages').upsert(rows)
+    if (r.error) { reportSyncError(`chat_messages upsert failed: ${r.error.message}`); throw r.error }
+  }
   await deleteSurplus(sb, 'chat_messages', uid, rows.map((r) => r.id))
   markSynced('chat')
 }
@@ -1545,7 +1595,7 @@ async function pushFood() {
   const uid = state.userId!
   const { stages, shopping, fixedCosts, currentStageId, notes } = useFoodStore.getState()
 
-  await sb.from('food_data').upsert(
+  const r = await sb.from('food_data').upsert(
     {
       user_id: uid,
       stages, shopping, fixed_costs: fixedCosts,
@@ -1555,6 +1605,7 @@ async function pushFood() {
     },
     { onConflict: 'user_id' }
   )
+  if (r.error) { reportSyncError(`food_data upsert failed: ${r.error.message}`); throw r.error }
   markSynced('food')
 }
 
@@ -1587,6 +1638,85 @@ async function pullFood(): Promise<boolean> {
   }
 }
 
+// ─── KPIs (definitions library) ───────────────────────────────────────────────
+//
+// La library de KPIs (lo que ves en /kpis → Library) sincroniza como una
+// fila por KPI con payload JSONB. Antes vivía SOLO en localStorage de cada
+// device — si formateabas o cambiabas de máquina, perdías los KPIs.
+// Requiere migration_kpis.sql aplicada en Supabase.
+//
+// Las activaciones por semana (selectedKpiIds) y los valores cargados
+// siguen viviendo dentro de SPI sessions — no acá. Esta tabla solo
+// guarda las DEFINICIONES (nombre, target, kind, etc.).
+
+async function pushKpis() {
+  if (!state.userId) return
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { definitions } = useKpisStore.getState()
+
+  const rows = definitions.map((d) => ({
+    id: d.id,
+    user_id: uid,
+    payload: d,
+    created_at: d.createdAt,
+    updated_at: d.updatedAt,
+  }))
+
+  if (rows.length > 0) {
+    const r = await sb.from('kpis').upsert(rows)
+    if (r.error) {
+      reportSyncError(`kpis upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_kpis.sql.`)
+      throw r.error
+    }
+  }
+  await deleteSurplus(sb, 'kpis', uid, rows.map((r) => r.id))
+  markSynced('kpis')
+}
+
+async function pullKpis(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('kpis')
+  try {
+    const sb = getSupabaseBrowser()
+    const uid = state.userId!
+
+    const res = await sb.from('kpis').select('*').eq('user_id', uid)
+      .order('created_at', { ascending: true })
+    if (res.error) {
+      console.error('KPIs pull failed (run migration_kpis.sql?):', res.error)
+      return false
+    }
+    if ((res.data?.length ?? 0) === 0) { markSynced('kpis'); return false }
+
+    type KpiRow = { payload: unknown }
+    // Sanitize defensivo — al estilo de mindmaps/lab/projection. Spread del
+    // payload primero para preservar campos opcionales nuevos
+    // (cumulativeTarget, etc.) sin tener que enumerarlos todos.
+    const sanitize = (raw: unknown): import('@/lib/kpi/types').KPIDefinition => {
+      const p = (raw ?? {}) as Partial<import('@/lib/kpi/types').KPIDefinition>
+      return {
+        ...p,
+        id: p.id ?? '',
+        name: p.name ?? '',
+        icon: p.icon ?? '🎯',
+        color: p.color ?? '#a855f7',
+        kind: p.kind ?? 'count',
+        activatedAt: p.activatedAt ?? (p.createdAt ?? new Date().toISOString()).slice(0, 10),
+        createdAt: p.createdAt ?? new Date().toISOString(),
+        updatedAt: p.updatedAt ?? new Date().toISOString(),
+      }
+    }
+    useKpisStore.setState({
+      definitions: (res.data ?? []).map((r: KpiRow) => sanitize(r.payload)),
+    })
+    markSynced('kpis')
+    return true
+  } finally {
+    endPulling('kpis')
+  }
+}
+
 // ─── Scheduled pushes ─────────────────────────────────────────────────────────
 
 function scheduleTasks()      { schedule(tasksPushTimer,     pushTasks,     (t) => { tasksPushTimer = t }) }
@@ -1602,6 +1732,7 @@ function scheduleProjection() { schedule(projectionPushTimer, pushProjection, (t
 function scheduleLab()        { schedule(labPushTimer,        pushLab,        (t) => { labPushTimer = t }) }
 function scheduleAppPrefs()   { schedule(appPrefsPushTimer,   pushAppPrefs,   (t) => { appPrefsPushTimer = t }) }
 function scheduleMindMaps()   { schedule(mindmapPushTimer,    pushMindMaps,   (t) => { mindmapPushTimer = t }) }
+function scheduleKpis()       { schedule(kpisPushTimer,       pushKpis,       (t) => { kpisPushTimer = t }) }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
@@ -1779,6 +1910,19 @@ async function initAllDomains() {
     }
     await pullMindMaps()
   }
+
+  // ─── KPIs (library de definiciones) ───────────────────────────────────
+  // Sincroniza la library completa de KPIs entre devices. Las activaciones
+  // por semana y los valores cargados viven dentro de SPI sessions, NO
+  // acá — esta tabla solo guarda definiciones (nombre, target, etc.).
+  if (!state.kpisInit) {
+    state.kpisInit = true
+    const { definitions } = useKpisStore.getState()
+    if (definitions.length > 0 && hasUnsyncedChanges('kpis')) {
+      await pushKpis().catch((e) => console.error('KPIs initial push failed', e))
+    }
+    await pullKpis()
+  }
 }
 
 /** Mount once at the app root. Wires all domains for sync. */
@@ -1805,19 +1949,29 @@ export function useSupabaseSync() {
       // local, IGNORANDO el setState que viene de un pull en curso. Sin
       // este filtro, cada pull hidrataría el store y dispararía subscribe,
       // marcando "modified" cuando en realidad es "remoto vino para acá".
-      useTasksStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('tasks'); scheduleTasks() } })
-      useWalletStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('wallet'); scheduleWallet() } })
-      useTradingStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('trading'); scheduleTrading() } })
-      useHabitsStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('habits'); scheduleHabits() } })
-      useGymStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('gym'); scheduleGymBasics() } })
-      useHealthStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('health'); scheduleHealth() } })
-      useChatStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('chat'); scheduleChat() } })
-      useFoodStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('food'); scheduleFood() } })
-      useSPIStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('spi'); scheduleSPI() } })
-      useProjectionStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('projection'); scheduleProjection() } })
-      useLabStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('lab'); scheduleLab() } })
-      useAppStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('appPrefs'); scheduleAppPrefs() } })
-      useMindMapStore.subscribe(() => { if (state.userId) { markModifiedIfNotPulling('mindmaps'); scheduleMindMaps() } })
+      //
+      // CRÍTICO: el markModified NO está gateado por state.userId.
+      // Si vos editás ANTES de que getUser() resuelva (lo cual puede
+      // demorar 100-500ms en mobile), el subscribe fire con userId=null.
+      // Antes esto saltaba el markModified → la edición no quedaba
+      // registrada como "unsynced" → al recargar, hasUnsyncedChanges
+      // devolvía false → pull-first → pisaba tu edición.
+      // Ahora SIEMPRE marcamos modified. El schedule sí depende del
+      // userId porque no podés pushear sin sesión.
+      useTasksStore.subscribe(() => { markModifiedIfNotPulling('tasks'); if (state.userId) scheduleTasks() })
+      useWalletStore.subscribe(() => { markModifiedIfNotPulling('wallet'); if (state.userId) scheduleWallet() })
+      useTradingStore.subscribe(() => { markModifiedIfNotPulling('trading'); if (state.userId) scheduleTrading() })
+      useHabitsStore.subscribe(() => { markModifiedIfNotPulling('habits'); if (state.userId) scheduleHabits() })
+      useGymStore.subscribe(() => { markModifiedIfNotPulling('gym'); if (state.userId) scheduleGymBasics() })
+      useHealthStore.subscribe(() => { markModifiedIfNotPulling('health'); if (state.userId) scheduleHealth() })
+      useChatStore.subscribe(() => { markModifiedIfNotPulling('chat'); if (state.userId) scheduleChat() })
+      useFoodStore.subscribe(() => { markModifiedIfNotPulling('food'); if (state.userId) scheduleFood() })
+      useSPIStore.subscribe(() => { markModifiedIfNotPulling('spi'); if (state.userId) scheduleSPI() })
+      useProjectionStore.subscribe(() => { markModifiedIfNotPulling('projection'); if (state.userId) scheduleProjection() })
+      useLabStore.subscribe(() => { markModifiedIfNotPulling('lab'); if (state.userId) scheduleLab() })
+      useAppStore.subscribe(() => { markModifiedIfNotPulling('appPrefs'); if (state.userId) scheduleAppPrefs() })
+      useMindMapStore.subscribe(() => { markModifiedIfNotPulling('mindmaps'); if (state.userId) scheduleMindMaps() })
+      useKpisStore.subscribe(() => { markModifiedIfNotPulling('kpis'); if (state.userId) scheduleKpis() })
     }
 
     // Auth state changes — when the user signs in *after* mount (e.g. from
@@ -1839,6 +1993,7 @@ export function useSupabaseSync() {
       state.labInit = false
       state.appPrefsInit = false
       state.mindmapInit = false
+      state.kpisInit = false
       if (newId) {
         initAllDomains().catch((e) => console.error('Init after auth change failed', e))
       }
@@ -1879,3 +2034,5 @@ export async function forceSyncAppPrefs() { await pushAppPrefs() }
 export async function forcePullAppPrefs() { return pullAppPrefs() }
 export async function forceSyncMindMaps() { await pushMindMaps() }
 export async function forcePullMindMaps() { return pullMindMaps() }
+export async function forceSyncKpis()     { await pushKpis() }
+export async function forcePullKpis()     { return pullKpis() }
