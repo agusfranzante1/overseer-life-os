@@ -41,6 +41,24 @@ function isFutureDate(d: Date) {
   return d.getTime() > t.getTime()
 }
 
+/** ¿La fecha dada cae fuera del set de `targetDays` del hábito Y es de
+ *  HOY en adelante? Si sí, esa celda queda "deshabilitada" en la grilla
+ *  (gris, no clickeable, excluida de stats). Pasado se respeta tal cual
+ *  fue marcado — no modificamos datos viejos cuando el user cambia los
+ *  días configurados.
+ *
+ *  - `targetDays === []` significa "todos los días" → nunca off-day.
+ *  - Fechas anteriores a `todayStr` siempre devuelven false (historial
+ *    intocable).
+ *  - `dateStr` debe ser YYYY-MM-DD y `dateObj` el Date correspondiente
+ *    (para sacarle el day-of-week sin re-parsear).
+ */
+function isOffDay(habit: Habit, dateStr: string, dateObj: Date, todayStr: string): boolean {
+  if (!habit.targetDays || habit.targetDays.length === 0) return false
+  if (dateStr < todayStr) return false
+  return !habit.targetDays.includes(dateObj.getDay())
+}
+
 function computeStreak(completedDates: string[]): number {
   if (completedDates.length === 0) return 0
   const sorted = [...completedDates].sort().reverse()
@@ -138,11 +156,20 @@ export function HabitsPage() {
     setShowForm(false)
   }
 
+  // Date object for "today" en local time — necesario para sacarle el
+  // day-of-week y aplicar isOffDay.
+  const todayDateObj = useMemo(() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d
+  }, [])
   const doneToday    = habits.filter((h) => h.completedDates.includes(today)).length
   const skippedToday = habits.filter((h) => (h.skippedDates ?? []).includes(today)).length
+  // Off-day para HOY: hábito con targetDays no incluye el día actual.
+  // Estos no cuentan ni en numerador ni en denominador (≈ skipped pero
+  // computado on-the-fly, sin tocar data).
+  const offToday     = habits.filter((h) => isOffDay(h, today, todayDateObj, today)).length
   const totalHabits  = habits.length
-  // Exclude skipped habits from the daily completion denominator.
-  const activeToday  = totalHabits - skippedToday
+  // Exclude skipped AND off-day habits from the daily completion denominator.
+  const activeToday  = totalHabits - skippedToday - offToday
   const completionRate = activeToday > 0 ? Math.round((doneToday / activeToday) * 100) : 0
   const bestStreak = habits.reduce((max, h) => Math.max(max, computeStreak(h.completedDates)), 0)
 
@@ -279,7 +306,6 @@ export function HabitsPage() {
               <TargetDaysPicker
                 targetDays={form.targetDays}
                 onChange={(days) => setForm((f) => ({ ...f, targetDays: days }))}
-                accentColor={form.color}
               />
               <span className="text-[10px] text-zinc-600 italic">
                 p.ej. Journal trading solo entre semana
@@ -412,12 +438,11 @@ export function HabitsPage() {
                           </button>
                         )}
                       </label>
-                      {/* Días en los que aplica el hábito (compact picker).
+                      {/* Días en los que aplica el hábito (📅 ícono).
                           Click → popover con presets + chips individuales. */}
                       <TargetDaysPicker
                         targetDays={habit.targetDays}
                         onChange={(days) => setHabitTargetDays(habit.id, days)}
-                        accentColor={habit.color}
                         compact
                       />
                     </div>
@@ -434,9 +459,24 @@ export function HabitsPage() {
                     const skipped = (habit.skippedDates ?? []).includes(ds)
                     const isToday = ds === today
                     const future = isFutureDate(weekDays[i])
+                    // Día "off" según targetDays: aplica de HOY en adelante,
+                    // nunca afecta pasado. Si está off → celda gris no
+                    // clickeable, no se puede marcar, no cuenta para stats.
+                    const off = isOffDay(habit, ds, weekDays[i], today)
                     const nextLabel = done ? 'marcar como N/A (no cuenta)'
                       : skipped ? 'volver a vacío'
                       : 'marcar como hecho'
+                    if (off) {
+                      return (
+                        <div
+                          key={ds}
+                          title={`${weekDays[i].toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' })} — día deshabilitado para este hábito`}
+                          className={`w-10 h-10 rounded-lg flex items-center justify-center bg-zinc-950/40 border border-zinc-900 cursor-not-allowed ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
+                        >
+                          <Minus className="w-3 h-3 text-zinc-700" />
+                        </div>
+                      )
+                    }
                     return (
                       <button key={ds}
                         onClick={() => toggleDate(habit.id, ds)}
@@ -486,6 +526,17 @@ export function HabitsPage() {
                 {(() => {
                   const skippedToday = (habit.skippedDates ?? []).includes(today)
                   const doneTodayHabit = habit.completedDates.includes(today)
+                  const offTodayHabit = isOffDay(habit, today, todayDateObj, today)
+                  if (offTodayHabit) {
+                    return (
+                      <div
+                        title="Día deshabilitado para este hábito"
+                        className="md:hidden shrink-0 rounded-lg flex items-center justify-center w-10 h-10 bg-zinc-950/40 border border-zinc-900 cursor-not-allowed"
+                      >
+                        <Minus className="w-3 h-3 text-zinc-700" />
+                      </div>
+                    )
+                  }
                   return (
                     <button onClick={() => toggleDate(habit.id, today)}
                       disabled={reorderMode}
@@ -613,10 +664,13 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
   const totalHabits = habits.length
 
   // For each day of the month (up to today): daily score =
-  //   completed / (totalHabits − skipped)
-  // Skipped habits are excluded from the average so "no entreno los domingos"
-  // doesn't drag your score down. If ALL habits are skipped that day, the
-  // score is null (no data point rendered).
+  //   completed / (totalHabits − skipped − off)
+  // Skipped habits are excluded so "no entreno los domingos" no penaliza.
+  // Off-day = hábito con targetDays que NO incluye ese día — pero SOLO
+  // aplica desde HOY en adelante (pasado intacto, así no rebuilden la
+  // historia al cambiar la config de días). Si ALL habits están skipped
+  // o off ese día, el score es null (no data point).
+  const todayStr = useMemo(() => dateToStr(today), [today])
   const series = useMemo(() => {
     if (totalHabits === 0) return []
     // Argentinian convention: L Ma Mi J V S D, using single letters with
@@ -630,12 +684,17 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
       const dateStr = dateToStr(d)
       const doneCount    = completedSets.reduce((acc, s) => acc + (s.has(dateStr) ? 1 : 0), 0)
       const skippedCount = skippedSets.reduce((acc, s) => acc + (s.has(dateStr) ? 1 : 0), 0)
-      const denominator = totalHabits - skippedCount
+      // Off-count: solo si la fecha es HOY o futura (acá la serie corta en
+      // today, así que en la práctica solo aplica al último bucket).
+      const offCount = dateStr >= todayStr
+        ? habits.reduce((acc, h) => acc + (isOffDay(h, dateStr, d, todayStr) ? 1 : 0), 0)
+        : 0
+      const denominator = totalHabits - skippedCount - offCount
       const score = denominator > 0 ? Math.round((doneCount / denominator) * 100) : null
       data.push({ day, date: dateStr, dailyScore: score, dayLetter: DAY_LETTERS[d.getDay()] })
     }
     return data
-  }, [completedSets, skippedSets, year, monthIdx, totalDays, today, totalHabits])
+  }, [completedSets, skippedSets, year, monthIdx, totalDays, today, todayStr, totalHabits, habits])
 
   if (series.length === 0) {
     return (
