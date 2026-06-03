@@ -139,6 +139,11 @@ async function pushTasks() {
     description: p.description ?? null,
     statuses: p.statuses,
     archived: !!p.archived,
+    // Flags de "system project" — sin esto el SPI auto-creado se
+    // duplicaba en cada cierre porque el pull no traía el tag y
+    // ensureSystemProject no lo encontraba.
+    is_system_project: p.isSystemProject ?? false,
+    system_project_key: p.systemProjectKey ?? null,
     created_at: p.createdAt,
   }))
 
@@ -248,6 +253,11 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
       taskIds: (tasksRes.data ?? []).filter((t: Row) => t.project_id === p.id).map((t: Row) => t.id as string),
       createdAt: p.created_at as string,
       archived: !!p.archived,
+      // Flags de "system project" — sin esto se duplicaba el proyecto
+      // SPI en cada cierre porque ensureSystemProject no encontraba
+      // el tag y creaba uno nuevo.
+      isSystemProject: !!(p.is_system_project as boolean),
+      systemProjectKey: (p.system_project_key as 'spi' | null) ?? undefined,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any])),
     tasks: Object.fromEntries((tasksRes.data ?? []).map((t: Row) => [t.id as string, {

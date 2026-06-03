@@ -147,26 +147,90 @@ export const useTasksStore = create<TasksState>()(
         })),
 
       ensureSystemProject: ({ systemProjectKey, name, color, icon }) => {
-        const existing = Object.values(get().projects).find(
+        const projects = Object.values(get().projects)
+
+        // Candidatos: cualquier proyecto que TENGA el tag de sistema, O
+        // que tenga el nombre convencional pero NO el tag (legacy: viene
+        // de un pull antes de que el sync incluyera systemProjectKey, o
+        // fue creado en otro device antes del fix).
+        const candidates = projects.filter(
           (p) => p.systemProjectKey === systemProjectKey
+            || (p.name === name && !p.systemProjectKey)
         )
-        if (existing) return existing.id
-        const id = genId()
-        set((s) => ({
-          projects: {
-            ...s.projects,
-            [id]: {
-              id, name, color, icon,
-              statuses: DEFAULT_STATUSES,
-              taskIds: [],
-              createdAt: new Date().toISOString(),
-              archived: false,
-              isSystemProject: true,
-              systemProjectKey,
+
+        if (candidates.length === 0) {
+          // Sin candidatos → crear fresh.
+          const id = genId()
+          set((s) => ({
+            projects: {
+              ...s.projects,
+              [id]: {
+                id, name, color, icon,
+                statuses: DEFAULT_STATUSES,
+                taskIds: [],
+                createdAt: new Date().toISOString(),
+                archived: false,
+                isSystemProject: true,
+                systemProjectKey,
+              },
             },
-          },
-        }))
-        return id
+          }))
+          return id
+        }
+
+        // Hay 1+ candidatos. Quedamos con el MÁS VIEJO (createdAt) — los
+        // demás son duplicados que se generaron por el bug del sync. Los
+        // mergeamos:
+        //   - taskIds: concatenamos todos en el "keep"
+        //   - tasks que apuntaban a duplicates → re-apuntan a keep
+        //   - duplicates se borran
+        //   - keep queda tagged con isSystemProject + systemProjectKey
+        //     (cura los legacy que pulleaste sin tag).
+        const sorted = [...candidates].sort((a, b) =>
+          (a.createdAt ?? '').localeCompare(b.createdAt ?? '')
+        )
+        const keep = sorted[0]
+        const duplicates = sorted.slice(1)
+
+        // Si hay un solo candidato Y ya está bien tagged, no tocamos nada.
+        if (duplicates.length === 0
+          && keep.systemProjectKey === systemProjectKey
+          && keep.isSystemProject) {
+          return keep.id
+        }
+
+        set((s) => {
+          const newProjects = { ...s.projects }
+          const newTasks = { ...s.tasks }
+
+          // Recolectar todos los taskIds (sin duplicar ids).
+          const mergedTaskIds = Array.from(new Set([
+            ...(newProjects[keep.id]?.taskIds ?? []),
+            ...duplicates.flatMap((d) => d.taskIds ?? []),
+          ]))
+
+          // Heal el "keep": agregar tag + flag + merge de taskIds.
+          newProjects[keep.id] = {
+            ...newProjects[keep.id],
+            isSystemProject: true,
+            systemProjectKey,
+            taskIds: mergedTaskIds,
+          }
+
+          // Re-apuntar las tasks de los duplicates al keep.
+          for (const d of duplicates) {
+            for (const tid of d.taskIds ?? []) {
+              if (newTasks[tid]) {
+                newTasks[tid] = { ...newTasks[tid], projectId: keep.id }
+              }
+            }
+            delete newProjects[d.id]
+          }
+
+          return { projects: newProjects, tasks: newTasks }
+        })
+
+        return keep.id
       },
 
       deleteProject: (id) =>
