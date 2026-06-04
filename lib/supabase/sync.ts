@@ -78,13 +78,48 @@ let appPrefsPushTimer: ReturnType<typeof setTimeout> | null = null
 let mindmapPushTimer: ReturnType<typeof setTimeout> | null = null
 let kpisPushTimer: ReturnType<typeof setTimeout> | null = null
 
+// Registro de push debounceados que están en cola. Lo usa
+// flushAllPendingPushes() para forzar TODO a salir antes de que el
+// browser pause el tab (visibilitychange → hidden, pagehide, etc.).
+// Map para que clearTimeout no dispare el push después de que ya lo
+// ejecutamos manualmente.
+const pendingPushes = new Map<() => Promise<void>, ReturnType<typeof setTimeout>>()
+
 function schedule(
   timer: ReturnType<typeof setTimeout> | null,
   fn: () => Promise<void>,
   setTimer: (t: ReturnType<typeof setTimeout>) => void,
 ) {
   if (timer) clearTimeout(timer)
-  setTimer(setTimeout(() => fn().catch((e) => reportSyncError(`Sync push failed: ${e?.message ?? e}`)), 1500))
+  const prev = pendingPushes.get(fn)
+  if (prev) clearTimeout(prev)
+  const newTimer = setTimeout(async () => {
+    pendingPushes.delete(fn)
+    try {
+      await fn()
+    } catch (e) {
+      reportSyncError(`Sync push failed: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }, 1500)
+  pendingPushes.set(fn, newTimer)
+  setTimer(newTimer)
+}
+
+/** Fuerza todos los push debounceados pendientes a salir AHORA, sin
+ *  esperar el delay de 1.5s. Llamado en `visibilitychange → hidden` y
+ *  `pagehide`, así si el user se va de la app (cierra tab, bloquea cel,
+ *  switchea de app), todo lo que estaba a punto de pushearse se sube
+ *  antes de que el browser pause el JS y los setTimeout se queden
+ *  colgados. Best-effort: si falla por la pausa, los timestamps siguen
+ *  marcando "unsynced" → al volver la app, push-first lo agarra. */
+export async function flushAllPendingPushes(): Promise<void> {
+  const toFlush = [...pendingPushes.entries()]
+  for (const [, timer] of toFlush) clearTimeout(timer)
+  pendingPushes.clear()
+  if (toFlush.length === 0) return
+  await Promise.allSettled(toFlush.map(([fn]) => fn().catch((e) => {
+    reportSyncError(`Flush push failed: ${e instanceof Error ? e.message : String(e)}`)
+  })))
 }
 
 /** Surface a sync failure to the user. Previously these were `console.error`
@@ -2026,11 +2061,112 @@ export function useSupabaseSync() {
       }
     })
 
+    // ── Auto-refresh al volver al tab / abrir la app ─────────────────────
+    //
+    // Caso de uso: cerrás la app en el cel, editás en la PC, abrís el cel
+    // de nuevo horas después. Antes solo pulleaba en mount (que ya pasó).
+    // Ahora también pulleamos cuando el tab vuelve a estar visible o
+    // recibe focus. Sin necesidad de tocar nada.
+    //
+    // Throttle de 30s para no pegarle a Supabase si alternás rápido entre
+    // tabs. El sync periódico de cambios locales ya tiene su propio
+    // debounce, esto es ADICIONAL para "trae lo último de otros devices".
+    let lastPullAt = 0
+    const PULL_THROTTLE_MS = 30_000
+
+    const tryAutoPull = async () => {
+      if (!state.userId) return
+      if (typeof document !== 'undefined' && document.hidden) return
+      const now = Date.now()
+      if (now - lastPullAt < PULL_THROTTLE_MS) return
+      lastPullAt = now
+
+      // Resetear init flags así initAllDomains corre las pulls de nuevo.
+      // Si hay cambios locales pendientes, push-first los sube primero
+      // (hasUnsyncedChanges los detecta). Si no, solo pull-first.
+      state.tasksInit = false
+      state.walletInit = false
+      state.tradingInit = false
+      state.habitsInit = false
+      state.gymBasicsInit = false
+      state.healthInit = false
+      state.chatInit = false
+      state.foodInit = false
+      state.spiInit = false
+      state.projectionInit = false
+      state.labInit = false
+      state.appPrefsInit = false
+      state.mindmapInit = false
+      state.kpisInit = false
+      try {
+        await initAllDomains()
+      } catch (e) {
+        console.error('Auto-pull on visibility failed', e)
+      }
+    }
+
+    const onVisibilityChange = () => {
+      if (typeof document === 'undefined') return
+      if (document.hidden) {
+        // ─── App se va a background ──────────────────────────────────────
+        // FLUSH inmediato de cualquier push debounceado pendiente. Sin
+        // esto, las ediciones que vos hiciste 0.5s antes de bloquear el
+        // cel quedaban con su debounce de 1.5s colgado — el browser
+        // pausa setTimeout cuando el tab no es visible, y cuando volvés
+        // 6h después esos pushes NUNCA se mandaron a Supabase mientras
+        // tanto. Otro device que abriste en el medio no vio tus cambios.
+        // Ahora forzamos el push antes de que el browser pause JS.
+        void flushAllPendingPushes()
+      } else {
+        tryAutoPull()
+      }
+    }
+    const onFocus = () => tryAutoPull()
+    // pagehide es más confiable que beforeunload en iOS Safari y se
+    // dispara también cuando el user va al app switcher. Mismo flush.
+    const onPageHide = () => { void flushAllPendingPushes() }
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange)
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', onFocus)
+      window.addEventListener('pagehide', onPageHide)
+    }
+
     return () => {
       mounted = false
       sub.subscription.unsubscribe()
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityChange)
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', onFocus)
+        window.removeEventListener('pagehide', onPageHide)
+      }
     }
   }, [])
+}
+
+// Sync forzado de TODOS los dominios — útil para un botón "Sync ahora" o
+// para llamar manualmente cuando el user lo necesita. Resetea init flags
+// y vuelve a correr todo el ciclo.
+export async function forceSyncAll(): Promise<void> {
+  state.tasksInit = false
+  state.walletInit = false
+  state.tradingInit = false
+  state.habitsInit = false
+  state.gymBasicsInit = false
+  state.healthInit = false
+  state.chatInit = false
+  state.foodInit = false
+  state.spiInit = false
+  state.projectionInit = false
+  state.labInit = false
+  state.appPrefsInit = false
+  state.mindmapInit = false
+  state.kpisInit = false
+  await initAllDomains()
 }
 
 // ─── Manual triggers ──────────────────────────────────────────────────────────

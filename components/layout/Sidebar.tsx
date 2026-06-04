@@ -380,8 +380,9 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* Bottom actions — timezone + language toggle + logout */}
+      {/* Bottom actions — sync + timezone + language toggle + logout */}
       <div className="border-t border-zinc-800 p-2 space-y-1">
+        <SyncNowButton collapsed={!showLabels} />
         <TimezoneButton collapsed={!showLabels} />
 
         <motion.button
@@ -419,6 +420,54 @@ export function Sidebar({
 }
 
 // ─── Timezone Button — popover with searchable list + auto-purge toggle ───────
+
+// Botón "Sincronizar ahora" — para que el user pueda forzar un sync
+// manual cuando algo no aparece (mobile recién abierto, o sospecha que
+// la data en otro device es más reciente). Muestra el estado: "Sync ✓"
+// cuando termina OK, "Sync..." cuando está corriendo, "Sync ↻" idle.
+function SyncNowButton({ collapsed }: { collapsed: boolean }) {
+  const [status, setStatus] = useState<'idle' | 'syncing' | 'ok' | 'err'>('idle')
+  const handleSync = async () => {
+    if (status === 'syncing') return
+    setStatus('syncing')
+    try {
+      // Lazy import — sync.ts solo se carga si el user tiene Supabase configurado.
+      const { forceSyncAll } = await import('@/lib/supabase/sync')
+      await forceSyncAll()
+      setStatus('ok')
+      setTimeout(() => setStatus('idle'), 2000)
+    } catch (e) {
+      console.error('Manual sync failed', e)
+      setStatus('err')
+      setTimeout(() => setStatus('idle'), 3000)
+    }
+  }
+  const label =
+    status === 'syncing' ? 'Sincronizando…' :
+    status === 'ok'      ? 'Sincronizado ✓' :
+    status === 'err'     ? 'Error — reintentar' :
+    'Sincronizar ahora'
+  const color =
+    status === 'ok'  ? 'text-emerald-400' :
+    status === 'err' ? 'text-red-400' :
+    'text-zinc-400'
+
+  return (
+    <motion.button
+      whileHover={{ scale: status === 'syncing' ? 1 : 1.02 }}
+      whileTap={{ scale: status === 'syncing' ? 1 : 0.97 }}
+      onClick={handleSync}
+      title={collapsed ? label : undefined}
+      disabled={status === 'syncing'}
+      className={`w-full flex items-center gap-3 ${collapsed ? 'justify-center px-2' : 'px-3'} py-2.5 rounded-lg hover:bg-zinc-800 transition-colors disabled:opacity-50 ${color}`}
+    >
+      <RotateCcw className={`w-4 h-4 shrink-0 ${status === 'syncing' ? 'animate-spin' : ''}`} />
+      {!collapsed && (
+        <span className="text-sm font-medium whitespace-nowrap">{label}</span>
+      )}
+    </motion.button>
+  )
+}
 
 function TimezoneButton({ collapsed }: { collapsed: boolean }) {
   const timezone = useAppStore((s) => s.timezone)
