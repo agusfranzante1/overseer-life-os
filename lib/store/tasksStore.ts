@@ -31,6 +31,12 @@ interface TasksState {
   setSelectedProject: (id: string | null) => void
   addStatusToProject: (projectId: string, status: Omit<CustomStatus, 'id'>) => void
   removeStatusFromProject: (projectId: string, statusId: string) => void
+  /** Migración one-shot: agrega el status "Waiting"/"Esperando" a cualquier
+   *  proyecto cuyo statuses[] no lo tenga todavía. Para proyectos viejos
+   *  pre-fix que solo tenían los 5 statuses originales. Idempotente: se
+   *  puede llamar muchas veces, los proyectos que ya tienen Waiting no se
+   *  tocan. */
+  ensureWaitingStatusInAllProjects: () => void
 
   // Task actions
   addTask: (t: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => string
@@ -246,6 +252,33 @@ export const useTasksStore = create<TasksState>()(
           )
           return { projects: rest, tasks }
         }),
+
+      ensureWaitingStatusInAllProjects: () => set((s) => {
+        // Una versión en inglés y una en español para no atropellar
+        // proyectos que el user haya creado en el otro idioma. Si el
+        // proyecto YA tiene un status con cualquiera de estos labels,
+        // no agregamos nada.
+        const WAITING_LABELS = new Set(['Waiting', 'Esperando'])
+        const newProjects = { ...s.projects }
+        let changed = false
+        for (const id of Object.keys(newProjects)) {
+          const proj = newProjects[id]
+          if (!proj?.statuses) continue
+          if (proj.statuses.some((st) => WAITING_LABELS.has(st.label))) continue
+          // Append al final con order = length actual (no renumeramos los
+          // existentes para no romper el orden si el user customizó).
+          const newStatus: CustomStatus = {
+            id: `waiting_${id.slice(0, 6)}`,
+            label: 'Waiting',
+            color: '#06b6d4',
+            order: proj.statuses.length,
+            countsAsDone: false,
+          }
+          newProjects[id] = { ...proj, statuses: [...proj.statuses, newStatus] }
+          changed = true
+        }
+        return changed ? { projects: newProjects } : s
+      }),
 
       addStatusToProject: (projectId, status) => {
         const id = genId()

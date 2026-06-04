@@ -591,6 +591,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                     onDueDateChange={(d) => updateSubtask(task.id, root.id, { dueDate: d })}
                     onDelete={() => deleteSubtask(task.id, root.id)}
                     onPromoteToTask={() => promoteSubtaskToTask(task.id, root.id)}
+                    onAddChild={() => { setAddingChildTo(root.id); setChildDraft('') }}
                     onOpenDetail={() => setDetailSubtaskId(root.id)}
                     onDragStart={onSubDragStart(root.id, hasChildren)}
                     onDragOver={onSubDragOver(root.id)}
@@ -645,22 +646,11 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                     </div>
                   ))}
 
-                  {/* "+ subtarea" shortcut — acceso directo para crear
-                      subtask2 dentro de cualquier subtask1, sin abrir
-                      modal de detalle. Antes se mostraba solo cuando ya
-                      había children; ahora aparece SIEMPRE para que se
-                      pueda crear la PRIMERA subtask2 también de un click. */}
-                  {!isCollapsed && addingChildTo !== root.id && (
-                    <button
-                      onClick={() => { setAddingChildTo(root.id); setChildDraft('') }}
-                      className="ml-12 w-[calc(100%-3rem)] text-left text-[11px] text-zinc-700 hover:text-indigo-300 hover:bg-indigo-500/5 px-2 py-1 rounded transition-colors flex items-center gap-1.5 opacity-50 hover:opacity-100"
-                      title={`Agregar subtarea dentro de "${root.title}"`}
-                    >
-                      <CornerDownRight className="w-2.5 h-2.5" />
-                      <Plus className="w-2.5 h-2.5" />
-                      <span>subtarea</span>
-                    </button>
-                  )}
+                  {/* CTA inline "+ subtarea" eliminado — el acceso para
+                      agregar subtask2 vive ahora 100% en el botón Plus de
+                      la fila de acciones del root (onAddChild). Mantenemos
+                      SOLO el input cuando ya se disparó addingChildTo,
+                      para que el formulario se renderee. */}
                   {!isCollapsed && addingChildTo === root.id && (
                     <form
                       onSubmit={(e) => {
@@ -880,6 +870,9 @@ interface InlineSubtaskProps {
    *  task madre nueva en el mismo proyecto, llevándose sus subtask2
    *  como subtask1 de la nueva madre. */
   onPromoteToTask?: () => void
+  /** Para subtask1 (root): dispara el flujo de agregar una subtask2
+   *  child. El parent (TaskCard) abre el input inline correspondiente. */
+  onAddChild?: () => void
   onOpenDetail: () => void
   onDragStart: (e: React.DragEvent) => void
   onDragOver: (e: React.DragEvent) => void
@@ -892,7 +885,7 @@ function InlineSubtask({
   subtask, hasChildren, childrenCollapsed, onToggleCollapse, isChild, progressLabel, isDragging, isOver,
   projectStatuses,
   onToggle, onRename, onPriorityChange, onStatusChange, onDueDateChange,
-  onDelete, onUngroup, onPromoteToTask, onOpenDetail,
+  onDelete, onUngroup, onPromoteToTask, onAddChild, onOpenDetail,
   onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd,
 }: InlineSubtaskProps) {
   const [editing, setEditing] = useState(false)
@@ -1168,6 +1161,20 @@ function InlineSubtask({
             }`}
           >
             ↗
+          </button>
+        )}
+        {/* "+" para agregar subtask2 — solo aparece en subtask1 (!isChild).
+            Para subtask2 (isChild=true) no tiene sentido porque el nesting
+            es de 1 solo nivel. La acción dispara onAddChild que el parent
+            (TaskCard) wirea al flujo inline existente (setAddingChildTo). */}
+        {!isChild && onAddChild && (
+          <button
+            data-interactive
+            onClick={(e) => { e.stopPropagation(); onAddChild() }}
+            title="Agregar subtarea adentro"
+            className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-indigo-300 transition-all p-0.5"
+          >
+            <Plus className="w-3.5 h-3.5" />
           </button>
         )}
         <button

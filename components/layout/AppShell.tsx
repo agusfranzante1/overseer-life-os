@@ -22,10 +22,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const timezone = useAppStore((s) => s.timezone)
   const autoPurgeCompletedTasks = useAppStore((s) => s.autoPurgeCompletedTasks)
   const archiveCompletedBefore = useTasksStore((s) => s.archiveCompletedBefore)
+  const ensureWaitingStatusInAllProjects = useTasksStore((s) => s.ensureWaitingStatusInAllProjects)
   const processRecurringExpenses = useWalletStore((s) => s.processRecurringExpenses)
   const sidebarWidth = sidebarCollapsed ? 64 : 220
 
   useSupabaseSync()
+
+  // Migración one-shot: agrega el status "Waiting" a proyectos viejos
+  // que solo tenían los 5 statuses originales. Idempotente — los
+  // proyectos que ya lo tienen no se tocan. Lo corremos al mount y de
+  // nuevo 10s después (mismo patrón que el auto-purge) para cubrir el
+  // caso donde los proyectos vienen de Supabase post-init.
+  useEffect(() => {
+    ensureWaitingStatusInAllProjects()
+    const late = setTimeout(() => ensureWaitingStatusInAllProjects(), 10_000)
+    return () => clearTimeout(late)
+  }, [ensureWaitingStatusInAllProjects])
 
   // Auto-purge completed tasks. Three triggers, layered for robustness:
   //   1. On mount (immediately) — covers most refreshes/visits

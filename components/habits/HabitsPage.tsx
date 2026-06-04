@@ -347,11 +347,13 @@ export function HabitsPage() {
         </div>
 
         {/* Day headers (visible on md+).
-            mr-[48px] = gap-4 (16px) + trash/reset width (~32px = 2 botones
-            w-3.5 con gap-1). Antes era mr-[40px] y los días aparecían 8px
-            corridos a la derecha de los dots. Con esto los labels caen
-            exactamente sobre cada celda. */}
-        <div className="hidden md:flex justify-end mb-2">
+            Alineación con los dots:
+              - pr-4: matchea el `px-4` que tiene el row de cada habit
+                (sin esto los headers quedaban 16px corridos a la derecha).
+              - mr-[48px] dentro del inner flex: deja espacio para los
+                botones de trash/reset (32px = 2 × w-3.5 con gap-1) +
+                el gap-4 (16px) que el row pone entre dots y trash. */}
+        <div className="hidden md:flex justify-end mb-2 pr-4">
           <div className="flex gap-1 mr-[48px]">
             {weekDays.map((d, i) => {
               const isToday = dateToStr(d) === today

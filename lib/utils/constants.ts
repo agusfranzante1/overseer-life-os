@@ -40,17 +40,22 @@ export const PROJECT_COLORS = [
 ]
 
 export const DEFAULT_STATUSES: CustomStatus[] = [
-  { id: 's1', label: 'To Do', color: '#6b7280', order: 0, countsAsDone: false },
+  { id: 's1', label: 'To Do',       color: '#6b7280', order: 0, countsAsDone: false },
   { id: 's2', label: 'In Progress', color: '#f59e0b', order: 1, countsAsDone: false },
-  { id: 's3', label: 'Done', color: '#10b981', order: 2, countsAsDone: true },
-  { id: 's4', label: 'Paused', color: '#6366f1', order: 3, countsAsDone: false },
-  { id: 's5', label: 'Postponed', color: '#94a3b8', order: 4, countsAsDone: false },
+  // Waiting = bloqueado por algo/alguien externo (distinto de Paused que
+  // es "auto-pausada"). Cyan para que se distinga visualmente del Paused
+  // (indigo) y del In Progress (amber).
+  { id: 's6', label: 'Waiting',     color: '#06b6d4', order: 2, countsAsDone: false },
+  { id: 's3', label: 'Done',        color: '#10b981', order: 3, countsAsDone: true },
+  { id: 's4', label: 'Paused',      color: '#6366f1', order: 4, countsAsDone: false },
+  { id: 's5', label: 'Postponed',   color: '#94a3b8', order: 5, countsAsDone: false },
 ]
 
 export const DEFAULT_STATUSES_ES: CustomStatus[] = [
-  { id: 's1', label: 'Hacer', color: '#6b7280', order: 0, countsAsDone: false },
-  { id: 's2', label: 'Haciendo', color: '#f59e0b', order: 1, countsAsDone: false },
-  { id: 's3', label: 'Hecho', color: '#10b981', order: 2, countsAsDone: true },
-  { id: 's4', label: 'Pausado', color: '#6366f1', order: 3, countsAsDone: false },
-  { id: 's5', label: 'Pospuesto', color: '#94a3b8', order: 4, countsAsDone: false },
+  { id: 's1', label: 'Hacer',     color: '#6b7280', order: 0, countsAsDone: false },
+  { id: 's2', label: 'Haciendo',  color: '#f59e0b', order: 1, countsAsDone: false },
+  { id: 's6', label: 'Esperando', color: '#06b6d4', order: 2, countsAsDone: false },
+  { id: 's3', label: 'Hecho',     color: '#10b981', order: 3, countsAsDone: true },
+  { id: 's4', label: 'Pausado',   color: '#6366f1', order: 4, countsAsDone: false },
+  { id: 's5', label: 'Pospuesto', color: '#94a3b8', order: 5, countsAsDone: false },
 ]
