@@ -348,6 +348,13 @@ export const useTasksStore = create<TasksState>()(
           //   - transitioning OUT of a countsAsDone status → clear completedAt
           //     (so the auto-purge doesn't reap a re-opened task tomorrow)
           let completedAtPatch: { completedAt?: string | undefined } = {}
+          // Auto-downgrade de prioridad cuando se pausa: si transicionás
+          // a Paused/Pausado, la urgencia ya no aplica (algo está bloqueado
+          // o lo dejaste en standby). Bajamos a 'low' SOLO si el user no
+          // está ya mandando un priority explícito en la misma patch
+          // (respetamos su intent si la cambió a propósito).
+          const PAUSED_LABELS = new Set(['Paused', 'Pausado'])
+          let priorityPatch: { priority?: import('@/types').Priority } = {}
           if (typeof patch.status === 'string' && patch.status !== prev.status) {
             const proj = s.projects[prev.projectId]
             const newStatusDef = proj?.statuses.find((st) => st.label === patch.status)
@@ -356,6 +363,9 @@ export const useTasksStore = create<TasksState>()(
               completedAtPatch = { completedAt: new Date().toISOString() }
             } else if (!newStatusDef?.countsAsDone && oldStatusDef?.countsAsDone) {
               completedAtPatch = { completedAt: undefined }
+            }
+            if (PAUSED_LABELS.has(patch.status) && patch.priority === undefined) {
+              priorityPatch = { priority: 'low' }
             }
           }
 
@@ -366,7 +376,7 @@ export const useTasksStore = create<TasksState>()(
             durationPatch.durationMinutes = 60
           }
 
-          const merged = { ...prev, ...patch, ...completedAtPatch, ...durationPatch, updatedAt: new Date().toISOString() }
+          const merged = { ...prev, ...patch, ...completedAtPatch, ...priorityPatch, ...durationPatch, updatedAt: new Date().toISOString() }
           nextTask = merged
 
           // Decidir si re-sincronizar a GCal. Trigger cuando cambia algo
@@ -998,6 +1008,9 @@ export const useTasksStore = create<TasksState>()(
                 // If the status changed, mirror Task: stamp/clear completedAt
                 // when transitioning across the countsAsDone boundary. El
                 // auto-purge usa completedAt para archivar al día siguiente.
+                // También: si pasa a Paused/Pausado, bajamos la priority
+                // a 'low' (mismo comportamiento que en Task madre).
+                const PAUSED_LABELS = new Set(['Paused', 'Pausado'])
                 if (typeof patch.status === 'string' && patch.status !== st.status) {
                   const newStatusDef = proj?.statuses.find((sd) => sd.label === patch.status)
                   const oldStatusDef = proj?.statuses.find((sd) => sd.label === st.status)
@@ -1005,6 +1018,9 @@ export const useTasksStore = create<TasksState>()(
                     completedPatch = { completed: true, completedAt: new Date().toISOString() }
                   } else if (!newStatusDef?.countsAsDone && oldStatusDef?.countsAsDone) {
                     completedPatch = { completed: false, completedAt: undefined }
+                  }
+                  if (PAUSED_LABELS.has(patch.status) && patch.priority === undefined) {
+                    completedPatch = { ...completedPatch, priority: 'low' }
                   }
                 }
                 return { ...st, ...patch, ...completedPatch }
