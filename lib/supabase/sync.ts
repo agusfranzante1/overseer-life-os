@@ -164,6 +164,14 @@ async function pushTasks() {
     archived_at: t.archivedAt ?? null,
     postponed_count: t.postponedCount ?? 0,
     category: t.category ?? null,
+    // Campos que faltaban — sin esto el pull borraba dueTime, duration,
+    // gcal linkage, etc. Requiere migration_tasks_time_gcal_fields.sql.
+    due_time:              t.dueTime              ?? null,
+    duration_minutes:      t.durationMinutes      ?? null,
+    gcal_event_id:         t.gcalEventId          ?? null,
+    gcal_calendar_id:      t.gcalCalendarId       ?? null,
+    notify_before_minutes: t.notifyBeforeMinutes  ?? null,
+    recurrence:            t.recurrence           ?? null,
     created_at: t.createdAt,
     updated_at: t.updatedAt,
   }))
@@ -296,6 +304,15 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
       updatedAt: t.updated_at as string,
       postponedCount: (t.postponed_count as number) ?? 0,
       category: (t.category as string) ?? undefined,
+      // Campos antes faltantes — sin esto se perdía la hora del bloque
+      // del calendario, la duración, el linkage con GCal y la recurrencia
+      // en cada pull.
+      dueTime:              (t.due_time              as string) ?? undefined,
+      durationMinutes:      (t.duration_minutes      as number) ?? undefined,
+      gcalEventId:          (t.gcal_event_id         as string) ?? undefined,
+      gcalCalendarId:       (t.gcal_calendar_id      as string) ?? undefined,
+      notifyBeforeMinutes:  (t.notify_before_minutes as number) ?? undefined,
+      recurrence:           (t.recurrence            as import('@/types').TaskRecurrence) ?? undefined,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any])),
   })
