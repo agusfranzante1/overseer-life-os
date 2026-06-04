@@ -44,9 +44,26 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
     useTaskUiStore.getState().setTaskExpanded(task.id, value)
   }
   const [newSubtask, setNewSubtask] = useState('')
+  // Ref + flag para que el "+" de acción foque el input de subtask1 al click.
+  // Si la card está colapsada, primero expandimos y después focamos en el
+  // useEffect (porque el input no existe en el DOM hasta que expanded=true).
+  const subtaskInputRef = useRef<HTMLInputElement>(null)
+  const [shouldFocusSubtaskInput, setShouldFocusSubtaskInput] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.title)
   useEffect(() => { if (!editingTitle) setTitleDraft(task.title) }, [task.title, editingTitle])
+
+  // Cuando el user clickea el "+" de la fila de acciones queremos
+  // que la card quede expandida Y el input de "Nueva subtarea" esté
+  // focado y listo para tipear. Como el input se monta cuando
+  // expanded=true, lo seteamos como pedido y este effect lo cumple
+  // en el próximo render.
+  useEffect(() => {
+    if (shouldFocusSubtaskInput && expanded && subtaskInputRef.current) {
+      subtaskInputRef.current.focus()
+      setShouldFocusSubtaskInput(false)
+    }
+  }, [shouldFocusSubtaskInput, expanded])
 
   const isDone = project.statuses.find((s) => s.label === task.status)?.countsAsDone
   // Archived subtasks are hidden from all counters and the tree below.
@@ -472,6 +489,22 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                 {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
               </button>
             )}
+            {/* "+" rápido para agregar subtask1 sin abrir el modal de
+                detalle. Si la card está colapsada, la expandimos. El
+                flag `shouldFocusSubtaskInput` triggera el useEffect que
+                fija el foco una vez que el input ya está montado. */}
+            <button
+              data-interactive
+              onClick={(e) => {
+                e.stopPropagation()
+                if (!expanded) setExpanded(true)
+                setShouldFocusSubtaskInput(true)
+              }}
+              className="text-zinc-600 hover:text-indigo-300 transition-colors p-1"
+              title="Agregar subtarea"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
             <button
               data-interactive
               onClick={(e) => { e.stopPropagation(); postponeTask(task.id) }}
@@ -612,17 +645,15 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                     </div>
                   ))}
 
-                  {/* "+ subtarea" shortcut — only shown for subtask1 that
-                      ALREADY has at least one child. Once you've added the
-                      first child via the "..." menu (SubtaskDetailModal),
-                      the subtask is considered a "sub-project" and the
-                      inline shortcut appears here for rapid-fire additions.
-                      This keeps the visual list of flat subtask1's clean —
-                      we don't pollute every row with a "+ subtarea" CTA. */}
-                  {hasChildren && !isCollapsed && addingChildTo !== root.id && (
+                  {/* "+ subtarea" shortcut — acceso directo para crear
+                      subtask2 dentro de cualquier subtask1, sin abrir
+                      modal de detalle. Antes se mostraba solo cuando ya
+                      había children; ahora aparece SIEMPRE para que se
+                      pueda crear la PRIMERA subtask2 también de un click. */}
+                  {!isCollapsed && addingChildTo !== root.id && (
                     <button
                       onClick={() => { setAddingChildTo(root.id); setChildDraft('') }}
-                      className="ml-12 w-[calc(100%-3rem)] text-left text-[11px] text-zinc-700 hover:text-indigo-300 hover:bg-indigo-500/5 px-2 py-1 rounded transition-colors flex items-center gap-1.5 opacity-60 hover:opacity-100"
+                      className="ml-12 w-[calc(100%-3rem)] text-left text-[11px] text-zinc-700 hover:text-indigo-300 hover:bg-indigo-500/5 px-2 py-1 rounded transition-colors flex items-center gap-1.5 opacity-50 hover:opacity-100"
                       title={`Agregar subtarea dentro de "${root.title}"`}
                     >
                       <CornerDownRight className="w-2.5 h-2.5" />
@@ -630,7 +661,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                       <span>subtarea</span>
                     </button>
                   )}
-                  {hasChildren && !isCollapsed && addingChildTo === root.id && (
+                  {!isCollapsed && addingChildTo === root.id && (
                     <form
                       onSubmit={(e) => {
                         e.preventDefault()
@@ -677,6 +708,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
           </div>
           <form onSubmit={handleAddSubtask} className="mt-2 flex items-center gap-1">
             <input
+              ref={subtaskInputRef}
               value={newSubtask}
               onChange={(e) => setNewSubtask(e.target.value)}
               placeholder={t('tasks.addSubtask')}
@@ -699,6 +731,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
         >
           <form onSubmit={handleAddSubtask} className="flex items-center gap-1">
             <input
+              ref={subtaskInputRef}
               value={newSubtask}
               onChange={(e) => setNewSubtask(e.target.value)}
               placeholder={t('tasks.addSubtask')}
