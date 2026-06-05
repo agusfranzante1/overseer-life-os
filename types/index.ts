@@ -45,6 +45,12 @@ export interface Subtask {
    *  — useful for sub-projects within a project where chunks have their
    *  own delivery dates. */
   dueDate?: string
+  /** Hora opcional para la dueDate (HH:MM, 24h). Cuando está presente +
+   *  hay dueDate, el calendario renderiza la subtarea como un bloque
+   *  timeado igual que las tareas madre. */
+  dueTime?: string
+  /** Duración del bloque en minutos cuando hay `dueTime`. Default 30. */
+  durationMinutes?: number
   /** Optional short description / context, surfaced in the detail modal. */
   description?: string
 }

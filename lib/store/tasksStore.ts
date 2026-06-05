@@ -422,11 +422,52 @@ export const useTasksStore = create<TasksState>()(
       },
 
       completeTask: (id) => {
+        // Toggle: si ya está completada, REVIERTE a To Do (limpia
+        // completedAt + status al primer status NO-done del proyecto).
+        // Si no está completada, la marca como done normalmente.
+        // Mirrors el comportamiento de toggleSubtask, que también permite
+        // des-completar con un segundo click.
+        const taskBefore = get().tasks[id]
+        if (!taskBefore) return
+        const projBefore = get().projects[taskBefore.projectId]
+        const wasDone = !!taskBefore.completedAt
+          || !!projBefore?.statuses.find((st) => st.label === taskBefore.status)?.countsAsDone
+
+        if (wasDone) {
+          // ── Revertir a To Do
+          set((s) => {
+            const task = s.tasks[id]
+            if (!task) return s
+            const proj = s.projects[task.projectId]
+            const todoStatus =
+              proj?.statuses.find((st) => !st.countsAsDone)?.label
+              ?? proj?.statuses[0]?.label
+              ?? 'To Do'
+            const now = new Date().toISOString()
+            return {
+              tasks: {
+                ...s.tasks,
+                [id]: {
+                  ...task,
+                  status: todoStatus,
+                  completedAt: undefined,
+                  // archivedAt también limpio: si el auto-purge ya la mandó
+                  // a la papelera y el user la desmarca, debe volver al
+                  // listado activo.
+                  archivedAt: undefined,
+                  updatedAt: now,
+                },
+              },
+            }
+          })
+          return
+        }
+
+        // ── Marcar como done (camino original) ──
         // Unlink del evento GCal — la task completada deja de ocupar
         // espacio en el calendario. Pre-set para tener los IDs antes
         // de que el state.tasks[id] cambie.
-        const taskBefore = get().tasks[id]
-        if (taskBefore?.gcalEventId && taskBefore?.gcalCalendarId) {
+        if (taskBefore.gcalEventId && taskBefore.gcalCalendarId) {
           unlinkTaskFromGcal(taskBefore).catch(() => { /* noop */ })
         }
         set((s) => {
@@ -622,34 +663,53 @@ export const useTasksStore = create<TasksState>()(
       archiveCompletedBefore: (todayKey, timezone) => {
         let archived = 0
         const nowIso = new Date().toISOString()
+
+        // Política: las tareas completadas se quedan visibles hasta que
+        // termine la semana que las contiene (lunes a domingo). Recién el
+        // lunes siguiente se archivan. Esto permite ver el "qué hice esta
+        // semana" en el calendario hasta el cierre semanal del SPI.
+        // Returns YYYY-MM-DD del domingo de la semana de dateKey.
+        const endOfWeekKey = (dateKey: string): string => {
+          const [y, m, d] = dateKey.split('-').map(Number)
+          // Usamos noon para evitar bordes raros con DST.
+          const date = new Date(y, m - 1, d, 12, 0, 0)
+          const dow = date.getDay()  // 0=Dom, 1=Lun, ..., 6=Sáb
+          const daysUntilSunday = dow === 0 ? 0 : 7 - dow
+          date.setDate(date.getDate() + daysUntilSunday)
+          const yy = date.getFullYear()
+          const mm = String(date.getMonth() + 1).padStart(2, '0')
+          const dd = String(date.getDate()).padStart(2, '0')
+          return `${yy}-${mm}-${dd}`
+        }
+
         set((s) => {
           const tasks = { ...s.tasks }
           for (const t of Object.values(tasks)) {
             const proj = s.projects[t.projectId]
             if (!proj) continue
 
-            // ── Subtasks: archive any subtask whose completedAt rolled
-            // over the day boundary, regardless of whether the parent task
-            // is done. They behave like mini-tasks: complete → live one
-            // more day → trash. The archived ones stay in the parent's
-            // subtasks array (with archivedAt set) so they can be
-            // recovered, but the UI hides them by default.
+            // ── Subtasks: archive any subtask whose completion week has
+            // ended (domingo pasado). El archived queda en el array de la
+            // task madre para que se pueda recuperar; la UI lo oculta.
             const updatedSubs = (t.subtasks ?? []).map((st) => {
               if (st.archivedAt) return st
               if (!st.completed || !st.completedAt) return st
               const stKey = dateKeyInTz(new Date(st.completedAt), timezone)
-              if (stKey >= todayKey) return st
+              if (endOfWeekKey(stKey) >= todayKey) return st  // todavía dentro de la semana
               archived++
               return { ...st, archivedAt: nowIso }
             })
             const subsChanged = updatedSubs.some((st, i) => st !== t.subtasks?.[i])
 
-            // ── Parent task: original logic — archive once it's done.
+            // ── Parent task: archivar cuando la semana de la completion ya
+            // terminó. Antes era "completedKey < todayKey" (1 día). Ahora
+            // es "endOfWeekKey(completedKey) < todayKey" (queda toda la
+            // semana visible).
             if (!t.archivedAt) {
               const statusDef = proj.statuses.find((st) => st.label === t.status)
               if (statusDef?.countsAsDone && t.completedAt) {
                 const completedKey = dateKeyInTz(new Date(t.completedAt), timezone)
-                if (completedKey < todayKey) {
+                if (endOfWeekKey(completedKey) < todayKey) {
                   tasks[t.id] = { ...t, subtasks: updatedSubs, archivedAt: nowIso }
                   archived++
                   continue
@@ -867,6 +927,8 @@ export const useTasksStore = create<TasksState>()(
           priority: sub.priority ?? 'medium',
           importance: source.importance,
           dueDate: sub.dueDate,
+          dueTime: sub.dueTime,
+          durationMinutes: sub.durationMinutes,
           notes: sub.notes,
           subtasks: newRootSubs,
           createdAt: nowIso,

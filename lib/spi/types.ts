@@ -170,6 +170,11 @@ export interface SPISession {
    *  + KPIs de la semana. Imagen congelada para que la revisión histórica
    *  sobreviva a cambios futuros en el hábito (renombrar, borrar, etc.). */
   weekSnapshot?: WeekClosureSnapshot
+  /** Snapshot del CALENDARIO de la semana — congela los bloques timeados
+   *  (eventos GCal + tareas/subtareas con dueTime) tal como quedaron al
+   *  cierre, con su estado de completion. Permite ver semana a semana
+   *  cómo se organizó el tiempo y qué se cumplió de lo planeado. */
+  calendarSnapshot?: CalendarWeekSnapshot
 }
 
 /** Captura al cerrar una semana SPI: estado de hábitos de los 7 días que
@@ -203,4 +208,46 @@ export interface WeekClosureSnapshot {
    *  Snapshot porque la library puede cambiar después; lo congelado acá
    *  preserva nombre/target/valor del momento del cierre. */
   kpis?: import('@/lib/kpi/types').KPISnapshot[]
+}
+
+/** Bloque timeado capturado dentro de la semana. Mantiene lo mínimo
+ *  para re-renderizar el grid en la revisión histórica sin depender de
+ *  la fuente original (que puede haber cambiado o desaparecido). */
+export interface CalendarSnapshotBlock {
+  id: string
+  /** Título visible — copiado tal cual estaba al cierre. */
+  summary: string
+  /** ISO con offset local — la hora que el usuario quiso. */
+  start: string
+  end: string
+  /** Color hex para repintarlo igual que en su momento. */
+  color: string
+  /** Fuente del bloque: 'gcal' para eventos de Google Calendar,
+   *  'task' para tareas madre con dueTime, 'subtask' para subtareas
+   *  con dueTime. La UI usa esto para iconografía. */
+  source: 'gcal' | 'task' | 'subtask'
+  /** True si la task/subtask estaba completada al momento del cierre.
+   *  Para fuente 'gcal' siempre false. */
+  isCompleted: boolean
+}
+
+/** Snapshot del calendario semanal — se captura cuando se cierra el
+ *  SPI semanal. Conserva el "qué planeé" + "qué cumplí" de los bloques
+ *  timeados de los 7 días (lunes a domingo).
+ *
+ *  Nota: usamos lunes-a-domingo (no sábado-a-viernes como WeekClosureSnapshot)
+ *  porque el calendario visual siempre empieza el lunes. Para el render
+ *  histórico recomputamos el lunes desde `weekStartDate`. */
+export interface CalendarWeekSnapshot {
+  /** ISO YYYY-MM-DD del lunes que arranca la semana del calendario. */
+  weekStartDate: string
+  /** ISO timestamp del momento de captura. */
+  capturedAt: string
+  /** Todos los bloques timeados de los 7 días. Pueden venir desordenados
+   *  — el renderer los agrupa por día via parseISO(start).slice(0,10). */
+  blocks: CalendarSnapshotBlock[]
+  /** Total de bloques que eran tareas/subtareas planificadas, para el
+   *  contador rápido "X de Y completadas". */
+  tasksTotal: number
+  tasksDone: number
 }

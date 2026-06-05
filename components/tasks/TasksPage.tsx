@@ -434,49 +434,77 @@ function sortTasks(
   statusOrder: Map<string, number> | null = null,
 ): Task[] {
   const arr = [...tasks]
-  switch (mode) {
-    case 'priority':
-      // Ordena por prioridad EFECTIVA (escala a 'high' si hay subtarea
-      // urgente abierta) — para que las madres con hijas urgentes suban
-      // al tope del listado igual que las urgentes nativas.
-      return arr.sort((a, b) => (PRIORITY_RANK[effectivePriority(a)] ?? 9) - (PRIORITY_RANK[effectivePriority(b)] ?? 9))
-    case 'priorityAsc':
-      return arr.sort((a, b) => (PRIORITY_RANK[effectivePriority(b)] ?? 9) - (PRIORITY_RANK[effectivePriority(a)] ?? 9))
-    case 'status':
-      return arr.sort((a, b) => {
+
+  // Tiebreaker dentro del mismo bucket (misma prioridad, mismo status, etc).
+  // Por convención del usuario: las tareas RECIÉN AGREGADAS se quedan al
+  // final, las viejas arriba. Usa createdAt ascendente (más viejas primero).
+  const ageTiebreak = (a: Task, b: Task) => a.createdAt.localeCompare(b.createdAt)
+
+  // Mode-specific comparator (sin la regla "completadas arriba" que se
+  // aplica como override después).
+  const byMode = (a: Task, b: Task): number => {
+    switch (mode) {
+      case 'priority': {
+        const pdiff = (PRIORITY_RANK[effectivePriority(a)] ?? 9) - (PRIORITY_RANK[effectivePriority(b)] ?? 9)
+        if (pdiff !== 0) return pdiff
+        return ageTiebreak(a, b)
+      }
+      case 'priorityAsc': {
+        const pdiff = (PRIORITY_RANK[effectivePriority(b)] ?? 9) - (PRIORITY_RANK[effectivePriority(a)] ?? 9)
+        if (pdiff !== 0) return pdiff
+        return ageTiebreak(a, b)
+      }
+      case 'status': {
         if (statusOrder) {
           const oa = statusOrder.get(a.status) ?? 999
           const ob = statusOrder.get(b.status) ?? 999
           if (oa !== ob) return oa - ob
         }
-        return a.status.localeCompare(b.status)
-      })
-    case 'statusReverse':
-      return arr.sort((a, b) => {
+        const sd = a.status.localeCompare(b.status)
+        return sd !== 0 ? sd : ageTiebreak(a, b)
+      }
+      case 'statusReverse': {
         if (statusOrder) {
           const oa = statusOrder.get(a.status) ?? 999
           const ob = statusOrder.get(b.status) ?? 999
           if (oa !== ob) return ob - oa
         }
-        return b.status.localeCompare(a.status)
-      })
-    case 'dueDate':
-      return arr.sort((a, b) => {
-        if (!a.dueDate && !b.dueDate) return 0
+        const sd = b.status.localeCompare(a.status)
+        return sd !== 0 ? sd : ageTiebreak(a, b)
+      }
+      case 'dueDate': {
+        if (!a.dueDate && !b.dueDate) return ageTiebreak(a, b)
         if (!a.dueDate) return 1
         if (!b.dueDate) return -1
-        return a.dueDate.localeCompare(b.dueDate)
-      })
-    case 'alphabetical':
-      return arr.sort((a, b) => a.title.localeCompare(b.title))
-    case 'newest':
-      return arr.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    case 'oldest':
-      return arr.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    case 'manual':
-    default:
-      return arr
+        const dd = a.dueDate.localeCompare(b.dueDate)
+        return dd !== 0 ? dd : ageTiebreak(a, b)
+      }
+      case 'alphabetical': {
+        const td = a.title.localeCompare(b.title)
+        return td !== 0 ? td : ageTiebreak(a, b)
+      }
+      case 'newest':
+        return b.createdAt.localeCompare(a.createdAt)
+      case 'oldest':
+        return a.createdAt.localeCompare(b.createdAt)
+      case 'manual':
+      default:
+        // En manual respetamos la posición del array (que el store
+        // mantiene vía taskIds, con append al final en addTask).
+        return 0
+    }
   }
+
+  return arr.sort((a, b) => {
+    // Regla #1 (override siempre): las COMPLETADAS van arriba del todo
+    // dentro de cada proyecto. Mirrors `sortSubtasks` para que tasks y
+    // subtasks se comporten igual visualmente.
+    const aDone = !!a.completedAt
+    const bDone = !!b.completedAt
+    if (aDone !== bDone) return aDone ? -1 : 1
+    // Regla #2: dentro del bucket, comparator del modo activo.
+    return byMode(a, b)
+  })
 }
 
 // Sentinel — when selectedProjectId equals this, we're in the archive view

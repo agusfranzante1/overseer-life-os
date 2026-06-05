@@ -48,34 +48,49 @@ export function sortSubtasks(
     ? new Map(project.statuses.map((s) => [s.label, s.order]))
     : null
 
+  // Tiebreaker para "recién agregadas al final": el campo `order` lo
+  // setea addSubtask a `subtasks.length` cuando se crea, así que
+  // ascendiente refleja orden de inserción (oldest → newest).
+  const ageTiebreak = (a: Subtask, b: Subtask) => a.order - b.order
+
   const secondary = (a: Subtask, b: Subtask): number => {
     switch (mode) {
-      case 'priority':
-        return (PRIORITY_RANK[a.priority ?? 'low'] ?? 9) - (PRIORITY_RANK[b.priority ?? 'low'] ?? 9)
-      case 'priorityAsc':
-        return (PRIORITY_RANK[b.priority ?? 'low'] ?? 9) - (PRIORITY_RANK[a.priority ?? 'low'] ?? 9)
-      case 'status':
+      case 'priority': {
+        const d = (PRIORITY_RANK[a.priority ?? 'low'] ?? 9) - (PRIORITY_RANK[b.priority ?? 'low'] ?? 9)
+        return d !== 0 ? d : ageTiebreak(a, b)
+      }
+      case 'priorityAsc': {
+        const d = (PRIORITY_RANK[b.priority ?? 'low'] ?? 9) - (PRIORITY_RANK[a.priority ?? 'low'] ?? 9)
+        return d !== 0 ? d : ageTiebreak(a, b)
+      }
+      case 'status': {
         if (statusOrder) {
           const oa = statusOrder.get(a.status) ?? 999
           const ob = statusOrder.get(b.status) ?? 999
           if (oa !== ob) return oa - ob
         }
-        return a.status.localeCompare(b.status)
-      case 'statusReverse':
+        const d = a.status.localeCompare(b.status)
+        return d !== 0 ? d : ageTiebreak(a, b)
+      }
+      case 'statusReverse': {
         if (statusOrder) {
           const oa = statusOrder.get(a.status) ?? 999
           const ob = statusOrder.get(b.status) ?? 999
           if (oa !== ob) return ob - oa
         }
-        return b.status.localeCompare(a.status)
+        const d = b.status.localeCompare(a.status)
+        return d !== 0 ? d : ageTiebreak(a, b)
+      }
       case 'dueDate':
         // Subtasks tienen dueDate opcional. Sin fecha → al final.
-        if (!a.dueDate && !b.dueDate) return a.order - b.order
+        if (!a.dueDate && !b.dueDate) return ageTiebreak(a, b)
         if (!a.dueDate) return 1
         if (!b.dueDate) return -1
-        return a.dueDate.localeCompare(b.dueDate)
-      case 'alphabetical':
-        return a.title.localeCompare(b.title)
+        return a.dueDate.localeCompare(b.dueDate) || ageTiebreak(a, b)
+      case 'alphabetical': {
+        const d = a.title.localeCompare(b.title)
+        return d !== 0 ? d : ageTiebreak(a, b)
+      }
       case 'newest':
         // Subtasks no tienen createdAt — usamos id que tiene timestamp
         // embebido al final (ver `genId()`). Aproximación suficiente

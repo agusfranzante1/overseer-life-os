@@ -56,15 +56,28 @@ export function TaskDetail({ task, project, onClose }: Props) {
   // Final safety net: when this component unmounts, commit any text
   // that might still be in the buffer but not yet persisted (e.g. if
   // the modal closed in the same React tick as a keystroke).
+  //
+  // IMPORTANTE: solo escribimos al store si los buffers REALMENTE
+  // difieren del valor actual. Antes esto disparaba un updateTask
+  // incondicional al cerrar el modal, lo que generaba un push spurious
+  // que podía pisar otros cambios (p. ej. una completeTask reciente
+  // si el push llegaba antes que el pull devolviera el estado nuevo).
   useEffect(() => {
     return () => {
       const id = taskIdRef.current
       if (!id) return
-      updateTask(id, {
-        title: titleRef.current,
-        description: descRef.current || undefined,
-        notes: notesRef.current || undefined,
-      })
+      // Leemos el estado vivo al momento del unmount para comparar.
+      const current = useTasksStore.getState().tasks[id]
+      if (!current) return
+      const patch: Partial<import('@/types').Task> = {}
+      const newTitle = titleRef.current
+      const newDesc  = descRef.current || undefined
+      const newNotes = notesRef.current || undefined
+      if (newTitle !== current.title) patch.title = newTitle
+      if (newDesc !== (current.description || undefined)) patch.description = newDesc
+      if (newNotes !== (current.notes || undefined)) patch.notes = newNotes
+      if (Object.keys(patch).length === 0) return  // nada cambió → no spurious update
+      updateTask(id, patch)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

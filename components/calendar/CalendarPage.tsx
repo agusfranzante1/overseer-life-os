@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useTranslation } from '@/hooks/useTranslation'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { TaskDetail } from '@/components/tasks/TaskDetail'
+import { SubtaskDetailModal } from '@/components/tasks/SubtaskDetailModal'
 import { expandRecurrenceInRange } from '@/lib/utils/taskRecurrence'
 import { useGoogleCalendarStore, resolveEventColor, contrastText, type GEvent, type GCalendar } from '@/lib/store/googleCalendarStore'
 import {
@@ -16,16 +17,19 @@ import {
   ChevronLeft, ChevronRight, Calendar, Plus, RefreshCw, Trash2, X,
   Link as LinkIcon, Eye, EyeOff, LogOut, ExternalLink, AlertCircle,
   LayoutGrid, Rows, Moon, Sun, Settings as SettingsIcon,
-  PanelRightOpen, PanelRightClose,
+  PanelRightOpen, PanelRightClose, Check, Circle,
 } from 'lucide-react'
 
 type ViewMode = 'month' | 'week'
 
 export function CalendarPage() {
   const { t, tArray } = useTranslation()
-  const { tasks, projects, updateTask } = useTasksStore()
+  const { tasks, projects, updateTask, updateSubtask, completeTask, toggleSubtask } = useTasksStore()
   // Selección de task para abrir el detalle al click en un bloque sintético.
   const [selectedTask, setSelectedTask] = useState<import('@/types').Task | null>(null)
+  // Selección de subtarea (taskId + subtaskId) — abre el SubtaskDetailModal
+  // cuando el user clickea un bloque sintético `subtask:*` en el calendario.
+  const [selectedSubtask, setSelectedSubtask] = useState<{ taskId: string; subtaskId: string } | null>(null)
   const gcal = useGoogleCalendarStore()
 
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -130,29 +134,63 @@ export function CalendarPage() {
       map.get(dateKey)!.push(ev)
     }
     // 2) Tasks con hora → bloque sintético al día correspondiente.
+    //    También iteramos subtasks: si una subtarea tiene dueDate + dueTime,
+    //    se renderea como su propio bloque (con linkedSubtaskId para que
+    //    el click abra el SubtaskDetailModal en lugar del TaskDetail).
+    //    Las tareas COMPLETADAS no se filtran — se ven con tachado hasta
+    //    que el auto-purge las archive al cierre de la semana (lunes).
     for (const t of Object.values(tasks)) {
-      if (t.archivedAt || t.completedAt) continue
-      if (!t.dueDate || !t.dueTime) continue
-      const [y, m, d] = t.dueDate.split('-').map(Number)
-      const [hh, mm] = t.dueTime.split(':').map(Number)
-      const start = new Date(y, m - 1, d, hh, mm, 0)
-      const duration = t.durationMinutes ?? 60
-      const end = new Date(start.getTime() + duration * 60_000)
+      if (t.archivedAt) continue
       const project = projects[t.projectId]
-      const ev: GEvent = {
-        id: `task:${t.id}`,
-        calendarId: '__overseer_tasks__',
-        summary: t.title,
-        description: t.description ?? undefined,
-        start: start.toISOString(),
-        end: end.toISOString(),
-        allDay: false,
-        isTask: true,
-        linkedTaskId: t.id,
-        projectColor: project?.color,
+      // ── Bloque de la tarea madre
+      if (t.dueDate && t.dueTime) {
+        const [y, m, d] = t.dueDate.split('-').map(Number)
+        const [hh, mm] = t.dueTime.split(':').map(Number)
+        const start = new Date(y, m - 1, d, hh, mm, 0)
+        const duration = t.durationMinutes ?? 60
+        const end = new Date(start.getTime() + duration * 60_000)
+        const ev: GEvent = {
+          id: `task:${t.id}`,
+          calendarId: '__overseer_tasks__',
+          summary: t.title,
+          description: t.description ?? undefined,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          allDay: false,
+          isTask: true,
+          linkedTaskId: t.id,
+          projectColor: project?.color,
+          isCompleted: !!t.completedAt,
+        }
+        if (!map.has(t.dueDate)) map.set(t.dueDate, [])
+        map.get(t.dueDate)!.push(ev)
       }
-      if (!map.has(t.dueDate)) map.set(t.dueDate, [])
-      map.get(t.dueDate)!.push(ev)
+      // ── Bloques de subtasks con hora (completadas también — tachadas)
+      for (const sub of t.subtasks ?? []) {
+        if (sub.archivedAt) continue
+        if (!sub.dueDate || !sub.dueTime) continue
+        const [y, m, d] = sub.dueDate.split('-').map(Number)
+        const [hh, mm] = sub.dueTime.split(':').map(Number)
+        const start = new Date(y, m - 1, d, hh, mm, 0)
+        const duration = sub.durationMinutes ?? 30
+        const end = new Date(start.getTime() + duration * 60_000)
+        const ev: GEvent = {
+          id: `subtask:${sub.id}`,
+          calendarId: '__overseer_tasks__',
+          summary: sub.title,
+          description: sub.description ?? undefined,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          allDay: false,
+          isTask: true,
+          linkedTaskId: t.id,
+          linkedSubtaskId: sub.id,
+          projectColor: project?.color,
+          isCompleted: !!sub.completedAt,
+        }
+        if (!map.has(sub.dueDate)) map.set(sub.dueDate, [])
+        map.get(sub.dueDate)!.push(ev)
+      }
     }
     return map
   }, [gcal.events, tasks, projects])
@@ -173,31 +211,62 @@ export function CalendarPage() {
     const linkedGcalIds = new Set<string>()
     const syntheticEvents: GEvent[] = []
     for (const t of Object.values(tasks)) {
-      if (t.archivedAt || t.completedAt) continue
-      if (!t.dueDate || !t.dueTime) continue
-      // Marcamos el GCal event como "ya cubierto por la task" para
-      // evitar duplicar en el render.
-      if (t.gcalEventId) linkedGcalIds.add(t.gcalEventId)
-      const [y, m, d] = t.dueDate.split('-').map(Number)
-      const [hh, mm] = t.dueTime.split(':').map(Number)
-      const start = new Date(y, m - 1, d, hh, mm, 0)
-      const duration = t.durationMinutes ?? 60
-      const end = new Date(start.getTime() + duration * 60_000)
+      // Completadas NO se filtran — quedan tachadas en el calendario
+      // hasta que el auto-purge las archive al cierre semanal.
+      if (t.archivedAt) continue
       const project = projects[t.projectId]
-      // Construimos como GEvent sintético, con `isTask` + `linkedTaskId`
-      // para que el WeekView/MonthView sepa que el click abre TaskDetail.
-      syntheticEvents.push({
-        id: `task:${t.id}`,
-        calendarId: '__overseer_tasks__',
-        summary: t.title,
-        description: t.description ?? undefined,
-        start: start.toISOString(),
-        end: end.toISOString(),
-        allDay: false,
-        isTask: true,
-        linkedTaskId: t.id,
-        projectColor: project?.color,
-      })
+      // ── Tarea madre con dueTime
+      if (t.dueDate && t.dueTime) {
+        // Marcamos el GCal event como "ya cubierto por la task" para
+        // evitar duplicar en el render.
+        if (t.gcalEventId) linkedGcalIds.add(t.gcalEventId)
+        const [y, m, d] = t.dueDate.split('-').map(Number)
+        const [hh, mm] = t.dueTime.split(':').map(Number)
+        const start = new Date(y, m - 1, d, hh, mm, 0)
+        const duration = t.durationMinutes ?? 60
+        const end = new Date(start.getTime() + duration * 60_000)
+        // Construimos como GEvent sintético, con `isTask` + `linkedTaskId`
+        // para que el WeekView/MonthView sepa que el click abre TaskDetail.
+        syntheticEvents.push({
+          id: `task:${t.id}`,
+          calendarId: '__overseer_tasks__',
+          summary: t.title,
+          description: t.description ?? undefined,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          allDay: false,
+          isTask: true,
+          linkedTaskId: t.id,
+          projectColor: project?.color,
+          isCompleted: !!t.completedAt,
+        })
+      }
+      // ── Subtasks con dueTime → un bloque cada una, click abre el
+      //    SubtaskDetailModal vía linkedSubtaskId. Completadas también
+      //    aparecen tachadas hasta que la semana cierre.
+      for (const sub of t.subtasks ?? []) {
+        if (sub.archivedAt) continue
+        if (!sub.dueDate || !sub.dueTime) continue
+        const [y, m, d] = sub.dueDate.split('-').map(Number)
+        const [hh, mm] = sub.dueTime.split(':').map(Number)
+        const start = new Date(y, m - 1, d, hh, mm, 0)
+        const duration = sub.durationMinutes ?? 30
+        const end = new Date(start.getTime() + duration * 60_000)
+        syntheticEvents.push({
+          id: `subtask:${sub.id}`,
+          calendarId: '__overseer_tasks__',
+          summary: sub.title,
+          description: sub.description ?? undefined,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          allDay: false,
+          isTask: true,
+          linkedTaskId: t.id,
+          linkedSubtaskId: sub.id,
+          projectColor: project?.color,
+          isCompleted: !!sub.completedAt,
+        })
+      }
     }
     // Filtrar duplicados: los eventos GCal cuyo id está en linkedGcalIds
     // se reemplazan por el bloque sintético de la task (más rico, lleva
@@ -475,6 +544,12 @@ export function CalendarPage() {
             hideStart={gcal.hideStart}
             hideEnd={gcal.hideEnd}
             onEventClick={(ev) => {
+              // Click sobre un bloque sintético de SUBTAREA → abrir el
+              // SubtaskDetailModal con la subtarea seleccionada.
+              if (ev.isTask && ev.linkedTaskId && ev.linkedSubtaskId) {
+                setSelectedSubtask({ taskId: ev.linkedTaskId, subtaskId: ev.linkedSubtaskId })
+                return
+              }
               // Click sobre un bloque sintético de task → abrir TaskDetail
               // en lugar del modal de evento GCal.
               if (ev.isTask && ev.linkedTaskId) {
@@ -486,6 +561,16 @@ export function CalendarPage() {
             }}
             onCreateAt={(date, hour) => setShowEventModal({ mode: 'create', date, startHour: hour })}
             onEventMove={async (ev, newStart, newEnd) => {
+              // Mover un bloque de SUBTASK → updateSubtask.
+              if (ev.isTask && ev.linkedTaskId && ev.linkedSubtaskId) {
+                const startD = new Date(newStart)
+                const endD = new Date(newEnd)
+                const dueDate = `${startD.getFullYear()}-${String(startD.getMonth() + 1).padStart(2, '0')}-${String(startD.getDate()).padStart(2, '0')}`
+                const dueTime = `${String(startD.getHours()).padStart(2, '0')}:${String(startD.getMinutes()).padStart(2, '0')}`
+                const durationMinutes = Math.max(5, Math.round((endD.getTime() - startD.getTime()) / 60_000))
+                updateSubtask(ev.linkedTaskId, ev.linkedSubtaskId, { dueDate, dueTime, durationMinutes })
+                return
+              }
               // Mover un bloque de task → actualizar dueDate + dueTime
               // + durationMinutes de la task. El sync GCal corre solo.
               if (ev.isTask && ev.linkedTaskId) {
@@ -509,6 +594,16 @@ export function CalendarPage() {
                 await gcal.updateEvent(ev.id, ev.calendarId, { start: newStart, end: newEnd })
               } catch (e) {
                 setBanner({ kind: 'error', text: e instanceof Error ? e.message : 'No se pudo mover' })
+              }
+            }}
+            onToggleTaskDone={(ev) => {
+              // Toggle de completar para bloques sintéticos de task/subtask
+              // — desde el calendario, sin tener que abrir el detalle.
+              if (!ev.isTask || !ev.linkedTaskId) return
+              if (ev.linkedSubtaskId) {
+                toggleSubtask(ev.linkedTaskId, ev.linkedSubtaskId)
+              } else {
+                completeTask(ev.linkedTaskId)
               }
             }}
           />
@@ -867,6 +962,34 @@ export function CalendarPage() {
           onClose={() => setSelectedTask(null)}
         />
       )}
+
+      {/* SubtaskDetailModal — abierto al clickear un bloque sintético de
+          SUBTAREA dentro del calendario. Resolvemos task + subtask por id
+          contra el snapshot live del store para mostrar siempre lo más
+          actualizado. Si la subtask desaparece (borrada) el modal cierra. */}
+      {selectedSubtask && (() => {
+        const parentTask = tasks[selectedSubtask.taskId]
+        const subtask = parentTask?.subtasks.find((s) => s.id === selectedSubtask.subtaskId)
+        const proj = parentTask ? projects[parentTask.projectId] : null
+        if (!parentTask || !subtask || !proj) {
+          // Datos inconsistentes — cerramos y salimos del render.
+          // (no setState durante render: usamos un microtask)
+          queueMicrotask(() => setSelectedSubtask(null))
+          return null
+        }
+        // Si la subtarea es hija de otra subtarea, mostrar el breadcrumb extra.
+        const parentSub = subtask.parentId ? parentTask.subtasks.find((s) => s.id === subtask.parentId) : undefined
+        return (
+          <SubtaskDetailModal
+            taskId={parentTask.id}
+            subtask={subtask}
+            project={proj}
+            parentTitle={parentTask.title}
+            parentSubtaskTitle={parentSub?.title}
+            onClose={() => setSelectedSubtask(null)}
+          />
+        )
+      })()}
     </motion.div>
   )
 }
@@ -1172,9 +1295,12 @@ interface WeekViewProps {
    *  (both in local time with offset). The parent decides whether
    *  to fire the PATCH directly or prompt for series-vs-instance. */
   onEventMove?: (ev: GEvent, newStart: string, newEnd: string) => void
+  /** Toggle de completar para bloques sintéticos de task / subtask.
+   *  Solo se renderea el checkmark si está definido. */
+  onToggleTaskDone?: (ev: GEvent) => void
 }
 
-function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, setSelectedDay, hideNight, hideStart, hideEnd, onEventClick, onCreateAt, onEventMove }: WeekViewProps) {
+function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, setSelectedDay, hideNight, hideStart, hideEnd, onEventClick, onCreateAt, onEventMove, onToggleTaskDone }: WeekViewProps) {
   const weekStart = startOfWeek(anchor, { weekStartsOn: 1 })
   const weekEnd   = endOfWeek(anchor, { weekStartsOn: 1 })
   const days = eachDayOfInterval({ start: weekStart, end: weekEnd })
@@ -1185,20 +1311,32 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
   // proposed new position so the user has clear feedback.
   const [dragState, setDragState] = useState<{
     evId: string
+    mode: 'move' | 'resize'
     originalTop: number
     originalHeight: number
+    /** Visual offset Y (in px) from original position. */
     offsetY: number
+    /** Visual delta in COLUMN units (number of days shifted). 0 for resize. */
+    dayShift: number
     proposedStart: Date
     proposedEnd: Date
   } | null>(null)
   const dragInfoRef = useRef<{
     ev: GEvent
+    mode: 'move' | 'resize'
     dayStart: Date
+    /** Index of the original day column in `days` (0..6). Used to map
+     *  cross-column drag to a new dueDate. */
+    originalDayIndex: number
     pointerStartY: number
+    pointerStartX: number
     originalTop: number
     originalHeight: number
     durationMin: number
   } | null>(null)
+  // Ref al grid container (la matriz 56px + 7 columnas) — necesario para
+  // saber el ancho de cada columna al detectar drag cross-day por mouseX.
+  const gridRef = useRef<HTMLDivElement | null>(null)
 
   // Live red line for "now"
   const [now, setNow] = useState(() => new Date())
@@ -1412,7 +1550,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
           el.dataset.scrolled = '1'
         }
       }}>
-        <div className="grid relative" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
+        <div ref={gridRef} className="grid relative" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
           {/* Hours column — GCal-style: time labels in lighter zinc-300,
               non-mono sans, slightly larger, no quote marks. */}
           <div className="border-r border-zinc-800/60">
@@ -1479,9 +1617,29 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                   const isBeingDragged = dragState?.evId === ev.id
                   // While dragging, render at proposed position. Otherwise
                   // at the computed layout position.
-                  const visualTop = isBeingDragged
+                  const visualTop = isBeingDragged && dragState.mode === 'move'
                     ? Math.max(0, dragState.originalTop + dragState.offsetY)
                     : top
+                  // En resize, top no cambia — solo la altura. En move,
+                  // height tampoco (mantiene duration); el override solo
+                  // aplica cuando estamos en resize.
+                  const visualHeight = isBeingDragged && dragState.mode === 'resize'
+                    ? Math.max(18, dragState.originalHeight + dragState.offsetY)
+                    : height
+                  // Helper compartido — convierte Date a ISO con offset local
+                  // explícito para que Google reciba el wall-clock correcto.
+                  const toLocalISO = (d: Date) => {
+                    const pad = (n: number) => String(n).padStart(2, '0')
+                    const offsetMin = -d.getTimezoneOffset()
+                    const sign = offsetMin >= 0 ? '+' : '-'
+                    const absMin = Math.abs(offsetMin)
+                    const offH = pad(Math.floor(absMin / 60))
+                    const offM = pad(absMin % 60)
+                    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00${sign}${offH}:${offM}`
+                  }
+                  // Index original de la columna día en el array `days`
+                  // — necesario para calcular dayShift al mover horizontal.
+                  const originalDayIndex = days.findIndex((d) => isSameDay(d, day))
                   return (
                     <div
                       key={ev.id}
@@ -1491,16 +1649,22 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                         // Only start a drag on primary button. Click-without-move
                         // still fires onEventClick (we use a small threshold).
                         if (e.button !== 0 || !onEventMove) return
+                        // Si el target es el resize handle, ya lo maneja él
+                        // mismo — el handle hace stopPropagation y setea
+                        // mode='resize'. No entres acá.
+                        if ((e.target as HTMLElement).dataset.resizeHandle === '1') return
                         const target = e.currentTarget
                         target.setPointerCapture(e.pointerId)
-                        const startY = e.clientY
                         const evStart = parseISO(ev.start)
                         const evEnd = parseISO(ev.end)
                         const durationMin = (evEnd.getTime() - evStart.getTime()) / 60_000
                         dragInfoRef.current = {
                           ev,
+                          mode: 'move',
                           dayStart,
-                          pointerStartY: startY,
+                          originalDayIndex,
+                          pointerStartY: e.clientY,
+                          pointerStartX: e.clientX,
                           originalTop: top,
                           originalHeight: height,
                           durationMin,
@@ -1513,20 +1677,58 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                         const info = dragInfoRef.current
                         if (!info || info.ev.id !== ev.id) return
                         const offsetY = e.clientY - info.pointerStartY
-                        if (!dragState && Math.abs(offsetY) < 4) return  // below threshold
+                        const offsetX = e.clientX - info.pointerStartX
+                        if (!dragState && Math.abs(offsetY) < 4 && Math.abs(offsetX) < 4) return // below threshold
                         // Snap to 15-min increments.
                         const minPerPx = 60 / HOUR_PX
-                        const deltaMinRaw = offsetY * minPerPx
-                        const deltaMin = Math.round(deltaMinRaw / 15) * 15
+                        const deltaMin = Math.round((offsetY * minPerPx) / 15) * 15
                         const snappedOffsetY = deltaMin / minPerPx
+
+                        if (info.mode === 'resize') {
+                          // Resize: solo cambia `end`. start fijo. Cuidado
+                          // con duración mínima (15min).
+                          const baseStart = parseISO(ev.start)
+                          const newDurationMin = Math.max(15, info.durationMin + deltaMin)
+                          const newEnd = new Date(baseStart.getTime() + newDurationMin * 60_000)
+                          setDragState({
+                            evId: ev.id,
+                            mode: 'resize',
+                            originalTop: info.originalTop,
+                            originalHeight: info.originalHeight,
+                            offsetY: (newDurationMin - info.durationMin) / minPerPx,
+                            dayShift: 0,
+                            proposedStart: baseStart,
+                            proposedEnd: newEnd,
+                          })
+                          return
+                        }
+
+                        // Move: tanto Y (hora) como X (día) pueden cambiar.
+                        // Calculamos dayShift por mouseX absoluto contra el
+                        // grid container — es robusto al inicio del drag.
+                        let dayShift = 0
+                        const grid = gridRef.current
+                        if (grid) {
+                          const rect = grid.getBoundingClientRect()
+                          const dayColsLeft = rect.left + 56
+                          const dayColWidth = (rect.width - 56) / 7
+                          if (dayColWidth > 0) {
+                            const targetCol = Math.floor((e.clientX - dayColsLeft) / dayColWidth)
+                            const clamped = Math.max(0, Math.min(6, targetCol))
+                            dayShift = clamped - info.originalDayIndex
+                          }
+                        }
                         const baseStart = parseISO(ev.start)
                         const newStart = new Date(baseStart.getTime() + deltaMin * 60_000)
+                        newStart.setDate(newStart.getDate() + dayShift)
                         const newEnd = new Date(newStart.getTime() + info.durationMin * 60_000)
                         setDragState({
                           evId: ev.id,
+                          mode: 'move',
                           originalTop: info.originalTop,
                           originalHeight: info.originalHeight,
                           offsetY: snappedOffsetY,
+                          dayShift,
                           proposedStart: newStart,
                           proposedEnd: newEnd,
                         })
@@ -1536,25 +1738,21 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                         dragInfoRef.current = null
                         try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
                         if (dragState && dragState.evId === ev.id && info && onEventMove) {
-                          // Commit the move. Build ISO with explicit local
-                          // offset so Google receives the wall-clock the
-                          // user picked (same trick as the create modal).
-                          const toLocalISO = (d: Date) => {
-                            const pad = (n: number) => String(n).padStart(2, '0')
-                            const offsetMin = -d.getTimezoneOffset()
-                            const sign = offsetMin >= 0 ? '+' : '-'
-                            const absMin = Math.abs(offsetMin)
-                            const offH = pad(Math.floor(absMin / 60))
-                            const offM = pad(absMin % 60)
-                            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00${sign}${offH}:${offM}`
-                          }
                           onEventMove(ev, toLocalISO(dragState.proposedStart), toLocalISO(dragState.proposedEnd))
                           setDragState(null)
-                        } else {
-                          // No drag happened — treat as click.
-                          onEventClick(ev)
-                          setDragState(null)
+                          return
                         }
+                        // No drag happened — treat as click, A MENOS QUE el
+                        // user haya soltado sobre el toggle de completar o
+                        // el resize handle (esos manejan su propio onClick
+                        // y no queremos abrir el detail por encima).
+                        const target = e.target as HTMLElement
+                        if (target.dataset.toggleDone === '1' || target.dataset.resizeHandle === '1') {
+                          setDragState(null)
+                          return
+                        }
+                        onEventClick(ev)
+                        setDragState(null)
                       }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
@@ -1566,32 +1764,99 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                         isBeingDragged ? 'opacity-90 shadow-2xl scale-[1.02] z-30' : 'hover:brightness-110'
                       }`}
                       style={{
-                        top: visualTop, height,
+                        top: visualTop, height: visualHeight,
+                        // Cross-day drag: durante el move se traduce el bloque
+                        // horizontalmente para que el preview se vea sobre la
+                        // columna destino. dayShift * (columnWidth + gap).
+                        transform: isBeingDragged && dragState.mode === 'move' && dragState.dayShift !== 0
+                          ? `translateX(calc(${dragState.dayShift} * 100%))`
+                          : undefined,
                         // Para tasks usamos un fondo más translúcido + border
                         // dasheado/sólido para distinguir de eventos GCal.
+                        // Tasks completadas: opacidad menor para que se vean
+                        // "fadeadas" hasta que el auto-purge las archive.
                         background: ev.isTask ? `${color}55` : color,
                         border: ev.isTask ? `1.5px dashed ${color}` : undefined,
                         color: ev.isTask ? '#ffffff' : fg,
+                        opacity: ev.isCompleted ? 0.55 : undefined,
                         minHeight: 18,
                         boxShadow: isBeingDragged
                           ? '0 8px 24px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(0,0,0,0.06)'
                           : 'inset 0 0 0 1px rgba(0,0,0,0.06)',
                         touchAction: 'none',  // prevent mobile scrolling while dragging
                       }}
-                      title={`${ev.isTask ? '📋 ' : ''}${ev.summary}\n${format(parseISO(ev.start), 'HH:mm')} – ${format(parseISO(ev.end), 'HH:mm')}${ev.recurringEventId ? '\n(recurrente · arrastrá para reagendar)' : ''}${ev.isTask ? '\n(task · click para abrir)' : ''}`}
+                      title={`${ev.isTask ? '📋 ' : ''}${ev.summary}\n${format(parseISO(ev.start), 'HH:mm')} – ${format(parseISO(ev.end), 'HH:mm')}${ev.recurringEventId ? '\n(recurrente · arrastrá para reagendar)' : ''}${ev.isTask ? '\n(task · click para abrir · ✓ para completar)' : ''}`}
                     >
-                      <p className="text-[11px] font-medium truncate leading-tight">
+                      <p
+                        className={`text-[11px] font-medium truncate leading-tight ${ev.isCompleted ? 'line-through' : ''}`}
+                        style={ev.isTask && onToggleTaskDone ? { paddingLeft: 16 } : undefined}
+                      >
                         {ev.isTask && <span className="opacity-80 mr-1">📋</span>}
                         {ev.summary}
                         {ev.recurringEventId && <span className="ml-1 opacity-70">↻</span>}
                       </p>
-                      {height > 30 && (
-                        <p className="text-[10px] opacity-90 truncate leading-tight mt-0.5">
+                      {visualHeight > 30 && (
+                        <p className={`text-[10px] opacity-90 truncate leading-tight mt-0.5 ${ev.isCompleted ? 'line-through' : ''}`}>
                           {isBeingDragged && dragState
                             ? `${format(dragState.proposedStart, 'HH:mm')} – ${format(dragState.proposedEnd, 'HH:mm')}`
                             : `${format(parseISO(ev.start), 'HH:mm')} – ${format(parseISO(ev.end), 'HH:mm')}`}
                         </p>
                       )}
+                      {/* Checkmark para tasks/subtasks — toggle de completar
+                          directo desde el calendario, sin abrir el detalle.
+                          Solo visible si onToggleTaskDone está definido y el
+                          evento es un bloque sintético de task. */}
+                      {ev.isTask && onToggleTaskDone && (
+                        <button
+                          data-toggle-done="1"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onToggleTaskDone(ev)
+                          }}
+                          title={ev.isCompleted ? 'Marcar como no hecho' : 'Marcar como hecho'}
+                          className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center hover:bg-white/30 transition-colors"
+                          style={{
+                            background: ev.isCompleted ? 'rgba(16,185,129,0.85)' : 'rgba(0,0,0,0.25)',
+                          }}
+                        >
+                          {ev.isCompleted
+                            ? <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />
+                            : <Circle className="w-2.5 h-2.5 text-white/80" strokeWidth={2} />}
+                        </button>
+                      )}
+                      {/* Resize handle al borde inferior — drag para
+                          extender/acortar la duración. Setea modo=resize
+                          en dragInfoRef y captura el pointer en el parent
+                          (this div), así pointerMove/Up del parent siguen
+                          funcionando. */}
+                      <div
+                        data-resize-handle="1"
+                        onPointerDown={(e) => {
+                          if (e.button !== 0 || !onEventMove) return
+                          e.stopPropagation()
+                          const parent = e.currentTarget.parentElement as HTMLElement | null
+                          if (!parent) return
+                          parent.setPointerCapture(e.pointerId)
+                          const evStart = parseISO(ev.start)
+                          const evEnd = parseISO(ev.end)
+                          const durationMin = (evEnd.getTime() - evStart.getTime()) / 60_000
+                          dragInfoRef.current = {
+                            ev,
+                            mode: 'resize',
+                            dayStart,
+                            originalDayIndex,
+                            pointerStartY: e.clientY,
+                            pointerStartX: e.clientX,
+                            originalTop: top,
+                            originalHeight: height,
+                            durationMin,
+                          }
+                        }}
+                        className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize hover:bg-white/25 transition-colors"
+                        title="Arrastrá para cambiar la duración"
+                        style={{ touchAction: 'none' }}
+                      />
                     </div>
                   )
                 })}

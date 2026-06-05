@@ -4,8 +4,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Infinity as InfinityIcon, Plus, ChevronDown, ChevronRight, Flame, Trophy,
   Check, Calendar, Star, Trash2, Sparkles, History, X, ArrowRight, Zap, TrendingUp,
-  Settings2, FlaskConical, Copy,
+  Settings2, FlaskConical, Copy, CalendarDays,
 } from 'lucide-react'
+import { CalendarSnapshotView } from './CalendarSnapshotView'
+import { buildCalendarSnapshot } from '@/lib/spi/calendarSnapshot'
 import { sessionToMarkdown, copyMarkdownToClipboard } from '@/lib/projection/exportMarkdown'
 import Link from 'next/link'
 import { useLabStore } from '@/lib/store/labStore'
@@ -609,6 +611,7 @@ function ActiveSession({
             )}
           </div>
           <div className="flex items-center gap-2">
+            <CalendarSnapshotButton session={session} />
             <CopySessionButton session={session} template={template} />
             {!isClosed && (
               <>
@@ -2974,5 +2977,41 @@ function CopySessionButton({ session, template }: { session: SPISession; templat
         : status === 'error' ? <><X className="w-3.5 h-3.5 text-red-400" /> Falló</>
         : <><Copy className="w-3.5 h-3.5" /> Copiar</>}
     </button>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// CALENDAR SNAPSHOT BUTTON — abre la imagen del calendario de la semana
+// ─────────────────────────────────────────────────────────────────────
+// Comportamiento:
+//   - Sesión cerrada con `calendarSnapshot` → muestra el snapshot guardado
+//     (es la "imagen congelada" del momento del cierre).
+//   - Sesión abierta (semana en curso) → construye un snapshot live al
+//     vuelo desde los stores. Útil para previsualizar antes de cerrar.
+//   - Sesión cerrada SIN `calendarSnapshot` (sesiones viejas) → también
+//     genera uno live; no es exactamente el del cierre pero es lo mejor
+//     que tenemos para sesiones pre-feature.
+function CalendarSnapshotButton({ session }: { session: SPISession }) {
+  const [open, setOpen] = useState(false)
+  const snapshot = useMemo(() => {
+    if (open) {
+      return session.calendarSnapshot ?? buildCalendarSnapshot(session.weekStartDate)
+    }
+    return null
+  }, [open, session.calendarSnapshot, session.weekStartDate])
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        title="Ver el calendario de esta semana — bloques timeados con qué planeaste y qué completaste."
+        className="px-2.5 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 hover:text-zinc-200 text-zinc-400 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
+      >
+        <CalendarDays className="w-3.5 h-3.5" /> Calendario
+      </button>
+      {open && snapshot && (
+        <CalendarSnapshotView snapshot={snapshot} onClose={() => setOpen(false)} />
+      )}
+    </>
   )
 }

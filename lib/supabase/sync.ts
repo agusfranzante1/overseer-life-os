@@ -228,8 +228,10 @@ async function pushTasks() {
       // Requiere migration_subtasks_completion_fields.sql aplicada.
       completed_at: s.completedAt ?? null,
       archived_at:  s.archivedAt  ?? null,
-      due_date:     s.dueDate     ?? null,
-      description:  s.description ?? null,
+      due_date:         s.dueDate         ?? null,
+      due_time:         s.dueTime         ?? null,
+      duration_minutes: s.durationMinutes ?? null,
+      description:      s.description     ?? null,
     }))
   )
 
@@ -329,8 +331,10 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
         // ignoraba por su guard `!st.completedAt`.
         completedAt: (s.completed_at as string) ?? undefined,
         archivedAt:  (s.archived_at  as string) ?? undefined,
-        dueDate:     (s.due_date     as string) ?? undefined,
-        description: (s.description  as string) ?? undefined,
+        dueDate:         (s.due_date         as string) ?? undefined,
+        dueTime:         (s.due_time         as string) ?? undefined,
+        durationMinutes: (s.duration_minutes as number) ?? undefined,
+        description:     (s.description      as string) ?? undefined,
       })),
       createdAt: t.created_at as string,
       scheduledFor: (t.scheduled_for as 'today' | 'tomorrow') ?? undefined,

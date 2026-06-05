@@ -7,6 +7,7 @@ import { useTasksStore } from './tasksStore'
 import { useKpisStore } from './kpisStore'
 import { computeSessionXP, totalXPFromSessions, levelFromXP, didLevelUp, type SessionXP } from '@/lib/spi/gamification'
 import { buildWeekSnapshot } from '@/lib/spi/weekSnapshot'
+import { buildCalendarSnapshot } from '@/lib/spi/calendarSnapshot'
 
 function genId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
@@ -271,6 +272,12 @@ export const useSPIStore = create<SPIState>()(
             notes: args.notes ?? session.notes,
             mainChecklist: autoCheckedMain,
           }),
+          // Snapshot del calendario semanal — congela los bloques timeados
+          // (eventos GCal + tareas/subtareas con dueTime) tal como
+          // quedaron al cierre. Sirve para comparar semana a semana
+          // cómo se organizó el tiempo. Vive con la sesión así sobrevive
+          // a borrados de tasks/events posteriores.
+          calendarSnapshot: buildCalendarSnapshot(session.weekStartDate),
         }
         set((s) => ({
           sessions: s.sessions.map((sess) => sess.id === id ? closedSession : sess),

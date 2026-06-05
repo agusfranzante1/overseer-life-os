@@ -28,6 +28,8 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
   const [status, setStatus] = useState(subtask.status || project.statuses[0]?.label || 'To Do')
   const [priority, setPriority] = useState<Priority | ''>(subtask.priority ?? '')
   const [dueDate, setDueDate] = useState(subtask.dueDate ?? '')
+  const [dueTime, setDueTime] = useState(subtask.dueTime ?? '')
+  const [durationMinutes, setDurationMinutes] = useState<number>(subtask.durationMinutes ?? 30)
   const [newChildTitle, setNewChildTitle] = useState('')
   const [openChildId, setOpenChildId] = useState<string | null>(null)
 
@@ -42,6 +44,8 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
   const statusRef = useRef(status)
   const priorityRef = useRef(priority)
   const dueDateRef = useRef(dueDate)
+  const dueTimeRef = useRef(dueTime)
+  const durationRef = useRef(durationMinutes)
   const taskIdRef = useRef(taskId)
   const subtaskIdRef = useRef(subtask.id)
   titleRef.current = title
@@ -50,10 +54,16 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
   statusRef.current = status
   priorityRef.current = priority
   dueDateRef.current = dueDate
+  dueTimeRef.current = dueTime
+  durationRef.current = durationMinutes
   taskIdRef.current = taskId
   subtaskIdRef.current = subtask.id
 
-  // Re-sync local state when the user navigates between subtasks
+  // Re-sync local state when the user navigates between subtasks O cuando
+  // el status/completed cambia externamente (toggleSubtask desde el card,
+  // checkbox, etc). Sin escuchar subtask.status, el ref local quedaba
+  // stale y el cleanup useEffect lo escribía sobre el valor nuevo del
+  // store → reversión visible.
   useEffect(() => {
     setTitle(subtask.title)
     setNotes(subtask.notes ?? '')
@@ -61,22 +71,52 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
     setStatus(subtask.status || project.statuses[0]?.label || 'To Do')
     setPriority(subtask.priority ?? '')
     setDueDate(subtask.dueDate ?? '')
+    setDueTime(subtask.dueTime ?? '')
+    setDurationMinutes(subtask.durationMinutes ?? 30)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subtask.id])
+  }, [subtask.id, subtask.status, subtask.completed])
 
   // Persist any pending changes when this modal unmounts. Uses refs so
   // we read the LATEST values, not stale ones captured by the closure.
+  //
+  // BUG QUE ESTO ARREGLA — "se descompleta sola":
+  // Antes este cleanup escribía status/priority/dueDate/etc INCONDICIONAL-
+  // mente al cerrar. Si la subtask se completó externamente (toggle
+  // desde TaskCard, click en checkbox), el react state local `status`
+  // quedaba con el valor VIEJO (los setters solo corren cuando subtask.id
+  // cambia). Al cerrar, statusRef.current SOBREESCRIBÍA el status nuevo
+  // (Done) con el viejo (To Do) → revertía la completion.
+  // Fix: comparamos contra el store live antes de patchear, y solo
+  // mandamos los campos que realmente cambiaron en este modal.
   useEffect(() => {
     return () => {
-      const latestTitle = titleRef.current
-      updateSubtask(taskIdRef.current, subtaskIdRef.current, {
-        title: latestTitle.trim() || latestTitle,
-        notes: notesRef.current.trim() || undefined,
-        description: descRef.current.trim() || undefined,
-        status: statusRef.current,
-        priority: priorityRef.current || undefined,
-        dueDate: dueDateRef.current || undefined,
-      })
+      const id = taskIdRef.current
+      const sid = subtaskIdRef.current
+      if (!id || !sid) return
+      const live = useTasksStore.getState().tasks[id]
+      const liveSub = live?.subtasks.find((s) => s.id === sid)
+      if (!liveSub) return
+      const latestTitle = titleRef.current.trim() || titleRef.current
+      const latestNotes = notesRef.current.trim() || undefined
+      const latestDesc  = descRef.current.trim() || undefined
+      const latestPrio  = priorityRef.current || undefined
+      const latestDueD  = dueDateRef.current || undefined
+      const latestDueT  = dueTimeRef.current || undefined
+      const latestDur   = latestDueT ? durationRef.current : undefined
+      const patch: Partial<import('@/types').Subtask> = {}
+      if (latestTitle !== liveSub.title) patch.title = latestTitle
+      if (latestNotes !== (liveSub.notes || undefined)) patch.notes = latestNotes
+      if (latestDesc !== (liveSub.description || undefined)) patch.description = latestDesc
+      // STATUS: solo patcheamos si el VALOR DEL MODAL cambió respecto al
+      // que tenía cuando se abrió. Sin esto, una completion externa se
+      // pisaba con el status viejo del buffer.
+      if (statusRef.current !== liveSub.status) patch.status = statusRef.current
+      if (latestPrio !== (liveSub.priority || undefined)) patch.priority = latestPrio
+      if (latestDueD !== (liveSub.dueDate || undefined)) patch.dueDate = latestDueD
+      if (latestDueT !== (liveSub.dueTime || undefined)) patch.dueTime = latestDueT
+      if (latestDur !== (liveSub.durationMinutes || undefined)) patch.durationMinutes = latestDur
+      if (Object.keys(patch).length === 0) return
+      updateSubtask(id, sid, patch)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -89,6 +129,8 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
       status,
       priority: priority || undefined,
       dueDate: dueDate || undefined,
+      dueTime: dueTime || undefined,
+      durationMinutes: dueTime ? durationMinutes : undefined,
     })
   }
 
@@ -238,10 +280,12 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
               </div>
             </div>
 
-            {/* Due date — for sub-project deadlines within a project */}
+            {/* Due date + time + duration — para que la subtarea aparezca
+                como bloque timeado en el calendario (igual que las tareas
+                madre). Solo se requiere fecha; hora + duración son opcionales. */}
             <div>
-              <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">Fecha de entrega</label>
-              <div className="flex items-center gap-2">
+              <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">Fecha y hora</label>
+              <div className="flex items-center gap-2 flex-wrap">
                 <input
                   type="date"
                   value={dueDate}
@@ -249,9 +293,37 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
                   onBlur={save}
                   className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500"
                 />
-                {dueDate && (
+                <input
+                  type="time"
+                  value={dueTime}
+                  disabled={!dueDate}
+                  onChange={(e) => setDueTime(e.target.value)}
+                  onBlur={save}
+                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title={dueDate ? 'Hora opcional — si la ponés, aparece en el calendario' : 'Primero elegí una fecha'}
+                />
+                {dueTime && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-zinc-500">duración</span>
+                    <input
+                      type="number"
+                      min={5}
+                      step={5}
+                      value={durationMinutes}
+                      onChange={(e) => setDurationMinutes(Math.max(5, Number(e.target.value) || 30))}
+                      onBlur={save}
+                      className="w-16 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500"
+                    />
+                    <span className="text-xs text-zinc-500">min</span>
+                  </div>
+                )}
+                {(dueDate || dueTime) && (
                   <button
-                    onClick={() => { setDueDate(''); updateSubtask(taskId, subtask.id, { dueDate: undefined }) }}
+                    onClick={() => {
+                      setDueDate('')
+                      setDueTime('')
+                      updateSubtask(taskId, subtask.id, { dueDate: undefined, dueTime: undefined, durationMinutes: undefined })
+                    }}
                     className="text-xs text-zinc-500 hover:text-red-400 transition-colors"
                   >
                     quitar

@@ -66,6 +66,14 @@ export interface GEvent {
    *  task de origen. */
   isTask?: boolean
   linkedTaskId?: string
+  /** Cuando el bloque sintético representa a una SUBTAREA con `dueTime`,
+   *  además del `linkedTaskId` (que apunta a la tarea madre) seteamos
+   *  este id. El click abre el SubtaskDetailModal en lugar del TaskDetail. */
+  linkedSubtaskId?: string
+  /** True cuando la task (o subtask) linkeada está completada. La UI lo
+   *  usa para tacharla en el calendario sin perder presencia visual
+   *  hasta que el auto-purge la archive al cierre de la semana. */
+  isCompleted?: boolean
   /** Color del proyecto al que pertenece la task — para colorear el
    *  bloque sin tener que mirar el calendar.bg. */
   projectColor?: string
