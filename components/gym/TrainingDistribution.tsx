@@ -7,6 +7,7 @@ import {
   TRAINING_CATEGORIES,
   type TrainingCategory,
 } from '@/lib/store/gymStore'
+import { useTranslation } from '@/hooks/useTranslation'
 
 /** Distribución semanal de entrenamiento — matriz 5 categorías × 7 días.
  *
@@ -29,13 +30,15 @@ import {
 
 // Orden visual Lun→Dom (valores son JS getDay). Igual que TargetDaysPicker.
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
-const DAY_LABELS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
-const DAY_SHORT = ['L', 'M', 'M', 'J', 'V', 'S', 'D']
 
 export function TrainingDistribution() {
   const trainingPlan = useGymStore((s) => s.trainingPlan)
   const toggleTrainingPlan = useGymStore((s) => s.toggleTrainingPlan)
   const clearTrainingPlan = useGymStore((s) => s.clearTrainingPlan)
+  const { t, tArray } = useTranslation()
+  const DAY_LABELS = tArray('calendar.weekdaysShort')
+  const DAY_SHORT = DAY_LABELS.map((d) => d.charAt(0).toUpperCase())
+  const catLabel = (id: TrainingCategory) => t(`gym.distribution.categories.${id}`)
 
   // ─── Stats ──────────────────────────────────────────────────────────────────
   // Por categoría: cantidad de días/semana que aparece.
@@ -67,33 +70,33 @@ export function TrainingDistribution() {
         <div>
           <h2 className="text-sm font-bold text-zinc-200 flex items-center gap-2">
             <CalendarDays className="w-4 h-4 text-amber-400" />
-            Distribución semanal
+            {t('gym.distribution.title')}
           </h2>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Planificá qué entrenás cada día. Cliquea una celda para activar/desactivar.
+            {t('gym.distribution.subtitle')}
           </p>
         </div>
         {isAnythingSet && (
           <button
             onClick={() => {
-              if (confirm('¿Borrar todo el plan semanal? No afecta tus sesiones registradas.')) {
+              if (confirm(t('gym.distribution.resetConfirm'))) {
                 clearTrainingPlan()
               }
             }}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-zinc-200 hover:border-zinc-700 transition-colors"
-            title="Borrar todo el plan"
+            title={t('gym.distribution.resetTitle')}
           >
             <RotateCcw className="w-3 h-3" />
-            Reset
+            {t('gym.distribution.reset')}
           </button>
         )}
       </div>
 
       {/* Stats strip — días activos / descanso / total slots */}
       <div className="grid grid-cols-3 gap-3">
-        <StatChip label="Días activos" value={`${activeDays}/7`} color="#10b981" />
-        <StatChip label="Días descanso" value={`${restDays}/7`} color="#71717a" />
-        <StatChip label="Total sesiones" value={`${totalSlots}`} color="#f59e0b" />
+        <StatChip label={t('gym.distribution.activeDays')} value={`${activeDays}/7`} color="#10b981" />
+        <StatChip label={t('gym.distribution.restDays')} value={`${restDays}/7`} color="#71717a" />
+        <StatChip label={t('gym.distribution.totalSessions')} value={`${totalSlots}`} color="#f59e0b" />
       </div>
 
       {/* Per-category summary chips */}
@@ -108,7 +111,7 @@ export function TrainingDistribution() {
             >
               <span className="text-base">{cat.emoji}</span>
               <span className={`text-xs font-semibold ${count > 0 ? 'text-zinc-200' : 'text-zinc-500'}`}>
-                {cat.label}
+                {catLabel(cat.id)}
               </span>
               <span
                 className="text-[10px] font-mono font-bold tabular-nums px-1.5 py-0.5 rounded"
@@ -130,7 +133,7 @@ export function TrainingDistribution() {
           <thead>
             <tr>
               <th className="text-left text-[10px] font-mono uppercase tracking-wider text-zinc-500 pb-2 pl-2">
-                Categoría
+                {t('gym.distribution.category')}
               </th>
               {DAY_ORDER.map((dow, idx) => (
                 <th key={dow} className="text-center pb-2">
@@ -150,7 +153,7 @@ export function TrainingDistribution() {
                 <td className="py-1 pl-2 pr-3">
                   <div className="flex items-center gap-2 whitespace-nowrap">
                     <span className="text-base">{cat.emoji}</span>
-                    <span className="text-xs font-semibold text-zinc-200">{cat.label}</span>
+                    <span className="text-xs font-semibold text-zinc-200">{catLabel(cat.id)}</span>
                   </div>
                 </td>
                 {DAY_ORDER.map((dow) => {
@@ -159,7 +162,7 @@ export function TrainingDistribution() {
                     <td key={dow} className="text-center align-middle">
                       <button
                         onClick={() => toggleTrainingPlan(dow, cat.id)}
-                        title={`${cat.label} — ${DAY_LABELS[DAY_ORDER.indexOf(dow)]}`}
+                        title={`${catLabel(cat.id)} — ${DAY_LABELS[DAY_ORDER.indexOf(dow)]}`}
                         className="w-9 h-9 rounded-lg transition-all hover:scale-105 hover:ring-1 hover:ring-white/40 flex items-center justify-center"
                         style={{
                           background: active ? cat.color : '#000000',
@@ -182,7 +185,7 @@ export function TrainingDistribution() {
       {/* Per-day summary — emojis de lo que tenés planeado por día */}
       <div className="bg-zinc-950/60 border border-zinc-800 rounded-2xl p-4">
         <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-3">
-          Resumen por día
+          {t('gym.distribution.perDay')}
         </p>
         <div className="grid grid-cols-7 gap-2">
           {DAY_ORDER.map((dow, idx) => {
@@ -208,7 +211,7 @@ export function TrainingDistribution() {
                     {metas.map((m) => (
                       <span
                         key={m.id}
-                        title={m.label}
+                        title={catLabel(m.id)}
                         className="text-base leading-none"
                       >
                         {m.emoji}
@@ -217,7 +220,7 @@ export function TrainingDistribution() {
                   </div>
                 )}
                 <div className="text-[9px] font-mono text-zinc-600 mt-1">
-                  {isRest ? 'descanso' : `${metas.length} act.`}
+                  {isRest ? t('gym.distribution.rest') : `${metas.length} ${t('gym.distribution.activities')}`}
                 </div>
               </div>
             )
@@ -227,7 +230,7 @@ export function TrainingDistribution() {
 
       {!isAnythingSet && (
         <p className="text-center text-xs text-zinc-600 italic py-4">
-          Empezá a cliquear las celdas para armar tu semana.
+          {t('gym.distribution.emptyHint')}
         </p>
       )}
     </motion.section>

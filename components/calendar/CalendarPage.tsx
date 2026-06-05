@@ -22,7 +22,7 @@ import {
 type ViewMode = 'month' | 'week'
 
 export function CalendarPage() {
-  const { t } = useTranslation()
+  const { t, tArray } = useTranslation()
   const { tasks, projects, updateTask } = useTasksStore()
   // Selección de task para abrir el detalle al click en un bloque sintético.
   const [selectedTask, setSelectedTask] = useState<import('@/types').Task | null>(null)
@@ -232,7 +232,9 @@ export function CalendarPage() {
     ? (eventsByDay.get(format(selectedDay, 'yyyy-MM-dd')) ?? [])
     : []
 
-  const weekDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+  // Días de la semana en el idioma actual — viene del diccionario i18n
+  // (calendar.weekdaysShort). Mon→Sun para arrancar la semana en lunes.
+  const weekDays = tArray('calendar.weekdaysShort')
 
   const connectGoogle = () => {
     window.location.href = '/api/auth/google'
@@ -888,14 +890,8 @@ interface EventModalProps {
  *  implemented yet — keep the picker simple for v1. */
 type RecurrenceMode = 'none' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'yearly'
 
-const RECURRENCE_OPTIONS: { value: RecurrenceMode; label: string }[] = [
-  { value: 'none',     label: 'No se repite' },
-  { value: 'daily',    label: 'Cada día' },
-  { value: 'weekdays', label: 'Días de semana (L-V)' },
-  { value: 'weekly',   label: 'Cada semana' },
-  { value: 'monthly',  label: 'Cada mes' },
-  { value: 'yearly',   label: 'Cada año' },
-]
+// Modos sin label — el label se traduce en el render via t('calendar.recurrence.<mode>').
+const RECURRENCE_MODES: RecurrenceMode[] = ['none', 'daily', 'weekdays', 'weekly', 'monthly', 'yearly']
 
 function buildRecurrenceRule(mode: RecurrenceMode): string[] | undefined {
   switch (mode) {
@@ -909,6 +905,7 @@ function buildRecurrenceRule(mode: RecurrenceMode): string[] | undefined {
 }
 
 function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, onDelete }: EventModalProps) {
+  const { t } = useTranslation()
   const writable = calendars.filter((c) => c.accessRole === 'owner' || c.accessRole === 'writer')
   const defaultCal = event?.calendarId
     ?? writable.find((c) => c.primary)?.id
@@ -1083,11 +1080,11 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
               hint si el evento ya es parte de una serie. */}
           {mode === 'create' ? (
             <div>
-              <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Repetir</label>
+              <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">{t('calendar.repeat')}</label>
               <select value={recurrence} onChange={(e) => setRecurrence(e.target.value as RecurrenceMode)}
                 className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
-                {RECURRENCE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+                {RECURRENCE_MODES.map((mode) => (
+                  <option key={mode} value={mode}>{t(`calendar.recurrence.${mode}`)}</option>
                 ))}
               </select>
               {recurrence !== 'none' && (

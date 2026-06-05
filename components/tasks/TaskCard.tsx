@@ -888,6 +888,7 @@ function InlineSubtask({
   onDelete, onUngroup, onPromoteToTask, onAddChild, onOpenDetail,
   onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd,
 }: InlineSubtaskProps) {
+  const { t, tStatus, locale } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(subtask.title)
   const dateInputRef = useRef<HTMLInputElement>(null)
@@ -922,14 +923,14 @@ function InlineSubtask({
     ? (() => {
         const [y, m, d] = subtask.dueDate!.split('-').map(Number)
         const dt = new Date(y, m - 1, d)
-        return dt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })
+        return dt.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' })
       })()
     : null
   const dueDateFull = subtask.dueDate
     ? (() => {
         const [y, m, d] = subtask.dueDate!.split('-').map(Number)
         const dt = new Date(y, m - 1, d)
-        return dt.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })
+        return dt.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' })
       })()
     : null
   // Visual cue for overdue/today
@@ -1059,7 +1060,7 @@ function InlineSubtask({
         <button
           data-interactive
           onClick={(e) => { e.stopPropagation(); cycleStatus() }}
-          title={`Estado: ${currentStatusObj.label} — click para cambiar`}
+          title={`${t('tasks.status')}: ${tStatus(currentStatusObj.label)}`}
           className="shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded border transition-all"
           style={{
             color: currentStatusObj.color,
@@ -1067,7 +1068,7 @@ function InlineSubtask({
             background: `${currentStatusObj.color}12`,
           }}
         >
-          {currentStatusObj.label}
+          {tStatus(currentStatusObj.label)}
         </button>
       )}
 

@@ -11,6 +11,7 @@ import {
 import { useHabitsStore, type Habit } from '@/lib/store/habitsStore'
 import { useAppStore } from '@/lib/store/appStore'
 import { todayKeyInTz } from '@/lib/utils/dateInTz'
+import { useTranslation } from '@/hooks/useTranslation'
 import { TargetDaysPicker } from './TargetDaysPicker'
 
 const COLORS = ['#10b981', '#6366f1', '#f59e0b', '#ec4899', '#3b82f6', '#f97316', '#8b5cf6', '#ef4444']
@@ -84,6 +85,7 @@ function computeStreak(completedDates: string[]): number {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function HabitsPage() {
+  const { t, tArray, locale } = useTranslation()
   const { habits, addHabit, removeHabit, toggleDate, reorderHabits, resetHabitHistory, setHabitReminderTime, setHabitTargetDays } = useHabitsStore()
   const timezone = useAppStore((s) => s.timezone)
   const [showForm, setShowForm] = useState(false)
@@ -175,11 +177,11 @@ export function HabitsPage() {
 
   // Week navigation
   const isCurrentWeek = dateToStr(weekAnchor) === dateToStr(startOfWeekMonday(new Date()))
-  const weekLabel = `${weekDays[0].getDate()} ${weekDays[0].toLocaleDateString('es-AR', { month: 'short' })} – ${weekDays[6].getDate()} ${weekDays[6].toLocaleDateString('es-AR', { month: 'short' })}`
+  const weekLabel = `${weekDays[0].getDate()} ${weekDays[0].toLocaleDateString(locale, { month: 'short' })} – ${weekDays[6].getDate()} ${weekDays[6].toLocaleDateString(locale, { month: 'short' })}`
 
   // Month navigation
   const isCurrentMonth = chartMonth.getFullYear() === new Date().getFullYear() && chartMonth.getMonth() === new Date().getMonth()
-  const monthLabel = chartMonth.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })
+  const monthLabel = chartMonth.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
 
   if (!mounted) {
     return <div className="p-6"><div className="h-8 w-48 bg-zinc-900 rounded animate-pulse" /></div>
@@ -192,39 +194,39 @@ export function HabitsPage() {
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
             <Activity className="w-5 h-5 text-pink-400" />
-            Hábitos
+            {t('habits.title')}
           </h1>
-          <p className="text-sm text-zinc-500 mt-0.5">Seguimiento diario de rutinas</p>
+          <p className="text-sm text-zinc-500 mt-0.5">{t('habits.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           {habits.length > 1 && (
             <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
               onClick={() => { setReorderMode((v) => !v); if (showForm) setShowForm(false) }}
-              title={reorderMode ? 'Salir del modo reordenar' : 'Reordenar hábitos'}
+              title={reorderMode ? t('habits.done') : t('habits.reorder')}
               className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
                 reorderMode
                   ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
                   : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-zinc-200'
               }`}>
               {reorderMode ? <Check className="w-4 h-4" /> : <ArrowUpDown className="w-4 h-4" />}
-              {reorderMode ? 'Listo' : 'Reordenar'}
+              {reorderMode ? t('habits.done') : t('habits.reorder')}
             </motion.button>
           )}
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
             onClick={() => setShowForm(!showForm)}
             disabled={reorderMode}
             className="flex items-center gap-2 px-4 py-2.5 bg-pink-500/10 border border-pink-500/30 hover:bg-pink-500/20 disabled:opacity-40 disabled:cursor-not-allowed text-pink-400 rounded-xl text-sm font-semibold transition-all">
-            <Plus className="w-4 h-4" /> Nuevo hábito
+            <Plus className="w-4 h-4" /> {t('habits.newHabit')}
           </motion.button>
         </div>
       </div>
 
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <SummaryCard label="Hoy" value={`${doneToday}/${totalHabits}`} color="#ec4899" />
-        <SummaryCard label="Completado" value={`${completionRate}%`} color="#10b981" />
-        <SummaryCard label="Racha máx" value={`${bestStreak}d`} color="#f59e0b" icon={<Flame className="w-3 h-3" />} />
-        <SummaryCard label="Hábitos" value={`${totalHabits}`} color="#6366f1" icon={<Trophy className="w-3 h-3" />} />
+        <SummaryCard label={t('habits.todayLabel')} value={`${doneToday}/${totalHabits}`} color="#ec4899" />
+        <SummaryCard label={t('habits.completed')} value={`${completionRate}%`} color="#10b981" />
+        <SummaryCard label={t('habits.bestStreak')} value={`${bestStreak}d`} color="#f59e0b" icon={<Flame className="w-3 h-3" />} />
+        <SummaryCard label={t('habits.title')} value={`${totalHabits}`} color="#6366f1" icon={<Trophy className="w-3 h-3" />} />
       </div>
 
       {/* Add form */}
@@ -326,7 +328,7 @@ export function HabitsPage() {
       {/* Weekly grid */}
       <section>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Semana</h2>
+          <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{t('habits.week')}</h2>
           <div className="flex items-center gap-1">
             <button onClick={() => setWeekAnchor(addDays(weekAnchor, -7))}
               className="p-1.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-white">
@@ -340,7 +342,7 @@ export function HabitsPage() {
             {!isCurrentWeek && (
               <button onClick={() => setWeekAnchor(startOfWeekMonday(new Date()))}
                 className="text-[10px] text-pink-400 hover:text-pink-300 px-2 py-1 rounded hover:bg-pink-500/10 ml-1">
-                Hoy
+                {t('habits.todayLabel')}
               </button>
             )}
           </div>
@@ -355,19 +357,24 @@ export function HabitsPage() {
                 el gap-4 (16px) que el row pone entre dots y trash. */}
         <div className="hidden md:flex justify-end mb-2 pr-4">
           <div className="flex gap-1 mr-[48px]">
-            {weekDays.map((d, i) => {
-              const isToday = dateToStr(d) === today
-              return (
-                <div key={i} className="w-10 text-center">
-                  <p className={`text-[10px] font-bold uppercase tracking-wider ${isToday ? 'text-pink-400' : 'text-zinc-600'}`}>
-                    {['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'][i]}
-                  </p>
-                  <p className={`text-[11px] tabular-nums ${isToday ? 'text-pink-400 font-bold' : 'text-zinc-500'}`}>
-                    {d.getDate()}
-                  </p>
-                </div>
-              )
-            })}
+            {(() => {
+              // Días Mon-Sun en el idioma actual. tArray devuelve el array
+              // ['Mon'...] o ['Lun'...] desde el diccionario i18n.
+              const weekdayLabels = tArray('calendar.weekdaysShort')
+              return weekDays.map((d, i) => {
+                const isToday = dateToStr(d) === today
+                return (
+                  <div key={i} className="w-10 text-center">
+                    <p className={`text-[10px] font-bold uppercase tracking-wider ${isToday ? 'text-pink-400' : 'text-zinc-600'}`}>
+                      {weekdayLabels[i] ?? ''}
+                    </p>
+                    <p className={`text-[11px] tabular-nums ${isToday ? 'text-pink-400 font-bold' : 'text-zinc-500'}`}>
+                      {d.getDate()}
+                    </p>
+                  </div>
+                )
+              })
+            })()}
           </div>
         </div>
 
@@ -484,7 +491,7 @@ export function HabitsPage() {
                       return (
                         <div
                           key={ds}
-                          title={`${weekDays[i].toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' })} — día deshabilitado para este hábito`}
+                          title={`${weekDays[i].toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'short' })} — día deshabilitado para este hábito`}
                           className={`w-10 h-10 rounded-lg flex items-center justify-center bg-zinc-950/40 border border-zinc-900 cursor-not-allowed ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
                         >
                           <Minus className="w-3 h-3 text-zinc-700" />
@@ -495,7 +502,7 @@ export function HabitsPage() {
                       <button key={ds}
                         onClick={() => toggleDate(habit.id, ds)}
                         disabled={reorderMode}
-                        title={`${weekDays[i].toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'short' })} — click para ${nextLabel}`}
+                        title={`${weekDays[i].toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'short' })} — click para ${nextLabel}`}
                         className={`group w-10 h-10 rounded-lg flex items-center justify-center transition-all hover:scale-110 hover:ring-1 hover:ring-white/70 ${future ? 'opacity-40' : ''} ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
                         style={{
                           // Estricto blanco y negro: celda NEGRA siempre.
@@ -603,7 +610,7 @@ export function HabitsPage() {
 
           {habits.length === 0 && (
             <p className="text-sm text-zinc-600 text-center py-8">
-              Sin hábitos todavía. Tocá &quot;Nuevo hábito&quot; para empezar.
+              {t('habits.noHabitsYet')}
             </p>
           )}
         </div>

@@ -20,7 +20,7 @@ const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
 export function TaskDetail({ task, project, onClose }: Props) {
   const { updateTask, addSubtask, toggleSubtask, deleteSubtask, updateSubtask, moveTask, projects, tasks, convertTaskToSubtask, duplicateTask } = useTasksStore()
-  const { t } = useTranslation()
+  const { t, tStatus } = useTranslation()
   // Read the task LIVE from the store so edits reflect immediately.
   const liveTask = useTasksStore((s) => (task ? s.tasks[task.id] : undefined))
   const effective = liveTask ?? task
@@ -292,7 +292,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                       color: s.color,
                     } : {}}
                   >
-                    {s.label}
+                    {tStatus(s.label)}
                   </button>
                 ))}
               </div>

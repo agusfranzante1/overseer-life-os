@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 import { Target, Plus, Minus, ChevronDown, ChevronUp, Pencil, X } from 'lucide-react'
 import { useKpisStore, parseKpiValue, kpiCompletionPct, serializeKpiValue } from '@/lib/store/kpisStore'
 import { useSPIStore } from '@/lib/store/spiStore'
+import { useTranslation } from '@/hooks/useTranslation'
 import type { KPIDefinition } from '@/lib/kpi/types'
 import type { SPISession } from '@/lib/spi/types'
 import {
@@ -45,6 +46,7 @@ export function KpiScoreboard({
   onSelectedChange: (next: string[]) => void
   onValueChange: (sectionKey: string, fieldKey: string, value: string) => void
 }) {
+  const { t } = useTranslation()
   const library = useKpisStore((s) => s.definitions)
   const [showPicker, setShowPicker] = useState(false)
 
@@ -95,25 +97,24 @@ export function KpiScoreboard({
         <div className="flex items-center gap-2">
           <Target className="w-4 h-4 text-fuchsia-400" />
           <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-300">
-            📊 KPIs de esta semana
+            📊 {t('kpis.activeKpisThisWeek')}
           </p>
-          <span className="text-[10px] text-zinc-600">· {selectedDefs.length} activos</span>
+          <span className="text-[10px] text-zinc-600">· {selectedDefs.length} {t('kpis.activeKpis').toLowerCase()}</span>
         </div>
         <div className="flex items-center gap-1">
           {!isClosed && (
             <button
               onClick={() => setShowPicker(true)}
               className="text-[10px] font-mono text-fuchsia-300 hover:text-fuchsia-200 hover:bg-fuchsia-500/10 transition-colors px-2 py-1 rounded flex items-center gap-1"
-              title="Cambiar qué KPIs trackeás esta semana — heredado de la anterior por default"
             >
-              <Pencil className="w-3 h-3" /> Editar
+              <Pencil className="w-3 h-3" /> {t('common.edit')}
             </button>
           )}
           <Link
             href="/kpis"
             className="text-[10px] font-mono text-fuchsia-300/70 hover:text-fuchsia-200 hover:bg-fuchsia-500/10 transition-colors px-2 py-1 rounded"
           >
-            library →
+            {t('kpis.library').toLowerCase()} →
           </Link>
         </div>
       </div>
@@ -121,15 +122,11 @@ export function KpiScoreboard({
       {selectedDefs.length === 0 ? (
         <div className="bg-zinc-900/60 border border-dashed border-zinc-800 rounded-lg p-4 text-center">
           <p className="text-xs text-zinc-400 mb-2">
-            Sin KPIs activos esta semana.
+            {t('kpis.noKpisActiveThisWeek')}
           </p>
           {eligibleLibrary.length === 0 ? (
             <p className="text-[10px] text-zinc-600">
-              Tu library está vacía. Andá a{' '}
-              <Link href="/kpis" className="text-fuchsia-300 hover:text-fuchsia-200 underline decoration-fuchsia-500/30">
-                /kpis
-              </Link>{' '}
-              y creá el primero — o agregalo desde una sección de área en "Qué buscás esta semana".
+              {t('kpis.libraryEmpty')}
             </p>
           ) : !isClosed ? (
             <div className="flex items-center justify-center gap-2 flex-wrap">
@@ -137,7 +134,7 @@ export function KpiScoreboard({
                 onClick={() => setShowPicker(true)}
                 className="text-[11px] font-mono text-fuchsia-300 hover:text-fuchsia-200 hover:bg-fuchsia-500/10 transition-colors px-3 py-1.5 rounded inline-flex items-center gap-1"
               >
-                <Plus className="w-3 h-3" /> Elegir KPIs
+                <Plus className="w-3 h-3" /> {t('kpis.chooseKpis')}
               </button>
               {/* Atajo: activar TODOS los KPIs de la library de una. Cuando
                   el user tiene KPIs creados (ya sea desde el SPI o desde
@@ -148,7 +145,7 @@ export function KpiScoreboard({
                 className="text-[11px] font-mono text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/10 transition-colors px-3 py-1.5 rounded inline-flex items-center gap-1"
                 title={`Activa los ${eligibleLibrary.length} KPIs de tu library en la sesión de esta semana`}
               >
-                <Plus className="w-3 h-3" /> Activar todos ({eligibleLibrary.length})
+                <Plus className="w-3 h-3" /> {t('kpis.activateAll')} ({eligibleLibrary.length})
               </button>
             </div>
           ) : null}
@@ -190,6 +187,7 @@ function KpiPickerModal({
   onClose: () => void
   onChange: (next: string[]) => void
 }) {
+  const { t } = useTranslation()
   const toggle = (id: string) => {
     if (selected.includes(id)) onChange(selected.filter((s) => s !== id))
     else onChange([...selected, id])
@@ -198,7 +196,7 @@ function KpiPickerModal({
     <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
-          <h2 className="text-sm font-bold text-white">KPIs activos esta semana</h2>
+          <h2 className="text-sm font-bold text-white">{t('kpis.activeKpisThisWeek')}</h2>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 p-1"><X className="w-4 h-4" /></button>
         </div>
         <p className="text-[11px] text-zinc-500 px-5 pt-3 italic">
@@ -300,6 +298,7 @@ function KpiRow({
   isClosed: boolean
   onValueChange: (sectionKey: string, fieldKey: string, value: string) => void
 }) {
+  const { t } = useTranslation()
   const override = readKpiTargetOverride(session, kpi.id)
   const target = override ?? kpi.target
   const value = readKpiValue(session, kpi.id, kpi.kind)
@@ -383,7 +382,7 @@ function KpiRow({
           <div className="mt-2">
             <div className="flex items-center justify-between text-[10px] font-mono mb-0.5">
               <span className="text-zinc-500">
-                Acumulado{' '}
+                {t('kpis.accumulated')}{' '}
                 <span className="text-zinc-300 font-semibold tabular-nums">
                   {cumulative.total}
                 </span>
@@ -395,8 +394,8 @@ function KpiRow({
               {cumulative.expected !== null && cumulative.onPaceDelta !== null && (
                 <span style={{ color: cumColor }}>
                   {cumulative.onPaceDelta >= 0
-                    ? `+${cumulative.onPaceDelta} vs ritmo`
-                    : `${cumulative.onPaceDelta} vs ritmo`}
+                    ? `+${cumulative.onPaceDelta} ${t('kpis.ahead')}`
+                    : `${cumulative.onPaceDelta} ${t('kpis.behind')}`}
                 </span>
               )}
             </div>

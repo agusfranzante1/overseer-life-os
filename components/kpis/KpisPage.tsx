@@ -7,10 +7,12 @@ import { useSPIStore } from '@/lib/store/spiStore'
 import type { KPIDefinition, KPIKind } from '@/lib/kpi/types'
 import { WHEEL_AREAS } from '@/lib/projection/templates'
 import { KpiScoreboard } from '@/components/spi/KpiScoreboard'
+import { useTranslation } from '@/hooks/useTranslation'
 
 type View = 'thisweek' | 'library' | 'history'
 
 export function KpisPage() {
+  const { t } = useTranslation()
   const [view, setView] = useState<View>('thisweek')
   const definitions = useKpisStore((s) => s.definitions)
   const activeCount = definitions.filter((d) => !d.archivedAt).length
@@ -25,12 +27,10 @@ export function KpisPage() {
         <div>
           <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
             <Target className="w-6 h-6 text-fuchsia-400" />
-            KPIs Semanales
+            {t('kpis.title')}
           </h1>
           <p className="text-xs text-zinc-500 mt-1 max-w-xl">
-            Métricas de output que medís cada semana — entrenos, contenido,
-            backtests, hobbies, etc. Definí acá tu library; durante el SPI
-            semanal elegís cuáles trackeás y cargás los valores.
+            {t('kpis.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1">
@@ -42,7 +42,7 @@ export function KpisPage() {
                 : 'text-zinc-500 hover:text-zinc-200'
             }`}
           >
-            <Calendar className="w-3.5 h-3.5" /> Esta semana
+            <Calendar className="w-3.5 h-3.5" /> {t('kpis.thisWeek')}
           </button>
           <button
             onClick={() => setView('library')}
@@ -52,7 +52,7 @@ export function KpisPage() {
                 : 'text-zinc-500 hover:text-zinc-200'
             }`}
           >
-            <Target className="w-3.5 h-3.5" /> Library
+            <Target className="w-3.5 h-3.5" /> {t('kpis.library')}
           </button>
           <button
             onClick={() => setView('history')}
@@ -62,7 +62,7 @@ export function KpisPage() {
                 : 'text-zinc-500 hover:text-zinc-200'
             }`}
           >
-            <BarChart3 className="w-3.5 h-3.5" /> Historial
+            <BarChart3 className="w-3.5 h-3.5" /> {t('kpis.history')}
           </button>
         </div>
       </header>
@@ -84,6 +84,7 @@ export function KpisPage() {
 // ─── Library ────────────────────────────────────────────────────────
 
 function LibraryView() {
+  const { t } = useTranslation()
   const definitions = useKpisStore((s) => s.definitions)
   const addKpi = useKpisStore((s) => s.addKpi)
   const updateKpi = useKpisStore((s) => s.updateKpi)
@@ -145,21 +146,21 @@ function LibraryView() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <p className="text-xs text-zinc-500">
-          {active.length} KPIs activos
-          {archived.length > 0 && ` · ${archived.length} archivados`}
+          {active.length} {t('kpis.activeKpis')}
+          {archived.length > 0 && ` · ${archived.length} ${t('kpis.archived').toLowerCase()}`}
         </p>
         <button
           onClick={() => setCreating(true)}
           className="px-3 py-2 bg-fuchsia-500/15 border border-fuchsia-500/40 hover:bg-fuchsia-500/25 active:bg-fuchsia-500/30 text-fuchsia-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5"
         >
-          <Plus className="w-4 h-4" /> Nuevo KPI
+          <Plus className="w-4 h-4" /> {t('kpis.newKpi')}
         </button>
       </div>
 
       {active.length === 0 ? (
         <div className="bg-zinc-950/40 border border-zinc-800 border-dashed rounded-2xl p-10 text-center">
           <Target className="w-10 h-10 text-fuchsia-400/60 mx-auto mb-3" />
-          <p className="text-sm font-semibold text-zinc-200 mb-1">Sin KPIs todavía</p>
+          <p className="text-sm font-semibold text-zinc-200 mb-1">{t('kpis.noKpisYet')}</p>
           <p className="text-xs text-zinc-500 mb-5 max-w-md mx-auto">
             Empezá creando uno — ej. &quot;Entrenos&quot; (kind: count, target: 5).
             Después en el SPI semanal podés activarlo y cargar los valores que llevás.
@@ -168,7 +169,7 @@ function LibraryView() {
             onClick={() => setCreating(true)}
             className="px-4 py-2 bg-fuchsia-500/15 border border-fuchsia-500/40 hover:bg-fuchsia-500/25 text-fuchsia-300 rounded-lg text-sm font-semibold transition-all inline-flex items-center gap-1.5"
           >
-            <Plus className="w-4 h-4" /> Crear mi primer KPI
+            <Plus className="w-4 h-4" /> {t('kpis.createFirst')}
           </button>
         </div>
       ) : (
@@ -266,6 +267,7 @@ function KpiRow({
   onEdit: () => void
   onArchive: () => void
 }) {
+  const { t } = useTranslation()
   const area = kpi.areaKey ? WHEEL_AREAS.find((a) => a.key === kpi.areaKey) : null
   return (
     <div
@@ -281,7 +283,7 @@ function KpiRow({
               className="text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"
               title="Está habilitado en la sesión SPI de esta semana"
             >
-              ● Activo esta semana
+              {t('kpis.activeThisWeek')}
             </span>
           )}
           <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-600">
@@ -321,6 +323,7 @@ function KpiEditModal({
   onClose: () => void
   onSubmit: (data: Omit<KPIDefinition, 'id' | 'createdAt' | 'updatedAt' | 'activatedAt'>) => void
 }) {
+  const { t } = useTranslation()
   const [name, setName] = useState(initial?.name ?? '')
   const [icon, setIcon] = useState(initial?.icon ?? '🎯')
   const [color, setColor] = useState(initial?.color ?? COLOR_PRESETS[0])
@@ -383,7 +386,7 @@ function KpiEditModal({
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
           <h2 className="text-sm font-bold text-white">
-            {initial ? 'Editar KPI' : 'Nuevo KPI'}
+            {initial ? `${t('common.edit')} KPI` : t('kpis.newKpi')}
           </h2>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 p-1 rounded">
             <X className="w-4 h-4" />
@@ -393,19 +396,18 @@ function KpiEditModal({
         <div className="p-5 space-y-4">
           {/* Nombre */}
           <div>
-            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Nombre</label>
+            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">{t('kpis.name')}</label>
             <input
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ej. Entrenos"
               className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
             />
           </div>
 
           {/* Icono */}
           <div>
-            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Ícono</label>
+            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">{t('kpis.icon')}</label>
             <div className="mt-1 flex flex-wrap gap-1.5">
               {ICON_PRESETS.map((i) => (
                 <button
@@ -423,7 +425,7 @@ function KpiEditModal({
 
           {/* Color */}
           <div>
-            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Color</label>
+            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">{t('kpis.color')}</label>
             <div className="mt-1 flex flex-wrap gap-1.5">
               {COLOR_PRESETS.map((c) => (
                 <button
@@ -440,7 +442,7 @@ function KpiEditModal({
 
           {/* Kind */}
           <div>
-            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Tipo de medición</label>
+            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">{t('kpis.measurementType')}</label>
             <div className="mt-1 grid grid-cols-3 gap-1.5">
               {(['count', 'percent', 'boolean'] as KPIKind[]).map((k) => (
                 <button
@@ -450,9 +452,9 @@ function KpiEditModal({
                     kind === k ? 'bg-fuchsia-500/20 border border-fuchsia-500/50 text-fuchsia-200' : 'bg-zinc-800 border border-zinc-700 text-zinc-400 hover:border-zinc-600'
                   }`}
                 >
-                  {k === 'count' && 'Contador'}
+                  {k === 'count' && t('kpis.counter')}
                   {k === 'percent' && '%'}
-                  {k === 'boolean' && 'Sí / No'}
+                  {k === 'boolean' && t('kpis.yesNo')}
                 </button>
               ))}
             </div>
@@ -467,7 +469,7 @@ function KpiEditModal({
           {kind !== 'boolean' && (
             <div>
               <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-                Target {kind === 'percent' ? '(0-100)' : ''} {kind === 'count' ? 'por semana' : ''}
+                {t('kpis.target')} {kind === 'percent' ? '(0-100)' : ''} {kind === 'count' ? t('kpis.targetWeekly') : ''}
               </label>
               <input
                 type="number"
@@ -492,16 +494,14 @@ function KpiEditModal({
           {kind === 'count' && (
             <div className="bg-zinc-950/40 border border-fuchsia-500/15 rounded-lg p-3 space-y-3">
               <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-300/80">
-                Meta acumulada (opcional)
+                {t('kpis.cumulativeTarget')}
               </p>
               <p className="text-[10px] text-zinc-500 -mt-2 italic leading-relaxed">
-                Para objetivos de largo plazo donde el target semanal es el ritmo y
-                la meta real es el total. Ej. &quot;300 sesiones de backtest&quot; +
-                target semanal 30 = se completa en ~10 semanas.
+                {t('kpis.cumulativeHint')}
               </p>
               <div>
                 <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-                  Total a alcanzar
+                  {t('kpis.totalToReach')}
                 </label>
                 <input
                   type="number"
@@ -515,7 +515,7 @@ function KpiEditModal({
                 <>
                   <div>
                     <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-                      Desde cuándo cuenta
+                      {t('kpis.sinceWhen')}
                     </label>
                     <input
                       type="date"
@@ -529,7 +529,7 @@ function KpiEditModal({
                   </div>
                   <div>
                     <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
-                      Fecha objetivo (opcional)
+                      {t('kpis.targetDeadline')}
                     </label>
                     <input
                       type="date"
@@ -548,13 +548,13 @@ function KpiEditModal({
 
           {/* Área */}
           <div>
-            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Área (opcional)</label>
+            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">{t('kpis.area')} ({t('common.optional').toLowerCase()})</label>
             <select
               value={areaKey}
               onChange={(e) => setAreaKey(e.target.value)}
               className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
             >
-              <option value="">— sin área —</option>
+              <option value="">{t('kpis.noArea')}</option>
               {WHEEL_AREAS.map((a) => (
                 <option key={a.key} value={a.key}>{a.label}</option>
               ))}
@@ -567,7 +567,7 @@ function KpiEditModal({
 
           {/* Grupo */}
           <div>
-            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Grupo (opcional)</label>
+            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">{t('kpis.group')} ({t('common.optional').toLowerCase()})</label>
             <input
               value={group}
               onChange={(e) => setGroup(e.target.value)}
@@ -583,11 +583,11 @@ function KpiEditModal({
         <div className="flex items-center gap-2 px-5 py-4 border-t border-zinc-800">
           <button onClick={onClose}
             className="ml-auto px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-semibold transition-colors">
-            Cancelar
+            {t('common.cancel')}
           </button>
           <button onClick={submit} disabled={!canSubmit}
             className="px-4 py-2 rounded-lg bg-fuchsia-500/15 border border-fuchsia-500/30 hover:bg-fuchsia-500/25 disabled:opacity-40 disabled:cursor-not-allowed text-fuchsia-300 text-sm font-bold transition-colors flex items-center gap-1.5">
-            <Check className="w-3.5 h-3.5" /> Guardar
+            <Check className="w-3.5 h-3.5" /> {t('common.save')}
           </button>
         </div>
       </motion.div>
@@ -713,6 +713,7 @@ function HistoryView() {
  *  la sesión SPI de la semana actual si no existe, así podés marcar
  *  KPIs desde acá aunque no hayas abierto el SPI todavía. */
 function ThisWeekView() {
+  const { t } = useTranslation()
   const sessions = useSPIStore((s) => s.sessions)
   const activeSessionId = useSPIStore((s) => s.activeSessionId)
   const createOrOpen = useSPIStore((s) => s.createOrOpenCurrentWeek)
@@ -758,16 +759,15 @@ function ThisWeekView() {
     return (
       <div className="bg-zinc-950/40 border border-zinc-800 border-dashed rounded-2xl p-10 text-center">
         <Calendar className="w-10 h-10 text-fuchsia-400/60 mx-auto mb-3" />
-        <p className="text-sm font-semibold text-zinc-200 mb-1">Sin sesión SPI activa</p>
+        <p className="text-sm font-semibold text-zinc-200 mb-1">{t('spi.noSession')}</p>
         <p className="text-xs text-zinc-500 mb-5 max-w-md mx-auto">
-          La semana en curso no tiene sesión iniciada. Creala — los KPIs que tenés
-          en la library se van a heredar automáticamente (los mismos que la semana pasada).
+          {t('spi.noSessionDesc')}
         </p>
         <button
           onClick={() => { createOrOpen(); setNeedsCreate(true) }}
           className="px-4 py-2 bg-fuchsia-500/15 border border-fuchsia-500/40 hover:bg-fuchsia-500/25 text-fuchsia-300 rounded-lg text-sm font-semibold transition-all inline-flex items-center gap-1.5"
         >
-          <Plus className="w-4 h-4" /> Empezar semana
+          <Plus className="w-4 h-4" /> {t('spi.startWeek')}
         </button>
       </div>
     )
@@ -796,16 +796,11 @@ function ThisWeekView() {
       {sessionClosed && (
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-[11px] text-amber-200/90 flex items-start gap-2">
           <span className="text-base leading-none">ℹ️</span>
-          <span>
-            El SPI semanal ya está cerrado (la planificación quedó congelada),
-            pero los <strong>KPIs siguen editables</strong> hasta el próximo sábado —
-            cargá tus valores acá durante toda la semana.
-          </span>
+          <span>{t('kpis.spiClosedBanner')}</span>
         </div>
       )}
       <p className="text-[11px] text-zinc-500">
-        Cargá los valores acá o desde el SPI semanal — escriben al mismo lugar.
-        Los KPIs activos se heredan automáticamente; podés ajustar con &quot;Editar&quot; en el header.
+        {t('kpis.loadValuesHint')}
       </p>
       <KpiScoreboard
         session={session}

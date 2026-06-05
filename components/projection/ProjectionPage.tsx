@@ -19,6 +19,7 @@ import {
   ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Tooltip as RechartsTooltip,
 } from 'recharts'
 import { Sparkles, Dices, Loader2 } from 'lucide-react'
+import { useTranslation } from '@/hooks/useTranslation'
 import { getAiHeaders } from '@/lib/ai/headers'
 import {
   currentYearKey, currentQuarterKey, currentMonthKey,
@@ -30,6 +31,7 @@ import type { ProjectionLevel, ProjectionPlan, ProjectionTemplate, SPISection, S
 import { planToMarkdown, copyMarkdownToClipboard } from '@/lib/projection/exportMarkdown'
 
 export function ProjectionPage() {
+  const { t } = useTranslation()
   const {
     plans, getOrCreatePlan, updateValue, closePlan, reopenPlan, findPlan, setSelectedLanes,
   } = useProjectionStore()
@@ -89,18 +91,17 @@ export function ProjectionPage() {
           SPI
         </h1>
         <p className="text-xs text-zinc-500 mt-1 max-w-xl">
-          Sistema de Progreso Infinito · de la visión anual al sábado. Elegí la escala
-          en la que querés trabajar ahora.
+          {t('spi.projectionSubtitle')}
         </p>
       </header>
 
       {/* ── Level tabs ──────────────────────────────────────────── */}
       <div className="flex items-center gap-1 bg-zinc-950/60 border border-zinc-800 rounded-xl p-1 w-fit flex-wrap">
-        <LevelTab active={activeLevel === 'eagle'}   onClick={() => setActiveLevel('eagle')}   icon="🦅" label="Vista de Águila" />
-        <LevelTab active={activeLevel === 'year'}    onClick={() => setActiveLevel('year')}    icon="📅" label="Anual" />
-        <LevelTab active={activeLevel === 'quarter'} onClick={() => setActiveLevel('quarter')} icon="🎯" label="Trimestral" />
-        <LevelTab active={activeLevel === 'month'}   onClick={() => setActiveLevel('month')}   icon="📆" label="Mensual" />
-        <LevelTab active={activeLevel === 'week'}    onClick={() => setActiveLevel('week')}    icon="♾️" label="Semanal" />
+        <LevelTab active={activeLevel === 'eagle'}   onClick={() => setActiveLevel('eagle')}   icon="🦅" label={t('spi.eagleView')} />
+        <LevelTab active={activeLevel === 'year'}    onClick={() => setActiveLevel('year')}    icon="📅" label={t('projection.annual')} />
+        <LevelTab active={activeLevel === 'quarter'} onClick={() => setActiveLevel('quarter')} icon="🎯" label={t('projection.quarterly')} />
+        <LevelTab active={activeLevel === 'month'}   onClick={() => setActiveLevel('month')}   icon="📆" label={t('projection.monthly')} />
+        <LevelTab active={activeLevel === 'week'}    onClick={() => setActiveLevel('week')}    icon="♾️" label={t('spi.weeklyTab')} />
       </div>
 
       {/* ── Active level content ────────────────────────────────── */}

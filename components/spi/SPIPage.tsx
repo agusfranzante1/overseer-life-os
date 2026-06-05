@@ -26,8 +26,10 @@ import { KpiScoreboard } from './KpiScoreboard'
 import type { SPISection, SectionField, SPISession, SPITask } from '@/lib/spi/types'
 import { titleForLevel, type SessionXP } from '@/lib/spi/gamification'
 import { quarterOfMonthKey, monthOfSpiWeek, labelForPeriod, weekOfQuarter } from '@/lib/projection/period'
+import { useTranslation } from '@/hooks/useTranslation'
 
 export function SPIPage() {
+  const { t } = useTranslation()
   const {
     template, sessions, activeSessionId,
     createOrOpenCurrentWeek, setActiveSession,
@@ -100,11 +102,10 @@ export function SPIPage() {
         <div>
           <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
             <InfinityIcon className="w-6 h-6 text-fuchsia-400" />
-            SPI · Sistema de Progreso Infinito
+            {t('spi.fullTitle')}
           </h1>
           <p className="text-xs text-zinc-500 mt-1 max-w-xl">
-            Cada sábado te sentás, observás tu semana desde la vista del águila, y diseñás la siguiente.
-            Lo que funciona, no se toca. Lo que falla, se ajusta.
+            {t('spi.fullSubtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -131,7 +132,7 @@ export function SPIPage() {
             <div className="px-3 py-1.5 bg-orange-500/10 border border-orange-500/30 rounded-lg flex items-center gap-1.5">
               <Flame className="w-3.5 h-3.5 text-orange-400" />
               <span className="text-xs text-orange-300 font-mono">
-                {streak} {streak === 1 ? 'sábado' : 'sábados'}
+                {streak} {streak === 1 ? t('spi.streakSingle') : t('spi.streakPlural')}
               </span>
             </div>
           )}
@@ -139,12 +140,12 @@ export function SPIPage() {
             onClick={() => setShowHistory(true)}
             className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
           >
-            <History className="w-3.5 h-3.5" /> Historial ({sessions.length})
+            <History className="w-3.5 h-3.5" /> {t('spi.history')} ({sessions.length})
           </button>
           <button
             onClick={() => setShowTemplateEditor(true)}
             className="px-2 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-fuchsia-500/40 text-zinc-500 hover:text-fuchsia-300 rounded-lg transition-all"
-            title="Editar plantilla — agregá, quitá o renombrá preguntas y secciones"
+            title={t('spi.editTemplate')}
           >
             <Settings2 className="w-3.5 h-3.5" />
           </button>
@@ -1870,6 +1871,7 @@ function TaskRow({
 function HistoryModal({
   sessions, activeSessionId, onClose, onOpen,
 }: { sessions: SPISession[]; activeSessionId: string | null; onClose: () => void; onOpen: (id: string) => void }) {
+  const { t } = useTranslation()
   const sorted = [...sessions].sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate))
   return (
     <motion.div
@@ -1884,7 +1886,7 @@ function HistoryModal({
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-zinc-200 flex items-center gap-2">
-            <History className="w-5 h-5 text-fuchsia-400" /> Historial SPI
+            <History className="w-5 h-5 text-fuchsia-400" /> {t('spi.spiHistory')}
           </h2>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200">
             <X className="w-5 h-5" />
@@ -2316,6 +2318,7 @@ function CelebrationModal({
   result: { xp: SessionXP; leveledUp: boolean; newLevel: number; pushedTasks: number }
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const { xp, leveledUp, newLevel, pushedTasks } = result
   return (
     <motion.div
@@ -2373,7 +2376,7 @@ function CelebrationModal({
               transition={{ delay: 0.25 }}
               className="text-center text-4xl font-black text-transparent bg-clip-text bg-gradient-to-br from-fuchsia-300 to-violet-400 mb-1"
             >
-              Nivel {newLevel}
+              {t('spi.levelLabel')} {newLevel}
             </motion.h2>
             <motion.p
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}
@@ -2389,7 +2392,7 @@ function CelebrationModal({
         )}
 
         {!leveledUp && (
-          <h2 className="text-center text-xl font-bold text-zinc-100 mb-1">Sesión cerrada</h2>
+          <h2 className="text-center text-xl font-bold text-zinc-100 mb-1">{t('spi.sessionClosed')}</h2>
         )}
         <p className="text-center text-xs text-zinc-500 mb-5">
           {pushedTasks > 0

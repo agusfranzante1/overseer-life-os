@@ -9,11 +9,13 @@ import {
 } from 'recharts'
 import { useHealthStore, getRangeSnapshots, getTodaySnapshot, type HealthSnapshot } from '@/lib/store/healthStore'
 import { computeEnergyScore } from '@/lib/health/energyScore'
+import { useTranslation } from '@/hooks/useTranslation'
 
 const R = 56
 const C = 2 * Math.PI * R
 
 export function HealthPage() {
+  const { t, locale } = useTranslation()
   const snapshots = useHealthStore((s) => s.snapshots)
   const baseline = useHealthStore((s) => s.baseline)
   const setSleepGoal = useHealthStore((s) => s.setSleepGoal)
@@ -64,11 +66,11 @@ export function HealthPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Health</h1>
+          <h1 className="text-2xl font-bold text-white">{t('health.title')}</h1>
           <p className="text-sm text-zinc-500">
             Xiaomi Band 10 · Apple Health · {lastSyncAt
-              ? `Última sync ${new Date(lastSyncAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`
-              : 'Sin sincronizar'}
+              ? `${t('health.lastSync')} ${new Date(lastSyncAt).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}`
+              : t('health.notSynced')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -83,7 +85,7 @@ export function HealthPage() {
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors"
           >
             <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-            Sync ahora
+            {t('health.syncNow')}
           </button>
         </div>
       </div>

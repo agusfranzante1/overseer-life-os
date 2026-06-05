@@ -489,7 +489,7 @@ export function TasksPage() {
     projects, tasks, selectedProjectId, setSelectedProject, addProject, addTask,
     updateProject, deleteProject,
   } = tasksStoreApi
-  const { t } = useTranslation()
+  const { t, tStatus } = useTranslation()
   const [showProjectForm, setShowProjectForm] = useState(false)
   const [newTaskProjectId, setNewTaskProjectId] = useState<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
@@ -1008,9 +1008,9 @@ export function TasksPage() {
                     title="Filtrar por estado"
                     className="bg-zinc-900 border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
                   >
-                    <option value="">Estado: todos</option>
+                    <option value="">{t('tasks.status')}: {t('common.all')}</option>
                     {activeProject.statuses.map((s) => (
-                      <option key={s.id} value={s.label}>{s.label}</option>
+                      <option key={s.id} value={s.label}>{tStatus(s.label)}</option>
                     ))}
                   </select>
                 ) : availableStatuses.length > 0 && (
@@ -1436,6 +1436,7 @@ function ArchiveView({
 
 function KanbanBoard({ project, tasks, sortMode, onTaskClick }: { project: Project; tasks: Task[]; sortMode: KanbanSort; onTaskClick: (t: Task) => void }) {
   const { updateTask } = useTasksStore()
+  const { tStatus } = useTranslation()
   const [dragId, setDragId] = useState<string | null>(null)
   const columns = project.statuses.slice().sort((a, b) => a.order - b.order)
 
@@ -1460,7 +1461,7 @@ function KanbanBoard({ project, tasks, sortMode, onTaskClick }: { project: Proje
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full" style={{ background: col.color }} />
-                  <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: col.color }}>{col.label}</h3>
+                  <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: col.color }}>{tStatus(col.label)}</h3>
                 </div>
                 <span className="text-[10px] font-mono text-zinc-600">{colTasks.length}</span>
               </div>
@@ -1491,6 +1492,7 @@ function KanbanBoard({ project, tasks, sortMode, onTaskClick }: { project: Proje
 
 function AllProjectsKanban({ projects, tasks, sortMode, onTaskClick }: { projects: Project[]; tasks: Task[]; sortMode: KanbanSort; onTaskClick: (t: Task) => void }) {
   const { updateTask } = useTasksStore()
+  const { tStatus } = useTranslation()
   const [dragId, setDragId] = useState<string | null>(null)
 
   // Aggregate ALL unique status labels across projects (case-insensitive merge)
@@ -1527,7 +1529,7 @@ function AllProjectsKanban({ projects, tasks, sortMode, onTaskClick }: { project
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full" style={{ background: col.color }} />
-                  <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: col.color }}>{col.label}</h3>
+                  <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: col.color }}>{tStatus(col.label)}</h3>
                 </div>
                 <span className="text-[10px] font-mono text-zinc-600">{colTasks.length}</span>
               </div>

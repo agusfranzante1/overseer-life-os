@@ -15,6 +15,7 @@ import {
 } from '@/lib/store/gymStore'
 import { useHealthStore } from '@/lib/store/healthStore'
 import { TrainingDistribution } from './TrainingDistribution'
+import { useTranslation } from '@/hooks/useTranslation'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -32,16 +33,17 @@ function fmtDelta(n: number) {
 
 type GymTab = 'sesiones' | 'distribucion' | 'rutinas' | 'peso' | 'progresion'
 
-const GYM_TAB_META: Record<GymTab, { label: string; Icon: typeof Dumbbell }> = {
-  sesiones:     { label: 'Sesiones',     Icon: Dumbbell },
-  distribucion: { label: 'Distribución', Icon: CalendarDays },
-  rutinas:      { label: 'Rutinas',      Icon: BarChart3 },
-  peso:         { label: 'Peso',         Icon: Scale },
-  progresion:   { label: 'Progresión',   Icon: TrendingUp },
+const GYM_TAB_META: Record<GymTab, { Icon: typeof Dumbbell; key: string }> = {
+  sesiones:     { Icon: Dumbbell,     key: 'sessions' },
+  distribucion: { Icon: CalendarDays, key: 'distribution' },
+  rutinas:      { Icon: BarChart3,    key: 'routines' },
+  peso:         { Icon: Scale,        key: 'weight' },
+  progresion:   { Icon: TrendingUp,   key: 'progression' },
 }
 
 export function GymPage() {
   const [tab, setTab] = useState<GymTab>('sesiones')
+  const { t } = useTranslation()
 
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="p-6 space-y-6">
@@ -49,17 +51,18 @@ export function GymPage() {
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
             <Dumbbell className="w-5 h-5 text-amber-400" />
-            Gimnasio
+            {t('gym.title')}
           </h1>
-          <p className="text-sm text-zinc-500 mt-0.5">Sesiones · rutinas · peso · progresión</p>
+          <p className="text-sm text-zinc-500 mt-0.5">{t('gym.subtitle')}</p>
         </div>
         <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
-          {(Object.keys(GYM_TAB_META) as GymTab[]).map((t) => {
-            const { label, Icon } = GYM_TAB_META[t]
+          {(Object.keys(GYM_TAB_META) as GymTab[]).map((tabId) => {
+            const { Icon, key } = GYM_TAB_META[tabId]
+            const label = t(`gym.tabs.${key}`)
             return (
-              <button key={t} onClick={() => setTab(t)}
+              <button key={tabId} onClick={() => setTab(tabId)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-                  tab === t ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-200'
+                  tab === tabId ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-200'
                 }`}>
                 <Icon className="w-3.5 h-3.5" /> {label}
               </button>

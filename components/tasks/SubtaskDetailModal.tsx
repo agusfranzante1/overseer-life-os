@@ -20,7 +20,7 @@ const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
 export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, parentSubtaskTitle, onClose }: Props) {
   const { tasks, updateSubtask, deleteSubtask, toggleSubtask, addSubtask } = useTasksStore()
-  const { t } = useTranslation()
+  const { t, tStatus } = useTranslation()
 
   const [title, setTitle]   = useState(subtask.title)
   const [notes, setNotes]   = useState(subtask.notes ?? '')
@@ -204,7 +204,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
                       borderColor: s.color,
                       color: s.color,
                     } : {}}>
-                    {s.label}
+                    {tStatus(s.label)}
                   </button>
                 ))}
               </div>

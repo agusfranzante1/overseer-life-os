@@ -10,6 +10,7 @@ import {
   useWalletStore, getWalletBalance, getMonthlyTotals,
   Currency, Wallet, DEFAULT_CURRENCIES, type RecurringExpense,
 } from '@/lib/store/walletStore'
+import { useTranslation } from '@/hooks/useTranslation'
 
 const MONTHS = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC']
 const WALLET_COLORS = ['#10b981','#6366f1','#f59e0b','#ef4444','#3b82f6','#ec4899','#f97316','#8b5cf6','#14b8a6','#64748b','#003087','#009ee3']
@@ -1470,6 +1471,7 @@ function DeletedWalletsHistory() {
 
 // ─── MoneyPage (main) ─────────────────────────────────────────────────────────
 export function MoneyPage() {
+  const { t } = useTranslation()
   const { wallets, currencies, removeWallet, restoreWallet, processRecurringExpenses } = useWalletStore()
   const [selectedWalletId, setSelectedWalletId] = useState(wallets[0]?.id ?? '')
 
@@ -1528,25 +1530,25 @@ export function MoneyPage() {
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
             <WalletIcon className="w-5 h-5 text-emerald-400" />
-            Gestión Financiera
+            {t('wallet.title')}
           </h1>
-          <p className="text-sm text-zinc-500 mt-0.5">Billeteras, divisas y flujo de caja</p>
+          <p className="text-sm text-zinc-500 mt-0.5">{t('wallet.subtitle')}</p>
         </div>
         <div className="flex items-center gap-2">
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
             onClick={() => setModal({ type: 'transfer' })}
             className="flex items-center gap-2 px-4 py-2.5 bg-indigo-500/10 border border-indigo-500/30 hover:bg-indigo-500/20 text-indigo-400 rounded-xl text-sm font-semibold transition-all">
-            <ArrowLeftRight className="w-4 h-4" /> Transferir
+            <ArrowLeftRight className="w-4 h-4" /> {t('wallet.transfer')}
           </motion.button>
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
             onClick={() => setModal({ type: 'addCurrency' })}
             className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 text-zinc-300 rounded-xl text-sm font-semibold transition-all">
-            <Settings className="w-4 h-4" /> Divisas
+            <Settings className="w-4 h-4" /> {t('wallet.currencies')}
           </motion.button>
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
             onClick={() => setModal({ type: 'addWallet' })}
             className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 text-emerald-400 rounded-xl text-sm font-semibold transition-all">
-            <Plus className="w-4 h-4" /> Billetera
+            <Plus className="w-4 h-4" /> {t('wallet.walletShort')}
           </motion.button>
         </div>
       </div>

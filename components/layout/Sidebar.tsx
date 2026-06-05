@@ -405,12 +405,12 @@ export function Sidebar({
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.97 }}
             onClick={handleLogout}
-            title={!showLabels ? 'Cerrar sesión' : undefined}
+            title={!showLabels ? t('nav.logout') : undefined}
             className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors`}
           >
             <LogOut className="w-4 h-4 shrink-0" />
             {showLabels && (
-              <span className="text-sm font-medium whitespace-nowrap">Cerrar sesión</span>
+              <span className="text-sm font-medium whitespace-nowrap">{t('nav.logout')}</span>
             )}
           </motion.button>
         )}
@@ -423,15 +423,15 @@ export function Sidebar({
 
 // Botón "Sincronizar ahora" — para que el user pueda forzar un sync
 // manual cuando algo no aparece (mobile recién abierto, o sospecha que
-// la data en otro device es más reciente). Muestra el estado: "Sync ✓"
-// cuando termina OK, "Sync..." cuando está corriendo, "Sync ↻" idle.
+// la data en otro device es más reciente). Muestra el estado actual y
+// usa i18n para los labels.
 function SyncNowButton({ collapsed }: { collapsed: boolean }) {
+  const { t } = useTranslation()
   const [status, setStatus] = useState<'idle' | 'syncing' | 'ok' | 'err'>('idle')
   const handleSync = async () => {
     if (status === 'syncing') return
     setStatus('syncing')
     try {
-      // Lazy import — sync.ts solo se carga si el user tiene Supabase configurado.
       const { forceSyncAll } = await import('@/lib/supabase/sync')
       await forceSyncAll()
       setStatus('ok')
@@ -443,10 +443,10 @@ function SyncNowButton({ collapsed }: { collapsed: boolean }) {
     }
   }
   const label =
-    status === 'syncing' ? 'Sincronizando…' :
-    status === 'ok'      ? 'Sincronizado ✓' :
-    status === 'err'     ? 'Error — reintentar' :
-    'Sincronizar ahora'
+    status === 'syncing' ? t('nav.syncing') :
+    status === 'ok'      ? `${t('nav.synced')} ✓` :
+    status === 'err'     ? t('nav.syncError') :
+    t('nav.syncNow')
   const color =
     status === 'ok'  ? 'text-emerald-400' :
     status === 'err' ? 'text-red-400' :

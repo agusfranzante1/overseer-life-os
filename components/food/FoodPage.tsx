@@ -10,14 +10,9 @@ import {
   type Meal, type MealItem, type ShoppingCategory, type ShoppingItem,
   type FixedCost, type Stage,
 } from '@/lib/store/foodStore'
+import { useTranslation } from '@/hooks/useTranslation'
 
 type Tab = 'compras' | 'gastos' | 'dieta'
-
-const TAB_LABELS: Record<Tab, string> = {
-  compras: 'Compras',
-  gastos: 'Gastos Mensuales',
-  dieta: 'Dieta',
-}
 
 function fmtMoney(n: number, ars = true): string {
   if (!Number.isFinite(n)) return '—'
@@ -32,6 +27,7 @@ function fmtNum(n: number): string {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function FoodPage() {
+  const { t } = useTranslation()
   const [tab, setTab] = useState<Tab>('compras')
 
   return (
@@ -41,19 +37,19 @@ export function FoodPage() {
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
             <Utensils className="w-5 h-5 text-emerald-400" />
-            Alimentación
+            {t('food.title')}
           </h1>
-          <p className="text-sm text-zinc-500 mt-0.5">Etapas dietarias, compras y gasto mensual</p>
+          <p className="text-sm text-zinc-500 mt-0.5">{t('food.subtitle')}</p>
         </div>
         <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
-          {(['compras','gastos','dieta'] as Tab[]).map((t) => {
-            const Icon = t === 'dieta' ? Utensils : t === 'compras' ? ShoppingCart : Wallet
+          {(['compras','gastos','dieta'] as Tab[]).map((tabId) => {
+            const Icon = tabId === 'dieta' ? Utensils : tabId === 'compras' ? ShoppingCart : Wallet
             return (
-              <button key={t} onClick={() => setTab(t)}
+              <button key={tabId} onClick={() => setTab(tabId)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-                  tab === t ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-200'
+                  tab === tabId ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-200'
                 }`}>
-                <Icon className="w-3.5 h-3.5" /> {TAB_LABELS[t]}
+                <Icon className="w-3.5 h-3.5" /> {t(`food.tabs.${tabId}`)}
               </button>
             )
           })}
