@@ -82,10 +82,10 @@ export function CalendarSnapshotView({ snapshot, onClose }: Props) {
         <motion.div
           initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
           onClick={(e) => e.stopPropagation()}
-          className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col"
+          className="bg-white/[0.03] border border-white/[0.08] rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col"
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.08]">
             <div>
               <h3 className="text-base font-bold text-white">
                 📅 {t('spi.calendarSnapshotTitle') !== 'spi.calendarSnapshotTitle' ? t('spi.calendarSnapshotTitle') : 'Calendario de la semana'}
@@ -105,14 +105,14 @@ export function CalendarSnapshotView({ snapshot, onClose }: Props) {
               {/* Header row */}
               <div />
               {days.map((d) => (
-                <div key={d.dateKey} className="text-center pb-2 border-b border-zinc-800">
+                <div key={d.dateKey} className="text-center pb-2 border-b border-white/[0.08]">
                   <p className="text-[10px] font-medium uppercase text-zinc-500">{d.weekdayLabel}</p>
                   <p className="text-sm text-zinc-300 font-semibold">{fmtDate(d.date)}</p>
                 </div>
               ))}
 
               {/* Hours column */}
-              <div className="border-r border-zinc-800/60" style={{ height: gridHeight }}>
+              <div className="border-r border-white/[0.08]/60" style={{ height: gridHeight }}>
                 {hours.map((h) => (
                   <div key={h} className="text-right pr-1.5 text-[9px] text-zinc-500" style={{ height: HOUR_PX }}>
                     <span className="-translate-y-1.5 inline-block">{String(h).padStart(2, '0')}:00</span>
@@ -124,10 +124,10 @@ export function CalendarSnapshotView({ snapshot, onClose }: Props) {
               {days.map((d) => {
                 const dayBlocks = blocksByDay.get(d.dateKey) ?? []
                 return (
-                  <div key={d.dateKey} className="relative border-l border-zinc-800/60" style={{ height: gridHeight }}>
+                  <div key={d.dateKey} className="relative border-l border-white/[0.08]/60" style={{ height: gridHeight }}>
                     {/* Hour cell dividers */}
                     {hours.map((h) => (
-                      <div key={h} className="border-b border-zinc-800/40" style={{ height: HOUR_PX }} />
+                      <div key={h} className="border-b border-white/[0.08]/40" style={{ height: HOUR_PX }} />
                     ))}
                     {/* Blocks */}
                     {dayBlocks.map((b) => {
@@ -172,7 +172,7 @@ export function CalendarSnapshotView({ snapshot, onClose }: Props) {
           </div>
 
           {/* Footer — legend */}
-          <div className="px-5 py-2 border-t border-zinc-800 flex items-center gap-4 text-[10px] text-zinc-500">
+          <div className="px-5 py-2 border-t border-white/[0.08] flex items-center gap-4 text-[10px] text-zinc-500">
             <span className="flex items-center gap-1">
               <span className="w-2 h-2 rounded bg-blue-500" /> Evento
             </span>

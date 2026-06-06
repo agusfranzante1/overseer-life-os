@@ -175,7 +175,7 @@ function SleepCard({ color, sleepMinutes, goalMinutes, onUpdateGoal }: SleepCard
   return (
     <motion.div
       whileHover={{ scale: 1.02 }}
-      className="relative bg-zinc-900 rounded-xl p-4 border border-zinc-800 hover:border-zinc-700 transition-colors group"
+      className="relative bg-white/[0.03] rounded-xl p-4 border border-white/[0.08] hover:border-white/[0.12] transition-colors group"
       style={{ borderLeftColor: color, borderLeftWidth: 3 }}
     >
       <div className="flex items-center gap-2 mb-2">
@@ -237,7 +237,7 @@ function AutoMetricCard({ label, icon, color, value, suffix, subtitle, progress,
   return (
     <motion.div
       whileHover={{ scale: 1.02 }}
-      className="relative bg-zinc-900 rounded-xl p-4 border border-zinc-800 hover:border-zinc-700 transition-colors"
+      className="relative bg-white/[0.03] rounded-xl p-4 border border-white/[0.08] hover:border-white/[0.12] transition-colors"
       style={{ borderLeftColor: color, borderLeftWidth: 3 }}
       title={tooltip}
     >
@@ -305,7 +305,7 @@ function SleepDebtCard({ color, sleepMinutes, goalMinutes }: SleepDebtCardProps)
   return (
     <motion.div
       whileHover={{ scale: 1.02 }}
-      className="relative bg-zinc-900 rounded-xl p-4 border border-zinc-800 hover:border-zinc-700 transition-colors"
+      className="relative bg-white/[0.03] rounded-xl p-4 border border-white/[0.08] hover:border-white/[0.12] transition-colors"
       style={{ borderLeftColor: tone, borderLeftWidth: 3 }}
     >
       <div className="flex items-center gap-2 mb-2">

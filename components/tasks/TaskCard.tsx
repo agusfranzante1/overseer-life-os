@@ -290,12 +290,12 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
   // en ese caso, la madre se ve con el borde rojo claro de high. Sin
   // hijas urgentes y sin prioridad alta propia, vuelve al borde neutro.
   const borderClass = isDone
-    ? 'border-zinc-800 opacity-60'
+    ? 'border-white/[0.08] opacity-60'
     : isUrgent
       ? 'border-red-500 shadow-[0_0_0_1px_rgba(239,68,68,0.3)]'
       : isHighPriority || isOverdue
         ? 'border-red-500/40'
-        : 'border-zinc-800 hover:border-zinc-700'
+        : 'border-white/[0.08] hover:border-white/[0.12]'
 
   // Apply task-to-task drag visual state. Solid violet ring while a
   // foreign TaskCard is hovering over this card (= valid drop target);
@@ -320,7 +320,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
       onDrop={onTaskDrop}
       onDragEnd={onTaskDragEnd}
       style={dndStyle}
-      className={`bg-zinc-900 border rounded-xl transition-all ${borderClass} ${dndClass}`}
+      className={`bg-white/[0.03] border rounded-xl transition-all ${borderClass} ${dndClass}`}
     >
       {/* Body — clicking it opens the detail modal */}
       <div
@@ -555,7 +555,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
           initial={{ height: 0 }}
           animate={{ height: 'auto' }}
           transition={{ type: 'tween', duration: 0.18, ease: 'easeOut' }}
-          className="border-t border-zinc-800 bg-zinc-900/50 px-3 py-2 overflow-hidden"
+          className="border-t border-white/[0.08] bg-white/[0.03]/50 px-3 py-2 overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Removed the old `ml-7` here — subtasks were getting pushed
@@ -603,7 +603,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                       children — makes the hierarchy visually obvious without
                       the heavy ml-7 indent that lived here before. */}
                   {hasChildren && !isCollapsed && (
-                    <div className="border-t border-zinc-800/60 ml-5 my-1" />
+                    <div className="border-t border-white/[0.08]/60 ml-5 my-1" />
                   )}
                   {/* Child subtask rows. Indented via `ml-12` on the
                       wrapper. Why so much: the child's InlineSubtask
@@ -702,7 +702,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
               value={newSubtask}
               onChange={(e) => setNewSubtask(e.target.value)}
               placeholder={t('tasks.addSubtask')}
-              className="flex-1 bg-transparent border-b border-zinc-700 focus:border-indigo-500 outline-none text-sm text-zinc-300 placeholder-zinc-600 py-0.5"
+              className="flex-1 bg-transparent border-b border-white/[0.12] focus:border-indigo-500 outline-none text-sm text-zinc-300 placeholder-zinc-600 py-0.5"
             />
             <button type="submit" className="text-zinc-600 hover:text-indigo-400 transition-colors">
               <Plus className="w-3.5 h-3.5" />
@@ -716,7 +716,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
           initial={{ height: 0 }}
           animate={{ height: 'auto' }}
           transition={{ type: 'tween', duration: 0.18, ease: 'easeOut' }}
-          className="border-t border-zinc-800 bg-zinc-900/50 px-3 py-2 overflow-hidden"
+          className="border-t border-white/[0.08] bg-white/[0.03]/50 px-3 py-2 overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           <form onSubmit={handleAddSubtask} className="flex items-center gap-1">
@@ -725,7 +725,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
               value={newSubtask}
               onChange={(e) => setNewSubtask(e.target.value)}
               placeholder={t('tasks.addSubtask')}
-              className="flex-1 bg-transparent border-b border-zinc-700 focus:border-indigo-500 outline-none text-sm text-zinc-300 placeholder-zinc-600 py-0.5"
+              className="flex-1 bg-transparent border-b border-white/[0.12] focus:border-indigo-500 outline-none text-sm text-zinc-300 placeholder-zinc-600 py-0.5"
             />
             <button type="submit" className="text-zinc-600 hover:text-indigo-400 transition-colors">
               <Plus className="w-3.5 h-3.5" />
@@ -825,7 +825,7 @@ function InlineSelectBadge({ value, options, onChange, bgColor, fgColor, renderL
             minWidth: pos.minWidth,
             zIndex: 9999,
           }}
-          className="bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl overflow-hidden"
+          className="bg-white/[0.03] border border-white/[0.12] rounded-lg shadow-2xl overflow-hidden"
         >
           {options.map((opt) => (
             <button key={opt.value}

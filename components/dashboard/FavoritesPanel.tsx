@@ -49,7 +49,7 @@ export function FavoritesPanel() {
   }
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Star className="w-4 h-4 text-amber-400" />
@@ -145,12 +145,12 @@ function FavoriteTile({
       onDragOver={onDragOver}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
-      className={`group relative bg-zinc-950/60 border rounded-xl transition-all ${
+      className={`group relative bg-black/30/60 border rounded-xl transition-all ${
         isDragging
           ? 'border-amber-500/40 opacity-50'
           : isDropTarget
             ? 'border-amber-500/60 bg-amber-500/5'
-            : 'border-zinc-800 hover:border-amber-500/30'
+            : 'border-white/[0.08] hover:border-amber-500/30'
       }`}
     >
       <a
@@ -197,28 +197,28 @@ function FavoriteForm({
   const canSave = label.trim().length > 0 && url.trim().length > 0
 
   return (
-    <div className="bg-zinc-950/80 border border-amber-500/30 rounded-xl p-3 space-y-2">
+    <div className="bg-black/30/80 border border-amber-500/30 rounded-xl p-3 space-y-2">
       <div className="grid grid-cols-[60px_1fr] gap-2">
         <input
           value={emoji}
           onChange={(e) => setEmoji(e.target.value)}
           placeholder="🔗"
           maxLength={4}
-          className="text-center bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-base focus:outline-none focus:border-amber-500/40"
+          className="text-center bg-white/[0.03] border border-white/[0.08] rounded px-2 py-1.5 text-base focus:outline-none focus:border-amber-500/40"
         />
         <input
           autoFocus={!initial}
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           placeholder="Nombre del link (ej: Notion · Reviews)"
-          className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-amber-500/40"
+          className="bg-white/[0.03] border border-white/[0.08] rounded px-2 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-amber-500/40"
         />
       </div>
       <input
         value={url}
         onChange={(e) => setUrl(e.target.value)}
         placeholder="https://..."
-        className="w-full bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-amber-500/40"
+        className="w-full bg-white/[0.03] border border-white/[0.08] rounded px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-amber-500/40"
       />
       <div className="flex items-center justify-between gap-2 pt-1">
         {onDelete ? (

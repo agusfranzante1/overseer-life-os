@@ -68,7 +68,7 @@ export function DayTypeSelector() {
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${
                   active
                     ? 'text-white border-current'
-                    : 'text-zinc-400 border-zinc-800 hover:border-zinc-600 hover:text-zinc-200'
+                    : 'text-zinc-400 border-white/[0.08] hover:border-zinc-600 hover:text-zinc-200'
                 } ${editMode ? 'cursor-default opacity-70' : ''}`}
                 style={active ? {
                   backgroundColor: cfg.color + '20',
@@ -97,7 +97,7 @@ export function DayTypeSelector() {
         {editMode && !adding && (
           <button
             onClick={() => setAdding(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-dashed border-zinc-700 text-zinc-500 hover:border-indigo-500 hover:text-indigo-400 transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-dashed border-white/[0.12] text-zinc-500 hover:border-indigo-500 hover:text-indigo-400 transition-all"
           >
             <Plus className="w-3.5 h-3.5" />
             Nuevo tipo
@@ -106,7 +106,7 @@ export function DayTypeSelector() {
       </div>
 
       {adding && (
-        <div className="mt-3 p-3 rounded-xl bg-zinc-900 border border-zinc-800 space-y-3">
+        <div className="mt-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.08] space-y-3">
           <div className="flex items-center gap-2">
             <input
               autoFocus
@@ -114,7 +114,7 @@ export function DayTypeSelector() {
               onChange={(e) => setDraftLabel(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); if (e.key === 'Escape') setAdding(false) }}
               placeholder="Nombre del tipo de día"
-              className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+              className="flex-1 bg-black/30 border border-white/[0.12] rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
             />
             <button onClick={handleAdd} disabled={!draftLabel.trim()}
               className="p-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 disabled:opacity-40 text-emerald-300">

@@ -167,7 +167,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
           initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-lg bg-zinc-900 border-l border-zinc-800 h-full overflow-y-auto"
+          className="w-full max-w-lg bg-white/[0.03] border-l border-white/[0.08] h-full overflow-y-auto"
         >
           <div className="p-6 space-y-5">
             {/* Breadcrumb */}
@@ -226,7 +226,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
               className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg border transition-colors ${
                 subtask.completed
                   ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                  : 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700'
+                  : 'bg-zinc-800 border-white/[0.12] text-zinc-300 hover:bg-zinc-700'
               }`}>
               <span className="text-sm font-bold">{subtask.completed ? '✓ Completada' : 'Marcar como completada'}</span>
             </button>
@@ -239,7 +239,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
                   <button key={s.id}
                     onClick={() => { setStatus(s.label); updateSubtask(taskId, subtask.id, { status: s.label }) }}
                     className={`text-xs px-3 py-1.5 rounded-lg border transition-all font-medium ${
-                      status === s.label ? 'border-current' : 'border-zinc-700 text-zinc-500 hover:border-zinc-500'
+                      status === s.label ? 'border-current' : 'border-white/[0.12] text-zinc-500 hover:border-zinc-500'
                     }`}
                     style={status === s.label ? {
                       backgroundColor: s.color + '20',
@@ -291,7 +291,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
                   value={dueDate}
                   onChange={(e) => setDueDate(e.target.value)}
                   onBlur={save}
-                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500"
+                  className="bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-1.5 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500"
                 />
                 <input
                   type="time"
@@ -299,7 +299,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
                   disabled={!dueDate}
                   onChange={(e) => setDueTime(e.target.value)}
                   onBlur={save}
-                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-1.5 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
                   title={dueDate ? 'Hora opcional — si la ponés, aparece en el calendario' : 'Primero elegí una fecha'}
                 />
                 {dueTime && (
@@ -312,7 +312,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
                       value={durationMinutes}
                       onChange={(e) => setDurationMinutes(Math.max(5, Number(e.target.value) || 30))}
                       onBlur={save}
-                      className="w-16 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500"
+                      className="w-16 bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-1.5 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500"
                     />
                     <span className="text-xs text-zinc-500">min</span>
                   </div>
@@ -341,7 +341,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
                 onBlur={save}
                 rows={2}
                 placeholder="Contexto corto sobre esta subtarea..."
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 resize-none"
+                className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 resize-none"
               />
             </div>
 
@@ -354,7 +354,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
                 onBlur={save}
                 rows={5}
                 placeholder="Notas, contexto, links..."
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 resize-none"
+                className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 resize-none"
               />
             </div>
 
@@ -393,7 +393,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
                     value={newChildTitle}
                     onChange={(e) => setNewChildTitle(e.target.value)}
                     placeholder="Agregar sub-subtarea..."
-                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500"
+                    className="flex-1 bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-1.5 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500"
                   />
                   <button type="submit" className="text-zinc-500 hover:text-indigo-400 transition-colors">
                     <Plus className="w-4 h-4" />

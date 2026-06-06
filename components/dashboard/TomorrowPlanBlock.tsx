@@ -52,7 +52,7 @@ export function TomorrowPlanBlock() {
 
       <div className="space-y-2">
         {tomorrowTasks.length === 0 ? (
-          <div className="border border-dashed border-zinc-800 rounded-xl p-4 text-center">
+          <div className="border border-dashed border-white/[0.08] rounded-xl p-4 text-center">
             <p className="text-zinc-600 text-sm">Nothing planned for tomorrow yet.</p>
           </div>
         ) : (
@@ -64,7 +64,7 @@ export function TomorrowPlanBlock() {
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.05 }}
-                className="flex items-center gap-3 bg-zinc-900/50 rounded-lg p-3 border border-zinc-800/50 group"
+                className="flex items-center gap-3 bg-white/[0.03]/50 rounded-lg p-3 border border-white/[0.08]/50 group"
               >
                 <button
                   onClick={() => completeTask(task.id)}

@@ -92,7 +92,7 @@ export function KpiScoreboard({
   }, [selectedDefs])
 
   return (
-    <div className="bg-zinc-950/60 border border-fuchsia-500/20 rounded-2xl p-4 space-y-3">
+    <div className="bg-black/30/60 border border-fuchsia-500/20 rounded-2xl p-4 space-y-3">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <Target className="w-4 h-4 text-fuchsia-400" />
@@ -120,7 +120,7 @@ export function KpiScoreboard({
       </div>
 
       {selectedDefs.length === 0 ? (
-        <div className="bg-zinc-900/60 border border-dashed border-zinc-800 rounded-lg p-4 text-center">
+        <div className="bg-white/[0.03]/60 border border-dashed border-white/[0.08] rounded-lg p-4 text-center">
           <p className="text-xs text-zinc-400 mb-2">
             {t('kpis.noKpisActiveThisWeek')}
           </p>
@@ -194,8 +194,8 @@ function KpiPickerModal({
   }
   return (
     <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+      <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08]">
           <h2 className="text-sm font-bold text-white">{t('kpis.activeKpisThisWeek')}</h2>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 p-1"><X className="w-4 h-4" /></button>
         </div>
@@ -215,7 +215,7 @@ function KpiPickerModal({
                 key={kpi.id}
                 onClick={() => toggle(kpi.id)}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors ${
-                  active ? 'bg-fuchsia-500/10 border-fuchsia-500/40' : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'
+                  active ? 'bg-fuchsia-500/10 border-fuchsia-500/40' : 'bg-white/[0.03] border-white/[0.08] hover:border-white/[0.12]'
                 }`}
               >
                 <span className="text-lg">{kpi.icon}</span>
@@ -228,7 +228,7 @@ function KpiPickerModal({
                   </p>
                 </div>
                 <span className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
-                  active ? 'border-fuchsia-400 bg-fuchsia-400/20' : 'border-zinc-700'
+                  active ? 'border-fuchsia-400 bg-fuchsia-400/20' : 'border-white/[0.12]'
                 }`}>
                   {active && <Plus className="w-3 h-3 text-fuchsia-300 rotate-45" />}
                 </span>
@@ -236,7 +236,7 @@ function KpiPickerModal({
             )
           })}
         </div>
-        <div className="px-5 py-3 border-t border-zinc-800 flex items-center justify-between">
+        <div className="px-5 py-3 border-t border-white/[0.08] flex items-center justify-between">
           <Link href="/kpis" className="text-[10px] text-fuchsia-300 hover:text-fuchsia-200 underline decoration-fuchsia-500/30">
             Editar library →
           </Link>
@@ -352,7 +352,7 @@ function KpiRow({
 
   return (
     <div
-      className="bg-zinc-900/60 border border-zinc-800 rounded-lg px-3 py-2 flex items-center gap-3"
+      className="bg-white/[0.03]/60 border border-white/[0.08] rounded-lg px-3 py-2 flex items-center gap-3"
       style={{ borderLeft: `3px solid ${kpi.color}` }}
     >
       <span className="text-base shrink-0">{kpi.icon}</span>
@@ -453,7 +453,7 @@ function CountWidget({
   value, target, disabled, onChange,
 }: { value: number; target?: number; disabled: boolean; onChange: (v: number) => void }) {
   return (
-    <div className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 rounded-lg p-0.5">
+    <div className="flex items-center gap-1 bg-black/30 border border-white/[0.08] rounded-lg p-0.5">
       <button
         disabled={disabled || value <= 0}
         onClick={() => onChange(Math.max(0, value - 1))}
@@ -505,7 +505,7 @@ function BoolWidget({
       className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
         value
           ? 'bg-emerald-500/20 border border-emerald-500/50 text-emerald-300'
-          : 'bg-zinc-900 border border-zinc-700 text-zinc-500 hover:border-zinc-600'
+          : 'bg-white/[0.03] border border-white/[0.12] text-zinc-500 hover:border-zinc-600'
       } disabled:opacity-40`}
     >
       {value ? '✓ Sí' : 'No'}

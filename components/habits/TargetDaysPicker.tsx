@@ -88,7 +88,7 @@ export function TargetDaysPicker({ targetDays, onChange, compact = false }: Prop
 
       {open && (
         <div
-          className="absolute z-50 top-full mt-1 left-0 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl p-3 w-64"
+          className="absolute z-50 top-full mt-1 left-0 bg-white/[0.03] border border-white/[0.12] rounded-lg shadow-2xl p-3 w-64"
           onMouseDown={(e) => e.stopPropagation()}
         >
           <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-2">
@@ -143,7 +143,7 @@ export function TargetDaysPicker({ targetDays, onChange, compact = false }: Prop
                   className={`${popupSize} rounded font-mono font-bold transition-colors flex items-center justify-center ${
                     active
                       ? 'bg-zinc-200 text-zinc-900'
-                      : 'bg-transparent border border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500'
+                      : 'bg-transparent border border-white/[0.12] text-zinc-500 hover:text-zinc-300 hover:border-zinc-500'
                   }`}
                 >
                   {label}

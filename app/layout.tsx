@@ -1,19 +1,20 @@
 import type { Metadata, Viewport } from "next";
-import { Roboto, Roboto_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { AppShell } from "@/components/layout/AppShell";
 
-// Roboto is the font Google uses across its products (Calendar, Gmail, Docs, etc).
-// Using it gives the app the same look-and-feel as Google Calendar.
-const roboto = Roboto({
+// Inter — la tipografía humanista sans-serif que matchea el mockup
+// glassmorphic. Letterforms suaves con buena legibilidad en dark UI.
+// Reemplaza a Roboto (que era para matchear el look de Google Calendar).
+const inter = Inter({
   variable: "--font-sans",
   subsets: ["latin"],
   display: "swap",
-  weight: ["400", "500", "700", "900"],
+  weight: ["400", "500", "600", "700", "800"],
 });
 
-const robotoMono = Roboto_Mono({
+const jbMono = JetBrains_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
   display: "swap",
@@ -48,7 +49,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   // Matches the manifest's theme/background so iOS/Android paint the
   // address bar / status bar in the same color as the app.
-  themeColor: '#09090b',
+  themeColor: '#0a0e15',
   // viewportFit='cover' makes the PWA respect iOS notches/dynamic island
   // properly (otherwise content gets clipped behind the safe areas).
   viewportFit: 'cover',
@@ -66,9 +67,16 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${roboto.variable} ${robotoMono.variable} dark`}
+      className={`${inter.variable} ${jbMono.variable} dark`}
     >
-      <body className="h-screen overflow-hidden bg-zinc-950" suppressHydrationWarning>
+      {/* Navy-black del mockup — casi negro con tinte azul muy sutil.
+          La base es #0a0e15 → #0b0f17. Más oscuro que zinc-950 puro
+          porque tiene un toque cyan en la mezcla. */}
+      <body
+        className="h-screen overflow-hidden"
+        style={{ background: '#0a0e15' }}
+        suppressHydrationWarning
+      >
         <AppShell>{children}</AppShell>
         {/* Register the service worker AFTER hydration. Wrapped in a Script
             tag with strategy="afterInteractive" so it doesn't block initial

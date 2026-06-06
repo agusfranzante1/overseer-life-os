@@ -329,7 +329,7 @@ export function CalendarPage() {
           width instead of squeezing next to the title. */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-3 shrink-0">
         <div>
-          <h1 className="text-xl font-bold text-white">{t('calendar.title')}</h1>
+          <h1 className="text-3xl font-bold text-white tracking-tight">{t('calendar.title')}</h1>
           <p className="text-zinc-500 text-sm">
             {view === 'month'
               ? format(currentDate, 'MMMM yyyy')
@@ -342,7 +342,7 @@ export function CalendarPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* View toggle */}
-          <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
+          <div className="flex items-center bg-white/[0.03] border border-white/[0.08] rounded-lg p-0.5">
             <button onClick={() => setView('month')}
               title="Vista mensual"
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
@@ -385,13 +385,13 @@ export function CalendarPage() {
                 await gcal.loadEvents()
               }}
               title="Refrescar calendarios y eventos"
-              className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors">
+              className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.08] text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors">
               <RefreshCw className={`w-4 h-4 ${gcal.loading ? 'animate-spin' : ''}`} />
             </button>
           )}
           <button onClick={() => gcal.setShowSideRail(!gcal.showSideRail)}
             title={gcal.showSideRail ? 'Ocultar panel lateral' : 'Mostrar panel lateral'}
-            className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors">
+            className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.08] text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors">
             {gcal.showSideRail
               ? <PanelRightClose className="w-4 h-4" />
               : <PanelRightOpen className="w-4 h-4" />}
@@ -401,7 +401,7 @@ export function CalendarPage() {
             <ChevronLeft className="w-4 h-4" />
           </button>
           <button onClick={() => setCurrentDate(new Date())}
-            className="text-xs text-zinc-400 hover:text-zinc-100 border border-zinc-700 hover:border-zinc-500 px-3 py-1.5 rounded-lg transition-colors">
+            className="text-xs text-zinc-400 hover:text-zinc-100 border border-white/[0.12] hover:border-zinc-500 px-3 py-1.5 rounded-lg transition-colors">
             {t('calendar.today')}
           </button>
           <button onClick={goNext}
@@ -443,8 +443,8 @@ export function CalendarPage() {
       <div className={`grid grid-cols-1 gap-6 flex-1 min-h-0 ${gcal.showSideRail ? 'xl:grid-cols-[1fr_300px]' : ''}`}>
         {/* Calendar grid (month OR week) */}
         {view === 'month' ? (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden h-full flex flex-col min-h-0">
-            <div className="grid grid-cols-7 border-b border-zinc-800">
+          <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden h-full flex flex-col min-h-0">
+            <div className="grid grid-cols-7 border-b border-white/[0.08]">
               {weekDays.map((day) => (
                 <div key={day} className="py-3 text-center text-xs font-semibold text-zinc-500 uppercase tracking-wider">
                   {day}
@@ -464,7 +464,7 @@ export function CalendarPage() {
                   return (
                     <div
                       key={i}
-                      className="p-2 min-h-[90px] border-b border-r border-zinc-800 bg-zinc-950/40"
+                      className="p-2 min-h-[90px] border-b border-r border-white/[0.08] bg-black/30/40"
                       aria-hidden="true"
                     />
                   )
@@ -481,7 +481,7 @@ export function CalendarPage() {
                     whileHover={{ scale: 0.98 }}
                     whileTap={{ scale: 0.96 }}
                     onClick={() => setSelectedDay(day)}
-                    className={`relative p-2 min-h-[90px] text-left border-b border-r border-zinc-800 transition-colors ${
+                    className={`relative p-2 min-h-[90px] text-left border-b border-r border-white/[0.08] transition-colors ${
                       isSelected ? 'bg-indigo-600/10' : 'hover:bg-zinc-800/50'
                     }`}
                   >
@@ -613,7 +613,7 @@ export function CalendarPage() {
         {gcal.showSideRail && (
         <div className="space-y-4">
           {/* Selected day */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+          <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-indigo-400" />
@@ -682,7 +682,7 @@ export function CalendarPage() {
 
           {/* Google Calendar panel */}
           {!gcal.connected ? (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+            <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4">
               <h3 className="text-sm font-semibold text-zinc-200 mb-2 flex items-center gap-2">
                 <LinkIcon className="w-4 h-4 text-indigo-400" /> Conectar Google Calendar
               </h3>
@@ -690,7 +690,7 @@ export function CalendarPage() {
                 Vas a poder ver y editar todos tus calendarios desde acá. Los eventos creados en Overseer se guardan en Google; las tareas de Overseer NO se suben.
               </p>
               <button onClick={connectGoogle}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 border border-zinc-700 hover:border-zinc-500 hover:bg-zinc-800 rounded-lg text-sm text-zinc-200 transition-colors">
+                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 border border-white/[0.12] hover:border-zinc-500 hover:bg-zinc-800 rounded-lg text-sm text-zinc-200 transition-colors">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                   <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -702,7 +702,7 @@ export function CalendarPage() {
               </button>
             </div>
           ) : (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+            <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold text-zinc-200 flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-emerald-400" /> Mis calendarios
@@ -837,7 +837,7 @@ export function CalendarPage() {
             <motion.div
               initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-sm bg-zinc-900 border border-red-500/30 rounded-2xl shadow-2xl p-5"
+              className="w-full max-w-sm bg-white/[0.03] border border-red-500/30 rounded-2xl shadow-2xl p-5"
             >
               <h3 className="text-sm font-bold text-white mb-1">
                 Eliminar &quot;{deleteScopePrompt.ev.summary}&quot;
@@ -899,7 +899,7 @@ export function CalendarPage() {
             <motion.div
               initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl p-5"
+              className="w-full max-w-sm bg-white/[0.03] border border-white/[0.08] rounded-2xl shadow-2xl p-5"
             >
               <h3 className="text-sm font-bold text-white mb-1">
                 Mover "{moveScopePrompt.ev.summary}"
@@ -1131,9 +1131,9 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
       <motion.div
         initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl"
+        className="w-full max-w-md bg-white/[0.03] border border-white/[0.08] rounded-2xl shadow-2xl"
       >
-        <div className="flex items-center justify-between p-4 border-b border-zinc-800">
+        <div className="flex items-center justify-between p-4 border-b border-white/[0.08]">
           <h3 className="text-sm font-bold text-white">
             {mode === 'create' ? 'Nuevo evento' : 'Editar evento'}
           </h3>
@@ -1147,7 +1147,7 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
             <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Calendario</label>
             <select value={calendarId} onChange={(e) => setCalendarId(e.target.value)}
               disabled={mode === 'edit'}
-              className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 disabled:opacity-60">
+              className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 disabled:opacity-60">
               {writable.map((c) => (
                 <option key={c.id} value={c.id}>{c.summaryOverride || c.summary}{c.primary ? ' (primary)' : ''}</option>
               ))}
@@ -1157,7 +1157,7 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
           <div>
             <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Título</label>
             <input value={summary} onChange={(e) => setSummary(e.target.value)} autoFocus
-              className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+              className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
           </div>
 
           <label className="flex items-center gap-2 text-sm text-zinc-300">
@@ -1182,19 +1182,19 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
             <div>
               <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Inicio</label>
               <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-                className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+                className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
               {!allDay && (
                 <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)}
-                  className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+                  className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
               )}
             </div>
             <div>
               <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Fin</label>
               <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-                className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+                className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
               {!allDay && (
                 <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)}
-                  className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+                  className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
               )}
             </div>
           </div>
@@ -1205,7 +1205,7 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
             <div>
               <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">{t('calendar.repeat')}</label>
               <select value={recurrence} onChange={(e) => setRecurrence(e.target.value as RecurrenceMode)}
-                className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
                 {RECURRENCE_MODES.map((mode) => (
                   <option key={mode} value={mode}>{t(`calendar.recurrence.${mode}`)}</option>
                 ))}
@@ -1225,13 +1225,13 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
           <div>
             <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Ubicación (opcional)</label>
             <input value={location} onChange={(e) => setLocation(e.target.value)}
-              className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+              className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
           </div>
 
           <div>
             <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Descripción (opcional)</label>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3}
-              className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 resize-none" />
+              className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 resize-none" />
           </div>
 
           {event?.htmlLink && (
@@ -1242,7 +1242,7 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
           )}
         </div>
 
-        <div className="flex items-center gap-2 p-4 border-t border-zinc-800">
+        <div className="flex items-center gap-2 p-4 border-t border-white/[0.08]">
           {mode === 'edit' && (
             <button onClick={onDelete}
               className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 text-sm font-semibold transition-colors flex items-center gap-2">
@@ -1448,7 +1448,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
     // left a black band at the bottom when the offset didn't match
     // (different headers, mobile top bar, removed ChatBox, etc.).
     <div
-      className="border border-zinc-800/60 rounded-xl overflow-hidden flex flex-col h-full min-h-0"
+      className="border border-white/[0.08]/60 rounded-xl overflow-hidden flex flex-col h-full min-h-0"
       style={{
         backgroundColor: '#1f1f1f',
         fontFamily: 'Roboto, "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
@@ -1456,14 +1456,14 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
     >
       {/* Header row — GCal style: day abbreviation small + colored circle
           around today's number, larger and bolder numbers. */}
-      <div className="grid border-b border-zinc-800/60 shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
+      <div className="grid border-b border-white/[0.08]/60 shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
         <div /> {/* empty corner */}
         {days.map((day) => {
           const selected = selectedDay && isSameDay(day, selectedDay)
           const today = isToday(day)
           return (
             <button key={day.toISOString()} onClick={() => setSelectedDay(day)}
-              className={`pt-2 pb-1 text-center transition-colors border-l border-zinc-800/60 ${
+              className={`pt-2 pb-1 text-center transition-colors border-l border-white/[0.08]/60 ${
                 selected ? 'bg-zinc-800/40' : 'hover:bg-zinc-800/30'
               }`}>
               <p className={`text-[11px] font-medium uppercase tracking-wide mb-0.5 ${
@@ -1492,7 +1492,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
 
       {/* All-day strip */}
       {[...allDayEventsByDay.values()].some((arr) => arr.length > 0) || days.some((d) => (tasksByDay.get(format(d, 'yyyy-MM-dd')) ?? []).length > 0) ? (
-        <div className="grid border-b border-zinc-800/60 shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
+        <div className="grid border-b border-white/[0.08]/60 shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
           <div className="flex items-center justify-end pr-2">
             <span className="text-[11px] text-zinc-400">GMT-03</span>
           </div>
@@ -1501,7 +1501,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
             const allDay = allDayEventsByDay.get(dateKey) ?? []
             const dayTasks = tasksByDay.get(dateKey) ?? []
             return (
-              <div key={dateKey} className="border-l border-zinc-800/60 p-1 min-h-[34px] space-y-0.5">
+              <div key={dateKey} className="border-l border-white/[0.08]/60 p-1 min-h-[34px] space-y-0.5">
                 {allDay.map((ev) => {
                   const cal = calendarById.get(ev.calendarId)
                   const color = resolveEventColor(ev, cal?.backgroundColor)
@@ -1553,13 +1553,13 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
         <div ref={gridRef} className="grid relative" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
           {/* Hours column — GCal-style: time labels in lighter zinc-300,
               non-mono sans, slightly larger, no quote marks. */}
-          <div className="border-r border-zinc-800/60">
+          <div className="border-r border-white/[0.08]/60">
             {visibleHours.map((h, idx) => {
               const prevVisible = idx > 0 ? visibleHours[idx - 1] : -1
               const gapBefore = h !== prevVisible + 1 && idx > 0
               return (
                 <div key={h}
-                  className={`text-right pr-2 text-[11px] text-zinc-300 relative ${gapBefore ? 'border-t border-dashed border-zinc-700' : ''}`}
+                  className={`text-right pr-2 text-[11px] text-zinc-300 relative ${gapBefore ? 'border-t border-dashed border-white/[0.12]' : ''}`}
                   style={{ height: HOUR_PX }}>
                   <span className="absolute -top-2 right-2 tracking-tight">{String(h).padStart(2, '0')}:00</span>
                   {gapBefore && (
@@ -1582,11 +1582,11 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
             const nowOffset = isNowDay && !nowHidden ? fractionalToY(nowHourF) : null
 
             return (
-              <div key={dateKey} className="relative border-l border-zinc-800/60" style={{ height: HOUR_PX * visibleHours.length }}>
+              <div key={dateKey} className="relative border-l border-white/[0.08]/60" style={{ height: HOUR_PX * visibleHours.length }}>
                 {/* Hour cells (clickable to create) — GCal uses blue hover. */}
                 {visibleHours.map((h, idx) => (
                   <button key={h} onClick={() => onCreateAt(day, h)}
-                    className="absolute left-0 right-0 hover:bg-blue-500/5 transition-colors border-b border-zinc-800/40 group"
+                    className="absolute left-0 right-0 hover:bg-blue-500/5 transition-colors border-b border-white/[0.08]/40 group"
                     style={{ top: idx * HOUR_PX, height: HOUR_PX }}
                     title={`Crear evento a las ${String(h).padStart(2, '0')}:00`}>
                     <span className="opacity-0 group-hover:opacity-100 absolute top-1 right-1 text-[10px] text-blue-400">+ {String(h).padStart(2, '0')}:00</span>
@@ -1917,7 +1917,7 @@ function NightHidePill({ enabled, start, end, onToggle, onRangeChange }: NightHi
 
   return (
     <div className="relative" data-night-pill>
-      <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+      <div className="flex items-center bg-white/[0.03] border border-white/[0.08] rounded-lg overflow-hidden">
         <button
           onClick={onToggle}
           title={enabled ? `Mostrar 24h (oculto ahora: ${rangeLabel})` : `Ocultar ${rangeLabel}`}
@@ -1930,7 +1930,7 @@ function NightHidePill({ enabled, start, end, onToggle, onRangeChange }: NightHi
         <button
           onClick={() => setOpen((o) => !o)}
           title="Configurar horario oculto"
-          className="px-1.5 py-1.5 border-l border-zinc-800 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors">
+          className="px-1.5 py-1.5 border-l border-white/[0.08] text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors">
           <SettingsIcon className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -1942,7 +1942,7 @@ function NightHidePill({ enabled, start, end, onToggle, onRangeChange }: NightHi
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.98 }}
             transition={{ duration: 0.12 }}
-            className="absolute right-0 top-full mt-2 w-72 z-30 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-4"
+            className="absolute right-0 top-full mt-2 w-72 z-30 bg-white/[0.03] border border-white/[0.12] rounded-xl shadow-2xl p-4"
           >
             <h4 className="text-xs font-bold text-white mb-1 flex items-center gap-2">
               <Moon className="w-3.5 h-3.5 text-indigo-400" /> Ocultar período
@@ -1956,7 +1956,7 @@ function NightHidePill({ enabled, start, end, onToggle, onRangeChange }: NightHi
               <div>
                 <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Desde</label>
                 <select value={draftStart} onChange={(e) => setDraftStart(parseInt(e.target.value))}
-                  className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+                  className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500">
                   {ALL_HOURS.map((h) => (
                     <option key={h} value={h}>{fmtH(h)}</option>
                   ))}
@@ -1965,7 +1965,7 @@ function NightHidePill({ enabled, start, end, onToggle, onRangeChange }: NightHi
               <div>
                 <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Hasta</label>
                 <select value={draftEnd} onChange={(e) => setDraftEnd(parseInt(e.target.value))}
-                  className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+                  className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500">
                   {ALL_HOURS.map((h) => (
                     <option key={h} value={h}>{fmtH(h)}</option>
                   ))}
@@ -1978,7 +1978,7 @@ function NightHidePill({ enabled, start, end, onToggle, onRangeChange }: NightHi
               Vista: <span className="text-zinc-300 font-mono">{hiddenCount > 0 ? `${24 - hiddenCount}h visibles` : '24h visibles'}</span>
             </p>
 
-            <div className="flex items-center justify-between mt-4 pt-3 border-t border-zinc-800">
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/[0.08]">
               <div className="flex gap-1.5">
                 <button onClick={() => { setDraftStart(0); setDraftEnd(7) }}
                   className="text-[10px] px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">00–07</button>

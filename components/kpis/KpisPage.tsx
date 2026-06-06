@@ -33,7 +33,7 @@ export function KpisPage() {
             {t('kpis.subtitle')}
           </p>
         </div>
-        <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-xl p-1">
+        <div className="flex items-center gap-1 bg-white/[0.03] border border-white/[0.08] rounded-xl p-1">
           <button
             onClick={() => setView('thisweek')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
@@ -158,7 +158,7 @@ function LibraryView() {
       </div>
 
       {active.length === 0 ? (
-        <div className="bg-zinc-950/40 border border-zinc-800 border-dashed rounded-2xl p-10 text-center">
+        <div className="bg-black/30/40 border border-white/[0.08] border-dashed rounded-2xl p-10 text-center">
           <Target className="w-10 h-10 text-fuchsia-400/60 mx-auto mb-3" />
           <p className="text-sm font-semibold text-zinc-200 mb-1">{t('kpis.noKpisYet')}</p>
           <p className="text-xs text-zinc-500 mb-5 max-w-md mx-auto">
@@ -209,7 +209,7 @@ function LibraryView() {
           {showArchived && (
             <div className="mt-2 space-y-1.5 pl-3">
               {archived.map((d) => (
-                <div key={d.id} className="bg-zinc-950/40 border border-zinc-800 rounded-lg px-3 py-2 flex items-center gap-3 opacity-60">
+                <div key={d.id} className="bg-black/30/40 border border-white/[0.08] rounded-lg px-3 py-2 flex items-center gap-3 opacity-60">
                   <span className="text-lg">{d.icon}</span>
                   <span className="text-sm text-zinc-400 flex-1">{d.name}</span>
                   <button
@@ -271,7 +271,7 @@ function KpiRow({
   const area = kpi.areaKey ? WHEEL_AREAS.find((a) => a.key === kpi.areaKey) : null
   return (
     <div
-      className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-lg px-3 py-2.5 flex items-center gap-3 group transition-colors"
+      className="bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.12] rounded-lg px-3 py-2.5 flex items-center gap-3 group transition-colors"
       style={{ borderLeft: `3px solid ${kpi.color}` }}
     >
       <span className="text-lg shrink-0">{kpi.icon}</span>
@@ -382,9 +382,9 @@ function KpiEditModal({
       <motion.div
         initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto"
+        className="bg-white/[0.03] border border-white/[0.08] rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto"
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08]">
           <h2 className="text-sm font-bold text-white">
             {initial ? `${t('common.edit')} KPI` : t('kpis.newKpi')}
           </h2>
@@ -401,7 +401,7 @@ function KpiEditModal({
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+              className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
             />
           </div>
 
@@ -449,7 +449,7 @@ function KpiEditModal({
                   key={k}
                   onClick={() => setKind(k)}
                   className={`px-2 py-2 rounded-lg text-xs font-semibold transition-colors ${
-                    kind === k ? 'bg-fuchsia-500/20 border border-fuchsia-500/50 text-fuchsia-200' : 'bg-zinc-800 border border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                    kind === k ? 'bg-fuchsia-500/20 border border-fuchsia-500/50 text-fuchsia-200' : 'bg-zinc-800 border border-white/[0.12] text-zinc-400 hover:border-zinc-600'
                   }`}
                 >
                   {k === 'count' && t('kpis.counter')}
@@ -476,7 +476,7 @@ function KpiEditModal({
                 value={target}
                 onChange={(e) => setTarget(e.target.value)}
                 placeholder={kind === 'count' ? 'Ej. 5' : 'Ej. 100'}
-                className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+                className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
               />
               <p className="text-[10px] text-zinc-600 mt-1 italic">
                 {kind === 'count'
@@ -492,7 +492,7 @@ function KpiEditModal({
               deseado, acá lo declara y el scoreboard muestra DOS bars
               (semanal + acumulado contra esta meta). */}
           {kind === 'count' && (
-            <div className="bg-zinc-950/40 border border-fuchsia-500/15 rounded-lg p-3 space-y-3">
+            <div className="bg-black/30/40 border border-fuchsia-500/15 rounded-lg p-3 space-y-3">
               <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-300/80">
                 {t('kpis.cumulativeTarget')}
               </p>
@@ -508,7 +508,7 @@ function KpiEditModal({
                   value={cumulativeTarget}
                   onChange={(e) => setCumulativeTarget(e.target.value)}
                   placeholder="Ej. 300"
-                  className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+                  className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
                 />
               </div>
               {cumulativeTarget.trim() && (
@@ -521,7 +521,7 @@ function KpiEditModal({
                       type="date"
                       value={cumulativeStartDate}
                       onChange={(e) => setCumulativeStartDate(e.target.value)}
-                      className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+                      className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
                     />
                     <p className="text-[10px] text-zinc-600 mt-1 italic">
                       Default = hoy. Backdate-alo si la meta arrancó antes.
@@ -535,7 +535,7 @@ function KpiEditModal({
                       type="date"
                       value={cumulativeDeadline}
                       onChange={(e) => setCumulativeDeadline(e.target.value)}
-                      className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+                      className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
                     />
                     <p className="text-[10px] text-zinc-600 mt-1 italic">
                       Si la ponés, el scoreboard te dice si vas en hora o atrasado.
@@ -552,7 +552,7 @@ function KpiEditModal({
             <select
               value={areaKey}
               onChange={(e) => setAreaKey(e.target.value)}
-              className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+              className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
             >
               <option value="">{t('kpis.noArea')}</option>
               {WHEEL_AREAS.map((a) => (
@@ -572,7 +572,7 @@ function KpiEditModal({
               value={group}
               onChange={(e) => setGroup(e.target.value)}
               placeholder="Ej. Gym, Trading, Contenido"
-              className="mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+              className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
             />
             <p className="text-[10px] text-zinc-600 mt-1 italic">
               Texto libre — se usa para agrupar KPIs juntos en el scoreboard.
@@ -580,7 +580,7 @@ function KpiEditModal({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 px-5 py-4 border-t border-zinc-800">
+        <div className="flex items-center gap-2 px-5 py-4 border-t border-white/[0.08]">
           <button onClick={onClose}
             className="ml-auto px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-semibold transition-colors">
             {t('common.cancel')}
@@ -613,7 +613,7 @@ function HistoryView() {
 
   if (active.length === 0) {
     return (
-      <div className="bg-zinc-950/40 border border-zinc-800 border-dashed rounded-2xl p-10 text-center">
+      <div className="bg-black/30/40 border border-white/[0.08] border-dashed rounded-2xl p-10 text-center">
         <BarChart3 className="w-10 h-10 text-fuchsia-400/60 mx-auto mb-3" />
         <p className="text-sm font-semibold text-zinc-200 mb-1">Sin KPIs en la library</p>
         <p className="text-xs text-zinc-500 max-w-md mx-auto">
@@ -625,7 +625,7 @@ function HistoryView() {
 
   if (last12.length === 0) {
     return (
-      <div className="bg-zinc-950/40 border border-zinc-800 border-dashed rounded-2xl p-10 text-center">
+      <div className="bg-black/30/40 border border-white/[0.08] border-dashed rounded-2xl p-10 text-center">
         <BarChart3 className="w-10 h-10 text-fuchsia-400/60 mx-auto mb-3" />
         <p className="text-sm font-semibold text-zinc-200 mb-1">Sin semanas cerradas todavía</p>
         <p className="text-xs text-zinc-500 max-w-md mx-auto">
@@ -637,7 +637,7 @@ function HistoryView() {
   }
 
   return (
-    <div className="bg-zinc-950/60 border border-zinc-800 rounded-2xl p-4">
+    <div className="bg-black/30/60 border border-white/[0.08] rounded-2xl p-4">
       <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-3">
         Últimas {last12.length} semana{last12.length === 1 ? '' : 's'} cerradas
       </p>
@@ -645,7 +645,7 @@ function HistoryView() {
         <table className="min-w-full text-[11px]">
           <thead>
             <tr>
-              <th className="text-left text-[9px] font-mono uppercase tracking-wider text-zinc-600 pr-3 pb-2 font-normal sticky left-0 bg-zinc-950/60">
+              <th className="text-left text-[9px] font-mono uppercase tracking-wider text-zinc-600 pr-3 pb-2 font-normal sticky left-0 bg-black/30/60">
                 KPI
               </th>
               {last12.map((sess) => {
@@ -663,7 +663,7 @@ function HistoryView() {
           <tbody>
             {active.map((kpi) => (
               <tr key={kpi.id} className="border-t border-zinc-900">
-                <td className="py-1.5 pr-3 sticky left-0 bg-zinc-950/60 text-zinc-300 whitespace-nowrap">
+                <td className="py-1.5 pr-3 sticky left-0 bg-black/30/60 text-zinc-300 whitespace-nowrap">
                   <span className="mr-1.5">{kpi.icon}</span>{kpi.name}
                 </td>
                 {last12.map((sess) => {
@@ -754,7 +754,7 @@ function ThisWeekView() {
 
   if (!current && !needsCreate) {
     return (
-      <div className="bg-zinc-950/40 border border-zinc-800 border-dashed rounded-2xl p-10 text-center">
+      <div className="bg-black/30/40 border border-white/[0.08] border-dashed rounded-2xl p-10 text-center">
         <Calendar className="w-10 h-10 text-fuchsia-400/60 mx-auto mb-3" />
         <p className="text-sm font-semibold text-zinc-200 mb-1">{t('spi.noSession')}</p>
         <p className="text-xs text-zinc-500 mb-5 max-w-md mx-auto">

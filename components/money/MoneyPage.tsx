@@ -26,7 +26,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}>
       <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-        className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+        className="bg-white/[0.03] border border-white/[0.12] rounded-2xl p-6 w-full max-w-md shadow-2xl">
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-base font-bold text-white">{title}</h3>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200"><X className="w-4 h-4" /></button>
@@ -46,8 +46,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-const INPUT = 'w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 transition-colors'
-const SELECT = 'w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-sm text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors'
+const INPUT = 'w-full bg-zinc-800 border border-white/[0.12] rounded-xl px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 transition-colors'
+const SELECT = 'w-full bg-zinc-800 border border-white/[0.12] rounded-xl px-3 py-2.5 text-sm text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors'
 const BTN_PRIMARY = 'w-full bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl py-2.5 text-sm font-bold transition-colors'
 
 // ─── Add Wallet Modal ─────────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ function AddWalletModal({ onClose }: { onClose: () => void }) {
           <div className="flex flex-wrap gap-2">
             {currencies.map(cur => (
               <button key={cur.code} onClick={() => toggle(cur.code)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${selected.includes(cur.code) ? 'border-transparent text-white' : 'border-zinc-700 text-zinc-400 bg-zinc-800 hover:bg-zinc-700'}`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${selected.includes(cur.code) ? 'border-transparent text-white' : 'border-white/[0.12] text-zinc-400 bg-zinc-800 hover:bg-zinc-700'}`}
                 style={selected.includes(cur.code) ? { background: cur.color, borderColor: cur.color } : {}}>
                 {cur.symbol} {cur.code}
               </button>
@@ -465,8 +465,8 @@ function WalletDetail({ walletId, onTransaction }: {
   if (!wallet) return null
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-      <div className="px-5 py-4 border-b border-zinc-800 flex items-center gap-3">
+    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden">
+      <div className="px-5 py-4 border-b border-white/[0.08] flex items-center gap-3">
         <button
           onClick={() => setShowEdit(true)}
           title="Cambiar ícono / color / nombre"
@@ -481,7 +481,7 @@ function WalletDetail({ walletId, onTransaction }: {
         <button
           onClick={() => setShowEdit(true)}
           title="Editar billetera"
-          className="text-xs px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 border border-zinc-700 transition-colors flex items-center gap-1.5"
+          className="text-xs px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 border border-white/[0.12] transition-colors flex items-center gap-1.5"
         >
           <span className="w-3 h-3 rounded-full border border-zinc-600" style={{ background: wallet.color }} />
           Editar
@@ -501,7 +501,7 @@ function WalletDetail({ walletId, onTransaction }: {
         const expense = walletTxns.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
 
         return (
-          <div key={code} className="flex items-center gap-4 px-5 py-4 border-b border-zinc-800/60 last:border-0">
+          <div key={code} className="flex items-center gap-4 px-5 py-4 border-b border-white/[0.08]/60 last:border-0">
             <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: cur.color }} />
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-2">
@@ -575,7 +575,7 @@ function CashFlowTable() {
 
   if (activeCurrencies.length === 0) {
     return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8 text-center">
+      <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-8 text-center">
         <p className="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2">Flujo de Caja {year}</p>
         <p className="text-xs text-zinc-600 italic">
           Sin movimientos este año todavía. Registrá un ingreso o egreso para ver el flujo por divisa.
@@ -621,7 +621,7 @@ function CurrencyCashFlowTable({
   }, [monthlyData])
 
   return (
-    <div className="bg-zinc-900 border rounded-2xl overflow-hidden"
+    <div className="bg-white/[0.03] border rounded-2xl overflow-hidden"
       style={{ borderColor: currency.color + '40' }}>
       {/* Per-currency header — color-tinted so each table is easy to scan */}
       <div className="px-5 py-3 border-b flex items-center justify-between gap-3 flex-wrap"
@@ -649,7 +649,7 @@ function CurrencyCashFlowTable({
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="border-b border-zinc-800">
+            <tr className="border-b border-white/[0.08]">
               <th className="text-left px-4 py-2.5 text-zinc-500 font-semibold w-24 uppercase tracking-wider">Concepto</th>
               {MONTHS.map((m, i) => (
                 <th key={m}
@@ -659,7 +659,7 @@ function CurrencyCashFlowTable({
                   {m}
                 </th>
               ))}
-              <th className="px-3 py-2.5 text-center font-semibold uppercase tracking-wider text-zinc-300 border-l border-zinc-800 bg-zinc-800/40">
+              <th className="px-3 py-2.5 text-center font-semibold uppercase tracking-wider text-zinc-300 border-l border-white/[0.08] bg-zinc-800/40">
                 Total
               </th>
             </tr>
@@ -671,7 +671,7 @@ function CurrencyCashFlowTable({
             ].map(({ label, key, color }) => {
               const annualForRow = totals[key]
               return (
-                <tr key={key} className="border-b border-zinc-800/50">
+                <tr key={key} className="border-b border-white/[0.08]/50">
                   <td className="px-4 py-2.5 font-semibold" style={{ color }}>{label}</td>
                   {monthlyData.map((m, i) => (
                     <td key={i}
@@ -682,7 +682,7 @@ function CurrencyCashFlowTable({
                       {m[key] > 0 ? fmt(m[key]) : '—'}
                     </td>
                   ))}
-                  <td className="px-3 py-2.5 text-center tabular-nums font-mono font-bold border-l border-zinc-800 bg-zinc-800/40"
+                  <td className="px-3 py-2.5 text-center tabular-nums font-mono font-bold border-l border-white/[0.08] bg-zinc-800/40"
                     style={{ color: annualForRow > 0 ? color : '#52525b' }}>
                     {annualForRow > 0 ? fmt(annualForRow) : '—'}
                   </td>
@@ -703,7 +703,7 @@ function CurrencyCashFlowTable({
                   </td>
                 )
               })}
-              <td className="px-3 py-2.5 text-center tabular-nums font-black font-mono border-l border-zinc-800 bg-zinc-800/60"
+              <td className="px-3 py-2.5 text-center tabular-nums font-black font-mono border-l border-white/[0.08] bg-zinc-800/60"
                 style={{ color: totals.balance > 0 ? '#10b981' : totals.balance < 0 ? '#ef4444' : '#71717a' }}>
                 {totals.balance !== 0 ? fmt(totals.balance) : '—'}
               </td>
@@ -730,17 +730,17 @@ function DistributionPanel() {
   const cur = currencies.find(c => c.code === currency)
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-      <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between">
+    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden">
+      <div className="px-5 py-4 border-b border-white/[0.08] flex items-center justify-between">
         <p className="text-xs font-bold uppercase tracking-wider text-zinc-400">Distribución de Porcentajes</p>
         <select value={currency} onChange={e => setCurrency(e.target.value)}
-          className="text-xs bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-zinc-300 focus:outline-none">
+          className="text-xs bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-1 text-zinc-300 focus:outline-none">
           {currencies.map(c => <option key={c.code} value={c.code}>{c.symbol} {c.code}</option>)}
         </select>
       </div>
 
       {monthlyIncome > 0 && (
-        <div className="px-5 py-2.5 bg-zinc-800/40 border-b border-zinc-800 text-xs text-zinc-400">
+        <div className="px-5 py-2.5 bg-zinc-800/40 border-b border-white/[0.08] text-xs text-zinc-400">
           Ingreso del mes: <span className="font-bold" style={{ color: cur?.color }}>{cur?.symbol}{fmt(monthlyIncome)} {currency}</span>
         </div>
       )}
@@ -840,9 +840,9 @@ function RecurringExpensesPanel({ onOpenAdd }: { onOpenAdd: () => void }) {
   }, [recurringExpenses])
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between gap-3 flex-wrap">
+      <div className="px-5 py-4 border-b border-white/[0.08] flex items-center justify-between gap-3 flex-wrap">
         <button onClick={() => setCollapsed(v => !v)} className="flex items-center gap-2 group">
           {collapsed ? <ChevronDown className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300" /> : <ChevronUp className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300" />}
           <Repeat className="w-4 h-4 text-purple-400" />
@@ -971,7 +971,7 @@ function RecurringRow({
             </span>
           )}
           {!recurring.active && (
-            <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-500">
+            <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-800 border border-white/[0.12] text-zinc-500">
               pausada
             </span>
           )}
@@ -1142,7 +1142,7 @@ function RecurringExpenseForm({
         </label>
       </div>
 
-      <div className="flex items-center gap-2 justify-end pt-2 border-t border-zinc-800">
+      <div className="flex items-center gap-2 justify-end pt-2 border-t border-white/[0.08]">
         <button onClick={onCancel} className="text-xs text-zinc-500 hover:text-zinc-300 px-3 py-2">
           Cancelar
         </button>
@@ -1181,20 +1181,20 @@ function TransactionHistory() {
   }
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-      <div className="px-5 py-4 border-b border-zinc-800 flex flex-wrap items-center gap-3">
+    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden">
+      <div className="px-5 py-4 border-b border-white/[0.08] flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
           <History className="w-4 h-4 text-zinc-400" />
           <p className="text-xs font-bold uppercase tracking-wider text-zinc-400">Historial de Registros</p>
         </div>
         <div className="flex gap-2 ml-auto">
           <select value={filterWallet} onChange={e => setFilterWallet(e.target.value)}
-            className="text-xs bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-zinc-300 focus:outline-none">
+            className="text-xs bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-1.5 text-zinc-300 focus:outline-none">
             <option value="all">Todas las billeteras</option>
             {wallets.map(w => <option key={w.id} value={w.id}>{w.icon} {w.name}</option>)}
           </select>
           <select value={filterType} onChange={e => setFilterType(e.target.value)}
-            className="text-xs bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-zinc-300 focus:outline-none">
+            className="text-xs bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-1.5 text-zinc-300 focus:outline-none">
             <option value="all">Todos</option>
             <option value="income">Ingresos</option>
             <option value="expense">Egresos</option>
@@ -1249,7 +1249,7 @@ function TransactionHistory() {
           </div>
           {filtered.length > showCount && (
             <button onClick={() => setShowCount(s => s + 15)}
-              className="w-full py-3 text-xs text-zinc-500 hover:text-zinc-300 transition-colors border-t border-zinc-800">
+              className="w-full py-3 text-xs text-zinc-500 hover:text-zinc-300 transition-colors border-t border-white/[0.08]">
               Ver {Math.min(15, filtered.length - showCount)} más de {filtered.length} registros
             </button>
           )}
@@ -1337,7 +1337,7 @@ function UndoToast({ deletedId, walletName, walletIcon, onUndo, onDismiss }: {
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 30, scale: 0.9 }}
       transition={{ type: 'spring', stiffness: 320, damping: 26 }}
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl bg-zinc-900 border border-zinc-700 shadow-2xl shadow-black/50 backdrop-blur"
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/[0.03] border border-white/[0.12] shadow-2xl shadow-black/50 backdrop-blur"
     >
       <span className="text-xl">{walletIcon}</span>
       <div className="flex-1 min-w-0">
@@ -1373,7 +1373,7 @@ function DeletedWalletsHistory() {
   if (deletedWallets.length === 0) return null
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden">
       <button onClick={() => setExpanded(e => !e)}
         className="w-full flex items-center justify-between px-5 py-4 hover:bg-zinc-800/40 transition-colors">
         <div className="flex items-center gap-3">
@@ -1407,7 +1407,7 @@ function DeletedWalletsHistory() {
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="px-5 pb-5 space-y-2 border-t border-zinc-800/60 pt-4">
+            <div className="px-5 pb-5 space-y-2 border-t border-white/[0.08]/60 pt-4">
               {deletedWallets.map(entry => {
                 const balances = entry.wallet.currencyCodes.map(code => ({
                   code,
@@ -1425,7 +1425,7 @@ function DeletedWalletsHistory() {
                     initial={{ opacity: 0, x: -8 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: 8 }}
-                    className="flex items-center gap-3 p-3 rounded-xl border border-zinc-800 bg-zinc-950/40 hover:border-zinc-700 transition-all"
+                    className="flex items-center gap-3 p-3 rounded-xl border border-white/[0.08] bg-black/30/40 hover:border-white/[0.12] transition-all"
                     style={{ borderLeftColor: entry.wallet.color, borderLeftWidth: 3 }}
                   >
                     <span className="text-2xl shrink-0">{entry.wallet.icon}</span>
@@ -1528,7 +1528,7 @@ export function MoneyPage() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
+          <h1 className="text-3xl font-bold text-white tracking-tight flex items-center gap-2">
             <WalletIcon className="w-5 h-5 text-emerald-400" />
             {t('wallet.title')}
           </h1>
@@ -1542,7 +1542,7 @@ export function MoneyPage() {
           </motion.button>
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
             onClick={() => setModal({ type: 'addCurrency' })}
-            className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 text-zinc-300 rounded-xl text-sm font-semibold transition-all">
+            className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 border border-white/[0.12] hover:bg-zinc-700 text-zinc-300 rounded-xl text-sm font-semibold transition-all">
             <Settings className="w-4 h-4" /> {t('wallet.currencies')}
           </motion.button>
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
@@ -1557,7 +1557,7 @@ export function MoneyPage() {
       {summary.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {summary.map(({ cur, income, expense, balance }) => (
-            <div key={cur.code} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4"
+            <div key={cur.code} className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-4"
               style={{ borderLeftColor: cur.color, borderLeftWidth: 3 }}>
               <div className="flex items-center gap-1.5 mb-2">
                 <div className="w-2 h-2 rounded-full" style={{ background: cur.color }} />
@@ -1586,7 +1586,7 @@ export function MoneyPage() {
           ))}
           <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
             onClick={() => setModal({ type: 'addWallet' })}
-            className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 border-dashed border-zinc-700 hover:border-zinc-500 text-zinc-600 hover:text-zinc-400 transition-all min-h-[100px]">
+            className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 border-dashed border-white/[0.12] hover:border-zinc-500 text-zinc-600 hover:text-zinc-400 transition-all min-h-[100px]">
             <Plus className="w-5 h-5" />
             <span className="text-xs font-semibold">Nueva</span>
           </motion.button>

@@ -120,7 +120,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
           exit={{ x: '100%' }}
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-lg bg-zinc-900 border-l border-zinc-800 h-full overflow-y-auto"
+          className="w-full max-w-lg bg-white/[0.03] border-l border-white/[0.08] h-full overflow-y-auto"
         >
           <div className="p-6 space-y-5">
             {/* Header */}
@@ -185,8 +185,8 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 <>
                   {/* Click-outside catcher */}
                   <div className="fixed inset-0 z-10" onClick={() => setShowMoveMenu(false)} />
-                  <div className="absolute left-0 top-full mt-1.5 z-20 min-w-[220px] bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1 max-h-72 overflow-y-auto">
-                    <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 px-3 py-2 border-b border-zinc-800">
+                  <div className="absolute left-0 top-full mt-1.5 z-20 min-w-[220px] bg-white/[0.03] border border-white/[0.12] rounded-lg shadow-2xl py-1 max-h-72 overflow-y-auto">
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 px-3 py-2 border-b border-white/[0.08]">
                       Mover a proyecto
                     </p>
                     {Object.values(projects)
@@ -250,8 +250,8 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 return (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setShowMergeMenu(false)} />
-                    <div className="absolute left-0 top-full mt-1.5 z-20 min-w-[260px] bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1 max-h-72 overflow-y-auto">
-                      <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 px-3 py-2 border-b border-zinc-800">
+                    <div className="absolute left-0 top-full mt-1.5 z-20 min-w-[260px] bg-white/[0.03] border border-white/[0.12] rounded-lg shadow-2xl py-1 max-h-72 overflow-y-auto">
+                      <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 px-3 py-2 border-b border-white/[0.08]">
                         Anidar dentro de…
                       </p>
                       {candidates.length === 0 && (
@@ -297,7 +297,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                     key={s.id}
                     onClick={() => updateTask(effective.id, { status: s.label })}
                     className={`text-xs px-3 py-1.5 rounded-lg border transition-all font-medium ${
-                      effective.status === s.label ? 'border-current' : 'border-zinc-700 text-zinc-500 hover:border-zinc-500'
+                      effective.status === s.label ? 'border-current' : 'border-white/[0.12] text-zinc-500 hover:border-zinc-500'
                     }`}
                     style={effective.status === s.label ? {
                       backgroundColor: s.color + '20',
@@ -347,7 +347,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                     className={`text-xs px-3 py-1.5 rounded-lg border transition-all ${
                       effective.scheduledFor === day
                         ? 'border-indigo-500 bg-indigo-500/20 text-indigo-400'
-                        : 'border-zinc-700 text-zinc-500 hover:border-zinc-500'
+                        : 'border-white/[0.12] text-zinc-500 hover:border-zinc-500'
                     }`}
                   >
                     {day === 'today' ? t('tasks.today') : 'Tomorrow'}
@@ -364,7 +364,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                   type="date"
                   value={effective.dueDate ?? ''}
                   onChange={(e) => updateTask(effective.id, { dueDate: e.target.value || undefined })}
-                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 flex-1"
+                  className="bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 flex-1"
                 />
                 <input
                   type="time"
@@ -372,7 +372,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                   onChange={(e) => updateTask(effective.id, { dueTime: e.target.value || undefined })}
                   disabled={!effective.dueDate}
                   title={effective.dueDate ? 'Hora opcional — habilita notificaciones con hora exacta y agrega al calendario' : 'Elegí primero una fecha'}
-                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 w-28 disabled:opacity-40"
+                  className="bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 w-28 disabled:opacity-40"
                 />
               </div>
               {/* Duration — solo aplica con dueTime. Sin hora una tarea es
@@ -390,7 +390,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                           className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
                             active
                               ? 'bg-indigo-500/20 border border-indigo-500/50 text-indigo-200'
-                              : 'bg-zinc-800 border border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                              : 'bg-zinc-800 border border-white/[0.12] text-zinc-400 hover:border-zinc-600'
                           }`}
                         >
                           {m < 60 ? `${m}m` : m === 60 ? '1h' : `${m / 60}h`}
@@ -405,7 +405,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                         const v = parseInt(e.target.value, 10)
                         if (Number.isFinite(v) && v > 0) updateTask(effective.id, { durationMinutes: v })
                       }}
-                      className="w-20 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
+                      className="w-20 bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
                       title="Minutos custom"
                     />
                     <span className="text-[10px] text-zinc-600 self-center">min</span>
@@ -442,7 +442,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 }}
                 rows={3}
                 placeholder="Optional description..."
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 resize-none"
+                className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 resize-none"
               />
             </div>
 
@@ -484,7 +484,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                   value={newSubtask}
                   onChange={(e) => setNewSubtask(e.target.value)}
                   placeholder={t('tasks.addSubtask')}
-                  className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500"
+                  className="flex-1 bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-1.5 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500"
                 />
                 <button
                   type="submit"
@@ -507,7 +507,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 }}
                 rows={3}
                 placeholder="Notes..."
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 resize-none"
+                className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500 resize-none"
               />
             </div>
           </div>
@@ -663,7 +663,7 @@ function RecurrencePicker({
           <select
             value={kind}
             onChange={(e) => setKind(e.target.value as TaskRecurrenceKind | 'none')}
-            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500"
+            className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500"
           >
             {options.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -679,7 +679,7 @@ function RecurrencePicker({
                     key={i}
                     onClick={() => toggleDay(i)}
                     className={`px-2 py-1 rounded text-[10px] font-mono uppercase tracking-wider transition-colors ${
-                      active ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'bg-zinc-900 text-zinc-500 border border-zinc-800 hover:border-zinc-700'
+                      active ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'bg-white/[0.03] text-zinc-500 border border-white/[0.08] hover:border-white/[0.12]'
                     }`}
                   >
                     {label}
@@ -703,7 +703,7 @@ function RecurrencePicker({
                 type="date"
                 value={recurrence?.until ?? ''}
                 onChange={(e) => setUntil(e.target.value || undefined)}
-                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
+                className="flex-1 bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500"
               />
               {recurrence?.until && (
                 <button
@@ -764,7 +764,7 @@ function NotifyLeadTimePicker({
           const v = e.target.value
           onChange(v === 'global' ? undefined : parseInt(v, 10))
         }}
-        className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500"
+        className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500"
       >
         {LEAD_TIME_OPTIONS.map((o) => (
           <option key={o.value === undefined ? 'global' : o.value} value={o.value === undefined ? 'global' : String(o.value)}>

@@ -123,7 +123,7 @@ export function SPIPage() {
                 <span className="text-xs text-fuchsia-300 font-mono font-bold">L{levelInfo.level}</span>
                 <span className="text-[9px] text-fuchsia-400/60 font-mono uppercase tracking-wider">{titleForLevel(levelInfo.level)}</span>
               </div>
-              <div className="w-20 h-1 bg-zinc-900 rounded-full overflow-hidden mt-0.5">
+              <div className="w-20 h-1 bg-white/[0.03] rounded-full overflow-hidden mt-0.5">
                 <div
                   className="h-full bg-gradient-to-r from-fuchsia-400 to-violet-400 transition-all"
                   style={{ width: `${Math.min(100, levelInfo.progress * 100)}%` }}
@@ -141,13 +141,13 @@ export function SPIPage() {
           )}
           <button
             onClick={() => setShowHistory(true)}
-            className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
+            className="px-3 py-1.5 bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.12] text-zinc-400 hover:text-zinc-200 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
           >
             <History className="w-3.5 h-3.5" /> {t('spi.history')} ({sessions.length})
           </button>
           <button
             onClick={() => setShowTemplateEditor(true)}
-            className="px-2 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-fuchsia-500/40 text-zinc-500 hover:text-fuchsia-300 rounded-lg transition-all"
+            className="px-2 py-1.5 bg-white/[0.03] border border-white/[0.08] hover:border-fuchsia-500/40 text-zinc-500 hover:text-fuchsia-300 rounded-lg transition-all"
             title={t('spi.editTemplate')}
           >
             <Settings2 className="w-3.5 h-3.5" />
@@ -393,13 +393,13 @@ function WeekCard({
   return (
     <div className={`rounded-xl border overflow-hidden transition-colors mb-3 ${
       isCurrent
-        ? 'bg-zinc-950/60 border-fuchsia-500/30'
-        : 'bg-zinc-950/40 border-zinc-800'
+        ? 'bg-black/30/60 border-fuchsia-500/30'
+        : 'bg-black/30/40 border-white/[0.08]'
     }`}>
       {/* Header — always clickable to expand/collapse */}
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="w-full px-5 py-3 flex items-center gap-3 text-left hover:bg-zinc-900/40 transition-colors"
+        className="w-full px-5 py-3 flex items-center gap-3 text-left hover:bg-white/[0.03]/40 transition-colors"
       >
         <span className="text-lg shrink-0">♾️</span>
         <div className="flex-1 min-w-0">
@@ -431,7 +431,7 @@ function WeekCard({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="border-t border-zinc-800/60 p-5">
+            <div className="border-t border-white/[0.08]/60 p-5">
               {!hasSession && onStart ? (
                 <EmptyWeekCTA onStart={onStart} />
               ) : session ? (
@@ -470,7 +470,7 @@ function WeekCard({
  *  primary action — matching the projection "Empezar plan" pattern. */
 function EmptyWeekCTA({ onStart }: { onStart: () => void }) {
   return (
-    <div className="bg-zinc-950/40 border border-zinc-800 rounded-2xl p-6 text-center">
+    <div className="bg-black/30/40 border border-white/[0.08] rounded-2xl p-6 text-center">
       <Sparkles className="w-8 h-8 text-fuchsia-400/70 mx-auto mb-2" />
       <p className="text-sm font-semibold text-zinc-200 mb-1">
         No empezaste esta semana todavía
@@ -496,7 +496,7 @@ function EmptyState({
   hasPastSessions, onStart, onViewHistory,
 }: { hasPastSessions: boolean; onStart: () => void; onViewHistory: () => void }) {
   return (
-    <div className="bg-zinc-950/60 border border-zinc-800 rounded-2xl p-10 text-center">
+    <div className="bg-black/30/60 border border-white/[0.08] rounded-2xl p-10 text-center">
       <Sparkles className="w-10 h-10 text-fuchsia-400/70 mx-auto mb-4" />
       <h2 className="text-lg font-semibold text-zinc-200 mb-2">
         {hasPastSessions ? 'No tenés sesión activa esta semana' : 'Primera sesión SPI'}
@@ -515,7 +515,7 @@ function EmptyState({
         {hasPastSessions && (
           <button
             onClick={onViewHistory}
-            className="px-5 py-2.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
+            className="px-5 py-2.5 bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.12] text-zinc-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
           >
             <History className="w-4 h-4" /> Ver sesiones anteriores
           </button>
@@ -583,7 +583,7 @@ function ActiveSession({
   return (
     <div className="space-y-4">
       {/* Session header */}
-      <div className="bg-zinc-950/60 border border-fuchsia-500/20 rounded-2xl p-5">
+      <div className="bg-black/30/60 border border-fuchsia-500/20 rounded-2xl p-5">
         <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
           <div>
             <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-400/70">
@@ -619,7 +619,7 @@ function ActiveSession({
                 <button
                   onClick={onCancelRequest}
                   title="Descartar esta sesión sin guardarla (no afecta tu streak ni XP)"
-                  className="px-2.5 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-red-500/40 hover:text-red-400 text-zinc-500 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
+                  className="px-2.5 py-1.5 bg-white/[0.03] border border-white/[0.08] hover:border-red-500/40 hover:text-red-400 text-zinc-500 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
                 >
                   <X className="w-3.5 h-3.5" /> Cancelar
                 </button>
@@ -646,12 +646,12 @@ function ActiveSession({
                 <button
                   key={item.key}
                   onClick={() => onChecklistToggle(item.key)}
-                  className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg hover:bg-zinc-900/60 transition-colors group"
+                  className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/[0.03]/60 transition-colors group"
                 >
                   <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all ${
                     checked
                       ? 'bg-emerald-500/20 border-emerald-500'
-                      : 'border-zinc-700 group-hover:border-zinc-500'
+                      : 'border-white/[0.12] group-hover:border-zinc-500'
                   }`}>
                     {checked && <Check className="w-3 h-3 text-emerald-400" />}
                   </div>
@@ -822,7 +822,7 @@ function LabBlock({ spiSessionId, isClosed }: { spiSessionId: string; isClosed: 
   }
 
   return (
-    <div className="bg-zinc-950/40 border border-fuchsia-500/20 rounded-2xl p-4">
+    <div className="bg-black/30/40 border border-fuchsia-500/20 rounded-2xl p-4">
       <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
         <div className="flex items-center gap-2">
           <FlaskConical className="w-4 h-4 text-fuchsia-400" />
@@ -831,7 +831,7 @@ function LabBlock({ spiSessionId, isClosed }: { spiSessionId: string; isClosed: 
         </div>
         <div className="flex items-center gap-1.5">
           <Link href="/laboratorio"
-            className="text-[10px] text-zinc-500 hover:text-fuchsia-300 transition-colors px-2 py-1 rounded hover:bg-zinc-900">
+            className="text-[10px] text-zinc-500 hover:text-fuchsia-300 transition-colors px-2 py-1 rounded hover:bg-white/[0.03]">
             Abrir Lab completo →
           </Link>
           {!isClosed && (
@@ -855,7 +855,7 @@ function LabBlock({ spiSessionId, isClosed }: { spiSessionId: string; isClosed: 
             const cat = findCategory(sess.categoryKey)
             return (
               <button key={sess.id} onClick={() => setRunningSessionId(sess.id)}
-                className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 hover:border-fuchsia-500/30 transition-colors group">
+                className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.03]/60 hover:bg-white/[0.03] border border-white/[0.08] hover:border-fuchsia-500/30 transition-colors group">
                 <span className="text-base">{ex?.emoji ?? '🧪'}</span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -909,9 +909,9 @@ function LabPickerModal({
       <motion.div
         initial={{ scale: 0.96, y: 8 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 8 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-zinc-950 border border-fuchsia-500/30 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col"
+        className="bg-black/30 border border-fuchsia-500/30 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col"
       >
-        <div className="p-5 border-b border-zinc-800 flex items-center justify-between">
+        <div className="p-5 border-b border-white/[0.08] flex items-center justify-between">
           <div>
             <h2 className="text-base font-semibold text-zinc-100 flex items-center gap-2">
               <FlaskConical className="w-4 h-4 text-fuchsia-400" /> Elegí un ejercicio
@@ -924,13 +924,13 @@ function LabPickerModal({
         </div>
 
         {/* Category chips */}
-        <div className="px-5 py-3 border-b border-zinc-800/60 flex flex-wrap gap-1.5">
+        <div className="px-5 py-3 border-b border-white/[0.08]/60 flex flex-wrap gap-1.5">
           {LAB_CATEGORIES.map((c) => {
             const isActive = c.key === activeCat
             return (
               <button key={c.key} onClick={() => setActiveCat(c.key)}
                 className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition-colors ${
-                  isActive ? 'text-zinc-100' : 'text-zinc-500 hover:text-zinc-200 border-zinc-800 bg-zinc-900'
+                  isActive ? 'text-zinc-100' : 'text-zinc-500 hover:text-zinc-200 border-white/[0.08] bg-white/[0.03]'
                 }`}
                 style={isActive ? {
                   background: c.color + '20',
@@ -950,7 +950,7 @@ function LabPickerModal({
           )}
           {exercises.map((ex) => (
             <button key={ex.key} onClick={() => onPick(ex.key)}
-              className="w-full text-left p-3 rounded-xl border bg-zinc-900/60 border-zinc-800 hover:border-fuchsia-500/40 hover:bg-zinc-900 transition-colors flex items-start gap-3 group">
+              className="w-full text-left p-3 rounded-xl border bg-white/[0.03]/60 border-white/[0.08] hover:border-fuchsia-500/40 hover:bg-white/[0.03] transition-colors flex items-start gap-3 group">
               <span className="text-xl shrink-0">{ex.emoji}</span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -982,7 +982,7 @@ function LabRunnerModal({ sessionId, onClose }: { sessionId: string; onClose: ()
       <motion.div
         initial={{ scale: 0.96, y: 12 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 12 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-zinc-950 border border-fuchsia-500/30 rounded-2xl w-full max-w-3xl my-8 p-5"
+        className="bg-black/30 border border-fuchsia-500/30 rounded-2xl w-full max-w-3xl my-8 p-5"
       >
         <ExerciseRunner sessionId={sessionId} onBack={onClose} />
       </motion.div>
@@ -1004,7 +1004,7 @@ function LanePicker({
   const toggle = (key: string) =>
     setPicked((prev) => prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key])
   return (
-    <div className="bg-zinc-950/60 border border-fuchsia-500/30 rounded-2xl p-6">
+    <div className="bg-black/30/60 border border-fuchsia-500/30 rounded-2xl p-6">
       <h2 className="text-base font-semibold text-zinc-100 mb-1">¿En dónde querés concentrarte hoy?</h2>
       <p className="text-xs text-zinc-500 mb-5">
         Elegí uno o varios carriles. Solo se mostrarán las preguntas de los carriles que actives —
@@ -1019,8 +1019,8 @@ function LanePicker({
               onClick={() => toggle(lane.key)}
               className={`text-left p-4 rounded-xl border-2 transition-all ${
                 isPicked
-                  ? 'bg-zinc-900 shadow-lg'
-                  : 'bg-zinc-950/40 border-zinc-800 hover:border-zinc-700'
+                  ? 'bg-white/[0.03] shadow-lg'
+                  : 'bg-black/30/40 border-white/[0.08] hover:border-white/[0.12]'
               }`}
               style={isPicked ? {
                 borderColor: lane.color,
@@ -1077,9 +1077,9 @@ function LanePickerModal({
       <motion.div
         initial={{ scale: 0.96, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 10 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-zinc-950 border border-fuchsia-500/30 rounded-2xl w-full max-w-2xl overflow-hidden"
+        className="bg-black/30 border border-fuchsia-500/30 rounded-2xl w-full max-w-2xl overflow-hidden"
       >
-        <div className="px-5 py-3 border-b border-zinc-800 flex items-center justify-between">
+        <div className="px-5 py-3 border-b border-white/[0.08] flex items-center justify-between">
           <h2 className="text-base font-semibold text-zinc-100">Ajustar carriles activos</h2>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200">
             <X className="w-5 h-5" />
@@ -1242,7 +1242,7 @@ function WeeklyGoalsByArea({
                 gris itálico y se perdía visualmente al lado de las
                 cajas grandes. */}
             {annualMeta ? (
-              <div className="space-y-0.5 mb-1.5 bg-zinc-900/40 border border-zinc-800 rounded px-2 py-1.5">
+              <div className="space-y-0.5 mb-1.5 bg-white/[0.03]/40 border border-white/[0.08] rounded px-2 py-1.5">
                 <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-600 mb-0.5">
                   Anual
                 </p>
@@ -1257,7 +1257,7 @@ function WeeklyGoalsByArea({
             )}
             {/* Sub-metas trimestrales (read-only) */}
             {quarterlySubs.length > 0 ? (
-              <div className="space-y-0.5 mb-1.5 bg-zinc-900/40 border border-zinc-800 rounded px-2 py-1.5">
+              <div className="space-y-0.5 mb-1.5 bg-white/[0.03]/40 border border-white/[0.08] rounded px-2 py-1.5">
                 <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-600 mb-0.5">
                   Trimestral · Q{qN}
                 </p>
@@ -1276,7 +1276,7 @@ function WeeklyGoalsByArea({
             )}
             {/* Sub-metas mensuales (read-only) */}
             {monthlySubs.length > 0 ? (
-              <div className="space-y-0.5 mb-2 bg-zinc-900/40 border border-zinc-800 rounded px-2 py-1.5">
+              <div className="space-y-0.5 mb-2 bg-white/[0.03]/40 border border-white/[0.08] rounded px-2 py-1.5">
                 <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-600 mb-0.5">Mensual</p>
                 <ul className="space-y-0.5">
                   {monthlySubs.map((s, i) => (
@@ -1300,7 +1300,7 @@ function WeeklyGoalsByArea({
               onChange={(e) => onValueChange(fullKey, fieldKey, e.target.value)}
               placeholder="Qué movés concretamente esta semana en esta área?"
               minRows={2}
-              className="w-full text-xs bg-zinc-900 border border-zinc-800 rounded px-2 py-1.5 text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
+              className="w-full text-xs bg-white/[0.03] border border-white/[0.08] rounded px-2 py-1.5 text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
             />
             {/* Chips de KPIs filtrados por esta área. Toggle para
                 activar/desactivar en la semana, "+ KPI" para crear uno
@@ -1370,7 +1370,7 @@ function AreaKpiChips({
               className={`px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors flex items-center gap-1 ${
                 active
                   ? 'bg-fuchsia-500/15 border-fuchsia-500/40 text-fuchsia-200'
-                  : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'
+                  : 'bg-white/[0.03] border-white/[0.08] text-zinc-500 hover:border-white/[0.12] hover:text-zinc-300'
               }`}
             >
               <span>{kpi.icon}</span>
@@ -1424,8 +1424,8 @@ function QuickKpiModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-zinc-800">
+      <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl shadow-2xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-white/[0.08]">
           <h2 className="text-sm font-bold text-white">+ KPI para {areaLabel}</h2>
           <p className="text-[10px] text-zinc-500 mt-0.5">
             Lo agrega a tu library y lo activa esta semana. Editás detalles después en /kpis.
@@ -1436,7 +1436,7 @@ function QuickKpiModal({
             <input
               value={icon}
               onChange={(e) => setIcon(e.target.value.slice(0, 2))}
-              className="w-12 bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-2 text-center text-lg focus:outline-none focus:border-fuchsia-500"
+              className="w-12 bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-2 text-center text-lg focus:outline-none focus:border-fuchsia-500"
               maxLength={4}
             />
             <input
@@ -1444,7 +1444,7 @@ function QuickKpiModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Nombre — ej. Sesiones de guitarra"
-              className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+              className="flex-1 bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
             />
           </div>
           <div className="grid grid-cols-3 gap-1.5">
@@ -1453,7 +1453,7 @@ function QuickKpiModal({
                 key={k}
                 onClick={() => setKind(k)}
                 className={`px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${
-                  kind === k ? 'bg-fuchsia-500/20 border border-fuchsia-500/50 text-fuchsia-200' : 'bg-zinc-800 border border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                  kind === k ? 'bg-fuchsia-500/20 border border-fuchsia-500/50 text-fuchsia-200' : 'bg-zinc-800 border border-white/[0.12] text-zinc-400 hover:border-zinc-600'
                 }`}
               >
                 {k === 'count' && 'Contador'}
@@ -1468,11 +1468,11 @@ function QuickKpiModal({
               value={target}
               onChange={(e) => setTarget(e.target.value)}
               placeholder={`Target ${kind === 'percent' ? '0-100' : '(opcional)'}`}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+              className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-fuchsia-500"
             />
           )}
         </div>
-        <div className="px-5 py-3 border-t border-zinc-800 flex gap-2">
+        <div className="px-5 py-3 border-t border-white/[0.08] flex gap-2">
           <button onClick={onClose} className="flex-1 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold">
             Cancelar
           </button>
@@ -1522,10 +1522,10 @@ function Section({
   const fullKey = parentKey ? `${parentKey}.${section.key}` : section.key
 
   return (
-    <div className={`bg-zinc-950/40 border border-zinc-800 rounded-xl ${parentKey ? 'ml-4 mt-2' : ''}`}>
+    <div className={`bg-black/30/40 border border-white/[0.08] rounded-xl ${parentKey ? 'ml-4 mt-2' : ''}`}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-zinc-900/40 transition-colors rounded-t-xl"
+        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-white/[0.03]/40 transition-colors rounded-t-xl"
       >
         <span className="text-lg shrink-0">{section.emoji}</span>
         <div className="flex-1 min-w-0">
@@ -1544,7 +1544,7 @@ function Section({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="px-4 pb-4 space-y-4 border-t border-zinc-800/60 pt-4">
+            <div className="px-4 pb-4 space-y-4 border-t border-white/[0.08]/60 pt-4">
               {section.intro && (
                 <p className="text-xs text-zinc-400 italic leading-relaxed">{section.intro}</p>
               )}
@@ -1635,7 +1635,7 @@ function Field({
   return (
     <div>
       {field.blockquote && (
-        <p className="text-[11px] text-zinc-500 italic mb-1.5 border-l-2 border-zinc-700 pl-2">
+        <p className="text-[11px] text-zinc-500 italic mb-1.5 border-l-2 border-white/[0.12] pl-2">
           {field.blockquote}
         </p>
       )}
@@ -1649,13 +1649,13 @@ function Field({
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.placeholder}
           minRows={3}
-          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
+          className="w-full bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
         />
       ) : field.type === 'select' ? (
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-fuchsia-500/40"
+          className="w-full bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-fuchsia-500/40"
         >
           <option value="">— elegir —</option>
           {field.options?.map((opt) => (
@@ -1667,7 +1667,7 @@ function Field({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.placeholder}
-          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
+          className="w-full bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
         />
       )}
       {field.epigraph && (
@@ -1738,7 +1738,7 @@ function TasksBlock({
           onChange={(e) => setNewTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit() } }}
           placeholder="Agregar tarea..."
-          className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
+          className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
         />
         <button
           onClick={submit}
@@ -1772,8 +1772,8 @@ function TaskRow({
   const movedAway = isLinked && currentProject?.systemProjectKey !== 'spi'
 
   return (
-    <div className={`bg-zinc-900 border rounded-lg group ${
-      isLinked ? 'border-emerald-500/20' : 'border-zinc-800'
+    <div className={`bg-white/[0.03] border rounded-lg group ${
+      isLinked ? 'border-emerald-500/20' : 'border-white/[0.08]'
     }`}>
       <div className="px-3 py-2 flex items-center gap-2">
         <button
@@ -1840,14 +1840,14 @@ function TaskRow({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="px-3 pb-3 pt-1 space-y-2 border-t border-zinc-800/60">
+            <div className="px-3 pb-3 pt-1 space-y-2 border-t border-white/[0.08]/60">
               <div className="flex items-center gap-2">
                 <Calendar className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
                 <input
                   type="date"
                   value={task.dueDate ?? ''}
                   onChange={(e) => onUpdate({ dueDate: e.target.value || undefined })}
-                  className="text-xs bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-fuchsia-500/40"
+                  className="text-xs bg-black/30 border border-white/[0.08] rounded px-2 py-1 text-zinc-300 focus:outline-none focus:border-fuchsia-500/40"
                 />
               </div>
               <div>
@@ -1857,7 +1857,7 @@ function TaskRow({
                   onChange={(e) => onUpdate({ whyPurpose: e.target.value || undefined })}
                   placeholder="Qué resultado va a generar esta tarea?"
                   minRows={2}
-                  className="w-full text-xs bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
+                  className="w-full text-xs bg-black/30 border border-white/[0.08] rounded px-2 py-1.5 text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
                 />
               </div>
               {isLinked && currentProject && (
@@ -1891,7 +1891,7 @@ function HistoryModal({
       <motion.div
         initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-zinc-950 border border-zinc-800 rounded-2xl p-5 max-w-2xl w-full max-h-[80vh] overflow-y-auto"
+        className="bg-black/30 border border-white/[0.08] rounded-2xl p-5 max-w-2xl w-full max-h-[80vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-zinc-200 flex items-center gap-2">
@@ -1925,7 +1925,7 @@ function HistoryModal({
                   className={`w-full text-left p-3 rounded-lg border transition-all ${
                     isActive
                       ? 'bg-fuchsia-500/10 border-fuchsia-500/40'
-                      : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700'
+                      : 'bg-white/[0.03] border-white/[0.08] hover:border-white/[0.12]'
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -1966,7 +1966,7 @@ function CloseSessionModal({
       <motion.div
         initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-zinc-950 border border-emerald-500/30 rounded-2xl p-6 max-w-md w-full"
+        className="bg-black/30 border border-emerald-500/30 rounded-2xl p-6 max-w-md w-full"
       >
         <h2 className="text-lg font-semibold text-zinc-200 flex items-center gap-2 mb-1">
           <Trophy className="w-5 h-5 text-emerald-400" /> Cerrar sesión SPI
@@ -2005,7 +2005,7 @@ function CloseSessionModal({
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Qué te llevás de esta semana?"
               minRows={3}
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-emerald-500/40"
+              className="w-full bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-emerald-500/40"
             />
           </div>
         </div>
@@ -2013,7 +2013,7 @@ function CloseSessionModal({
         <div className="flex gap-2 mt-6">
           <button
             onClick={onClose}
-            className="flex-1 px-3 py-2 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 rounded-lg text-sm transition-all"
+            className="flex-1 px-3 py-2 bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.12] text-zinc-400 rounded-lg text-sm transition-all"
           >
             Cancelar
           </button>
@@ -2053,11 +2053,11 @@ function BitacoraBlock({
   const resolvedCount = entries.filter((e) => e.kind === 'broken' && e.resolved).length
 
   return (
-    <div className="bg-zinc-950/40 border border-zinc-800 rounded-xl overflow-hidden">
+    <div className="bg-black/30/40 border border-white/[0.08] rounded-xl overflow-hidden">
       {/* Header */}
       <button
         onClick={() => setCollapsed((v) => !v)}
-        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-zinc-900/40 transition-colors"
+        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-white/[0.03]/40 transition-colors"
       >
         <span className="text-lg shrink-0">🗂️</span>
         <div className="flex-1 min-w-0">
@@ -2080,7 +2080,7 @@ function BitacoraBlock({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="border-t border-zinc-800/60 p-4">
+            <div className="border-t border-white/[0.08]/60 p-4">
               {/* Toggle resolved visibility */}
               {totalBroken > 0 && resolvedCount > 0 && (
                 <div className="flex justify-end mb-2">
@@ -2155,7 +2155,7 @@ function BitacoraColumn({
     : { text: 'text-amber-300', border: 'border-amber-500/30', bg: 'bg-amber-500/5', btn: 'hover:text-amber-300 hover:bg-amber-500/10' }
 
   return (
-    <div className={`bg-zinc-900 border ${accent.border} rounded-lg p-3`}>
+    <div className={`bg-white/[0.03] border ${accent.border} rounded-lg p-3`}>
       <div className="flex items-center justify-between mb-2">
         <div>
           <p className={`text-[11px] font-semibold ${accent.text}`}>{title}</p>
@@ -2183,7 +2183,7 @@ function BitacoraColumn({
       {!adding ? (
         <button
           onClick={() => setAdding(true)}
-          className={`w-full text-[11px] text-zinc-500 ${accent.btn} px-2 py-1.5 rounded transition-colors flex items-center gap-1.5 border border-dashed border-zinc-800 hover:${accent.border}`}
+          className={`w-full text-[11px] text-zinc-500 ${accent.btn} px-2 py-1.5 rounded transition-colors flex items-center gap-1.5 border border-dashed border-white/[0.08] hover:${accent.border}`}
         >
           <Plus className="w-3 h-3" /> Agregar entrada
         </button>
@@ -2195,7 +2195,7 @@ function BitacoraColumn({
             onChange={(e) => setNewSituation(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Escape') { setAdding(false); setNewSituation(''); setNewDomino('') } }}
             placeholder={kind === 'working' ? 'Qué está funcionando?' : 'Qué NO está funcionando?'}
-            className="w-full text-xs bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
+            className="w-full text-xs bg-black/30 border border-white/[0.08] rounded px-2 py-1 text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
           />
           <input
             value={newDomino}
@@ -2205,7 +2205,7 @@ function BitacoraColumn({
               if (e.key === 'Escape') { setAdding(false); setNewSituation(''); setNewDomino('') }
             }}
             placeholder={kind === 'working' ? 'Por qué? (efecto / causa)' : 'Acción solución / efecto dominó'}
-            className="w-full text-[11px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
+            className="w-full text-[11px] bg-black/30 border border-white/[0.08] rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
           />
           <div className="flex justify-end gap-1">
             <button
@@ -2239,7 +2239,7 @@ function BitacoraRow({
   const [expanded, setExpanded] = useState(false)
   const dotColor = color === 'emerald' ? '#10b981' : '#f59e0b'
   return (
-    <div className={`bg-zinc-950 border border-zinc-800/60 rounded p-1.5 group ${entry.resolved ? 'opacity-50' : ''}`}>
+    <div className={`bg-black/30 border border-white/[0.08]/60 rounded p-1.5 group ${entry.resolved ? 'opacity-50' : ''}`}>
       <div className="flex items-start gap-1.5">
         {entry.kind === 'broken' && (
           <button
@@ -2248,7 +2248,7 @@ function BitacoraRow({
             className={`shrink-0 w-3 h-3 mt-0.5 rounded border flex items-center justify-center transition-all ${
               entry.resolved
                 ? 'bg-emerald-500/20 border-emerald-500'
-                : 'border-zinc-700 hover:border-zinc-500'
+                : 'border-white/[0.12] hover:border-zinc-500'
             }`}
           >
             {entry.resolved && <Check className="w-2 h-2 text-emerald-400" />}
@@ -2287,7 +2287,7 @@ function BitacoraRow({
             onChange={(e) => onUpdate({ situation: e.target.value })}
             onKeyDown={(e) => { if (e.key === 'Escape') setExpanded(false) }}
             minRows={2}
-            className="w-full text-[11px] bg-zinc-900 border border-zinc-800 rounded px-1.5 py-1 text-zinc-200 focus:outline-none focus:border-fuchsia-500/40"
+            className="w-full text-[11px] bg-white/[0.03] border border-white/[0.08] rounded px-1.5 py-1 text-zinc-200 focus:outline-none focus:border-fuchsia-500/40"
           />
           <AutoGrowTextarea
             value={entry.dominoEffect}
@@ -2295,7 +2295,7 @@ function BitacoraRow({
             onKeyDown={(e) => { if (e.key === 'Escape') setExpanded(false) }}
             placeholder={entry.kind === 'working' ? 'Por qué funciona?' : 'Acción solución'}
             minRows={2}
-            className="w-full text-[10px] bg-zinc-900 border border-zinc-800 rounded px-1.5 py-1 text-zinc-400 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
+            className="w-full text-[10px] bg-white/[0.03] border border-white/[0.08] rounded px-1.5 py-1 text-zinc-400 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
           />
           <div className="flex items-center justify-between gap-2">
             <p className="text-[9px] text-zinc-700">
@@ -2344,7 +2344,7 @@ function CelebrationModal({
         className={`relative overflow-hidden rounded-2xl p-6 max-w-md w-full border ${
           leveledUp
             ? 'bg-gradient-to-br from-violet-950 via-fuchsia-950/40 to-zinc-950 border-fuchsia-500/40'
-            : 'bg-zinc-950 border-emerald-500/30'
+            : 'bg-black/30 border-emerald-500/30'
         }`}
       >
         {/* Backdrop sparkles on level-up */}
@@ -2410,13 +2410,13 @@ function CelebrationModal({
         </p>
 
         {/* XP breakdown */}
-        <div className="bg-zinc-950/60 border border-zinc-800 rounded-lg p-3 space-y-1.5 mb-4">
+        <div className="bg-black/30/60 border border-white/[0.08] rounded-lg p-3 space-y-1.5 mb-4">
           <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-2">XP ganada</p>
           <XPRow label="Base (cerrar la sesión)" value={xp.base} />
           {xp.scoreBonus > 0 && <XPRow label="Bonus por score" value={xp.scoreBonus} />}
           {xp.moodBonus > 0 && <XPRow label="Bonus por mood" value={xp.moodBonus} />}
           {xp.taskBonus > 0 && <XPRow label="Bonus por tareas Pareto" value={xp.taskBonus} />}
-          <div className="pt-1.5 mt-1.5 border-t border-zinc-800 flex items-center justify-between">
+          <div className="pt-1.5 mt-1.5 border-t border-white/[0.08] flex items-center justify-between">
             <span className="text-sm font-semibold text-zinc-200">Total</span>
             <span className="text-lg font-bold text-fuchsia-300 tabular-nums">+{xp.total} XP</span>
           </div>
@@ -2466,7 +2466,7 @@ function EvolutionChart({ sessions }: { sessions: SPISession[] }) {
 
   if (data.length === 0) {
     return (
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 text-center text-xs text-zinc-600 italic">
+      <div className="bg-white/[0.03] border border-white/[0.08] rounded-lg p-4 text-center text-xs text-zinc-600 italic">
         Cerrá sesiones para empezar a ver tu evolución acá.
       </div>
     )
@@ -2477,7 +2477,7 @@ function EvolutionChart({ sessions }: { sessions: SPISession[] }) {
   const trend = data.length >= 2 ? lastScore - data[data.length - 2].score : 0
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+    <div className="bg-white/[0.03] border border-white/[0.08] rounded-lg p-4">
       <div className="flex items-center justify-between mb-3">
         <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
           <TrendingUp className="w-3 h-3" /> Evolución · {data.length} sesiones
@@ -2726,8 +2726,8 @@ function ContextCard({
   return (
     <a
       href={href}
-      className={`block bg-zinc-950/60 border rounded-lg p-2.5 hover:border-blue-500/40 transition-all ${
-        exists ? 'border-zinc-800' : 'border-zinc-900 opacity-50'
+      className={`block bg-black/30/60 border rounded-lg p-2.5 hover:border-blue-500/40 transition-all ${
+        exists ? 'border-white/[0.08]' : 'border-zinc-900 opacity-50'
       }`}
       title={exists ? 'Click para editar en Proyección' : 'Click para crear plan en Proyección'}
     >
@@ -2809,7 +2809,7 @@ function WeekHabitsBlock({
     : 0
 
   return (
-    <div className="bg-zinc-950/60 border border-emerald-500/20 rounded-2xl p-4 space-y-4">
+    <div className="bg-black/30/60 border border-emerald-500/20 rounded-2xl p-4 space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-[10px] font-mono uppercase tracking-wider text-emerald-300/80">
           🎯 {isLive ? 'Vista en vivo' : 'Snapshot del cierre'} · Hábitos de la semana
@@ -2821,7 +2821,7 @@ function WeekHabitsBlock({
 
       {/* Resumen KPI: promedio semanal */}
       {ratedHabits.length > 0 && (
-        <div className="flex items-baseline gap-1.5 border-b border-zinc-800 pb-2">
+        <div className="flex items-baseline gap-1.5 border-b border-white/[0.08] pb-2">
           <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
             Promedio semanal
           </span>
@@ -2844,7 +2844,7 @@ function WeekHabitsBlock({
         <table className="min-w-full text-[11px]">
           <thead>
             <tr>
-              <th className="text-left text-[9px] font-mono uppercase tracking-wider text-zinc-600 pr-3 pb-2 font-normal sticky left-0 bg-zinc-950/60">
+              <th className="text-left text-[9px] font-mono uppercase tracking-wider text-zinc-600 pr-3 pb-2 font-normal sticky left-0 bg-black/30/60">
                 Hábito
               </th>
               {dayLabels.map((label, i) => (
@@ -2861,7 +2861,7 @@ function WeekHabitsBlock({
           <tbody>
             {snapshot.habits.map((h) => (
               <tr key={h.id} className="border-t border-zinc-900">
-                <td className="py-1.5 pr-3 sticky left-0 bg-zinc-950/60">
+                <td className="py-1.5 pr-3 sticky left-0 bg-black/30/60">
                   <span className="mr-1.5">{h.icon}</span>
                   <span className="text-zinc-300">{h.name}</span>
                 </td>
@@ -2896,7 +2896,7 @@ function WeekHabitsBlock({
           <span className="inline-block w-2.5 h-2.5 rounded-full bg-zinc-700" /> N/A
         </span>
         <span className="flex items-center gap-1 text-zinc-700">
-          <span className="inline-block w-2.5 h-2.5 rounded-full bg-zinc-900" /> futuro
+          <span className="inline-block w-2.5 h-2.5 rounded-full bg-white/[0.03]" /> futuro
         </span>
       </div>
 
@@ -2905,7 +2905,7 @@ function WeekHabitsBlock({
           captured KPIs (sólo cuando el usuario tenía KPIs seleccionados
           al cierre). */}
       {snapshot.kpis && snapshot.kpis.length > 0 && (
-        <div className="border-t border-zinc-800 pt-3 mt-3">
+        <div className="border-t border-white/[0.08] pt-3 mt-3">
           <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-300/80 mb-2">
             🎯 KPIs de la semana
           </p>
@@ -2956,7 +2956,7 @@ function WeekHabitsBlock({
  *  HabitsPage: celda negra + punto blanco / anillo blanco / minus / vacío. */
 function WeekHabitCell({ status }: { status: 'done' | 'skipped' | 'missed' | 'future' }) {
   if (status === 'future') {
-    return <span className="inline-block w-5 h-5 rounded bg-zinc-900/60" />
+    return <span className="inline-block w-5 h-5 rounded bg-white/[0.03]/60" />
   }
   if (status === 'skipped') {
     return (
@@ -3014,7 +3014,7 @@ function HabitsCompletionCurve({
   if (!data.some((d) => d.pct !== null)) return null
 
   return (
-    <div className="border-b border-zinc-800 pb-3 -mt-1">
+    <div className="border-b border-white/[0.08] pb-3 -mt-1">
       <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-600 mb-1">
         Curva de completitud diaria
       </p>
@@ -3121,7 +3121,7 @@ function CopySessionButton({ session, template }: { session: SPISession; templat
     <button
       onClick={handle}
       title="Copiar todo el contenido de la sesión a markdown — útil para pegar en un chat y pedir ayuda."
-      className="px-2.5 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 hover:text-zinc-200 text-zinc-400 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
+      className="px-2.5 py-1.5 bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.12] hover:text-zinc-200 text-zinc-400 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
     >
       {status === 'copied' ? <><Check className="w-3.5 h-3.5 text-emerald-400" /> Copiado</>
         : status === 'error' ? <><X className="w-3.5 h-3.5 text-red-400" /> Falló</>
@@ -3162,7 +3162,7 @@ function CalendarSnapshotButton({ session }: { session: SPISession }) {
       <button
         onClick={() => setOpen(true)}
         title="Ver el calendario de esta semana — bloques timeados con qué planeaste y qué completaste."
-        className="px-2.5 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 hover:text-zinc-200 text-zinc-400 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
+        className="px-2.5 py-1.5 bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.12] hover:text-zinc-200 text-zinc-400 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
       >
         <CalendarDays className="w-3.5 h-3.5" /> Calendario
       </button>

@@ -72,7 +72,7 @@ export function TodayTaskList() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, x: -20 }}
                   transition={{ delay: i * 0.05 }}
-                  className="flex items-start gap-3 bg-zinc-900 rounded-xl p-3 border border-zinc-800 group transition-colors hover:border-zinc-700"
+                  className="flex items-start gap-3 bg-white/[0.03] rounded-xl p-3 border border-white/[0.08] group transition-colors hover:border-white/[0.12]"
                 >
                   <button
                     onClick={() => completeTask(task.id)}

@@ -175,7 +175,7 @@ export function IdealScheduleCard() {
   }
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5">
       <div className="flex items-center gap-2 mb-4">
         <Clock className="w-4 h-4 text-indigo-400" />
         <h2 className="text-sm font-semibold text-zinc-200">Horarios ideales</h2>
@@ -301,7 +301,7 @@ export function IdealScheduleCard() {
                 >
                   <div
                     className={`relative flex items-center gap-4 group px-5 py-3.5 rounded-xl bg-zinc-800/60 border transition-all hover:bg-zinc-800 ${
-                      isNext ? 'border-indigo-500/60 shadow-[0_0_0_1px_rgba(99,102,241,0.3)]' : 'border-zinc-800 hover:border-zinc-700'
+                      isNext ? 'border-indigo-500/60 shadow-[0_0_0_1px_rgba(99,102,241,0.3)]' : 'border-white/[0.08] hover:border-white/[0.12]'
                     } ${isDragging ? 'border-indigo-500/80 shadow-[0_0_18px_rgba(99,102,241,0.45)] cursor-grabbing' : ''}`}
                   >
                     {/* Color accent bar */}
@@ -356,7 +356,7 @@ export function IdealScheduleCard() {
                           }}
                           onClick={(e) => e.stopPropagation()}
                           placeholder="13:00"
-                          className="w-20 bg-zinc-900 border border-indigo-500 rounded-lg px-2 py-1 text-base text-white text-center tabular-nums focus:outline-none"
+                          className="w-20 bg-white/[0.03] border border-indigo-500 rounded-lg px-2 py-1 text-base text-white text-center tabular-nums focus:outline-none"
                         />
                         <button onClick={() => saveEdit(key)} className="text-indigo-400 hover:text-indigo-300 p-1">
                           <Check className="w-4 h-4" />
@@ -428,7 +428,7 @@ function AddSlotForm({ onCancel, onCreate }: AddSlotFormProps) {
   }
 
   return (
-    <div className="bg-zinc-950/60 border border-zinc-700 rounded-xl p-3 space-y-3">
+    <div className="bg-black/30/60 border border-white/[0.12] rounded-xl p-3 space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-xs font-bold text-zinc-300">Nuevo horario</p>
         <button onClick={onCancel} className="text-zinc-500 hover:text-zinc-200">
@@ -446,13 +446,13 @@ function AddSlotForm({ onCancel, onCreate }: AddSlotFormProps) {
             if (e.key === 'Enter') handleSubmit()
             if (e.key === 'Escape') onCancel()
           }}
-          className="bg-zinc-800 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-indigo-500"
+          className="bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-indigo-500"
         />
         <input
           value={time}
           onChange={(e) => setTime(e.target.value)}
           placeholder="13:00"
-          className="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1.5 text-xs text-white text-center tabular-nums focus:outline-none focus:border-indigo-500"
+          className="bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-1.5 text-xs text-white text-center tabular-nums focus:outline-none focus:border-indigo-500"
         />
       </div>
 

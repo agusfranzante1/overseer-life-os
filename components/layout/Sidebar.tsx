@@ -214,9 +214,16 @@ export function Sidebar({
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
-      style={dragX !== 0 ? { transform: `translateX(${dragX}px)`, transition: 'none' } : undefined}
+      style={{
+        ...(dragX !== 0 ? { transform: `translateX(${dragX}px)`, transition: 'none' } : {}),
+        // Mismo color base que el body — el sidebar NO tiene borde ni
+        // overlay. Se mezcla con el resto (como en el mockup del user).
+        // El padding lateral del main content define la separación
+        // visual, no un divisor.
+        background: '#0a0e15',
+      }}
       className={`
-        flex flex-col h-screen bg-zinc-900 border-r border-zinc-800 shrink-0 overflow-hidden
+        flex flex-col h-screen shrink-0 overflow-hidden
         fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-out
         ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
         sm:relative sm:translate-x-0 sm:z-20
@@ -224,28 +231,37 @@ export function Sidebar({
     >
       {/* Top bar: menu button (collapse on desktop / close drawer on mobile)
           + logo + edit toggle when labels are visible. */}
-      <div className={`flex items-center gap-2 ${showLabels ? 'px-3' : 'px-2 justify-center'} py-4 border-b border-zinc-800`}>
+      {/* Logo header — limpio como el mockup: logo + "OVERSEER" + icono
+          settings a la derecha. NO hay botón hamburguesa en desktop.
+          En mobile se sigue mostrando para poder cerrar el drawer. */}
+      <div className={`flex items-center gap-2.5 ${showLabels ? 'px-4' : 'px-2 justify-center'} py-5`}>
+        {/* Hamburger SOLO en mobile para cerrar el drawer */}
+        {isMobile && (
+          <button
+            onClick={() => onMobileClose && onMobileClose()}
+            title="Cerrar menú"
+            className="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
+        )}
         <button
-          onClick={() => {
-            if (isMobile && onMobileClose) onMobileClose()
-            else toggleSidebar()
-          }}
-          title={isMobile ? 'Cerrar menú' : sidebarCollapsed ? 'Expandir' : 'Colapsar'}
-          className="shrink-0 w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
+          onClick={() => !isMobile && toggleSidebar()}
+          title={!isMobile ? (sidebarCollapsed ? 'Expandir' : 'Colapsar') : undefined}
+          className="shrink-0 flex items-center justify-center cursor-pointer"
         >
-          <Menu className="w-4 h-4" />
+          <Image src="/logo.png" alt="Overseer" width={30} height={30} className="rounded-lg" />
         </button>
         {showLabels && (
           <>
-            <Image src="/logo.png" alt="Overseer" width={32} height={32} className="shrink-0 rounded-lg" />
-            <span className="font-bold text-white text-sm tracking-wider uppercase whitespace-nowrap flex-1 truncate">
+            <span className="font-semibold text-white text-[14px] tracking-[0.2em] uppercase whitespace-nowrap flex-1 truncate">
               Overseer
             </span>
             <button
               onClick={() => setEditMode((v) => !v)}
               title={editMode ? 'Salir del modo edición' : 'Reordenar menú'}
               className={`p-1 rounded transition-colors ${
-                editMode ? 'text-indigo-400' : 'text-zinc-600 hover:text-zinc-300'
+                editMode ? 'text-indigo-400' : 'text-zinc-500 hover:text-white'
               }`}
             >
               {editMode ? <Check className="w-3.5 h-3.5" /> : <Settings2 className="w-3.5 h-3.5" />}
@@ -279,7 +295,7 @@ export function Sidebar({
       </AnimatePresence>
 
       {/* Nav */}
-      <nav className="flex-1 py-4 space-y-1 overflow-y-auto px-2">
+      <nav className="flex-1 py-2 space-y-0.5 overflow-y-auto px-3">
         {orderedNav.map(({ href, icon: Icon, key }, idx) => {
           const active = pathname === href || (href === '/dashboard' && pathname === '/')
           const isDragging = dragKey === key
@@ -360,19 +376,35 @@ export function Sidebar({
               onClick={handleNavClick}
             >
               <motion.div
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.95 }}
-                className={`flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2.5 rounded-lg cursor-pointer transition-colors select-none ${
+                whileTap={{ scale: 0.97 }}
+                className={`relative flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2 rounded-xl cursor-pointer transition-all select-none ${
                   active
-                    ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 active:bg-indigo-600/40'
-                    : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 active:bg-indigo-500/20 active:text-indigo-200'
+                    // Active: pill violeta del mockup — gradiente fuerte
+                    // tipo "selected room" en el smart home dashboard.
+                    // Texto blanco puro, sin glow externo.
+                    ? 'text-white'
+                    // Inactive: SOLO texto + icono, sin background ni
+                    // border. Hover sube el texto a blanco pleno.
+                    : 'text-zinc-500 hover:text-white'
                 }`}
+                style={active ? {
+                  background: 'linear-gradient(90deg, rgba(99, 102, 241, 0.25), rgba(139, 92, 246, 0.15))',
+                  boxShadow: 'inset 0 0 0 1px rgba(139, 92, 246, 0.25), inset 0 0 24px rgba(99, 102, 241, 0.18)',
+                } : undefined}
               >
                 <Icon className="w-4 h-4 shrink-0" />
                 {showLabels && (
-                  <span className="text-sm font-medium whitespace-nowrap">
+                  <span className="text-[13px] font-medium whitespace-nowrap flex-1">
                     {t(`nav.${key}`)}
                   </span>
+                )}
+                {/* Dot verde "on" — solo en el item activo, indicador
+                    de "sección encendida" como en el mockup. */}
+                {active && (
+                  <span
+                    className={`shrink-0 w-1.5 h-1.5 rounded-full bg-emerald-400 ${showLabels ? '' : 'absolute top-1.5 right-1.5'}`}
+                    style={{ boxShadow: '0 0 6px rgba(52, 211, 153, 0.7)' }}
+                  />
                 )}
               </motion.div>
             </Link>
@@ -380,8 +412,9 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* Bottom actions — sync + timezone + language toggle + logout */}
-      <div className="border-t border-zinc-800 p-2 space-y-1">
+      {/* Bottom actions — texto plano, mismo estilo que los nav items
+          inactivos. Sin border-top: la separación es solo el gap. */}
+      <div className="pt-4 pb-4 px-3 space-y-0.5">
         <SyncNowButton collapsed={!showLabels} />
         <TimezoneButton collapsed={!showLabels} />
 
@@ -390,7 +423,7 @@ export function Sidebar({
           whileTap={{ scale: 0.97 }}
           onClick={toggleLang}
           title={!showLabels ? (language === 'en' ? 'English' : 'Español') : undefined}
-          className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors`}
+          className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2 rounded-xl text-[13px] text-zinc-500 hover:text-white transition-colors`}
         >
           <Globe className="w-4 h-4 shrink-0" />
           {showLabels && (
@@ -406,7 +439,7 @@ export function Sidebar({
             whileTap={{ scale: 0.97 }}
             onClick={handleLogout}
             title={!showLabels ? t('nav.logout') : undefined}
-            className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2.5 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors`}
+            className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2.5 rounded-xl text-zinc-300 hover:text-red-300 hover:bg-red-500/10 transition-colors`}
           >
             <LogOut className="w-4 h-4 shrink-0" />
             {showLabels && (
@@ -459,7 +492,7 @@ function SyncNowButton({ collapsed }: { collapsed: boolean }) {
       onClick={handleSync}
       title={collapsed ? label : undefined}
       disabled={status === 'syncing'}
-      className={`w-full flex items-center gap-3 ${collapsed ? 'justify-center px-2' : 'px-3'} py-2.5 rounded-lg hover:bg-zinc-800 transition-colors disabled:opacity-50 ${color}`}
+      className={`w-full flex items-center gap-3 ${collapsed ? 'justify-center px-2' : 'px-3'} py-2 rounded-xl text-[13px] hover:text-white transition-colors disabled:opacity-50 ${color}`}
     >
       <RotateCcw className={`w-4 h-4 shrink-0 ${status === 'syncing' ? 'animate-spin' : ''}`} />
       {!collapsed && (
@@ -505,7 +538,7 @@ function TimezoneButton({ collapsed }: { collapsed: boolean }) {
         whileTap={{ scale: 0.97 }}
         onClick={() => setOpen((v) => !v)}
         title={collapsed ? `${timezone} (${offset})` : undefined}
-        className={`w-full flex items-center gap-3 ${collapsed ? 'justify-center px-2' : 'px-3'} py-2.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition-colors`}
+        className={`w-full flex items-center gap-3 ${collapsed ? 'justify-center px-2' : 'px-3'} py-2 rounded-xl text-[13px] text-zinc-500 hover:text-white transition-colors`}
       >
         <Clock className="w-4 h-4 shrink-0" />
         {!collapsed && (

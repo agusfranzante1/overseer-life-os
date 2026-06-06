@@ -184,7 +184,7 @@ export function HabitsPage() {
   const monthLabel = chartMonth.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
 
   if (!mounted) {
-    return <div className="p-6"><div className="h-8 w-48 bg-zinc-900 rounded animate-pulse" /></div>
+    return <div className="p-6"><div className="h-8 w-48 bg-white/[0.03] rounded animate-pulse" /></div>
   }
 
   return (
@@ -192,7 +192,7 @@ export function HabitsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
+          <h1 className="text-3xl font-bold text-white tracking-tight flex items-center gap-2">
             <Activity className="w-5 h-5 text-pink-400" />
             {t('habits.title')}
           </h1>
@@ -206,7 +206,7 @@ export function HabitsPage() {
               className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
                 reorderMode
                   ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                  : 'bg-zinc-900 border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-zinc-200'
+                  : 'bg-white/[0.03] border-white/[0.08] hover:border-white/[0.12] text-zinc-400 hover:text-zinc-200'
               }`}>
               {reorderMode ? <Check className="w-4 h-4" /> : <ArrowUpDown className="w-4 h-4" />}
               {reorderMode ? t('habits.done') : t('habits.reorder')}
@@ -233,7 +233,7 @@ export function HabitsPage() {
       <AnimatePresence>
         {showForm && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-            className="bg-zinc-900 border border-zinc-700 rounded-2xl p-5 space-y-4">
+            className="bg-white/[0.03] border border-white/[0.12] rounded-2xl p-5 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-zinc-200">Nuevo hábito</h3>
               <button onClick={() => setShowForm(false)} className="text-zinc-500 hover:text-zinc-300">
@@ -243,7 +243,7 @@ export function HabitsPage() {
             <div className="grid grid-cols-2 gap-3">
               <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 placeholder="Nombre del hábito" autoFocus
-                className="col-span-2 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-pink-500" />
+                className="col-span-2 bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-pink-500" />
               <div>
                 <p className="text-xs text-zinc-500 mb-1.5">Icono</p>
                 <div className="flex flex-wrap gap-1.5">
@@ -266,7 +266,7 @@ export function HabitsPage() {
                 </div>
               </div>
               <select value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                className="col-span-2 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-pink-500">
+                className="col-span-2 bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-pink-500">
                 {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
               </select>
             </div>
@@ -282,7 +282,7 @@ export function HabitsPage() {
                 type="time"
                 value={form.reminderTime}
                 onChange={(e) => setForm((f) => ({ ...f, reminderTime: e.target.value }))}
-                className="bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:border-pink-500"
+                className="bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-1 text-xs text-zinc-300 focus:outline-none focus:border-pink-500"
               />
               {form.reminderTime && (
                 <button
@@ -403,12 +403,12 @@ export function HabitsPage() {
                 // no marear, pero el borde blanco lo deja inequívoco.
                 // (No aplicamos hover si estás en reorder mode o si la fila
                 // ya está resaltada como drop-target.)
-                className={`bg-zinc-900 border rounded-xl px-4 py-3 flex items-center gap-4 group transition-all ${
+                className={`bg-white/[0.03] border rounded-xl px-4 py-3 flex items-center gap-4 group transition-all ${
                   isDragging
                     ? 'border-emerald-500/60 opacity-50 cursor-grabbing'
                     : isDropTarget
                       ? 'border-emerald-500/60 bg-emerald-500/5'
-                      : 'border-zinc-800 hover:border-white hover:shadow-[0_0_18px_rgba(255,255,255,0.25)]'
+                      : 'border-white/[0.08] hover:border-white hover:shadow-[0_0_18px_rgba(255,255,255,0.25)]'
                 } ${reorderMode ? 'cursor-grab select-none' : ''}`}>
                 {/* Drag handle — only in reorder mode */}
                 {reorderMode && (
@@ -492,7 +492,7 @@ export function HabitsPage() {
                         <div
                           key={ds}
                           title={`${weekDays[i].toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'short' })} — día deshabilitado para este hábito`}
-                          className={`w-10 h-10 rounded-lg flex items-center justify-center bg-zinc-950/40 border border-zinc-900 cursor-not-allowed ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
+                          className={`w-10 h-10 rounded-lg flex items-center justify-center bg-black/30/40 border border-zinc-900 cursor-not-allowed ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
                         >
                           <Minus className="w-3 h-3 text-zinc-700" />
                         </div>
@@ -552,7 +552,7 @@ export function HabitsPage() {
                     return (
                       <div
                         title="Día deshabilitado para este hábito"
-                        className="md:hidden shrink-0 rounded-lg flex items-center justify-center w-10 h-10 bg-zinc-950/40 border border-zinc-900 cursor-not-allowed"
+                        className="md:hidden shrink-0 rounded-lg flex items-center justify-center w-10 h-10 bg-black/30/40 border border-zinc-900 cursor-not-allowed"
                       >
                         <Minus className="w-3 h-3 text-zinc-700" />
                       </div>
@@ -617,7 +617,7 @@ export function HabitsPage() {
       </section>
 
       {/* Monthly trend charts */}
-      <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+      <section className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-zinc-400" /> Cumplimiento diario · mensual
@@ -658,7 +658,7 @@ export function HabitsPage() {
 
 function SummaryCard({ label, value, color, icon }: { label: string; value: string; color: string; icon?: React.ReactNode }) {
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4" style={{ borderLeftColor: color, borderLeftWidth: 3 }}>
+    <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-4" style={{ borderLeftColor: color, borderLeftWidth: 3 }}>
       <p className="text-xs text-zinc-400 uppercase tracking-wider font-semibold mb-2 flex items-center gap-1">
         {icon}{label}
       </p>
@@ -719,7 +719,7 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
 
   if (series.length === 0) {
     return (
-      <div className="bg-zinc-950/60 border border-zinc-800 rounded-xl p-6 text-center text-xs text-zinc-600">
+      <div className="bg-black/30/60 border border-white/[0.08] rounded-xl p-6 text-center text-xs text-zinc-600">
         Sin datos este mes
       </div>
     )
@@ -738,7 +738,7 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
   const avgColor = monthAvg >= 75 ? '#10b981' : monthAvg >= 50 ? '#f59e0b' : '#ef4444'
 
   return (
-    <div className="bg-zinc-950/60 border border-zinc-800 rounded-xl p-5">
+    <div className="bg-black/30/60 border border-white/[0.08] rounded-xl p-5">
       {/* Stats strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <StatChip label="Nota mensual" value={`${monthAvg}%`} color={avgColor} highlight />
@@ -809,7 +809,7 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
 
 function StatChip({ label, value, color, highlight }: { label: string; value: string; color: string; highlight?: boolean }) {
   return (
-    <div className={`rounded-xl p-3 ${highlight ? 'bg-zinc-900 border-2' : 'bg-zinc-900/70 border'}`}
+    <div className={`rounded-xl p-3 ${highlight ? 'bg-white/[0.03] border-2' : 'bg-white/[0.03]/70 border'}`}
       style={{ borderColor: highlight ? color : '#27272a' }}>
       <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">{label}</p>
       <p className="text-2xl font-extrabold tabular-nums mt-0.5" style={{ color }}>{value}</p>

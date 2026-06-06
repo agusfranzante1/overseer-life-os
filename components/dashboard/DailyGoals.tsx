@@ -230,13 +230,13 @@ function AddRow({ placeholder, onAdd }: { placeholder: string; onAdd: (text: str
     setText('')
   }
   return (
-    <div className="flex gap-2 pt-3 border-t border-zinc-800/60 mt-3">
+    <div className="flex gap-2 pt-3 border-t border-white/[0.08]/60 mt-3">
       <input
         value={text}
         onChange={e => setText(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter') add() }}
         placeholder={placeholder}
-        className="flex-1 bg-zinc-800/60 border border-zinc-700/50 rounded-xl px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
+        className="flex-1 bg-zinc-800/60 border border-white/[0.12]/50 rounded-xl px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-500 transition-colors"
       />
       <button
         onClick={add}
@@ -296,7 +296,7 @@ function GoalCard({ title, subtitle, goals, onSave, streak, showProgress = true,
 
   return (
     <div
-      className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 transition-all duration-500"
+      className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 transition-all duration-500"
       style={allDone ? {
         background: 'radial-gradient(ellipse at 50% 0%, rgba(107,227,164,0.07) 0%, rgba(24,24,27,0) 65%), rgb(24,24,27)',
       } : undefined}
@@ -372,7 +372,7 @@ function GoalCard({ title, subtitle, goals, onSave, streak, showProgress = true,
             {goals.length > LIMIT && (
               <button
                 onClick={() => setShowMore(s => !s)}
-                className="w-full mt-1 mb-2 py-2 flex items-center justify-center gap-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors border border-dashed border-zinc-700/60 rounded-xl"
+                className="w-full mt-1 mb-2 py-2 flex items-center justify-center gap-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors border border-dashed border-white/[0.12]/60 rounded-xl"
               >
                 {showMore ? (
                   <><ChevronUp className="w-3 h-3" /> Show less</>
@@ -389,7 +389,7 @@ function GoalCard({ title, subtitle, goals, onSave, streak, showProgress = true,
       {!readOnly && goals.some(g => !g.done) && (
         <button
           onClick={pushRemaining}
-          className="w-full mt-2 mb-1 py-2 text-xs text-zinc-500 hover:text-zinc-200 border border-dashed border-zinc-700/40 hover:border-zinc-600 rounded-xl transition-all"
+          className="w-full mt-2 mb-1 py-2 text-xs text-zinc-500 hover:text-zinc-200 border border-dashed border-white/[0.12]/40 hover:border-zinc-600 rounded-xl transition-all"
         >
           Push remaining → tomorrow
         </button>

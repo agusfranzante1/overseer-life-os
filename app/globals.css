@@ -124,20 +124,24 @@
   }
   body {
     @apply bg-background text-foreground;
-    background-color: #09090b !important;
+    /* Navy-black del mockup — casi negro con cyan undertone. El !important
+       sigue porque varias páginas tienen <html class="dark"> + tailwind
+       dark defaults que pisaban este valor sin él. */
+    background-color: #0a0e15 !important;
     color: #fafafa !important;
-    font-family: var(--font-sans), Roboto, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-    /* Roboto has clean defaults — no specific variant features needed */
+    font-family: var(--font-sans), Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    /* Inter tabular features para que los números se alineen en grids */
+    font-feature-settings: 'cv11', 'ss01', 'cv05';
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    letter-spacing: 0;
+    letter-spacing: -0.005em;
   }
   html {
     @apply font-sans;
   }
   code, pre, kbd, samp, .font-mono {
-    font-family: var(--font-mono), "Roboto Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-family: var(--font-mono), "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
 }
 

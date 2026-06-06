@@ -66,7 +66,7 @@ export function MetricCard({ metricKey, color, icon }: Props) {
   return (
     <motion.div
       whileHover={{ scale: 1.02 }}
-      className="relative bg-zinc-900 rounded-xl p-4 border border-zinc-800 hover:border-zinc-700 transition-colors group"
+      className="relative bg-white/[0.03] rounded-2xl p-4 border border-white/[0.08] hover:border-white/[0.15] hover:bg-white/[0.05] transition-colors group shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
       style={{ borderLeftColor: color, borderLeftWidth: 3 }}
     >
       <div className="flex items-start justify-between mb-2">

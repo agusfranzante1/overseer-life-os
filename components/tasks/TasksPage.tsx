@@ -93,20 +93,20 @@ function ProjectForm({ onAdd, onClose, t }: {
   return (
     <form
       onSubmit={(e) => { e.preventDefault(); if (name.trim()) { onAdd(name.trim(), desc.trim() || undefined); onClose() } }}
-      className="bg-zinc-800 border border-zinc-700 rounded-xl p-4 space-y-3"
+      className="bg-zinc-800 border border-white/[0.12] rounded-xl p-4 space-y-3"
     >
       <input
         autoFocus
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder={t('tasks.projectName')}
-        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
+        className="w-full bg-white/[0.03] border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
       />
       <input
         value={desc}
         onChange={(e) => setDesc(e.target.value)}
         placeholder={`${t('tasks.description')} (${t('common.optional')})`}
-        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
+        className="w-full bg-white/[0.03] border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-zinc-300 placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
       />
       <div className="flex gap-2 justify-end">
         <button type="button" onClick={onClose} className="text-sm text-zinc-500 hover:text-zinc-300 px-3 py-1.5">
@@ -174,7 +174,7 @@ function NewTaskForm({ projectId, statuses, onAdd, onClose, t }: {
             handleSave()
           }
         }}
-        className="flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
+        className="flex-1 min-w-0 bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
       />
       <button
         type="submit"
@@ -298,7 +298,7 @@ function ProjectHeader({ project, onRename, onUpdateDescription, onUpdateColor, 
             <MoreHorizontal className="w-4 h-4" />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-full mt-1 z-20 w-44 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl py-1">
+            <div className="absolute right-0 top-full mt-1 z-20 w-44 bg-white/[0.03] border border-white/[0.12] rounded-lg shadow-xl py-1">
               <button
                 onClick={() => { setMenuOpen(false); setEditingName(true) }}
                 className="w-full text-left px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 flex items-center gap-2"
@@ -313,7 +313,7 @@ function ProjectHeader({ project, onRename, onUpdateDescription, onUpdateColor, 
               </button>
               {!project.isSystemProject && (
                 <>
-                  <div className="my-1 border-t border-zinc-800" />
+                  <div className="my-1 border-t border-white/[0.08]" />
                   <button
                     onClick={() => { setMenuOpen(false); onDelete() }}
                     className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 flex items-center gap-2"
@@ -324,7 +324,7 @@ function ProjectHeader({ project, onRename, onUpdateDescription, onUpdateColor, 
               )}
               {project.isSystemProject && (
                 <>
-                  <div className="my-1 border-t border-zinc-800" />
+                  <div className="my-1 border-t border-white/[0.08]" />
                   <div className="px-3 py-1.5 text-[10px] text-fuchsia-400/70 italic">
                     Proyecto del sistema — no se puede eliminar
                   </div>
@@ -390,7 +390,7 @@ function ColorDot({ color, onChange }: { color: string; onChange: (c: string) =>
         style={{ backgroundColor: color }}
       />
       {open && (
-        <div className="absolute left-0 top-full mt-2 z-20 p-3 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl">
+        <div className="absolute left-0 top-full mt-2 z-20 p-3 bg-white/[0.03] border border-white/[0.12] rounded-xl shadow-2xl">
           <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-2">Color del proyecto</p>
           <div className="grid grid-cols-5 gap-2">
             {PROJECT_COLORS.map((c) => (
@@ -759,11 +759,11 @@ export function TasksPage() {
           and instead show a sticky hamburger inside the main area (see below)
           since a 40px sidebar on a 360px phone is wasted estate. */}
       {projectsPanelCollapsed && (
-        <div className="hidden sm:flex w-10 shrink-0 border-r border-zinc-800 bg-zinc-950 flex-col items-center pt-4 gap-2">
+        <div className="hidden sm:flex w-10 shrink-0 border-r border-white/[0.08] bg-black/30 flex-col items-center pt-4 gap-2">
           <button
             onClick={toggleProjectsPanel}
             title="Mostrar proyectos"
-            className="w-7 h-7 rounded-lg bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center transition-colors"
+            className="w-7 h-7 rounded-lg bg-white/[0.03] hover:bg-zinc-800 active:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center transition-colors"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -771,7 +771,7 @@ export function TasksPage() {
           <div className="flex flex-col gap-1.5 mt-3">
             <button onClick={() => setSelectedProject(null)} title={t('tasks.allProjects')}
               className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-                !selectedProjectId ? 'bg-zinc-800' : 'hover:bg-zinc-900 active:bg-zinc-800'
+                !selectedProjectId ? 'bg-zinc-800' : 'hover:bg-white/[0.03] active:bg-zinc-800'
               }`}>
               <FolderOpen className="w-3.5 h-3.5 text-zinc-400" />
             </button>
@@ -779,7 +779,7 @@ export function TasksPage() {
               <button key={proj.id} onClick={() => setSelectedProject(proj.id)}
                 title={proj.name}
                 className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${
-                  selectedProjectId === proj.id ? 'ring-2 ring-white/40' : 'hover:bg-zinc-900 active:bg-zinc-800'
+                  selectedProjectId === proj.id ? 'ring-2 ring-white/40' : 'hover:bg-white/[0.03] active:bg-zinc-800'
                 }`}
                 style={{ backgroundColor: `${proj.color}22` }}>
                 <span className="text-[13px] font-bold leading-none" style={{ color: proj.color }}>
@@ -789,12 +789,12 @@ export function TasksPage() {
             ))}
             {/* Archive (papelera) — collapsed icon. Wrapper carries the
                 divider so the button itself stays a clean centered square. */}
-            <div className="mt-2 pt-2 border-t border-zinc-800 w-full flex justify-center">
+            <div className="mt-2 pt-2 border-t border-white/[0.08] w-full flex justify-center">
               <button
                 onClick={() => setSelectedProject(ARCHIVE_SENTINEL)}
                 title={`Papelera (${archivedTasks.length})`}
                 className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-                  inArchiveView ? 'bg-zinc-800 text-amber-400' : 'text-zinc-500 hover:text-amber-400 hover:bg-zinc-900 active:bg-zinc-800'
+                  inArchiveView ? 'bg-zinc-800 text-amber-400' : 'text-zinc-500 hover:text-amber-400 hover:bg-white/[0.03] active:bg-zinc-800'
                 }`}
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -835,7 +835,7 @@ export function TasksPage() {
             enableSwipe={isMobile}
             className="
               fixed sm:relative inset-y-0 left-0 z-40 sm:z-auto
-              w-72 sm:w-64 shrink-0 border-r border-zinc-800 overflow-y-auto bg-zinc-950 p-4 shadow-2xl sm:shadow-none
+              w-72 sm:w-64 shrink-0 border-r border-white/[0.08] overflow-y-auto bg-black/30 p-4 shadow-2xl sm:shadow-none
             "
           >
         <div className="flex items-center justify-between mb-4">
@@ -908,7 +908,7 @@ export function TasksPage() {
         )}
 
         {/* Archive (papelera) — expanded entry, separated by a divider */}
-        <div className="mt-3 pt-3 border-t border-zinc-800">
+        <div className="mt-3 pt-3 border-t border-white/[0.08]">
           <button
             onClick={() => handleSelectProject(ARCHIVE_SENTINEL)}
             className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
@@ -960,7 +960,7 @@ export function TasksPage() {
                   }}
                 />
               ) : (
-                <h1 className="text-xl font-bold text-white">{t('tasks.title')}</h1>
+                <h1 className="text-3xl font-bold text-white tracking-tight">{t('tasks.title')}</h1>
               )}
             </div>
 
@@ -984,9 +984,9 @@ export function TasksPage() {
           </div>
 
           {/* Row 2 — View / Sort / Filter controls (clearly separated) */}
-          <div className="flex items-center gap-x-5 gap-y-2 flex-wrap pt-3 border-t border-zinc-800">
+          <div className="flex items-center gap-x-5 gap-y-2 flex-wrap pt-3 border-t border-white/[0.08]">
             {/* View mode toggle (segmented control) */}
-            <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
+            <div className="flex items-center bg-white/[0.03] border border-white/[0.08] rounded-lg p-0.5">
               <button onClick={() => changeView('list')}
                 title="Vista lista"
                 className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
@@ -1010,7 +1010,7 @@ export function TasksPage() {
                 value={sortMode}
                 onChange={(e) => changeSort(e.target.value as KanbanSort)}
                 title="Ordenar tareas por"
-                className="bg-zinc-900 border border-emerald-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-emerald-500"
+                className="bg-white/[0.03] border border-emerald-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-emerald-500"
               >
                 <option value="priority">Urgencia ↓ (urgente arriba)</option>
                 <option value="priorityAsc">Urgencia ↑ (urgente abajo)</option>
@@ -1034,7 +1034,7 @@ export function TasksPage() {
                     value={statusFilter ?? ''}
                     onChange={(e) => setStatusFilter(e.target.value || null)}
                     title="Filtrar por estado"
-                    className="bg-zinc-900 border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
+                    className="bg-white/[0.03] border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
                   >
                     <option value="">{t('tasks.status')}: {t('common.all')}</option>
                     {activeProject.statuses.map((s) => (
@@ -1046,7 +1046,7 @@ export function TasksPage() {
                     value={statusFilter ?? ''}
                     onChange={(e) => setStatusFilter(e.target.value || null)}
                     title="Filtrar por estado (todos los proyectos)"
-                    className="bg-zinc-900 border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
+                    className="bg-white/[0.03] border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
                   >
                     <option value="">Estado: todos</option>
                     {availableStatuses.map((s) => (
@@ -1059,7 +1059,7 @@ export function TasksPage() {
                   value={priorityFilter ?? ''}
                   onChange={(e) => setPriorityFilter(e.target.value || null)}
                   title="Filtrar por urgencia"
-                  className="bg-zinc-900 border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
+                  className="bg-white/[0.03] border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
                 >
                   <option value="">Urgencia: toda</option>
                   <option value="urgent">Urgente</option>
@@ -1073,7 +1073,7 @@ export function TasksPage() {
                     value={categoryFilter ?? ''}
                     onChange={(e) => setCategoryFilter(e.target.value || null)}
                     title="Filtrar por tipo"
-                    className="bg-zinc-900 border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
+                    className="bg-white/[0.03] border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
                   >
                     <option value="">Tipo: todos</option>
                     {availableCategories.map((c) => (
@@ -1167,7 +1167,7 @@ export function TasksPage() {
               ) : (
                 <button
                   onClick={() => setNewTaskProjectId(activeProject.id)}
-                  className="w-full text-left text-xs text-zinc-600 hover:text-indigo-300 hover:bg-indigo-500/5 active:bg-indigo-500/10 px-3 py-2.5 rounded-lg transition-colors flex items-center gap-2 opacity-60 hover:opacity-100 border border-dashed border-zinc-800 hover:border-indigo-500/40"
+                  className="w-full text-left text-xs text-zinc-600 hover:text-indigo-300 hover:bg-indigo-500/5 active:bg-indigo-500/10 px-3 py-2.5 rounded-lg transition-colors flex items-center gap-2 opacity-60 hover:opacity-100 border border-dashed border-white/[0.08] hover:border-indigo-500/40"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Nueva tarea en {activeProject.name}
@@ -1379,7 +1379,7 @@ function ArchiveView({
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Trash2 className="w-5 h-5 text-amber-400" />
-            <h1 className="text-xl font-bold text-white">Papelera</h1>
+            <h1 className="text-3xl font-bold text-white tracking-tight">Papelera</h1>
             <span className="text-xs text-zinc-500 tabular-nums">
               ({archivedTasks.length} tarea{archivedTasks.length !== 1 ? 's' : ''})
             </span>
@@ -1391,7 +1391,7 @@ function ArchiveView({
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={onClose}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white rounded-lg text-sm transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.12] text-zinc-400 hover:text-white rounded-lg text-sm transition-colors"
           >
             <ChevronLeft className="w-3.5 h-3.5" /> Volver
           </button>
@@ -1427,7 +1427,7 @@ function ArchiveView({
           return (
             <div
               key={task.id}
-              className="group flex items-center gap-3 px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg hover:border-zinc-700 transition-colors"
+              className="group flex items-center gap-3 px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg hover:border-white/[0.12] transition-colors"
             >
               <div
                 className="w-2 h-2 rounded-full shrink-0"
@@ -1485,7 +1485,7 @@ function KanbanBoard({ project, tasks, sortMode, onTaskClick }: { project: Proje
                   setDragId(null)
                 }
               }}
-              className="w-72 shrink-0 bg-zinc-950/60 border border-zinc-800 rounded-2xl p-3">
+              className="w-72 shrink-0 bg-black/30/60 border border-white/[0.08] rounded-2xl p-3">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full" style={{ background: col.color }} />
@@ -1553,7 +1553,7 @@ function AllProjectsKanban({ projects, tasks, sortMode, onTaskClick }: { project
                   setDragId(null)
                 }
               }}
-              className="w-72 shrink-0 bg-zinc-950/60 border border-zinc-800 rounded-2xl p-3">
+              className="w-72 shrink-0 bg-black/30/60 border border-white/[0.08] rounded-2xl p-3">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full" style={{ background: col.color }} />
