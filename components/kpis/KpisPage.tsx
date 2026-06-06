@@ -3,7 +3,7 @@ import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Target, Plus, Trash2, Archive, ArchiveRestore, BarChart3, Pencil, X, Check, Calendar } from 'lucide-react'
 import { useKpisStore } from '@/lib/store/kpisStore'
-import { useSPIStore } from '@/lib/store/spiStore'
+import { useSPIStore, activeWeekAnchorYmd } from '@/lib/store/spiStore'
 import type { KPIDefinition, KPIKind } from '@/lib/kpi/types'
 import { WHEEL_AREAS } from '@/lib/projection/templates'
 import { KpiScoreboard } from '@/components/spi/KpiScoreboard'
@@ -721,16 +721,13 @@ function ThisWeekView() {
   const setSessionKpis = useSPIStore((s) => s.setSessionKpis)
 
   const [needsCreate, setNeedsCreate] = useState(false)
-  const currentSat = useMemo(() => {
-    // Mismo cálculo que lastSaturdayYmd en el store — duplicado mínimo
-    // para no expandir la API del store solo para esto.
-    const d = new Date()
-    d.setHours(0, 0, 0, 0)
-    const day = d.getDay()
-    const back = day === 6 ? 0 : day + 1
-    d.setDate(d.getDate() - back)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  }, [])
+  // El anchor de la "semana en curso" es la sesión cuya ventana
+  // LUNES→DOMINGO contiene HOY. Esto NO es la sesión que el usuario
+  // edita el sábado (esa es la planificación de la SIGUIENTE semana).
+  // Sin esta distinción, los KPIs decían "no hay SPI" cada sábado al
+  // rolover, aunque la semana en curso (que termina el domingo)
+  // todavía tenía KPIs activos en la sesión del sábado anterior.
+  const currentSat = useMemo(() => activeWeekAnchorYmd(), [])
 
   // Resolución de "cuál es la sesión de esta semana":
   //

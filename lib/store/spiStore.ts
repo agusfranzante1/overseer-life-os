@@ -15,14 +15,63 @@ function genId(): string {
 
 /** Returns the most recent Saturday at 00:00 local time as YYYY-MM-DD. */
 /** Saturday-anchored "current week" key — YYYY-MM-DD of the most recent
- *  Saturday (today if today IS Saturday). Used by both the store and the
- *  SPI page to identify which session belongs to "this week". */
+ *  Saturday (today if today IS Saturday). Used por la SPI page para
+ *  identificar la sesión que se ESTÁ EDITANDO hoy (la ritual de planeación
+ *  del sábado).
+ *
+ *  IMPORTANTE: esto NO es el mismo concepto que la "semana activa" para
+ *  KPIs/hábitos/calendario. La semana activa va de LUNES a DOMINGO; la
+ *  sesión que la "owns" es la del SÁBADO ANTERIOR al lunes de la semana
+ *  en curso. Usá `activeWeekAnchorYmd()` para eso.
+ *
+ *  Ejemplo:
+ *    Hoy = Sábado 13/Ene.
+ *    - lastSaturdayYmd() = '2024-01-13' (la sesión que estás llenando hoy
+ *      para PLANIFICAR la próxima semana Mon 15 → Sun 21).
+ *    - activeWeekAnchorYmd() = '2024-01-06' (la sesión cuya semana
+ *      Mon 8 → Sun 14 todavía está en curso). */
 export function lastSaturdayYmd(now: Date = new Date()): string {
   const d = new Date(now)
   d.setHours(0, 0, 0, 0)
   const day = d.getDay()  // 0 Sun … 6 Sat
   // If today is Saturday → use today. Otherwise step back to previous Saturday.
   const diff = day === 6 ? 0 : (day + 1)  // Sun=1, Mon=2, ..., Fri=6
+  d.setDate(d.getDate() - diff)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}`
+}
+
+/** YYYY-MM-DD del sábado que ARRANCA la sesión cuya SEMANA (lunes a
+ *  domingo) contiene HOY. Cambia de valor solo los LUNES — todos los
+ *  días Mon..Sun de la misma semana devuelven el MISMO sábado.
+ *
+ *  Reglas:
+ *  - Día = lunes → sábado de hace 2 días.
+ *  - Día = martes → sábado de hace 3 días.
+ *  - …
+ *  - Día = viernes → sábado de hace 6 días.
+ *  - Día = sábado → sábado de hace 7 días (no el de HOY, porque
+ *    el sábado es la ritual del NEXT week).
+ *  - Día = domingo → sábado de hace 8 días.
+ *
+ *  Esto se usa por KPIs/hábitos/calendar para decidir qué SPISession
+ *  contiene los datos en curso. */
+export function activeWeekAnchorYmd(now: Date = new Date()): string {
+  const d = new Date(now)
+  d.setHours(0, 0, 0, 0)
+  const day = d.getDay()  // 0 Sun … 6 Sat
+  // Días para retroceder hasta el sábado que ARRANCA la semana actual.
+  // Convertimos `day` a "días desde el lunes" y le sumamos 2 (para llegar
+  // al sábado anterior).
+  //   Mon=1 → 0 días desde lunes → sábado anterior = 2 días atrás
+  //   Tue=2 → 1 día desde lunes → sábado = 3 días atrás
+  //   ...
+  //   Sat=6 → 5 días desde lunes → sábado = 7 días atrás
+  //   Sun=0 → 6 días desde lunes → sábado = 8 días atrás
+  const daysFromMonday = (day + 6) % 7  // Mon=0 ... Sun=6
+  const diff = daysFromMonday + 2
   d.setDate(d.getDate() - diff)
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')

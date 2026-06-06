@@ -16,8 +16,9 @@ import { ExerciseRunner } from '@/components/lab/ExerciseRunner'
 import { TemplateEditor } from './TemplateEditor'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
+  BarChart, Bar, Cell,
 } from 'recharts'
-import { useSPIStore, lastSaturdayYmd } from '@/lib/store/spiStore'
+import { useSPIStore, lastSaturdayYmd, activeWeekAnchorYmd } from '@/lib/store/spiStore'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useProjectionStore } from '@/lib/store/projectionStore'
 import { useHabitsStore } from '@/lib/store/habitsStore'
@@ -775,11 +776,16 @@ function ActiveSession({
           DURANTE TODA LA SEMANA, no solo al planear. Por eso si el SPI
           está cerrado PERO la semana sigue siendo la actual, los KPIs
           siguen editables.
-          Cerramos los KPIs solo cuando la sesión es de una semana pasada
-          (sesión vieja en historial) — ahí sí es snapshot congelado. */}
+          Tratamos COMO ACTIVA tanto la sesión que se está editando hoy
+          (ritual sábado para próxima semana) como la sesión cuya semana
+          Mon→Sun contiene HOY (la que sigue viva hasta domingo noche). */}
       <KpiScoreboard
         session={session}
-        isClosed={isClosed && session.weekStartDate !== lastSaturdayYmd()}
+        isClosed={
+          isClosed
+          && session.weekStartDate !== lastSaturdayYmd()
+          && session.weekStartDate !== activeWeekAnchorYmd()
+        }
         onSelectedChange={onSetKpis}
         onValueChange={onValueChange}
       />
@@ -2747,19 +2753,30 @@ function WeekSnapshotContainer({ session }: { session: SPISession }) {
   // cuando marcamos un hábito o cambiamos un KPI durante la semana.
   const habits = useHabitsStore((s) => s.habits)
   const kpisLibrary = useKpisStore((s) => s.definitions)
+  // Una sesión es "live" cuando su semana Mon→Sun todavía está en curso
+  // (incluye el sábado en que fue creada + los 8 días siguientes). Hasta
+  // ese domingo, mostramos el snapshot LIVE aunque el user haya cerrado
+  // la sesión — la planificación queda congelada pero los hábitos y
+  // KPIs siguen llenándose. Recién el lunes siguiente se considera
+  // "snapshot definitivo" y mostramos el frozen.
+  const isStillCurrentWeek =
+    session.weekStartDate === activeWeekAnchorYmd()
+    || session.weekStartDate === lastSaturdayYmd()
   const liveSnapshot = useMemo(() => {
-    if (session.weekSnapshot) return null
-    // Pasamos la sesión completa así el snapshot live ALSO incluye KPIs.
+    if (session.weekSnapshot && !isStillCurrentWeek) return null
     return buildWeekSnapshot(session.weekStartDate, session)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, session.weekSnapshot, session.weekStartDate, habits, kpisLibrary])
+  }, [session, session.weekSnapshot, session.weekStartDate, habits, kpisLibrary, isStillCurrentWeek])
 
-  const snapshot = session.weekSnapshot ?? liveSnapshot
+  // Prioridad: si la semana SIGUE en curso → live (aunque haya frozen).
+  // Si ya terminó (lunes en adelante) y hay frozen → frozen.
+  // Si no hay frozen → live como fallback.
+  const snapshot = isStillCurrentWeek ? liveSnapshot : (session.weekSnapshot ?? liveSnapshot)
   if (!snapshot) return null
   const hasHabits = snapshot.habits.length > 0
   const hasKpis = (snapshot.kpis?.length ?? 0) > 0
   if (!hasHabits && !hasKpis) return null
-  const isLive = !session.weekSnapshot
+  const isLive = isStillCurrentWeek || !session.weekSnapshot
   return <WeekHabitsBlock snapshot={snapshot} isLive={isLive} />
 }
 
@@ -2813,6 +2830,13 @@ function WeekHabitsBlock({
             · {ratedHabits.length} hábito{ratedHabits.length === 1 ? '' : 's'} con tracking esta semana
           </span>
         </div>
+      )}
+
+      {/* Curva de completitud diaria — % de hábitos completados cada uno
+          de los 7 días de la semana. Da una mirada rápida de cómo arrancó
+          y terminó la semana (¿strong start, faded mid-week?). */}
+      {ratedHabits.length > 0 && (
+        <HabitsCompletionCurve snapshot={snapshot} dayLabels={dayLabels} />
       )}
 
       {/* Tabla — header (días) + rows (un hábito por row) */}
@@ -2885,6 +2909,10 @@ function WeekHabitsBlock({
           <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-300/80 mb-2">
             🎯 KPIs de la semana
           </p>
+          {/* Curva de completitud por KPI — bar chart horizontal con un
+              bar por cada KPI mostrando % de cumplimiento. Visual rápido
+              de "qué KPIs cumplí esta semana" antes del detalle numérico. */}
+          <KpisCompletionChart kpis={snapshot.kpis} />
           <table className="min-w-full text-[11px]">
             <tbody>
               {snapshot.kpis.map((k) => {
@@ -2953,6 +2981,128 @@ function WeekHabitCell({ status }: { status: 'done' | 'skipped' | 'missed' | 'fu
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// HABITS COMPLETION CURVE — % de hábitos done por cada día de la semana
+// ─────────────────────────────────────────────────────────────────────
+/** Line chart compacto que muestra cómo evolucionó la completitud durante
+ *  los 7 días. X = día (Sáb..Vie), Y = % de hábitos completados ese día.
+ *
+ *  Cálculo del % por día:
+ *   - numerator   = hábitos con status 'done' ese día
+ *   - denominator = hábitos con status 'done' O 'missed' ese día
+ *     (skipped y future NO cuentan — son "N/A").
+ *   - Si denominator === 0, el día se grafica como null (gap en la curva). */
+function HabitsCompletionCurve({
+  snapshot, dayLabels,
+}: { snapshot: WeekClosureSnapshot; dayLabels: string[] }) {
+  const data = useMemo(() => {
+    return dayLabels.map((label, i) => {
+      let done = 0
+      let counted = 0
+      for (const h of snapshot.habits) {
+        const s = h.days[i]
+        if (s === 'done') { done++; counted++ }
+        else if (s === 'missed') { counted++ }
+      }
+      return {
+        day: label,
+        pct: counted > 0 ? Math.round((done / counted) * 100) : null,
+      }
+    })
+  }, [snapshot.habits, dayLabels])
+
+  // Si todos los días son null (sin tracking esta semana), no renderizamos.
+  if (!data.some((d) => d.pct !== null)) return null
+
+  return (
+    <div className="border-b border-zinc-800 pb-3 -mt-1">
+      <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-600 mb-1">
+        Curva de completitud diaria
+      </p>
+      <div style={{ width: '100%', height: 90 }}>
+        <ResponsiveContainer>
+          <LineChart data={data} margin={{ top: 4, right: 6, bottom: 0, left: -20 }}>
+            <CartesianGrid stroke="#27272a" strokeDasharray="2 3" vertical={false} />
+            <XAxis dataKey="day" tick={{ fontSize: 9, fill: '#71717a' }} axisLine={false} tickLine={false} />
+            <YAxis domain={[0, 100]} ticks={[0, 50, 100]} tick={{ fontSize: 9, fill: '#52525b' }} axisLine={false} tickLine={false} width={28} />
+            <Tooltip
+              contentStyle={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 6, fontSize: 11 }}
+              labelStyle={{ color: '#a1a1aa', fontSize: 10 }}
+              formatter={(v) => (v === null || v === undefined ? ['—', '%'] : [`${v}%`, 'completitud'])}
+            />
+            <ReferenceLine y={80} stroke="#10b981" strokeDasharray="3 3" strokeOpacity={0.4} />
+            <Line
+              type="monotone"
+              dataKey="pct"
+              stroke="#10b981"
+              strokeWidth={2}
+              dot={{ r: 3, fill: '#10b981', stroke: '#000' }}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// KPIS COMPLETION CHART — bar chart con % de cumplimiento por KPI
+// ─────────────────────────────────────────────────────────────────────
+/** Bar chart vertical compacto, un bar por KPI, altura = completionPct%.
+ *  Color del bar refleja la franja de cumplimiento (rojo <50, amarillo
+ *  50-75, verde 75-100, esmeralda ≥100). Da una mirada rápida de "qué
+ *  KPIs cumplí" antes de leer la tabla numérica detallada. */
+function KpisCompletionChart({ kpis }: { kpis: NonNullable<WeekClosureSnapshot['kpis']> }) {
+  const data = useMemo(() => {
+    return kpis.map((k) => ({
+      name: `${k.icon} ${k.name.length > 12 ? k.name.slice(0, 12) + '…' : k.name}`,
+      pct: k.completionPct ?? 0,
+    }))
+  }, [kpis])
+
+  if (data.length === 0) return null
+
+  // No usamos chart cuando hay un solo KPI — un bar solitario se ve raro.
+  // El usuario lee el % directo de la tabla abajo.
+  if (data.length < 2) return null
+
+  const colorFor = (pct: number): string =>
+    pct >= 100 ? '#10b981'
+      : pct >= 75 ? '#34d399'
+      : pct >= 50 ? '#f59e0b'
+      : '#ef4444'
+
+  return (
+    <div className="mb-3 -mt-1">
+      <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-600 mb-1">
+        Cumplimiento por KPI
+      </p>
+      <div style={{ width: '100%', height: 90 + Math.max(0, (data.length - 4) * 6) }}>
+        <ResponsiveContainer>
+          <BarChart data={data} margin={{ top: 4, right: 6, bottom: 0, left: -20 }}>
+            <CartesianGrid stroke="#27272a" strokeDasharray="2 3" vertical={false} />
+            <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#71717a' }} axisLine={false} tickLine={false} interval={0} />
+            <YAxis domain={[0, 100]} ticks={[0, 50, 100]} tick={{ fontSize: 9, fill: '#52525b' }} axisLine={false} tickLine={false} width={28} />
+            <Tooltip
+              contentStyle={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 6, fontSize: 11 }}
+              labelStyle={{ color: '#a1a1aa', fontSize: 10 }}
+              formatter={(v) => [`${v ?? 0}%`, 'cumplimiento']}
+            />
+            <ReferenceLine y={100} stroke="#10b981" strokeDasharray="3 3" strokeOpacity={0.5} />
+            <Bar dataKey="pct" isAnimationActive={false} radius={[3, 3, 0, 0]}>
+              {data.map((entry, i) => (
+                <Cell key={i} fill={colorFor(entry.pct)} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // COPY SESSION BUTTON — markdown export del SPI semanal
 // ─────────────────────────────────────────────────────────────────────
 function CopySessionButton({ session, template }: { session: SPISession; template: ReturnType<typeof useSPIStore.getState>['template'] }) {
@@ -2993,12 +3143,19 @@ function CopySessionButton({ session, template }: { session: SPISession; templat
 //     que tenemos para sesiones pre-feature.
 function CalendarSnapshotButton({ session }: { session: SPISession }) {
   const [open, setOpen] = useState(false)
+  // Si la semana Mon→Sun de la sesión todavía está en curso, calculamos
+  // un snapshot LIVE aunque exista uno frozen. Recién a partir del lunes
+  // siguiente (cuando esta semana ya cerró) usamos el frozen como "imagen
+  // definitiva" de cómo terminó la semana. Esto permite que el SPI
+  // pasado siga reflejando cambios del calendario hasta el domingo noche.
+  const isStillCurrentWeek =
+    session.weekStartDate === activeWeekAnchorYmd()
+    || session.weekStartDate === lastSaturdayYmd()
   const snapshot = useMemo(() => {
-    if (open) {
-      return session.calendarSnapshot ?? buildCalendarSnapshot(session.weekStartDate)
-    }
-    return null
-  }, [open, session.calendarSnapshot, session.weekStartDate])
+    if (!open) return null
+    if (isStillCurrentWeek) return buildCalendarSnapshot(session.weekStartDate)
+    return session.calendarSnapshot ?? buildCalendarSnapshot(session.weekStartDate)
+  }, [open, session.calendarSnapshot, session.weekStartDate, isStillCurrentWeek])
 
   return (
     <>

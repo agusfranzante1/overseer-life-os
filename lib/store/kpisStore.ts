@@ -79,9 +79,14 @@ export const useKpisStore = create<State>()(
         // ciclo. En runtime el módulo ya está cargado cuando se llama
         // addKpi, así que dynamic import es seguro.
         if (typeof window !== 'undefined') {
-          import('./spiStore').then(({ useSPIStore, lastSaturdayYmd }) => {
+          import('./spiStore').then(({ useSPIStore, activeWeekAnchorYmd }) => {
             const spi = useSPIStore.getState()
-            const target = lastSaturdayYmd()
+            // Auto-activamos un KPI recién creado en la sesión cuya
+            // semana Mon→Sun está EN CURSO. Antes usábamos lastSaturdayYmd
+            // que devuelve hoy si hoy es sábado, pero el sábado es el
+            // ritual de planificación de la PRÓXIMA semana — los KPIs
+            // semanales viven en la sesión del sábado ANTERIOR.
+            const target = activeWeekAnchorYmd()
 
             // Resolución de "qué sesión activar":
             //   1. activeSession SI Y SOLO SI es de la semana en curso.
