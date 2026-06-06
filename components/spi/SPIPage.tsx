@@ -588,7 +588,13 @@ function ActiveSession({
   // Defensive: a session pulled from Supabase before these fields existed
   // could be missing them. Default to safe empties so renders don't crash.
   const safeMainChecklist = session.mainChecklist ?? {}
-  const safeSelectedLanes = Array.isArray(session.selectedLanes) ? session.selectedLanes : []
+  // Forzamos que 'estrategico' SIEMPRE esté incluido — es obligatorio
+  // y contiene KPIs + cascada de metas. Las sesiones viejas que no lo
+  // tengan se actualizan implícitamente al render.
+  const rawSelectedLanes = Array.isArray(session.selectedLanes) ? session.selectedLanes : []
+  const safeSelectedLanes = rawSelectedLanes.length > 0 && !rawSelectedLanes.includes('estrategico')
+    ? ['estrategico', ...rawSelectedLanes]
+    : rawSelectedLanes
   const safeLanes = Array.isArray(template.lanes) ? template.lanes : []
   const checklistDone = Object.values(safeMainChecklist).filter(Boolean).length
   const checklistTotal = Object.keys(safeMainChecklist).length
@@ -1022,28 +1028,40 @@ function LanePicker({
   selected: string[]
   onConfirm: (picked: string[]) => void
 }) {
-  const [picked, setPicked] = useState<string[]>(selected)
-  const toggle = (key: string) =>
+  // Estratégico SIEMPRE va activo — contiene KPIs + cascada de metas
+  // que son el núcleo del SPI semanal. Forzamos que esté en el initial
+  // y bloqueamos su toggle. Los otros 3 (Táctico, Reflexivo, Profundo)
+  // son opcionales para profundizar la sesión.
+  const REQUIRED_LANE = 'estrategico'
+  const [picked, setPicked] = useState<string[]>(() => {
+    const initial = Array.isArray(selected) ? selected : []
+    return initial.includes(REQUIRED_LANE) ? initial : [REQUIRED_LANE, ...initial]
+  })
+  const toggle = (key: string) => {
+    if (key === REQUIRED_LANE) return  // no se puede desactivar
     setPicked((prev) => prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key])
+  }
   return (
     <div className="bg-black/30 border border-fuchsia-500/30 rounded-2xl p-6">
       <h2 className="text-base font-semibold text-zinc-100 mb-1">¿En dónde querés concentrarte hoy?</h2>
       <p className="text-xs text-zinc-500 mb-5">
-        Elegí uno o varios carriles. Solo se mostrarán las preguntas de los carriles que actives —
-        las demás quedan ocultas para esta sesión.
+        <span className="text-blue-300 font-semibold">Estratégico</span> está siempre activo — es donde
+        viven los KPIs y la cascada de metas. Activá los otros 3 carriles para profundizar la sesión.
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
         {lanes.map((lane) => {
           const isPicked = picked.includes(lane.key)
+          const isRequired = lane.key === REQUIRED_LANE
           return (
             <button
               key={lane.key}
               onClick={() => toggle(lane.key)}
+              disabled={isRequired}
               className={`text-left p-4 rounded-2xl border-2 transition-all ${
                 isPicked
                   ? 'bg-white/[0.03] shadow-lg'
                   : 'bg-black/20 border-white/[0.08] hover:border-white/[0.12]'
-              }`}
+              } ${isRequired ? 'cursor-default' : ''}`}
               style={isPicked ? {
                 borderColor: lane.color,
                 boxShadow: `0 0 0 1px ${lane.color}40, 0 8px 24px -8px ${lane.color}40`,
@@ -1054,7 +1072,20 @@ function LanePicker({
                 <span className="font-semibold text-sm" style={{ color: isPicked ? lane.color : '#d4d4d8' }}>
                   {lane.title}
                 </span>
-                {isPicked && (
+                {isRequired && (
+                  <span
+                    className="text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+                    style={{
+                      background: `${lane.color}22`,
+                      border: `1px solid ${lane.color}66`,
+                      color: lane.color,
+                    }}
+                    title="Estratégico está siempre activo — contiene KPIs y cascada de metas"
+                  >
+                    Obligatorio
+                  </span>
+                )}
+                {isPicked && !isRequired && (
                   <Check className="w-3.5 h-3.5 ml-auto" style={{ color: lane.color }} />
                 )}
               </div>
@@ -1072,8 +1103,7 @@ function LanePicker({
         </button>
         <button
           onClick={() => onConfirm(picked)}
-          disabled={picked.length === 0}
-          className="px-4 py-2 bg-fuchsia-500/15 border border-fuchsia-500/40 hover:bg-fuchsia-500/25 disabled:opacity-30 disabled:cursor-not-allowed text-fuchsia-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
+          className="px-4 py-2 bg-fuchsia-500/15 border border-fuchsia-500/40 hover:bg-fuchsia-500/25 text-fuchsia-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
         >
           Confirmar {picked.length > 0 && `(${picked.length})`}
         </button>

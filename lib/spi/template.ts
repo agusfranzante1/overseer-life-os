@@ -26,20 +26,24 @@ export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
   ],
 
   // ─── LANES ──────────────────────────────────────────────────────────
+  // Orden de aparición: Estratégico SIEMPRE primero porque es donde
+  // viven los KPIs y la cascada de metas — es el núcleo obligatorio.
+  // Los otros 3 (Táctico, Reflexivo, Profundo) son opcionales y se
+  // activan para dar más profundidad al SPI cuando hay tiempo o foco.
   lanes: [
+    {
+      key: 'estrategico',
+      emoji: '🧭',
+      title: 'Estratégico',
+      description: 'Zoom out · dónde voy. Metas trimestre/mes/semana, KPIs, el 80/20, análisis de proyectos.',
+      color: '#3b82f6',  // blue
+    },
     {
       key: 'tactico',
       emoji: '🎯',
       title: 'Táctico',
       description: 'Operativo · ejecutar la semana. Cómo, quién, cuándo, qué saco de la pasada.',
       color: '#f59e0b',  // amber
-    },
-    {
-      key: 'estrategico',
-      emoji: '🧭',
-      title: 'Estratégico',
-      description: 'Zoom out · dónde voy. Metas trimestre/mes/semana, el 80/20, análisis de proyectos.',
-      color: '#3b82f6',  // blue
     },
     {
       key: 'reflexivo',

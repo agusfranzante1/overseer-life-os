@@ -91,7 +91,9 @@ function emptySession(template: SPITemplate, weekStartDate: string): SPISession 
     createdAt: nowIso,
     updatedAt: nowIso,
     mainChecklist,
-    // Empty array → lane picker is shown until user picks
+    // Empty array → lane picker se muestra hasta que el user elige.
+    // El picker pre-selecciona 'estrategico' como obligatorio y permite
+    // activar los otros 3 carriles para profundizar la sesión.
     selectedLanes: [],
     values: {},
     tasks: [],
