@@ -63,23 +63,50 @@ export function MetricCard({ metricKey, color, icon }: Props) {
     setEditing(false)
   }
 
+  // Métricas que NO se editan manualmente — vienen automáticas (Xiaomi
+  // Band, Health Auto Export). Mostramos badge "AUTO" como en el mockup.
+  const isAutoMetric = metricKey === 'steps' || metricKey === 'sleep' || metricKey === 'sleepDebt'
+
   return (
     <motion.div
       whileHover={{ scale: 1.02 }}
-      className="relative bg-white/[0.03] rounded-2xl p-4 border border-white/[0.08] hover:border-white/[0.15] hover:bg-white/[0.05] transition-colors group shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-      style={{ borderLeftColor: color, borderLeftWidth: 3 }}
+      className="relative rounded-2xl p-5 transition-all group overflow-hidden"
+      style={{
+        // Glow radial del color del metric en la esquina sup-izq, glass base
+        background: `
+          radial-gradient(circle at 0% 0%, ${color}1f, transparent 50%),
+          rgba(255, 255, 255, 0.025)
+        `,
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0,0,0,0.2)',
+      }}
     >
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <span style={{ color }}>{icon}</span>
-          <span className="text-xs text-zinc-400 font-medium uppercase tracking-wider">{label}</span>
+      {/* Top row: icon badge coloreado + label + AUTO badge / edit btn */}
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex items-center gap-2.5">
+          <div
+            className="w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{
+              background: `${color}22`,
+              border: `1px solid ${color}40`,
+            }}
+          >
+            <span style={{ color }}>{icon}</span>
+          </div>
+          <span className="text-[10px] text-zinc-400 font-semibold uppercase tracking-[0.12em]">{label}</span>
         </div>
-        <button
-          onClick={startEdit}
-          className="opacity-0 group-hover:opacity-100 transition-opacity text-zinc-600 hover:text-zinc-300"
-        >
-          <Pencil className="w-3 h-3" />
-        </button>
+        {isAutoMetric ? (
+          <span className="text-[9px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.10] text-zinc-400">
+            AUTO
+          </span>
+        ) : (
+          <button
+            onClick={startEdit}
+            className="opacity-0 group-hover:opacity-100 transition-opacity text-zinc-600 hover:text-zinc-300"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       {editing ? (
@@ -91,23 +118,27 @@ export function MetricCard({ metricKey, color, icon }: Props) {
             onChange={(e) => setEditVal(e.target.value)}
             onBlur={saveEdit}
             onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditing(false) }}
-            className="w-full bg-zinc-800 border border-indigo-500 rounded px-2 py-1 text-sm text-white focus:outline-none"
+            className="w-full bg-white/[0.05] border border-indigo-500/40 rounded-lg px-2 py-1 text-sm text-white focus:outline-none focus:border-indigo-400"
           />
           <button onMouseDown={(e) => e.preventDefault()} onClick={saveEdit} className="text-indigo-400 hover:text-indigo-300">
             <Check className="w-4 h-4" />
           </button>
         </div>
       ) : (
-        <div className="mt-1">
-          <span className="text-2xl font-bold text-white" style={{ color }}>{displayValue}</span>
+        <div>
+          <span className="text-3xl font-bold tracking-tight tabular-nums" style={{ color }}>{displayValue}</span>
+          {/* Colored bottom bar — sutil, ocupa todo el ancho */}
           {typeof value === 'number' && metricKey !== 'sleep' && metricKey !== 'sleepDebt' && metricKey !== 'steps' && metricKey !== 'wakeTime' && (
-            <div className="mt-2 h-1 bg-zinc-800 rounded-full overflow-hidden">
+            <div className="mt-3 h-1 bg-white/[0.04] rounded-full overflow-hidden">
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${Math.min(value, 100)}%` }}
                 transition={{ duration: 0.8, ease: 'easeOut' }}
                 className="h-full rounded-full"
-                style={{ backgroundColor: color }}
+                style={{
+                  background: `linear-gradient(90deg, ${color}, ${color}cc)`,
+                  boxShadow: `0 0 8px ${color}88`,
+                }}
               />
             </div>
           )}

@@ -112,7 +112,7 @@ export function CalendarSnapshotView({ snapshot, onClose }: Props) {
               ))}
 
               {/* Hours column */}
-              <div className="border-r border-white/[0.08]/60" style={{ height: gridHeight }}>
+              <div className="border-r border-white/[0.05]" style={{ height: gridHeight }}>
                 {hours.map((h) => (
                   <div key={h} className="text-right pr-1.5 text-[9px] text-zinc-500" style={{ height: HOUR_PX }}>
                     <span className="-translate-y-1.5 inline-block">{String(h).padStart(2, '0')}:00</span>
@@ -124,10 +124,10 @@ export function CalendarSnapshotView({ snapshot, onClose }: Props) {
               {days.map((d) => {
                 const dayBlocks = blocksByDay.get(d.dateKey) ?? []
                 return (
-                  <div key={d.dateKey} className="relative border-l border-white/[0.08]/60" style={{ height: gridHeight }}>
+                  <div key={d.dateKey} className="relative border-l border-white/[0.05]" style={{ height: gridHeight }}>
                     {/* Hour cell dividers */}
                     {hours.map((h) => (
-                      <div key={h} className="border-b border-white/[0.08]/40" style={{ height: HOUR_PX }} />
+                      <div key={h} className="border-b border-white/[0.04]" style={{ height: HOUR_PX }} />
                     ))}
                     {/* Blocks */}
                     {dayBlocks.map((b) => {

@@ -111,7 +111,7 @@ export function TodayTaskList() {
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                     <button
                       onClick={() => postponeTask(task.id)}
-                      className="text-xs text-zinc-500 hover:text-amber-400 transition-colors px-2 py-1 rounded hover:bg-zinc-800"
+                      className="text-xs text-zinc-500 hover:text-amber-400 transition-colors px-2 py-1 rounded hover:bg-white/[0.05]"
                     >
                       <Clock className="w-3.5 h-3.5" />
                     </button>

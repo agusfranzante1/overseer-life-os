@@ -92,14 +92,38 @@ export function KpiScoreboard({
   }, [selectedDefs])
 
   return (
-    <div className="bg-black/30/60 border border-fuchsia-500/20 rounded-2xl p-4 space-y-3">
+    <div
+      className="rounded-2xl p-5 space-y-4"
+      style={{
+        background: `
+          radial-gradient(circle at 0% 0%, rgba(217, 70, 239, 0.10), transparent 50%),
+          rgba(255, 255, 255, 0.025)
+        `,
+        borderTop: '2px solid rgba(217, 70, 239, 0.55)',
+        borderLeft: '1px solid rgba(255, 255, 255, 0.08)',
+        borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+        borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+        boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.04)',
+      }}
+    >
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Target className="w-4 h-4 text-fuchsia-400" />
-          <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-300">
-            📊 {t('kpis.activeKpisThisWeek')}
-          </p>
-          <span className="text-[10px] text-zinc-600">· {selectedDefs.length} {t('kpis.activeKpis').toLowerCase()}</span>
+        <div className="flex items-center gap-3">
+          {/* Icon badge fucsia */}
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center"
+            style={{
+              background: 'rgba(217, 70, 239, 0.18)',
+              border: '1px solid rgba(217, 70, 239, 0.40)',
+            }}
+          >
+            <Target className="w-4 h-4 text-fuchsia-300" />
+          </div>
+          <div>
+            <p className="text-[13px] font-semibold text-white">
+              {t('kpis.activeKpisThisWeek')}
+            </p>
+            <p className="text-[10px] text-zinc-500 mt-0.5">{selectedDefs.length} {t('kpis.activeKpis').toLowerCase()}</p>
+          </div>
         </div>
         <div className="flex items-center gap-1">
           {!isClosed && (
@@ -120,7 +144,7 @@ export function KpiScoreboard({
       </div>
 
       {selectedDefs.length === 0 ? (
-        <div className="bg-white/[0.03]/60 border border-dashed border-white/[0.08] rounded-lg p-4 text-center">
+        <div className="bg-white/[0.03] border border-dashed border-white/[0.08] rounded-lg p-4 text-center">
           <p className="text-xs text-zinc-400 mb-2">
             {t('kpis.noKpisActiveThisWeek')}
           </p>
@@ -352,7 +376,7 @@ function KpiRow({
 
   return (
     <div
-      className="bg-white/[0.03]/60 border border-white/[0.08] rounded-lg px-3 py-2 flex items-center gap-3"
+      className="bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 flex items-center gap-3"
       style={{ borderLeft: `3px solid ${kpi.color}` }}
     >
       <span className="text-base shrink-0">{kpi.icon}</span>
@@ -457,7 +481,7 @@ function CountWidget({
       <button
         disabled={disabled || value <= 0}
         onClick={() => onChange(Math.max(0, value - 1))}
-        className="w-7 h-7 rounded flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+        className="w-7 h-7 rounded flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.05] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
       >
         <Minus className="w-3.5 h-3.5" />
       </button>
@@ -467,7 +491,7 @@ function CountWidget({
       <button
         disabled={disabled}
         onClick={() => onChange(value + 1)}
-        className="w-7 h-7 rounded flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+        className="w-7 h-7 rounded flex items-center justify-center text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.05] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
       >
         <Plus className="w-3.5 h-3.5" />
       </button>

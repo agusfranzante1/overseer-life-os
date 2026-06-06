@@ -25,25 +25,37 @@ export function QuickActions() {
 
   return (
     <div>
-      <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
+      <h2 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-[0.2em] mb-3">
         {t('dashboard.quickActions')}
       </h2>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-3">
+        {/* Plan próximas 2h — botón principal con gradient violeta */}
         <motion.button
-          whileHover={{ scale: 1.03 }}
+          whileHover={{ scale: 1.03, y: -1 }}
           whileTap={{ scale: 0.97 }}
           onClick={handlePlan}
-          className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600/10 border border-indigo-500/30 hover:bg-indigo-600/20 hover:border-indigo-500/50 text-indigo-400 rounded-xl text-sm font-medium transition-all"
+          className="flex items-center gap-2.5 px-5 py-3 rounded-2xl text-sm font-semibold text-white transition-all"
+          style={{
+            background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+            boxShadow: '0 0 24px -8px rgba(99,102,241,0.55), inset 0 1px 0 rgba(255,255,255,0.15)',
+          }}
         >
           <Sparkles className="w-4 h-4" />
           {t('actions.planNext2h')}
         </motion.button>
 
+        {/* Push to tomorrow — glass con border amber sutil */}
         <motion.button
-          whileHover={{ scale: 1.03 }}
+          whileHover={{ scale: 1.03, y: -1 }}
           whileTap={{ scale: 0.97 }}
           onClick={handlePushTomorrow}
-          className="flex items-center gap-2 px-4 py-2.5 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50 text-amber-400 rounded-xl text-sm font-medium transition-all"
+          className="flex items-center gap-2.5 px-5 py-3 rounded-2xl text-sm font-medium transition-all"
+          style={{
+            background: 'rgba(255, 255, 255, 0.04)',
+            border: `1px solid ${pushed ? 'rgba(16, 185, 129, 0.5)' : 'rgba(245, 158, 11, 0.35)'}`,
+            color: pushed ? '#34d399' : '#fbbf24',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
+          }}
         >
           {pushed ? <CheckCircle className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
           {pushed ? 'Moved!' : t('actions.pushToTomorrow')}

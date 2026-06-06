@@ -230,7 +230,7 @@ function AddRow({ placeholder, onAdd }: { placeholder: string; onAdd: (text: str
     setText('')
   }
   return (
-    <div className="flex gap-2 pt-3 border-t border-white/[0.08]/60 mt-3">
+    <div className="flex gap-2 pt-3 border-t border-white/[0.05] mt-3">
       <input
         value={text}
         onChange={e => setText(e.target.value)}

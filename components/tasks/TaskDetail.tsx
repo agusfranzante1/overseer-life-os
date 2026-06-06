@@ -111,7 +111,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/60 z-40 flex justify-end"
+        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 flex justify-end"
         onClick={onClose}
       >
         <motion.div
@@ -120,7 +120,17 @@ export function TaskDetail({ task, project, onClose }: Props) {
           exit={{ x: '100%' }}
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-lg bg-white/[0.03] border-l border-white/[0.08] h-full overflow-y-auto"
+          className="w-full max-w-lg h-full overflow-y-auto"
+          style={{
+            // Panel lateral con glow violeta sutil desde la sup-izq +
+            // glass base. Más prominente que el bg-white/[0.03] anterior.
+            background: `
+              radial-gradient(circle at 0% 0%, rgba(99, 102, 241, 0.08), transparent 50%),
+              linear-gradient(180deg, rgba(20, 23, 30, 0.95), rgba(15, 17, 23, 0.98))
+            `,
+            borderLeft: '1px solid rgba(255, 255, 255, 0.10)',
+            boxShadow: '-24px 0 48px -8px rgba(0,0,0,0.6)',
+          }}
         >
           <div className="p-6 space-y-5">
             {/* Header */}
@@ -174,7 +184,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
             <div className="relative">
               <button
                 onClick={() => setShowMoveMenu((v) => !v)}
-                className="flex items-center gap-2 group hover:bg-zinc-800/40 px-2 py-1 -mx-2 rounded-md transition-colors"
+                className="flex items-center gap-2 group hover:bg-white/[0.05]/40 px-2 py-1 -mx-2 rounded-md transition-colors"
                 title="Click para mover a otro proyecto"
               >
                 <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: project.color }} />
@@ -206,7 +216,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                             className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
                               isCurrent
                                 ? 'text-zinc-500 cursor-default'
-                                : 'text-zinc-200 hover:bg-zinc-800'
+                                : 'text-zinc-200 hover:bg-white/[0.05]'
                             }`}
                           >
                             <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: p.color }} />
@@ -231,7 +241,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
             <div className="relative">
               <button
                 onClick={() => setShowMergeMenu((v) => !v)}
-                className="flex items-center gap-2 group hover:bg-zinc-800/40 px-2 py-1 -mx-2 rounded-md transition-colors"
+                className="flex items-center gap-2 group hover:bg-white/[0.05]/40 px-2 py-1 -mx-2 rounded-md transition-colors"
                 title="Convertir esta tarea en subtarea de otra"
               >
                 <GitMerge className="w-3 h-3 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
@@ -273,7 +283,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                             setShowMergeMenu(false)
                             onClose()
                           }}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-zinc-200 hover:bg-zinc-800 transition-colors"
+                          className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-zinc-200 hover:bg-white/[0.05] transition-colors"
                         >
                           <CheckCircle2 className="w-3 h-3 text-zinc-600 shrink-0" />
                           <span className="flex-1 truncate">{tk.title}</span>
@@ -321,7 +331,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                       key={p}
                       onClick={() => updateTask(effective.id, { priority: p })}
                       className={`text-xs px-2 py-1.5 rounded-lg text-left transition-all border ${
-                        effective.priority === p ? 'border-current' : 'border-transparent text-zinc-500 hover:bg-zinc-800'
+                        effective.priority === p ? 'border-current' : 'border-transparent text-zinc-500 hover:bg-white/[0.05]'
                       }`}
                       style={effective.priority === p ? {
                         backgroundColor: PRIORITY_COLORS[p] + '20',
@@ -584,7 +594,7 @@ function SubtaskRow({ title, completed, onToggle, onRename, onOpenDetail, onDele
           onClick={onOpenDetail}
           onDoubleClick={() => setEditing(true)}
           title="Click para abrir detalle · doble click para renombrar inline"
-          className={`flex-1 text-sm text-left px-2 py-0.5 rounded hover:bg-zinc-800/60 transition-colors ${
+          className={`flex-1 text-sm text-left px-2 py-0.5 rounded hover:bg-white/[0.05]/60 transition-colors ${
             completed ? 'line-through text-zinc-500' : 'text-zinc-300'
           }`}
         >

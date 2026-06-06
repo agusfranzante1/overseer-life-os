@@ -245,13 +245,26 @@ export function Sidebar({
             <Menu className="w-4 h-4" />
           </button>
         )}
-        <button
+        <motion.button
+          whileHover={{ scale: 1.06, rotate: -5 }}
+          whileTap={{ scale: 0.94, rotate: 5 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 15 }}
           onClick={() => !isMobile && toggleSidebar()}
           title={!isMobile ? (sidebarCollapsed ? 'Expandir' : 'Colapsar') : undefined}
-          className="shrink-0 flex items-center justify-center cursor-pointer"
+          className="shrink-0 flex items-center justify-center cursor-pointer relative"
         >
-          <Image src="/logo.png" alt="Overseer" width={30} height={30} className="rounded-lg" />
-        </button>
+          {/* Glow violeta detrás del logo — pulse muy sutil */}
+          <motion.span
+            className="absolute inset-0 rounded-lg"
+            animate={{ opacity: [0.3, 0.55, 0.3] }}
+            transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+            style={{
+              background: 'radial-gradient(circle, rgba(139, 92, 246, 0.35), transparent 65%)',
+              filter: 'blur(8px)',
+            }}
+          />
+          <Image src="/logo.png" alt="Overseer" width={30} height={30} className="rounded-lg relative z-10" />
+        </motion.button>
         {showLabels && (
           <>
             <span className="font-semibold text-white text-[14px] tracking-[0.2em] uppercase whitespace-nowrap flex-1 truncate">

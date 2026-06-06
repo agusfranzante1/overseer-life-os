@@ -145,7 +145,7 @@ function FavoriteTile({
       onDragOver={onDragOver}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
-      className={`group relative bg-black/30/60 border rounded-xl transition-all ${
+      className={`group relative bg-black/30 border rounded-xl transition-all ${
         isDragging
           ? 'border-amber-500/40 opacity-50'
           : isDropTarget
@@ -197,7 +197,7 @@ function FavoriteForm({
   const canSave = label.trim().length > 0 && url.trim().length > 0
 
   return (
-    <div className="bg-black/30/80 border border-amber-500/30 rounded-xl p-3 space-y-2">
+    <div className="bg-black/40 border border-amber-500/30 rounded-xl p-3 space-y-2">
       <div className="grid grid-cols-[60px_1fr] gap-2">
         <input
           value={emoji}

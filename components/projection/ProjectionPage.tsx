@@ -96,7 +96,7 @@ export function ProjectionPage() {
       </header>
 
       {/* ── Level tabs ──────────────────────────────────────────── */}
-      <div className="flex items-center gap-1 bg-black/30/60 border border-white/[0.08] rounded-xl p-1 w-fit flex-wrap">
+      <div className="flex items-center gap-1 bg-black/30 border border-white/[0.08] rounded-xl p-1 w-fit flex-wrap">
         <LevelTab active={activeLevel === 'eagle'}   onClick={() => setActiveLevel('eagle')}   icon="🦅" label={t('spi.eagleView')} />
         <LevelTab active={activeLevel === 'year'}    onClick={() => setActiveLevel('year')}    icon="📅" label={t('projection.annual')} />
         <LevelTab active={activeLevel === 'quarter'} onClick={() => setActiveLevel('quarter')} icon="🎯" label={t('projection.quarterly')} />
@@ -319,15 +319,15 @@ function PlanCard({
   return (
     <div className={`rounded-xl border overflow-hidden transition-colors ${
       isPreview
-        ? 'bg-black/30/60 border-amber-500/30'
+        ? 'bg-black/30 border-amber-500/30'
         : status === 'in_progress'
-          ? 'bg-black/30/60 border-indigo-500/30'
-          : 'bg-black/30/40 border-white/[0.08]'
+          ? 'bg-black/30 border-indigo-500/30'
+          : 'bg-black/20 border-white/[0.08]'
     }`}>
       {/* Header — always clickable to expand/collapse */}
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="w-full px-5 py-3 flex items-center gap-3 text-left hover:bg-white/[0.03]/40 transition-colors"
+        className="w-full px-5 py-3 flex items-center gap-3 text-left hover:bg-white/[0.02] transition-colors"
       >
         <span className="text-lg shrink-0">{level === 'quarter' ? '🎯' : '📆'}</span>
         <div className="flex-1 min-w-0">
@@ -354,7 +354,7 @@ function PlanCard({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="border-t border-white/[0.08]/60 p-5 space-y-4">
+            <div className="border-t border-white/[0.05] p-5 space-y-4">
               {/* Top action row: copy / close / reopen */}
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs text-zinc-500 italic leading-relaxed flex-1">{template.intro}</p>
@@ -386,7 +386,7 @@ function PlanCard({
 
               {/* Empty state — only on the current period if not started */}
               {!plan && status === 'in_progress' && (
-                <div className="bg-black/30/40 border border-white/[0.08] rounded-2xl p-6 text-center">
+                <div className="bg-black/20 border border-white/[0.08] rounded-2xl p-6 text-center">
                   <Target className="w-8 h-8 text-indigo-400/70 mx-auto mb-2" />
                   <p className="text-sm font-semibold text-zinc-200 mb-1">
                     No empezaste este {level === 'quarter' ? 'trimestre' : 'mes'} todavía
@@ -517,7 +517,7 @@ function EagleView({
   return (
     <div className="space-y-4">
       {/* Intro / header */}
-      <div className="bg-black/30/60 border border-indigo-500/20 rounded-2xl p-5">
+      <div className="bg-black/30 border border-indigo-500/20 rounded-2xl p-5">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
           <div>
             <p className="text-[10px] font-mono uppercase tracking-wider text-indigo-400/70">
@@ -542,7 +542,7 @@ function EagleView({
 
       {/* Empty state */}
       {!plan && (
-        <div className="bg-black/30/40 border border-white/[0.08] rounded-2xl p-8 text-center">
+        <div className="bg-black/20 border border-white/[0.08] rounded-2xl p-8 text-center">
           <span className="text-3xl block mb-2">🦅</span>
           <p className="text-sm font-semibold text-zinc-200 mb-1">No abriste tu Vista de Águila todavía</p>
           <p className="text-xs text-zinc-500 mb-5 max-w-md mx-auto">
@@ -560,7 +560,7 @@ function EagleView({
 
       {/* Lane picker — only when a plan exists */}
       {plan && template.lanes && template.lanes.length > 0 && (
-        <div className="bg-black/30/40 border border-white/[0.08] rounded-xl p-3">
+        <div className="bg-black/20 border border-white/[0.08] rounded-xl p-3">
           <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-2">
             Carriles · click para enfocar
           </p>
@@ -655,7 +655,7 @@ function LevelView({
   return (
     <div className="space-y-4">
       {/* Period navigator */}
-      <div className="bg-black/30/60 border border-indigo-500/20 rounded-2xl p-5">
+      <div className="bg-black/30 border border-indigo-500/20 rounded-2xl p-5">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
           <div className="flex items-center gap-2">
             <button
@@ -740,7 +740,7 @@ function LevelView({
 
       {/* If no plan yet — empty state with start CTA */}
       {!plan && (
-        <div className="bg-black/30/40 border border-white/[0.08] rounded-2xl p-8 text-center">
+        <div className="bg-black/20 border border-white/[0.08] rounded-2xl p-8 text-center">
           <Target className="w-9 h-9 text-indigo-400/70 mx-auto mb-3" />
           <p className="text-sm font-semibold text-zinc-200 mb-1">No empezaste este {levelLabel(level)} todavía</p>
           <p className="text-xs text-zinc-500 mb-5 max-w-md mx-auto">
@@ -883,7 +883,7 @@ function ChildrenOverview({
 }) {
   const childTypeLabel = level === 'year' ? 'Trimestres' : level === 'quarter' ? 'Meses' : 'Semanas (SPI)'
   return (
-    <div className="bg-black/30/40 border border-white/[0.08] rounded-xl p-4">
+    <div className="bg-black/20 border border-white/[0.08] rounded-xl p-4">
       <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-3 flex items-center gap-1.5">
         <ChevronDown className="w-3 h-3" /> {childTypeLabel}
       </p>
@@ -943,10 +943,10 @@ function Section({
   // Anual, Trimestre, Mes). They open what they need, when they need it.
   const [open, setOpen] = useState(false)
   return (
-    <div className="bg-black/30/40 border border-white/[0.08] rounded-xl">
+    <div className="bg-black/20 border border-white/[0.08] rounded-xl">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-white/[0.03]/40 transition-colors rounded-t-xl"
+        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-white/[0.02] transition-colors rounded-t-xl"
       >
         <span className="text-lg shrink-0">{section.emoji}</span>
         <div className="flex-1 min-w-0">
@@ -965,7 +965,7 @@ function Section({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="px-4 pb-4 space-y-4 border-t border-white/[0.08]/60 pt-4">
+            <div className="px-4 pb-4 space-y-4 border-t border-white/[0.05] pt-4">
               {section.intro && (
                 <p className="text-xs text-zinc-400 italic leading-relaxed">{section.intro}</p>
               )}
@@ -1147,7 +1147,7 @@ function MonthClosureSnapshotBlock({
   })
 
   return (
-    <div className="bg-black/30/60 border border-emerald-500/20 rounded-2xl p-4 space-y-4">
+    <div className="bg-black/30 border border-emerald-500/20 rounded-2xl p-4 space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-[10px] font-mono uppercase tracking-wider text-emerald-300/80">
           📸 {isLive ? 'Vista en vivo' : 'Snapshot del cierre'} · {monthName} {year}
@@ -1217,7 +1217,7 @@ function MonthClosureSnapshotBlock({
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
             {snapshot.income.map((row) => (
-              <div key={row.currencyCode} className="bg-white/[0.03]/60 border border-white/[0.08] rounded-lg px-3 py-2">
+              <div key={row.currencyCode} className="bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2">
                 <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">{row.currencyCode}</p>
                 <p className="text-base font-bold text-emerald-300 tabular-nums">
                   {row.total.toLocaleString('es-AR', { maximumFractionDigits: 2 })}
@@ -1248,7 +1248,7 @@ function QuarterMiniCalendar({ quarterKey }: { quarterKey: string }) {
     && a.getDate() === b.getDate()
 
   return (
-    <div className="bg-black/30/40 border border-white/[0.08] rounded-xl p-3">
+    <div className="bg-black/20 border border-white/[0.08] rounded-xl p-3">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[0, 1, 2].map((offset) => {
           const monthIdx = firstMonthIdx + offset
@@ -1271,7 +1271,7 @@ function QuarterMiniCalendar({ quarterKey }: { quarterKey: string }) {
               <div className="grid grid-cols-[24px_repeat(7,1fr)] gap-y-0.5">
                 {grid.weeks.map((week, wi) => (
                   <React.Fragment key={wi}>
-                    <span className="text-[9px] text-zinc-600 bg-white/[0.03]/60 rounded text-center font-mono leading-6">
+                    <span className="text-[9px] text-zinc-600 bg-white/[0.03] rounded text-center font-mono leading-6">
                       {week.weekNo}
                     </span>
                     {week.days.map((cell, di) => {
@@ -1402,7 +1402,7 @@ function PrincipalCascadeBlock({
 
   if (principalKeys.length === 0) {
     return (
-      <div className="bg-black/30/60 border border-amber-500/20 rounded-xl p-4 text-center">
+      <div className="bg-black/30 border border-amber-500/20 rounded-xl p-4 text-center">
         <p className="text-xs text-amber-300/80">
           Todavía no elegiste tus áreas principales del año.
         </p>
@@ -1425,7 +1425,7 @@ function PrincipalCascadeBlock({
         const subs = [1, 2, 3].map((i) => plan.values.principal_cascade?.[`${areaKey}_sub${i}`] ?? '')
         const isBusy = busyArea === areaKey
         return (
-          <div key={areaKey} className="bg-black/30/60 border border-amber-500/20 rounded-xl overflow-hidden">
+          <div key={areaKey} className="bg-black/30 border border-amber-500/20 rounded-xl overflow-hidden">
             {/* Header con el área */}
             <div className="px-4 py-3 bg-amber-500/5 border-b border-amber-500/20 flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
@@ -1456,7 +1456,7 @@ function PrincipalCascadeBlock({
                 <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-1">
                   Meta padre · {parentLevelLabel}
                 </p>
-                <p className="text-xs text-zinc-300 whitespace-pre-wrap bg-white/[0.03]/60 border border-white/[0.08] rounded px-2.5 py-2">
+                <p className="text-xs text-zinc-300 whitespace-pre-wrap bg-white/[0.03] border border-white/[0.08] rounded px-2.5 py-2">
                   {parent}
                 </p>
               </div>
@@ -1510,7 +1510,7 @@ function PrincipalGoalsPicker({
   }
 
   return (
-    <div className="bg-black/30/60 border border-amber-500/20 rounded-xl p-4">
+    <div className="bg-black/30 border border-amber-500/20 rounded-xl p-4">
       <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
         <p className="text-[10px] font-mono uppercase tracking-wider text-amber-300">
           ⭐ Paso 1 · Elegí tus áreas principales del año
@@ -1581,14 +1581,14 @@ function WheelOfLifeChart({ values }: { values: Record<string, string> }) {
 
   if (rated.length === 0) {
     return (
-      <div className="bg-black/30/60 border border-white/[0.08] rounded-xl p-6 text-center text-xs text-zinc-600 italic">
+      <div className="bg-black/30 border border-white/[0.08] rounded-xl p-6 text-center text-xs text-zinc-600 italic">
         Puntuá al menos un área para ver el gráfico.
       </div>
     )
   }
 
   return (
-    <div className="bg-black/30/60 border border-indigo-500/20 rounded-xl p-4">
+    <div className="bg-black/30 border border-indigo-500/20 rounded-xl p-4">
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <p className="text-[10px] font-mono uppercase tracking-wider text-indigo-300">
           🎯 Tu rueda hoy · {rated.length}/{WHEEL_AREAS.length} áreas puntuadas
@@ -1860,7 +1860,7 @@ function MonthKpisAggregate({ periodKey }: { periodKey: string }) {
   if (aggregate.kpis.length === 0) return null
 
   return (
-    <div className="bg-black/30/60 border border-fuchsia-500/20 rounded-2xl p-4 space-y-3">
+    <div className="bg-black/30 border border-fuchsia-500/20 rounded-2xl p-4 space-y-3">
       <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-300/80">
         📊 KPIs del mes · agregado de {aggregate.weeksWithData} semana{aggregate.weeksWithData === 1 ? '' : 's'} cerrada{aggregate.weeksWithData === 1 ? '' : 's'}
       </p>
@@ -1930,7 +1930,7 @@ function CopyPlanButton({ plan, template }: { plan: ProjectionPlan; template: Pr
     <button
       onClick={handle}
       title="Copiar todo el contenido del plan a markdown — útil para pegar en un chat y pedir ayuda."
-      className="px-2.5 py-1.5 bg-zinc-800 border border-white/[0.12] hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 shrink-0"
+      className="px-2.5 py-1.5 bg-zinc-800 border border-white/[0.12] hover:bg-white/[0.08] text-zinc-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 shrink-0"
     >
       {status === 'copied' ? <><Check className="w-3.5 h-3.5 text-emerald-400" /> Copiado</>
         : status === 'error' ? <><X className="w-3.5 h-3.5 text-red-400" /> Falló</>

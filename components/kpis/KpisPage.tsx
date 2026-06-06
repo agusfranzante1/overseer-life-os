@@ -158,7 +158,7 @@ function LibraryView() {
       </div>
 
       {active.length === 0 ? (
-        <div className="bg-black/30/40 border border-white/[0.08] border-dashed rounded-2xl p-10 text-center">
+        <div className="bg-black/20 border border-white/[0.08] border-dashed rounded-2xl p-10 text-center">
           <Target className="w-10 h-10 text-fuchsia-400/60 mx-auto mb-3" />
           <p className="text-sm font-semibold text-zinc-200 mb-1">{t('kpis.noKpisYet')}</p>
           <p className="text-xs text-zinc-500 mb-5 max-w-md mx-auto">
@@ -209,7 +209,7 @@ function LibraryView() {
           {showArchived && (
             <div className="mt-2 space-y-1.5 pl-3">
               {archived.map((d) => (
-                <div key={d.id} className="bg-black/30/40 border border-white/[0.08] rounded-lg px-3 py-2 flex items-center gap-3 opacity-60">
+                <div key={d.id} className="bg-black/20 border border-white/[0.08] rounded-lg px-3 py-2 flex items-center gap-3 opacity-60">
                   <span className="text-lg">{d.icon}</span>
                   <span className="text-sm text-zinc-400 flex-1">{d.name}</span>
                   <button
@@ -271,22 +271,43 @@ function KpiRow({
   const area = kpi.areaKey ? WHEEL_AREAS.find((a) => a.key === kpi.areaKey) : null
   return (
     <div
-      className="bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.12] rounded-lg px-3 py-2.5 flex items-center gap-3 group transition-colors"
-      style={{ borderLeft: `3px solid ${kpi.color}` }}
+      className="rounded-2xl px-5 py-4 flex items-center gap-4 group transition-all hover:scale-[1.005]"
+      style={{
+        background: `
+          radial-gradient(circle at 0% 0%, ${kpi.color}1f, transparent 50%),
+          rgba(255, 255, 255, 0.025)
+        `,
+        borderTop: `2px solid ${kpi.color}`,
+        borderLeft: '1px solid rgba(255, 255, 255, 0.08)',
+        borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+        borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+        boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+      }}
     >
-      <span className="text-lg shrink-0">{kpi.icon}</span>
+      {/* Icon badge — círculo coloreado con el emoji adentro */}
+      <div
+        className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center text-xl"
+        style={{
+          background: `${kpi.color}22`,
+          border: `1px solid ${kpi.color}40`,
+        }}
+      >
+        <span>{kpi.icon}</span>
+      </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium text-zinc-200 truncate">{kpi.name}</span>
+          <span className="text-[15px] font-semibold text-white truncate">{kpi.name}</span>
           {activeThisWeek && (
             <span
-              className="text-[9px] font-mono font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"
+              className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"
               title="Está habilitado en la sesión SPI de esta semana"
             >
               {t('kpis.activeThisWeek')}
             </span>
           )}
-          <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-600">
+        </div>
+        <div className="flex items-center gap-2 mt-1">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
             {kpi.kind}
           </span>
           {kpi.target !== undefined && (
@@ -294,17 +315,17 @@ function KpiRow({
               · target {kpi.target}{kpi.kind === 'percent' ? '%' : ''}
             </span>
           )}
+          {area && (
+            <span className="text-[10px] text-zinc-500">· {area.label}</span>
+          )}
         </div>
-        {area && (
-          <p className="text-[10px] text-zinc-600 mt-0.5">{area.label}</p>
-        )}
       </div>
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button onClick={onEdit} title="Editar" className="text-zinc-500 hover:text-fuchsia-300 p-1.5 rounded transition-colors">
-          <Pencil className="w-3.5 h-3.5" />
+        <button onClick={onEdit} title="Editar" className="text-zinc-500 hover:text-fuchsia-300 p-2 rounded-lg hover:bg-white/[0.04] transition-colors">
+          <Pencil className="w-4 h-4" />
         </button>
-        <button onClick={onArchive} title="Archivar" className="text-zinc-500 hover:text-amber-400 p-1.5 rounded transition-colors">
-          <Archive className="w-3.5 h-3.5" />
+        <button onClick={onArchive} title="Archivar" className="text-zinc-500 hover:text-amber-400 p-2 rounded-lg hover:bg-white/[0.04] transition-colors">
+          <Archive className="w-4 h-4" />
         </button>
       </div>
     </div>
@@ -414,7 +435,7 @@ function KpiEditModal({
                   key={i}
                   onClick={() => setIcon(i)}
                   className={`w-8 h-8 rounded-lg text-base flex items-center justify-center transition-colors ${
-                    icon === i ? 'bg-fuchsia-500/20 border border-fuchsia-500/50' : 'bg-zinc-800 hover:bg-zinc-700 border border-transparent'
+                    icon === i ? 'bg-fuchsia-500/20 border border-fuchsia-500/50' : 'bg-zinc-800 hover:bg-white/[0.08] border border-transparent'
                   }`}
                 >
                   {i}
@@ -492,7 +513,7 @@ function KpiEditModal({
               deseado, acá lo declara y el scoreboard muestra DOS bars
               (semanal + acumulado contra esta meta). */}
           {kind === 'count' && (
-            <div className="bg-black/30/40 border border-fuchsia-500/15 rounded-lg p-3 space-y-3">
+            <div className="bg-black/20 border border-fuchsia-500/15 rounded-lg p-3 space-y-3">
               <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-300/80">
                 {t('kpis.cumulativeTarget')}
               </p>
@@ -582,7 +603,7 @@ function KpiEditModal({
 
         <div className="flex items-center gap-2 px-5 py-4 border-t border-white/[0.08]">
           <button onClick={onClose}
-            className="ml-auto px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-semibold transition-colors">
+            className="ml-auto px-4 py-2 rounded-lg bg-zinc-800 hover:bg-white/[0.08] text-zinc-300 text-sm font-semibold transition-colors">
             {t('common.cancel')}
           </button>
           <button onClick={submit} disabled={!canSubmit}
@@ -613,7 +634,7 @@ function HistoryView() {
 
   if (active.length === 0) {
     return (
-      <div className="bg-black/30/40 border border-white/[0.08] border-dashed rounded-2xl p-10 text-center">
+      <div className="bg-black/20 border border-white/[0.08] border-dashed rounded-2xl p-10 text-center">
         <BarChart3 className="w-10 h-10 text-fuchsia-400/60 mx-auto mb-3" />
         <p className="text-sm font-semibold text-zinc-200 mb-1">Sin KPIs en la library</p>
         <p className="text-xs text-zinc-500 max-w-md mx-auto">
@@ -625,7 +646,7 @@ function HistoryView() {
 
   if (last12.length === 0) {
     return (
-      <div className="bg-black/30/40 border border-white/[0.08] border-dashed rounded-2xl p-10 text-center">
+      <div className="bg-black/20 border border-white/[0.08] border-dashed rounded-2xl p-10 text-center">
         <BarChart3 className="w-10 h-10 text-fuchsia-400/60 mx-auto mb-3" />
         <p className="text-sm font-semibold text-zinc-200 mb-1">Sin semanas cerradas todavía</p>
         <p className="text-xs text-zinc-500 max-w-md mx-auto">
@@ -637,7 +658,7 @@ function HistoryView() {
   }
 
   return (
-    <div className="bg-black/30/60 border border-white/[0.08] rounded-2xl p-4">
+    <div className="bg-black/30 border border-white/[0.08] rounded-2xl p-4">
       <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-3">
         Últimas {last12.length} semana{last12.length === 1 ? '' : 's'} cerradas
       </p>
@@ -645,7 +666,7 @@ function HistoryView() {
         <table className="min-w-full text-[11px]">
           <thead>
             <tr>
-              <th className="text-left text-[9px] font-mono uppercase tracking-wider text-zinc-600 pr-3 pb-2 font-normal sticky left-0 bg-black/30/60">
+              <th className="text-left text-[9px] font-mono uppercase tracking-wider text-zinc-600 pr-3 pb-2 font-normal sticky left-0 bg-black/30">
                 KPI
               </th>
               {last12.map((sess) => {
@@ -663,7 +684,7 @@ function HistoryView() {
           <tbody>
             {active.map((kpi) => (
               <tr key={kpi.id} className="border-t border-zinc-900">
-                <td className="py-1.5 pr-3 sticky left-0 bg-black/30/60 text-zinc-300 whitespace-nowrap">
+                <td className="py-1.5 pr-3 sticky left-0 bg-black/30 text-zinc-300 whitespace-nowrap">
                   <span className="mr-1.5">{kpi.icon}</span>{kpi.name}
                 </td>
                 {last12.map((sess) => {
@@ -754,7 +775,7 @@ function ThisWeekView() {
 
   if (!current && !needsCreate) {
     return (
-      <div className="bg-black/30/40 border border-white/[0.08] border-dashed rounded-2xl p-10 text-center">
+      <div className="bg-black/20 border border-white/[0.08] border-dashed rounded-2xl p-10 text-center">
         <Calendar className="w-10 h-10 text-fuchsia-400/60 mx-auto mb-3" />
         <p className="text-sm font-semibold text-zinc-200 mb-1">{t('spi.noSession')}</p>
         <p className="text-xs text-zinc-500 mb-5 max-w-md mx-auto">

@@ -325,12 +325,12 @@ export function CalendarPage() {
       initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
       className="p-3 sm:p-4 h-full flex flex-col min-h-0"
     >
-      {/* Header — stacks vertically on mobile so the action row gets full
-          width instead of squeezing next to the title. */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-3 shrink-0">
-        <div>
+      {/* Header — mockup style: título XXL + subtítulo gris fino + chips
+          de control glass alineados a la derecha. */}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between mb-6 gap-4 shrink-0">
+        <div className="space-y-1">
           <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight leading-none">{t('calendar.title')}</h1>
-          <p className="text-zinc-500 text-sm">
+          <p className="text-zinc-500 text-[13px]">
             {view === 'month'
               ? format(currentDate, 'MMMM yyyy')
               : (() => {
@@ -341,22 +341,22 @@ export function CalendarPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* View toggle */}
-          <div className="flex items-center bg-white/[0.03] border border-white/[0.08] rounded-lg p-0.5">
+          {/* View toggle — segmented control glass */}
+          <div className="flex items-center bg-white/[0.04] border border-white/[0.08] rounded-xl p-1">
             <button onClick={() => setView('month')}
               title="Vista mensual"
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 view === 'month'
-                  ? 'bg-zinc-800 text-white'
+                  ? 'bg-white/[0.10] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
                   : 'text-zinc-500 hover:text-zinc-200'
               }`}>
               <LayoutGrid className="w-3.5 h-3.5" /> Mes
             </button>
             <button onClick={() => setView('week')}
               title="Vista semanal"
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 view === 'week'
-                  ? 'bg-zinc-800 text-white'
+                  ? 'bg-white/[0.10] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
                   : 'text-zinc-500 hover:text-zinc-200'
               }`}>
               <Rows className="w-3.5 h-3.5" /> Semana
@@ -397,7 +397,7 @@ export function CalendarPage() {
               : <PanelRightOpen className="w-4 h-4" />}
           </button>
           <button onClick={goPrev}
-            className="text-zinc-400 hover:text-zinc-100 transition-colors p-2 hover:bg-zinc-800 rounded-lg">
+            className="text-zinc-400 hover:text-zinc-100 transition-colors p-2 hover:bg-white/[0.05] rounded-lg">
             <ChevronLeft className="w-4 h-4" />
           </button>
           <button onClick={() => setCurrentDate(new Date())}
@@ -405,7 +405,7 @@ export function CalendarPage() {
             {t('calendar.today')}
           </button>
           <button onClick={goNext}
-            className="text-zinc-400 hover:text-zinc-100 transition-colors p-2 hover:bg-zinc-800 rounded-lg">
+            className="text-zinc-400 hover:text-zinc-100 transition-colors p-2 hover:bg-white/[0.05] rounded-lg">
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
@@ -464,7 +464,7 @@ export function CalendarPage() {
                   return (
                     <div
                       key={i}
-                      className="p-2 min-h-[90px] border-b border-r border-white/[0.08] bg-black/30/40"
+                      className="p-2 min-h-[90px] border-b border-r border-white/[0.08] bg-black/20"
                       aria-hidden="true"
                     />
                   )
@@ -482,7 +482,7 @@ export function CalendarPage() {
                     whileTap={{ scale: 0.96 }}
                     onClick={() => setSelectedDay(day)}
                     className={`relative p-2 min-h-[90px] text-left border-b border-r border-white/[0.08] transition-colors ${
-                      isSelected ? 'bg-indigo-600/10' : 'hover:bg-zinc-800/50'
+                      isSelected ? 'bg-indigo-600/10' : 'hover:bg-white/[0.05]/50'
                     }`}
                   >
                     <span className={`inline-flex w-6 h-6 items-center justify-center rounded-full text-xs font-medium mb-1 ${
@@ -690,7 +690,7 @@ export function CalendarPage() {
                 Vas a poder ver y editar todos tus calendarios desde acá. Los eventos creados en Overseer se guardan en Google; las tareas de Overseer NO se suben.
               </p>
               <button onClick={connectGoogle}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 border border-white/[0.12] hover:border-zinc-500 hover:bg-zinc-800 rounded-lg text-sm text-zinc-200 transition-colors">
+                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 border border-white/[0.12] hover:border-zinc-500 hover:bg-white/[0.05] rounded-lg text-sm text-zinc-200 transition-colors">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                   <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -720,9 +720,9 @@ export function CalendarPage() {
                   </p>
                   <div className="flex gap-1">
                     <button onClick={() => gcal.setAllVisible(true)}
-                      className="text-[10px] text-zinc-500 hover:text-zinc-200 px-1.5 py-0.5 rounded hover:bg-zinc-800">Todos</button>
+                      className="text-[10px] text-zinc-500 hover:text-zinc-200 px-1.5 py-0.5 rounded hover:bg-white/[0.05]">Todos</button>
                     <button onClick={() => gcal.setAllVisible(false)}
-                      className="text-[10px] text-zinc-500 hover:text-zinc-200 px-1.5 py-0.5 rounded hover:bg-zinc-800">Ninguno</button>
+                      className="text-[10px] text-zinc-500 hover:text-zinc-200 px-1.5 py-0.5 rounded hover:bg-white/[0.05]">Ninguno</button>
                   </div>
                 </div>
               )}
@@ -732,7 +732,7 @@ export function CalendarPage() {
                   const visible = gcal.visibleIds.includes(cal.id)
                   return (
                     <button key={cal.id} onClick={() => gcal.toggleVisible(cal.id)}
-                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-zinc-800/60 transition-colors text-left">
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.05]/60 transition-colors text-left">
                       <span className="w-3 h-3 rounded shrink-0 border" style={{
                         background: visible ? (cal.backgroundColor ?? '#6366f1') : 'transparent',
                         borderColor: cal.backgroundColor ?? '#6366f1',
@@ -855,7 +855,7 @@ export function CalendarPage() {
                       .then(() => setBanner({ kind: 'success', text: 'Evento eliminado ✓' }))
                       .catch((e) => setBanner({ kind: 'error', text: e instanceof Error ? e.message : 'Falló' }))
                   }}
-                  className="w-full text-left px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-200 transition-colors"
+                  className="w-full text-left px-3 py-2.5 bg-zinc-800 hover:bg-white/[0.08] rounded-lg text-sm text-zinc-200 transition-colors"
                 >
                   📌 Solo este evento
                   <p className="text-[10px] text-zinc-500 mt-0.5">Crea una excepción. Los demás de la serie no se tocan.</p>
@@ -917,7 +917,7 @@ export function CalendarPage() {
                       .then(() => setBanner({ kind: 'success', text: 'Movido solo este evento ✓' }))
                       .catch((e) => setBanner({ kind: 'error', text: e instanceof Error ? e.message : 'Falló' }))
                   }}
-                  className="w-full text-left px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-200 transition-colors"
+                  className="w-full text-left px-3 py-2.5 bg-zinc-800 hover:bg-white/[0.08] rounded-lg text-sm text-zinc-200 transition-colors"
                 >
                   📌 Solo este evento
                   <p className="text-[10px] text-zinc-500 mt-0.5">Crea una excepción. Los demás de la serie no cambian.</p>
@@ -1250,7 +1250,7 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
             </button>
           )}
           <button onClick={onClose}
-            className="ml-auto px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-semibold transition-colors">
+            className="ml-auto px-4 py-2 rounded-lg bg-zinc-800 hover:bg-white/[0.08] text-zinc-300 text-sm font-semibold transition-colors">
             Cancelar
           </button>
           <button onClick={handleSave} disabled={!summary.trim() || !calendarId}
@@ -1448,7 +1448,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
     // left a black band at the bottom when the offset didn't match
     // (different headers, mobile top bar, removed ChatBox, etc.).
     <div
-      className="border border-white/[0.08]/60 rounded-2xl overflow-hidden flex flex-col h-full min-h-0"
+      className="border border-white/[0.05] rounded-2xl overflow-hidden flex flex-col h-full min-h-0"
       style={{
         backgroundColor: '#1f1f1f',
         fontFamily: 'Roboto, "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
@@ -1456,15 +1456,15 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
     >
       {/* Header row — GCal style: day abbreviation small + colored circle
           around today's number, larger and bolder numbers. */}
-      <div className="grid border-b border-white/[0.08]/60 shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
+      <div className="grid border-b border-white/[0.05] shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
         <div /> {/* empty corner */}
         {days.map((day) => {
           const selected = selectedDay && isSameDay(day, selectedDay)
           const today = isToday(day)
           return (
             <button key={day.toISOString()} onClick={() => setSelectedDay(day)}
-              className={`pt-2 pb-1 text-center transition-colors border-l border-white/[0.08]/60 ${
-                selected ? 'bg-zinc-800/40' : 'hover:bg-zinc-800/30'
+              className={`pt-2 pb-1 text-center transition-colors border-l border-white/[0.05] ${
+                selected ? 'bg-zinc-800/40' : 'hover:bg-white/[0.05]/30'
               }`}>
               <p className={`text-[11px] font-medium uppercase tracking-wide mb-0.5 ${
                 today ? 'text-blue-400' : 'text-zinc-400'
@@ -1479,7 +1479,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                       ? 'bg-blue-500 text-white'
                       : selected
                         ? 'bg-zinc-700 text-white'
-                        : 'text-zinc-200 hover:bg-zinc-800/60'
+                        : 'text-zinc-200 hover:bg-white/[0.05]/60'
                   }`}
                 >
                   {format(day, 'd')}
@@ -1492,7 +1492,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
 
       {/* All-day strip */}
       {[...allDayEventsByDay.values()].some((arr) => arr.length > 0) || days.some((d) => (tasksByDay.get(format(d, 'yyyy-MM-dd')) ?? []).length > 0) ? (
-        <div className="grid border-b border-white/[0.08]/60 shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
+        <div className="grid border-b border-white/[0.05] shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
           <div className="flex items-center justify-end pr-2">
             <span className="text-[11px] text-zinc-400">GMT-03</span>
           </div>
@@ -1501,7 +1501,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
             const allDay = allDayEventsByDay.get(dateKey) ?? []
             const dayTasks = tasksByDay.get(dateKey) ?? []
             return (
-              <div key={dateKey} className="border-l border-white/[0.08]/60 p-1 min-h-[34px] space-y-0.5">
+              <div key={dateKey} className="border-l border-white/[0.05] p-1 min-h-[34px] space-y-0.5">
                 {allDay.map((ev) => {
                   const cal = calendarById.get(ev.calendarId)
                   const color = resolveEventColor(ev, cal?.backgroundColor)
@@ -1553,7 +1553,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
         <div ref={gridRef} className="grid relative" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
           {/* Hours column — GCal-style: time labels in lighter zinc-300,
               non-mono sans, slightly larger, no quote marks. */}
-          <div className="border-r border-white/[0.08]/60">
+          <div className="border-r border-white/[0.05]">
             {visibleHours.map((h, idx) => {
               const prevVisible = idx > 0 ? visibleHours[idx - 1] : -1
               const gapBefore = h !== prevVisible + 1 && idx > 0
@@ -1582,11 +1582,11 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
             const nowOffset = isNowDay && !nowHidden ? fractionalToY(nowHourF) : null
 
             return (
-              <div key={dateKey} className="relative border-l border-white/[0.08]/60" style={{ height: HOUR_PX * visibleHours.length }}>
+              <div key={dateKey} className="relative border-l border-white/[0.05]" style={{ height: HOUR_PX * visibleHours.length }}>
                 {/* Hour cells (clickable to create) — GCal uses blue hover. */}
                 {visibleHours.map((h, idx) => (
                   <button key={h} onClick={() => onCreateAt(day, h)}
-                    className="absolute left-0 right-0 hover:bg-blue-500/5 transition-colors border-b border-white/[0.08]/40 group"
+                    className="absolute left-0 right-0 hover:bg-blue-500/5 transition-colors border-b border-white/[0.04] group"
                     style={{ top: idx * HOUR_PX, height: HOUR_PX }}
                     title={`Crear evento a las ${String(h).padStart(2, '0')}:00`}>
                     <span className="opacity-0 group-hover:opacity-100 absolute top-1 right-1 text-[10px] text-blue-400">+ {String(h).padStart(2, '0')}:00</span>
@@ -1760,7 +1760,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                           onEventClick(ev)
                         }
                       }}
-                      className={`absolute left-1 right-1 rounded-lg px-1.5 py-1 text-left overflow-hidden transition-all z-10 cursor-grab active:cursor-grabbing ${
+                      className={`absolute left-1 right-1 rounded-xl px-2 py-1.5 text-left overflow-hidden transition-all z-10 cursor-grab active:cursor-grabbing ${
                         isBeingDragged ? 'opacity-90 shadow-2xl scale-[1.02] z-30' : 'hover:brightness-110'
                       }`}
                       style={{
@@ -1771,18 +1771,19 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                         transform: isBeingDragged && dragState.mode === 'move' && dragState.dayShift !== 0
                           ? `translateX(calc(${dragState.dayShift} * 100%))`
                           : undefined,
-                        // Para tasks usamos un fondo más translúcido + border
-                        // dasheado/sólido para distinguir de eventos GCal.
-                        // Tasks completadas: opacidad menor para que se vean
-                        // "fadeadas" hasta que el auto-purge las archive.
-                        background: ev.isTask ? `${color}55` : color,
-                        border: ev.isTask ? `1.5px dashed ${color}` : undefined,
+                        // Mockup style: bloque con gradient sutil del color
+                        // del calendario + glow lateral. Tasks llevan borde
+                        // izquierdo grueso del color (no dashed full border).
+                        background: ev.isTask
+                          ? `linear-gradient(90deg, ${color}55, ${color}22)`
+                          : `linear-gradient(180deg, ${color}, ${color}dd)`,
+                        borderLeft: `3px solid ${color}`,
                         color: ev.isTask ? '#ffffff' : fg,
                         opacity: ev.isCompleted ? 0.55 : undefined,
                         minHeight: 18,
                         boxShadow: isBeingDragged
-                          ? '0 8px 24px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(0,0,0,0.06)'
-                          : 'inset 0 0 0 1px rgba(0,0,0,0.06)',
+                          ? '0 8px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.10)'
+                          : `inset 0 1px 0 rgba(255,255,255,0.10), 0 1px 2px rgba(0,0,0,0.3)`,
                         touchAction: 'none',  // prevent mobile scrolling while dragging
                       }}
                       title={`${ev.isTask ? '📋 ' : ''}${ev.summary}\n${format(parseISO(ev.start), 'HH:mm')} – ${format(parseISO(ev.end), 'HH:mm')}${ev.recurringEventId ? '\n(recurrente · arrastrá para reagendar)' : ''}${ev.isTask ? '\n(task · click para abrir · ✓ para completar)' : ''}`}
@@ -1922,7 +1923,7 @@ function NightHidePill({ enabled, start, end, onToggle, onRangeChange }: NightHi
           onClick={onToggle}
           title={enabled ? `Mostrar 24h (oculto ahora: ${rangeLabel})` : `Ocultar ${rangeLabel}`}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold transition-colors ${
-            enabled ? 'bg-indigo-500/15 text-indigo-300' : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
+            enabled ? 'bg-indigo-500/15 text-indigo-300' : 'text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.05]'
           }`}>
           {enabled ? <Moon className="w-3.5 h-3.5" /> : <Sun className="w-3.5 h-3.5" />}
           <span className="hidden sm:inline">{enabled ? `Oculto ${rangeLabel}` : 'Noche'}</span>
@@ -1930,7 +1931,7 @@ function NightHidePill({ enabled, start, end, onToggle, onRangeChange }: NightHi
         <button
           onClick={() => setOpen((o) => !o)}
           title="Configurar horario oculto"
-          className="px-1.5 py-1.5 border-l border-white/[0.08] text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors">
+          className="px-1.5 py-1.5 border-l border-white/[0.08] text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.05] transition-colors">
           <SettingsIcon className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -1981,11 +1982,11 @@ function NightHidePill({ enabled, start, end, onToggle, onRangeChange }: NightHi
             <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/[0.08]">
               <div className="flex gap-1.5">
                 <button onClick={() => { setDraftStart(0); setDraftEnd(7) }}
-                  className="text-[10px] px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">00–07</button>
+                  className="text-[10px] px-2 py-1 rounded bg-zinc-800 hover:bg-white/[0.08] text-zinc-300">00–07</button>
                 <button onClick={() => { setDraftStart(22); setDraftEnd(7) }}
-                  className="text-[10px] px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">22–07</button>
+                  className="text-[10px] px-2 py-1 rounded bg-zinc-800 hover:bg-white/[0.08] text-zinc-300">22–07</button>
                 <button onClick={() => { setDraftStart(0); setDraftEnd(6) }}
-                  className="text-[10px] px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">00–06</button>
+                  className="text-[10px] px-2 py-1 rounded bg-zinc-800 hover:bg-white/[0.08] text-zinc-300">00–06</button>
               </div>
               <button onClick={apply}
                 className="text-xs px-3 py-1.5 rounded-lg bg-indigo-500/20 border border-indigo-500/40 hover:bg-indigo-500/30 text-indigo-300 font-semibold">

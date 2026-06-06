@@ -316,7 +316,7 @@ export function DashboardPage() {
             </p>
             <button
               onClick={resetLayout}
-              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-white/[0.08] text-zinc-300 transition-colors"
             >
               <RotateCcw className="w-3 h-3" /> Restaurar default
             </button>

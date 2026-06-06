@@ -404,7 +404,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                   data-interactive
                   onClick={(e) => { e.stopPropagation(); setEditingTitle(true) }}
                   title="Click para renombrar"
-                  className={`text-sm font-medium text-left flex-1 px-1.5 py-0.5 -ml-1.5 rounded hover:bg-zinc-800/60 transition-colors min-w-0 truncate ${
+                  className={`text-sm font-medium text-left flex-1 px-1.5 py-0.5 -ml-1.5 rounded hover:bg-white/[0.05]/60 transition-colors min-w-0 truncate ${
                     isDone ? 'line-through text-zinc-500' : 'text-zinc-200'
                   }`}
                 >
@@ -620,7 +620,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                       children — makes the hierarchy visually obvious without
                       the heavy ml-7 indent that lived here before. */}
                   {hasChildren && !isCollapsed && (
-                    <div className="border-t border-white/[0.08]/60 ml-5 my-1" />
+                    <div className="border-t border-white/[0.05] ml-5 my-1" />
                   )}
                   {/* Child subtask rows. Indented via `ml-12` on the
                       wrapper. Why so much: the child's InlineSubtask
@@ -847,7 +847,7 @@ function InlineSelectBadge({ value, options, onChange, bgColor, fgColor, renderL
           {options.map((opt) => (
             <button key={opt.value}
               onClick={(e) => { e.stopPropagation(); onChange(opt.value); setOpen(false) }}
-              className="w-full px-3 py-1.5 text-xs font-medium text-left hover:bg-zinc-800 transition-colors flex items-center gap-2"
+              className="w-full px-3 py-1.5 text-xs font-medium text-left hover:bg-white/[0.05] transition-colors flex items-center gap-2"
               style={{ color: opt.color }}>
               <span className="w-2 h-2 rounded-full" style={{ background: opt.color }} />
               {opt.label}
@@ -1054,7 +1054,7 @@ function InlineSubtask({
           data-interactive
           onClick={(e) => { e.stopPropagation(); setEditing(true) }}
           title={`Click para renombrar · ${subtask.title}`}
-          className={`flex-1 text-sm text-left px-1.5 py-0.5 rounded hover:bg-zinc-800/60 transition-colors min-w-0 truncate ${
+          className={`flex-1 text-sm text-left px-1.5 py-0.5 rounded hover:bg-white/[0.05]/60 transition-colors min-w-0 truncate ${
             subtask.completed ? 'line-through text-zinc-500' : 'text-zinc-200'
           } ${hasChildren ? 'font-semibold' : ''}`}
         >
@@ -1107,7 +1107,7 @@ function InlineSubtask({
           data-interactive
           onClick={(e) => { e.stopPropagation(); openDatePicker() }}
           title={`Vence: ${dueDateFull} — click para cambiar`}
-          className="hidden sm:flex shrink-0 items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border transition-all hover:bg-zinc-800"
+          className="hidden sm:flex shrink-0 items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border transition-all hover:bg-white/[0.05]"
           style={{ color: dueStateColor, borderColor: `${dueStateColor}40` }}
         >
           <Calendar className="w-2.5 h-2.5" />

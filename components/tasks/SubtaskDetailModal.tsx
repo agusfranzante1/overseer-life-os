@@ -167,7 +167,15 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
           initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-lg bg-white/[0.03] border-l border-white/[0.08] h-full overflow-y-auto"
+          className="w-full max-w-lg h-full overflow-y-auto"
+          style={{
+            background: `
+              radial-gradient(circle at 0% 0%, rgba(99, 102, 241, 0.08), transparent 50%),
+              linear-gradient(180deg, rgba(20, 23, 30, 0.95), rgba(15, 17, 23, 0.98))
+            `,
+            borderLeft: '1px solid rgba(255, 255, 255, 0.10)',
+            boxShadow: '-24px 0 48px -8px rgba(0,0,0,0.6)',
+          }}
         >
           <div className="p-6 space-y-5">
             {/* Breadcrumb */}
@@ -226,7 +234,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
               className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg border transition-colors ${
                 subtask.completed
                   ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                  : 'bg-zinc-800 border-white/[0.12] text-zinc-300 hover:bg-zinc-700'
+                  : 'bg-zinc-800 border-white/[0.12] text-zinc-300 hover:bg-white/[0.08]'
               }`}>
               <span className="text-sm font-bold">{subtask.completed ? '✓ Completada' : 'Marcar como completada'}</span>
             </button>
@@ -259,7 +267,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
                 <button
                   onClick={() => { setPriority(''); updateSubtask(taskId, subtask.id, { priority: undefined }) }}
                   className={`text-xs px-2 py-1.5 rounded-lg text-left transition-all border ${
-                    priority === '' ? 'border-zinc-500 text-zinc-300' : 'border-transparent text-zinc-600 hover:bg-zinc-800'
+                    priority === '' ? 'border-zinc-500 text-zinc-300' : 'border-transparent text-zinc-600 hover:bg-white/[0.05]'
                   }`}>
                   — Sin urgencia
                 </button>
@@ -267,7 +275,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
                   <button key={p}
                     onClick={() => { setPriority(p); updateSubtask(taskId, subtask.id, { priority: p }) }}
                     className={`text-xs px-2 py-1.5 rounded-lg text-left transition-all border ${
-                      priority === p ? 'border-current' : 'border-transparent text-zinc-500 hover:bg-zinc-800'
+                      priority === p ? 'border-current' : 'border-transparent text-zinc-500 hover:bg-white/[0.05]'
                     }`}
                     style={priority === p ? {
                       backgroundColor: PRIORITY_COLORS[p] + '20',
@@ -373,7 +381,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
                       <button
                         onClick={() => setOpenChildId(c.id)}
                         title="Abrir detalle"
-                        className={`flex-1 text-sm text-left px-2 py-0.5 rounded hover:bg-zinc-800/60 transition-colors ${
+                        className={`flex-1 text-sm text-left px-2 py-0.5 rounded hover:bg-white/[0.05]/60 transition-colors ${
                           c.completed ? 'line-through text-zinc-500' : 'text-zinc-300'
                         }`}
                       >

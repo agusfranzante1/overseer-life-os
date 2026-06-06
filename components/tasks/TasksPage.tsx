@@ -293,7 +293,7 @@ function ProjectHeader({ project, onRename, onUpdateDescription, onUpdateColor, 
           <button
             onClick={() => setMenuOpen((v) => !v)}
             title="Más"
-            className="text-zinc-500 hover:text-zinc-200 p-1 rounded hover:bg-zinc-800 transition-colors"
+            className="text-zinc-500 hover:text-zinc-200 p-1 rounded hover:bg-white/[0.05] transition-colors"
           >
             <MoreHorizontal className="w-4 h-4" />
           </button>
@@ -301,13 +301,13 @@ function ProjectHeader({ project, onRename, onUpdateDescription, onUpdateColor, 
             <div className="absolute right-0 top-full mt-1 z-20 w-44 bg-white/[0.03] border border-white/[0.12] rounded-lg shadow-xl py-1">
               <button
                 onClick={() => { setMenuOpen(false); setEditingName(true) }}
-                className="w-full text-left px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 flex items-center gap-2"
+                className="w-full text-left px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.05] flex items-center gap-2"
               >
                 <Pencil className="w-3.5 h-3.5" /> Renombrar
               </button>
               <button
                 onClick={() => { setMenuOpen(false); setEditingDesc(true) }}
-                className="w-full text-left px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 flex items-center gap-2"
+                className="w-full text-left px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.05] flex items-center gap-2"
               >
                 <Pencil className="w-3.5 h-3.5" /> Editar descripción
               </button>
@@ -763,7 +763,7 @@ export function TasksPage() {
           <button
             onClick={toggleProjectsPanel}
             title="Mostrar proyectos"
-            className="w-7 h-7 rounded-lg bg-white/[0.03] hover:bg-zinc-800 active:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center transition-colors"
+            className="w-7 h-7 rounded-lg bg-white/[0.03] hover:bg-white/[0.05] active:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center transition-colors"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -870,7 +870,7 @@ export function TasksPage() {
         <button
           onClick={() => handleSelectProject(null)}
           className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors mb-1 ${
-            !selectedProjectId ? 'bg-indigo-600/20 text-indigo-400' : 'text-zinc-400 hover:bg-zinc-800 active:bg-zinc-700 hover:text-zinc-200'
+            !selectedProjectId ? 'bg-indigo-600/20 text-indigo-400' : 'text-zinc-400 hover:bg-white/[0.05] active:bg-zinc-700 hover:text-zinc-200'
           }`}
         >
           <FolderOpen className="w-3.5 h-3.5" />
@@ -891,7 +891,7 @@ export function TasksPage() {
                 <button
                   onClick={() => handleSelectProject(isActive ? null : proj.id)}
                   className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                    isActive ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-zinc-800 active:bg-zinc-700 hover:text-zinc-200'
+                    isActive ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-white/[0.05] active:bg-zinc-700 hover:text-zinc-200'
                   }`}
                 >
                   <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: proj.color }} />
@@ -914,7 +914,7 @@ export function TasksPage() {
             className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
               inArchiveView
                 ? 'bg-amber-500/10 text-amber-300'
-                : 'text-zinc-400 hover:bg-zinc-800 active:bg-zinc-700 hover:text-amber-300'
+                : 'text-zinc-400 hover:bg-white/[0.05] active:bg-zinc-700 hover:text-amber-300'
             }`}
           >
             <Trash2 className="w-3.5 h-3.5 shrink-0" />
@@ -1489,7 +1489,7 @@ function KanbanBoard({ project, tasks, sortMode, onTaskClick }: { project: Proje
                   setDragId(null)
                 }
               }}
-              className="w-72 shrink-0 bg-black/30/60 border border-white/[0.08] rounded-2xl p-3">
+              className="w-72 shrink-0 bg-black/30 border border-white/[0.08] rounded-2xl p-3">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full" style={{ background: col.color }} />
@@ -1557,7 +1557,7 @@ function AllProjectsKanban({ projects, tasks, sortMode, onTaskClick }: { project
                   setDragId(null)
                 }
               }}
-              className="w-72 shrink-0 bg-black/30/60 border border-white/[0.08] rounded-2xl p-3">
+              className="w-72 shrink-0 bg-black/30 border border-white/[0.08] rounded-2xl p-3">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full" style={{ background: col.color }} />

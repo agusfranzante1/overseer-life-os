@@ -189,33 +189,48 @@ export function HabitsPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight leading-none flex items-center gap-2">
-            <Activity className="w-5 h-5 text-pink-400" />
+      {/* Header — mockup style: título XXL con icon grande y subtítulo
+          gris fino. Botones glass + gradient pink el principal. */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="space-y-1">
+          <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight leading-none flex items-center gap-3">
+            <Activity className="w-8 h-8 text-pink-400" />
             {t('habits.title')}
           </h1>
-          <p className="text-sm text-zinc-500 mt-0.5">{t('habits.subtitle')}</p>
+          <p className="text-[13px] text-zinc-500">{t('habits.subtitle')}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           {habits.length > 1 && (
-            <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+            <motion.button whileHover={{ scale: 1.03, y: -1 }} whileTap={{ scale: 0.97 }}
               onClick={() => { setReorderMode((v) => !v); if (showForm) setShowForm(false) }}
               title={reorderMode ? t('habits.done') : t('habits.reorder')}
-              className={`flex items-center gap-2 px-3 py-2.5 rounded-2xl text-sm font-semibold transition-all border ${
-                reorderMode
-                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                  : 'bg-white/[0.03] border-white/[0.08] hover:border-white/[0.12] text-zinc-400 hover:text-zinc-200'
-              }`}>
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all"
+              style={reorderMode ? {
+                background: 'rgba(16, 185, 129, 0.15)',
+                border: '1px solid rgba(16, 185, 129, 0.40)',
+                color: '#34d399',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
+              } : {
+                background: 'rgba(255, 255, 255, 0.04)',
+                border: '1px solid rgba(255, 255, 255, 0.10)',
+                color: '#d4d4d8',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
+              }}
+            >
               {reorderMode ? <Check className="w-4 h-4" /> : <ArrowUpDown className="w-4 h-4" />}
               {reorderMode ? t('habits.done') : t('habits.reorder')}
             </motion.button>
           )}
-          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+          {/* Botón principal con gradient rosa → fucsia */}
+          <motion.button whileHover={{ scale: 1.03, y: -1 }} whileTap={{ scale: 0.97 }}
             onClick={() => setShowForm(!showForm)}
             disabled={reorderMode}
-            className="flex items-center gap-2 px-4 py-2.5 bg-pink-500/10 border border-pink-500/30 hover:bg-pink-500/20 disabled:opacity-40 disabled:cursor-not-allowed text-pink-400 rounded-2xl text-sm font-semibold transition-all">
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              background: 'linear-gradient(135deg, #ec4899, #d946ef)',
+              boxShadow: '0 0 24px -8px rgba(236, 72, 153, 0.6), inset 0 1px 0 rgba(255,255,255,0.15)',
+            }}
+          >
             <Plus className="w-4 h-4" /> {t('habits.newHabit')}
           </motion.button>
         </div>
@@ -249,7 +264,7 @@ export function HabitsPage() {
                 <div className="flex flex-wrap gap-1.5">
                   {ICONS.map((icon) => (
                     <button key={icon} onClick={() => setForm((f) => ({ ...f, icon }))}
-                      className={`w-8 h-8 rounded-lg text-base flex items-center justify-center transition-colors ${form.icon === icon ? 'bg-pink-500/20 border border-pink-500/50' : 'bg-zinc-800 hover:bg-zinc-700'}`}>
+                      className={`w-8 h-8 rounded-lg text-base flex items-center justify-center transition-colors ${form.icon === icon ? 'bg-pink-500/20 border border-pink-500/50' : 'bg-zinc-800 hover:bg-white/[0.08]'}`}>
                       {icon}
                     </button>
                   ))}
@@ -331,12 +346,12 @@ export function HabitsPage() {
           <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{t('habits.week')}</h2>
           <div className="flex items-center gap-1">
             <button onClick={() => setWeekAnchor(addDays(weekAnchor, -7))}
-              className="p-1.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-white">
+              className="p-1.5 rounded hover:bg-white/[0.05] text-zinc-500 hover:text-white">
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
             <span className="text-xs text-zinc-400 font-mono px-2 min-w-[140px] text-center">{weekLabel}</span>
             <button onClick={() => setWeekAnchor(addDays(weekAnchor, 7))}
-              className="p-1.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-white">
+              className="p-1.5 rounded hover:bg-white/[0.05] text-zinc-500 hover:text-white">
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
             {!isCurrentWeek && (
@@ -397,28 +412,45 @@ export function HabitsPage() {
             return (
               <motion.div key={habit.id} layout
                 {...dragHandlers}
-                // Hover en la FILA ENTERA: borde blanco + glow blanco difuso.
-                // Así sabés en qué hábito estás parado mientras movés el mouse
-                // entre los puntitos. El glow es suficientemente sutil para
-                // no marear, pero el borde blanco lo deja inequívoco.
-                // (No aplicamos hover si estás en reorder mode o si la fila
-                // ya está resaltada como drop-target.)
-                className={`bg-white/[0.03] border rounded-2xl px-4 py-3 flex items-center gap-4 group transition-all ${
+                // Estilo del mockup: card con glow radial sutil del color
+                // del hábito en la esquina sup-izq + borde top coloreado
+                // de 2px. Mucho más prominente que el zinc-900 anterior.
+                style={!isDragging && !isDropTarget ? {
+                  background: `
+                    radial-gradient(circle at 0% 0%, ${habit.color}1f, transparent 50%),
+                    rgba(255, 255, 255, 0.025)
+                  `,
+                  borderTop: `2px solid ${habit.color}`,
+                  borderLeft: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                  boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+                } : undefined}
+                className={`rounded-2xl px-5 py-4 flex items-center gap-4 group transition-all ${
                   isDragging
-                    ? 'border-emerald-500/60 opacity-50 cursor-grabbing'
+                    ? 'border-2 border-emerald-500/60 opacity-50 cursor-grabbing bg-white/[0.03]'
                     : isDropTarget
-                      ? 'border-emerald-500/60 bg-emerald-500/5'
-                      : 'border-white/[0.08] hover:border-white hover:shadow-[0_0_18px_rgba(255,255,255,0.25)]'
+                      ? 'border-2 border-emerald-500/60 bg-emerald-500/5'
+                      : 'hover:scale-[1.005]'
                 } ${reorderMode ? 'cursor-grab select-none' : ''}`}>
                 {/* Drag handle — only in reorder mode */}
                 {reorderMode && (
                   <GripVertical className="w-4 h-4 text-zinc-500 shrink-0" />
                 )}
-                {/* Icon + name */}
+                {/* Icon badge — círculo coloreado con el emoji adentro,
+                    estilo del mockup (igual que los wallet tiles). */}
                 <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <span className="text-xl shrink-0">{habit.icon}</span>
+                  <div
+                    className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center text-xl"
+                    style={{
+                      background: `${habit.color}22`,
+                      border: `1px solid ${habit.color}40`,
+                    }}
+                  >
+                    <span>{habit.icon}</span>
+                  </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-zinc-200 truncate">{habit.name}</p>
+                    <p className="text-[15px] font-semibold text-white truncate">{habit.name}</p>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-xs text-zinc-500">{habit.category}</span>
                       {streak > 0 && (
@@ -492,7 +524,7 @@ export function HabitsPage() {
                         <div
                           key={ds}
                           title={`${weekDays[i].toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'short' })} — día deshabilitado para este hábito`}
-                          className={`w-10 h-10 rounded-lg flex items-center justify-center bg-black/30/40 border border-zinc-900 cursor-not-allowed ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
+                          className={`w-10 h-10 rounded-lg flex items-center justify-center bg-black/20 border border-zinc-900 cursor-not-allowed ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
                         >
                           <Minus className="w-3 h-3 text-zinc-700" />
                         </div>
@@ -503,37 +535,45 @@ export function HabitsPage() {
                         onClick={() => toggleDate(habit.id, ds)}
                         disabled={reorderMode}
                         title={`${weekDays[i].toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'short' })} — click para ${nextLabel}`}
-                        className={`group w-10 h-10 rounded-lg flex items-center justify-center transition-all hover:scale-110 hover:ring-1 hover:ring-white/70 ${future ? 'opacity-40' : ''} ${isToday ? 'ring-1 ring-pink-500/40' : ''}`}
+                        className={`group w-10 h-10 rounded-xl flex items-center justify-center transition-all hover:scale-110 ${future ? 'opacity-40' : ''}`}
                         style={{
-                          // Estricto blanco y negro: celda NEGRA siempre.
-                          // Completed = punto BLANCO sólido.
-                          // Empty     = anillo blanco fino (outline).
-                          // Skipped   = misma celda negra con un minus tenue.
-                          // Hover     = anillo blanco grueso + glow blanco
-                          //             (resalta qué día está apuntando el
-                          //             cursor sin romper la paleta B&N).
-                          backgroundColor: '#000000',
+                          // Mockup style: celda con glow del color del hábito
+                          // cuando está completed (más vivo, no más blanco
+                          // plano). Vacía = ring del color sutil. Hoy = ring
+                          // brillante extra.
+                          background: done
+                            ? `radial-gradient(circle at 50% 50%, ${habit.color}55, ${habit.color}22)`
+                            : 'rgba(255,255,255,0.025)',
+                          border: done
+                            ? `1px solid ${habit.color}99`
+                            : isToday
+                              ? `1px solid ${habit.color}66`
+                              : '1px solid rgba(255,255,255,0.08)',
+                          boxShadow: done
+                            ? `0 0 16px -2px ${habit.color}88, inset 0 1px 0 rgba(255,255,255,0.10)`
+                            : 'inset 0 1px 0 rgba(255,255,255,0.04)',
                         }}>
                         {skipped ? (
                           <Minus className="w-4 h-4 text-zinc-500" />
                         ) : done ? (
-                          // Punto blanco sólido — el estado "marcado".
+                          // Dot coloreado vivo con halo del color del hábito.
                           <div
-                            className="rounded-full transition-all"
+                            className="rounded-full"
                             style={{
                               width: 14,
                               height: 14,
-                              backgroundColor: '#ffffff',
+                              background: habit.color,
+                              boxShadow: `0 0 8px ${habit.color}, inset 0 1px 0 rgba(255,255,255,0.30)`,
                             }}
                           />
                         ) : (
-                          // Anillo blanco fino — celda vacía.
+                          // Anillo coloreado fino — vacía.
                           <div
-                            className="rounded-full transition-all"
+                            className="rounded-full"
                             style={{
-                              width: 14,
-                              height: 14,
-                              border: '2px solid #ffffff',
+                              width: 12,
+                              height: 12,
+                              border: `1.5px solid ${habit.color}66`,
                               backgroundColor: 'transparent',
                             }}
                           />
@@ -552,7 +592,7 @@ export function HabitsPage() {
                     return (
                       <div
                         title="Día deshabilitado para este hábito"
-                        className="md:hidden shrink-0 rounded-lg flex items-center justify-center w-10 h-10 bg-black/30/40 border border-zinc-900 cursor-not-allowed"
+                        className="md:hidden shrink-0 rounded-lg flex items-center justify-center w-10 h-10 bg-black/20 border border-zinc-900 cursor-not-allowed"
                       >
                         <Minus className="w-3 h-3 text-zinc-700" />
                       </div>
@@ -625,13 +665,13 @@ export function HabitsPage() {
           <div className="flex items-center gap-1">
             <button onClick={() => {
               const d = new Date(chartMonth); d.setMonth(d.getMonth() - 1); setChartMonth(d)
-            }} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-white">
+            }} className="p-1.5 rounded hover:bg-white/[0.05] text-zinc-500 hover:text-white">
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
             <span className="text-xs text-zinc-300 font-mono px-2 capitalize min-w-[140px] text-center">{monthLabel}</span>
             <button onClick={() => {
               const d = new Date(chartMonth); d.setMonth(d.getMonth() + 1); setChartMonth(d)
-            }} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-white">
+            }} className="p-1.5 rounded hover:bg-white/[0.05] text-zinc-500 hover:text-white">
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
             {!isCurrentMonth && (
@@ -658,11 +698,36 @@ export function HabitsPage() {
 
 function SummaryCard({ label, value, color, icon }: { label: string; value: string; color: string; icon?: React.ReactNode }) {
   return (
-    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4" style={{ borderLeftColor: color, borderLeftWidth: 3 }}>
-      <p className="text-xs text-zinc-400 uppercase tracking-wider font-semibold mb-2 flex items-center gap-1">
-        {icon}{label}
-      </p>
-      <p className="text-2xl font-bold tabular-nums" style={{ color }}>{value}</p>
+    <div
+      className="rounded-2xl p-5 transition-all hover:scale-[1.01]"
+      style={{
+        background: `
+          radial-gradient(circle at 0% 0%, ${color}1f, transparent 50%),
+          rgba(255, 255, 255, 0.025)
+        `,
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0,0,0,0.2)',
+      }}
+    >
+      <div className="flex items-center gap-2 mb-3">
+        {/* Icon badge cuadrado coloreado */}
+        {icon && (
+          <div
+            className="w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{
+              background: `${color}22`,
+              border: `1px solid ${color}40`,
+              color,
+            }}
+          >
+            {icon}
+          </div>
+        )}
+        <p className="text-[10px] text-zinc-500 uppercase tracking-[0.15em] font-semibold">
+          {label}
+        </p>
+      </div>
+      <p className="text-3xl font-bold tracking-tight tabular-nums" style={{ color }}>{value}</p>
     </div>
   )
 }
@@ -719,7 +784,7 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
 
   if (series.length === 0) {
     return (
-      <div className="bg-black/30/60 border border-white/[0.08] rounded-2xl p-6 text-center text-xs text-zinc-600">
+      <div className="bg-black/30 border border-white/[0.08] rounded-2xl p-6 text-center text-xs text-zinc-600">
         Sin datos este mes
       </div>
     )
@@ -738,7 +803,7 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
   const avgColor = monthAvg >= 75 ? '#10b981' : monthAvg >= 50 ? '#f59e0b' : '#ef4444'
 
   return (
-    <div className="bg-black/30/60 border border-white/[0.08] rounded-2xl p-5">
+    <div className="bg-black/30 border border-white/[0.08] rounded-2xl p-5">
       {/* Stats strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <StatChip label="Nota mensual" value={`${monthAvg}%`} color={avgColor} highlight />

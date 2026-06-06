@@ -139,9 +139,33 @@ function reportSyncError(message: string) {
 
 type Row = Record<string, unknown>
 
+/** 🛟 GUARDAVIDAS — abortamos cualquier delete batch que afecte más
+ *  de este umbral de rows. Es la salvaguarda contra "perdí toda mi data
+ *  porque el dev local pusheó vacío a producción".
+ *
+ *  Si la lógica de sync intenta borrar >= ABORT_THRESHOLD rows de una
+ *  sola tabla en una sola operación, asumimos que algo está mal
+ *  (probablemente local quedó vacío/inconsistente respecto a remote)
+ *  y NO ejecutamos el delete. Lanzamos error visible + console.error
+ *  con el detalle para que el user vea qué pasó. */
+const DELETE_SURPLUS_ABORT_THRESHOLD = 10
+
+/** Custom error que el push handler atrapa para abortar el flujo entero
+ *  (sin marcar como synced) y mostrarle al user el banner. */
+class GuardAbortError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'GuardAbortError'
+  }
+}
+
 /**
  * After upserting rows, delete any remote rows whose id is NOT in localIds.
  * Uses a SELECT + DELETE to avoid PostgREST filter format issues.
+ *
+ * 🛟 SAFETY: si el delete afectaría más de DELETE_SURPLUS_ABORT_THRESHOLD
+ * rows, lanzamos GuardAbortError y NO ejecutamos. Esto evita pérdida masiva
+ * de data por mismatches dev↔prod o estados inconsistentes.
  */
 async function deleteSurplus(
   sb: SupabaseClient,
@@ -153,9 +177,20 @@ async function deleteSurplus(
   if (!data) return
   const localSet = new Set(localIds)
   const toDelete = (data as Row[]).filter((r) => !localSet.has(r.id as string)).map((r) => r.id as string)
-  if (toDelete.length > 0) {
-    await sb.from(table).delete().eq('user_id', userId).in('id', toDelete)
+  if (toDelete.length === 0) return
+
+  // 🛟 Guardavidas — si el delete es masivo, abortamos.
+  if (toDelete.length >= DELETE_SURPLUS_ABORT_THRESHOLD) {
+    const msg = `🛟 GUARDAVIDAS: aborté delete de ${toDelete.length} rows en "${table}". ` +
+      `Tu local tiene MUCHO menos que lo que hay en Supabase — esto suele significar ` +
+      `que estás corriendo dev local contra el Supabase de producción con data vacía/distinta. ` +
+      `Revisá tu .env.local y/o creá un proyecto Supabase separado para dev. ` +
+      `NO se borró nada esta vez.`
+    reportSyncError(msg)
+    throw new GuardAbortError(msg)
   }
+
+  await sb.from(table).delete().eq('user_id', userId).in('id', toDelete)
 }
 
 // ─── TASKS ────────────────────────────────────────────────────────────────────

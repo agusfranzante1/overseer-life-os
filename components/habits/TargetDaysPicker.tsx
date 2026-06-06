@@ -80,7 +80,7 @@ export function TargetDaysPicker({ targetDays, onChange, compact = false }: Prop
         onClick={(e) => { e.preventDefault(); setOpen((v) => !v) }}
         title={`Días — ${summary}`}
         className={`flex items-center transition-colors text-zinc-500 hover:text-zinc-200 ${
-          compact ? 'text-[12px]' : 'text-[14px] px-1.5 py-0.5 rounded hover:bg-zinc-800/60'
+          compact ? 'text-[12px]' : 'text-[14px] px-1.5 py-0.5 rounded hover:bg-white/[0.05]/60'
         } ${!isAllDays ? 'text-zinc-300' : ''}`}
       >
         📅

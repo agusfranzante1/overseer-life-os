@@ -390,33 +390,55 @@ function WeekCard({
     : status === 'done'      ? { label: 'Done',        cls: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' }
     : null  // not_started → no badge, just the "Empezar" CTA inside
 
+  // Color de acento del border-top: fucsia para current, gris para histórico.
+  const accentColor = isCurrent ? '#d946ef' : 'rgba(255,255,255,0.08)'
   return (
-    <div className={`rounded-2xl border overflow-hidden transition-colors mb-3 ${
-      isCurrent
-        ? 'bg-black/30/60 border-fuchsia-500/30'
-        : 'bg-black/30/40 border-white/[0.08]'
-    }`}>
+    <div
+      className="rounded-2xl overflow-hidden transition-all mb-3"
+      style={{
+        // Glass card con border-top coloreado + glow fucsia sutil para
+        // la sesión en curso (matchea el lenguaje visual del task card).
+        background: isCurrent
+          ? `radial-gradient(circle at 0% 0%, rgba(217, 70, 239, 0.10), transparent 50%), rgba(255, 255, 255, 0.025)`
+          : 'rgba(255, 255, 255, 0.02)',
+        borderTop: `2px solid ${accentColor}`,
+        borderLeft: '1px solid rgba(255, 255, 255, 0.08)',
+        borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+        borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+        boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.04)',
+      }}
+    >
       {/* Header — always clickable to expand/collapse */}
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="w-full px-5 py-3 flex items-center gap-3 text-left hover:bg-white/[0.03]/40 transition-colors"
+        className="w-full px-5 py-4 flex items-center gap-3 text-left hover:bg-white/[0.02] transition-colors"
       >
-        <span className="text-lg shrink-0">♾️</span>
+        {/* Badge icono con halo fucsia para current — más prominente que
+            el simple emoji "♾️" del before. */}
+        <div
+          className="shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-xl"
+          style={{
+            background: isCurrent ? 'rgba(217, 70, 239, 0.18)' : 'rgba(255,255,255,0.04)',
+            border: `1px solid ${isCurrent ? 'rgba(217,70,239,0.40)' : 'rgba(255,255,255,0.08)'}`,
+          }}
+        >
+          ♾️
+        </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-zinc-100 capitalize truncate">
+          <p className="text-[15px] font-semibold text-white capitalize truncate">
             {weekLabel}
           </p>
           {session?.closedAt && session.score !== undefined && (
-            <p className="text-[10px] text-zinc-500 mt-0.5">
+            <p className="text-[11px] text-zinc-500 mt-0.5">
               Cerrada · puntuación {session.score}%
             </p>
           )}
           {!hasSession && (
-            <p className="text-[10px] text-zinc-500 mt-0.5">Sin empezar todavía</p>
+            <p className="text-[11px] text-zinc-500 mt-0.5">Sin empezar todavía</p>
           )}
         </div>
         {badge && (
-          <span className={`text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border ${badge.cls}`}>
+          <span className={`text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded-full border ${badge.cls}`}>
             {badge.label}
           </span>
         )}
@@ -431,7 +453,7 @@ function WeekCard({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="border-t border-white/[0.08]/60 p-5">
+            <div className="border-t border-white/[0.05] p-5">
               {!hasSession && onStart ? (
                 <EmptyWeekCTA onStart={onStart} />
               ) : session ? (
@@ -470,7 +492,7 @@ function WeekCard({
  *  primary action — matching the projection "Empezar plan" pattern. */
 function EmptyWeekCTA({ onStart }: { onStart: () => void }) {
   return (
-    <div className="bg-black/30/40 border border-white/[0.08] rounded-2xl p-6 text-center">
+    <div className="bg-black/20 border border-white/[0.08] rounded-2xl p-6 text-center">
       <Sparkles className="w-8 h-8 text-fuchsia-400/70 mx-auto mb-2" />
       <p className="text-sm font-semibold text-zinc-200 mb-1">
         No empezaste esta semana todavía
@@ -496,7 +518,7 @@ function EmptyState({
   hasPastSessions, onStart, onViewHistory,
 }: { hasPastSessions: boolean; onStart: () => void; onViewHistory: () => void }) {
   return (
-    <div className="bg-black/30/60 border border-white/[0.08] rounded-2xl p-10 text-center">
+    <div className="bg-black/30 border border-white/[0.08] rounded-2xl p-10 text-center">
       <Sparkles className="w-10 h-10 text-fuchsia-400/70 mx-auto mb-4" />
       <h2 className="text-lg font-semibold text-zinc-200 mb-2">
         {hasPastSessions ? 'No tenés sesión activa esta semana' : 'Primera sesión SPI'}
@@ -583,7 +605,7 @@ function ActiveSession({
   return (
     <div className="space-y-4">
       {/* Session header */}
-      <div className="bg-black/30/60 border border-fuchsia-500/20 rounded-2xl p-5">
+      <div className="bg-black/30 border border-fuchsia-500/20 rounded-2xl p-5">
         <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
           <div>
             <p className="text-[10px] font-mono uppercase tracking-wider text-fuchsia-400/70">
@@ -646,7 +668,7 @@ function ActiveSession({
                 <button
                   key={item.key}
                   onClick={() => onChecklistToggle(item.key)}
-                  className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/[0.03]/60 transition-colors group"
+                  className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg hover:bg-white/[0.03] transition-colors group"
                 >
                   <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all ${
                     checked
@@ -822,7 +844,7 @@ function LabBlock({ spiSessionId, isClosed }: { spiSessionId: string; isClosed: 
   }
 
   return (
-    <div className="bg-black/30/40 border border-fuchsia-500/20 rounded-2xl p-4">
+    <div className="bg-black/20 border border-fuchsia-500/20 rounded-2xl p-4">
       <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
         <div className="flex items-center gap-2">
           <FlaskConical className="w-4 h-4 text-fuchsia-400" />
@@ -855,7 +877,7 @@ function LabBlock({ spiSessionId, isClosed }: { spiSessionId: string; isClosed: 
             const cat = findCategory(sess.categoryKey)
             return (
               <button key={sess.id} onClick={() => setRunningSessionId(sess.id)}
-                className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.03]/60 hover:bg-white/[0.03] border border-white/[0.08] hover:border-fuchsia-500/30 transition-colors group">
+                className="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.03] border border-white/[0.08] hover:border-fuchsia-500/30 transition-colors group">
                 <span className="text-base">{ex?.emoji ?? '🧪'}</span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -924,7 +946,7 @@ function LabPickerModal({
         </div>
 
         {/* Category chips */}
-        <div className="px-5 py-3 border-b border-white/[0.08]/60 flex flex-wrap gap-1.5">
+        <div className="px-5 py-3 border-b border-white/[0.05] flex flex-wrap gap-1.5">
           {LAB_CATEGORIES.map((c) => {
             const isActive = c.key === activeCat
             return (
@@ -950,7 +972,7 @@ function LabPickerModal({
           )}
           {exercises.map((ex) => (
             <button key={ex.key} onClick={() => onPick(ex.key)}
-              className="w-full text-left p-3 rounded-2xl border bg-white/[0.03]/60 border-white/[0.08] hover:border-fuchsia-500/40 hover:bg-white/[0.03] transition-colors flex items-start gap-3 group">
+              className="w-full text-left p-3 rounded-2xl border bg-white/[0.03] border-white/[0.08] hover:border-fuchsia-500/40 hover:bg-white/[0.03] transition-colors flex items-start gap-3 group">
               <span className="text-xl shrink-0">{ex.emoji}</span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -1004,7 +1026,7 @@ function LanePicker({
   const toggle = (key: string) =>
     setPicked((prev) => prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key])
   return (
-    <div className="bg-black/30/60 border border-fuchsia-500/30 rounded-2xl p-6">
+    <div className="bg-black/30 border border-fuchsia-500/30 rounded-2xl p-6">
       <h2 className="text-base font-semibold text-zinc-100 mb-1">¿En dónde querés concentrarte hoy?</h2>
       <p className="text-xs text-zinc-500 mb-5">
         Elegí uno o varios carriles. Solo se mostrarán las preguntas de los carriles que actives —
@@ -1020,7 +1042,7 @@ function LanePicker({
               className={`text-left p-4 rounded-2xl border-2 transition-all ${
                 isPicked
                   ? 'bg-white/[0.03] shadow-lg'
-                  : 'bg-black/30/40 border-white/[0.08] hover:border-white/[0.12]'
+                  : 'bg-black/20 border-white/[0.08] hover:border-white/[0.12]'
               }`}
               style={isPicked ? {
                 borderColor: lane.color,
@@ -1242,7 +1264,7 @@ function WeeklyGoalsByArea({
                 gris itálico y se perdía visualmente al lado de las
                 cajas grandes. */}
             {annualMeta ? (
-              <div className="space-y-0.5 mb-1.5 bg-white/[0.03]/40 border border-white/[0.08] rounded px-2 py-1.5">
+              <div className="space-y-0.5 mb-1.5 bg-white/[0.02] border border-white/[0.08] rounded px-2 py-1.5">
                 <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-600 mb-0.5">
                   Anual
                 </p>
@@ -1257,7 +1279,7 @@ function WeeklyGoalsByArea({
             )}
             {/* Sub-metas trimestrales (read-only) */}
             {quarterlySubs.length > 0 ? (
-              <div className="space-y-0.5 mb-1.5 bg-white/[0.03]/40 border border-white/[0.08] rounded px-2 py-1.5">
+              <div className="space-y-0.5 mb-1.5 bg-white/[0.02] border border-white/[0.08] rounded px-2 py-1.5">
                 <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-600 mb-0.5">
                   Trimestral · Q{qN}
                 </p>
@@ -1276,7 +1298,7 @@ function WeeklyGoalsByArea({
             )}
             {/* Sub-metas mensuales (read-only) */}
             {monthlySubs.length > 0 ? (
-              <div className="space-y-0.5 mb-2 bg-white/[0.03]/40 border border-white/[0.08] rounded px-2 py-1.5">
+              <div className="space-y-0.5 mb-2 bg-white/[0.02] border border-white/[0.08] rounded px-2 py-1.5">
                 <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-600 mb-0.5">Mensual</p>
                 <ul className="space-y-0.5">
                   {monthlySubs.map((s, i) => (
@@ -1473,7 +1495,7 @@ function QuickKpiModal({
           )}
         </div>
         <div className="px-5 py-3 border-t border-white/[0.08] flex gap-2">
-          <button onClick={onClose} className="flex-1 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold">
+          <button onClick={onClose} className="flex-1 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-white/[0.08] text-zinc-300 text-xs font-semibold">
             Cancelar
           </button>
           <button
@@ -1522,10 +1544,10 @@ function Section({
   const fullKey = parentKey ? `${parentKey}.${section.key}` : section.key
 
   return (
-    <div className={`bg-black/30/40 border border-white/[0.08] rounded-2xl ${parentKey ? 'ml-4 mt-2' : ''}`}>
+    <div className={`bg-black/20 border border-white/[0.08] rounded-2xl ${parentKey ? 'ml-4 mt-2' : ''}`}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-white/[0.03]/40 transition-colors rounded-t-xl"
+        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-white/[0.02] transition-colors rounded-t-xl"
       >
         <span className="text-lg shrink-0">{section.emoji}</span>
         <div className="flex-1 min-w-0">
@@ -1544,7 +1566,7 @@ function Section({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="px-4 pb-4 space-y-4 border-t border-white/[0.08]/60 pt-4">
+            <div className="px-4 pb-4 space-y-4 border-t border-white/[0.05] pt-4">
               {section.intro && (
                 <p className="text-xs text-zinc-400 italic leading-relaxed">{section.intro}</p>
               )}
@@ -1840,7 +1862,7 @@ function TaskRow({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="px-3 pb-3 pt-1 space-y-2 border-t border-white/[0.08]/60">
+            <div className="px-3 pb-3 pt-1 space-y-2 border-t border-white/[0.05]">
               <div className="flex items-center gap-2">
                 <Calendar className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
                 <input
@@ -2053,11 +2075,11 @@ function BitacoraBlock({
   const resolvedCount = entries.filter((e) => e.kind === 'broken' && e.resolved).length
 
   return (
-    <div className="bg-black/30/40 border border-white/[0.08] rounded-2xl overflow-hidden">
+    <div className="bg-black/20 border border-white/[0.08] rounded-2xl overflow-hidden">
       {/* Header */}
       <button
         onClick={() => setCollapsed((v) => !v)}
-        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-white/[0.03]/40 transition-colors"
+        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-white/[0.02] transition-colors"
       >
         <span className="text-lg shrink-0">🗂️</span>
         <div className="flex-1 min-w-0">
@@ -2080,7 +2102,7 @@ function BitacoraBlock({
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="border-t border-white/[0.08]/60 p-4">
+            <div className="border-t border-white/[0.05] p-4">
               {/* Toggle resolved visibility */}
               {totalBroken > 0 && resolvedCount > 0 && (
                 <div className="flex justify-end mb-2">
@@ -2239,7 +2261,7 @@ function BitacoraRow({
   const [expanded, setExpanded] = useState(false)
   const dotColor = color === 'emerald' ? '#10b981' : '#f59e0b'
   return (
-    <div className={`bg-black/30 border border-white/[0.08]/60 rounded p-1.5 group ${entry.resolved ? 'opacity-50' : ''}`}>
+    <div className={`bg-black/30 border border-white/[0.05] rounded p-1.5 group ${entry.resolved ? 'opacity-50' : ''}`}>
       <div className="flex items-start gap-1.5">
         {entry.kind === 'broken' && (
           <button
@@ -2410,7 +2432,7 @@ function CelebrationModal({
         </p>
 
         {/* XP breakdown */}
-        <div className="bg-black/30/60 border border-white/[0.08] rounded-lg p-3 space-y-1.5 mb-4">
+        <div className="bg-black/30 border border-white/[0.08] rounded-lg p-3 space-y-1.5 mb-4">
           <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-2">XP ganada</p>
           <XPRow label="Base (cerrar la sesión)" value={xp.base} />
           {xp.scoreBonus > 0 && <XPRow label="Bonus por score" value={xp.scoreBonus} />}
@@ -2726,7 +2748,7 @@ function ContextCard({
   return (
     <a
       href={href}
-      className={`block bg-black/30/60 border rounded-lg p-2.5 hover:border-blue-500/40 transition-all ${
+      className={`block bg-black/30 border rounded-lg p-2.5 hover:border-blue-500/40 transition-all ${
         exists ? 'border-white/[0.08]' : 'border-zinc-900 opacity-50'
       }`}
       title={exists ? 'Click para editar en Proyección' : 'Click para crear plan en Proyección'}
@@ -2809,7 +2831,7 @@ function WeekHabitsBlock({
     : 0
 
   return (
-    <div className="bg-black/30/60 border border-emerald-500/20 rounded-2xl p-4 space-y-4">
+    <div className="bg-black/30 border border-emerald-500/20 rounded-2xl p-4 space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className="text-[10px] font-mono uppercase tracking-wider text-emerald-300/80">
           🎯 {isLive ? 'Vista en vivo' : 'Snapshot del cierre'} · Hábitos de la semana
@@ -2844,7 +2866,7 @@ function WeekHabitsBlock({
         <table className="min-w-full text-[11px]">
           <thead>
             <tr>
-              <th className="text-left text-[9px] font-mono uppercase tracking-wider text-zinc-600 pr-3 pb-2 font-normal sticky left-0 bg-black/30/60">
+              <th className="text-left text-[9px] font-mono uppercase tracking-wider text-zinc-600 pr-3 pb-2 font-normal sticky left-0 bg-black/30">
                 Hábito
               </th>
               {dayLabels.map((label, i) => (
@@ -2861,7 +2883,7 @@ function WeekHabitsBlock({
           <tbody>
             {snapshot.habits.map((h) => (
               <tr key={h.id} className="border-t border-zinc-900">
-                <td className="py-1.5 pr-3 sticky left-0 bg-black/30/60">
+                <td className="py-1.5 pr-3 sticky left-0 bg-black/30">
                   <span className="mr-1.5">{h.icon}</span>
                   <span className="text-zinc-300">{h.name}</span>
                 </td>
@@ -2956,7 +2978,7 @@ function WeekHabitsBlock({
  *  HabitsPage: celda negra + punto blanco / anillo blanco / minus / vacío. */
 function WeekHabitCell({ status }: { status: 'done' | 'skipped' | 'missed' | 'future' }) {
   if (status === 'future') {
-    return <span className="inline-block w-5 h-5 rounded bg-white/[0.03]/60" />
+    return <span className="inline-block w-5 h-5 rounded bg-white/[0.03]" />
   }
   if (status === 'skipped') {
     return (

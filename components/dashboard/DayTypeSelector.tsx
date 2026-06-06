@@ -121,7 +121,7 @@ export function DayTypeSelector() {
               <Check className="w-3.5 h-3.5" />
             </button>
             <button onClick={() => setAdding(false)}
-              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400">
+              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-white/[0.08] text-zinc-400">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -132,7 +132,7 @@ export function DayTypeSelector() {
               {PRESET_EMOJIS.map((emoji) => (
                 <button key={emoji} onClick={() => setDraftIcon(emoji)}
                   className={`w-7 h-7 rounded-md flex items-center justify-center text-sm ${
-                    draftIcon === emoji ? 'bg-indigo-500/20 ring-1 ring-indigo-500' : 'bg-zinc-800 hover:bg-zinc-700'
+                    draftIcon === emoji ? 'bg-indigo-500/20 ring-1 ring-indigo-500' : 'bg-zinc-800 hover:bg-white/[0.08]'
                   }`}>
                   {emoji}
                 </button>
