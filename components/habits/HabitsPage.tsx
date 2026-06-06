@@ -412,18 +412,13 @@ export function HabitsPage() {
             return (
               <motion.div key={habit.id} layout
                 {...dragHandlers}
-                // Estilo del mockup: card con glow radial sutil del color
-                // del hábito en la esquina sup-izq + borde top coloreado
-                // de 2px. Mucho más prominente que el zinc-900 anterior.
+                // Card neutral glass — sin color por hábito. El color del
+                // hábito SOLO aparece en los dots de los días marcados,
+                // así la página entera no se ve sobrecargada de colores
+                // distintos compitiendo entre sí.
                 style={!isDragging && !isDropTarget ? {
-                  background: `
-                    radial-gradient(circle at 0% 0%, ${habit.color}1f, transparent 50%),
-                    rgba(255, 255, 255, 0.025)
-                  `,
-                  borderTop: `2px solid ${habit.color}`,
-                  borderLeft: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRight: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                  background: 'rgba(255, 255, 255, 0.025)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
                   boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
                 } : undefined}
                 className={`rounded-2xl px-5 py-4 flex items-center gap-4 group transition-all ${
@@ -431,20 +426,20 @@ export function HabitsPage() {
                     ? 'border-2 border-emerald-500/60 opacity-50 cursor-grabbing bg-white/[0.03]'
                     : isDropTarget
                       ? 'border-2 border-emerald-500/60 bg-emerald-500/5'
-                      : 'hover:scale-[1.005]'
+                      : 'hover:border-white/[0.14] hover:bg-white/[0.035]'
                 } ${reorderMode ? 'cursor-grab select-none' : ''}`}>
                 {/* Drag handle — only in reorder mode */}
                 {reorderMode && (
                   <GripVertical className="w-4 h-4 text-zinc-500 shrink-0" />
                 )}
-                {/* Icon badge — círculo coloreado con el emoji adentro,
-                    estilo del mockup (igual que los wallet tiles). */}
+                {/* Icon badge — círculo neutro glass con el emoji adentro.
+                    Sin tinte de color del hábito para no saturar visualmente. */}
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <div
                     className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center text-xl"
                     style={{
-                      background: `${habit.color}22`,
-                      border: `1px solid ${habit.color}40`,
+                      background: 'rgba(255, 255, 255, 0.04)',
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
                     }}
                   >
                     <span>{habit.icon}</span>
