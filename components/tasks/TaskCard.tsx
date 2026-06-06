@@ -285,22 +285,25 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
     setOverSubId(null)
   }
 
-  // Color del border-top según urgencia EFECTIVA — estilo del mockup
-  // de Gestor de Tareas: barra superior coloreada según la prioridad.
-  //   urgente (red)        → barra roja fuerte
-  //   high / overdue       → barra naranja
-  //   medium               → barra azul
-  //   low / default        → barra gris sutil
-  //   done                 → barra muy tenue + card opaca
+  // Color del border-top según prioridad EFECTIVA.
+  //   urgent       → rojo
+  //   high/overdue → naranja
+  //   medium       → amarillo
+  //   low          → gris neutro (sin acento prominente)
+  //   done         → casi invisible
+  // El color comunica la urgencia. Low y done quedan limpias para que
+  // el ojo se vaya naturalmente a urgent/high/medium primero.
   const accentColor = isDone
-    ? '#52525b'
+    ? 'rgba(255, 255, 255, 0.06)'
     : isUrgent
-      ? '#ef4444'
+      ? '#ef4444'        // rojo
       : isHighPriority || isOverdue
-        ? '#f97316'
+        ? '#f97316'      // naranja
         : effPriority === 'medium'
-          ? '#3b82f6'
-          : '#71717a'
+          ? '#eab308'    // amarillo
+          : 'rgba(255, 255, 255, 0.06)'  // low → neutro
+  // Hay tinte de color (glow + border 2px) solo si NO es low/done.
+  const hasPriorityAccent = !isDone && (isUrgent || isHighPriority || isOverdue || effPriority === 'medium')
 
   // Apply task-to-task drag visual state. Solid violet ring while a
   // foreign TaskCard is hovering over this card (= valid drop target);
@@ -326,14 +329,17 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
       onDragEnd={onTaskDragEnd}
       style={{
         ...dndStyle,
-        // Estilo del mockup: card oscura translúcida, borde sutil
-        // EXCEPTO el TOP que se ilumina con el color de urgencia +
-        // un glow interno del mismo color que tiñe sutilmente.
-        background: `
-          linear-gradient(180deg, ${accentColor}1a 0%, transparent 25%),
-          rgba(255, 255, 255, 0.025)
-        `,
-        borderTop: `2px solid ${accentColor}`,
+        // Estilo del mockup: card oscura translúcida. Cuando la tarea
+        // tiene urgencia REAL (urgent/high/overdue), el border-top se
+        // ilumina con su color y un glow sutil tiñe la parte superior.
+        // Tareas normales (medium/low) quedan limpias, sin tinte azul
+        // ni gris fuerte — solo el glass base.
+        background: hasPriorityAccent
+          ? `linear-gradient(180deg, ${accentColor}1a 0%, transparent 25%), rgba(255, 255, 255, 0.025)`
+          : 'rgba(255, 255, 255, 0.025)',
+        borderTop: hasPriorityAccent
+          ? `2px solid ${accentColor}`
+          : '1px solid rgba(255, 255, 255, 0.06)',
         boxShadow: `inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0,0,0,0.3)`,
         opacity: isDone ? 0.55 : 1,
       }}
