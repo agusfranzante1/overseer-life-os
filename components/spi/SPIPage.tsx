@@ -595,7 +595,18 @@ function ActiveSession({
   const safeSelectedLanes = rawSelectedLanes.length > 0 && !rawSelectedLanes.includes('estrategico')
     ? ['estrategico', ...rawSelectedLanes]
     : rawSelectedLanes
-  const safeLanes = Array.isArray(template.lanes) ? template.lanes : []
+  // Forzamos el orden de lanes al render: estrategico SIEMPRE primero,
+  // después tactico → reflexivo → profundo. El template se persiste en
+  // localStorage (Zustand persist), así que sesiones viejas pueden tener
+  // un orden distinto cargado — sin este sort, tactico podía aparecer
+  // arriba de estrategico cuando ambos estaban activos.
+  const LANE_ORDER = ['estrategico', 'tactico', 'reflexivo', 'profundo']
+  const rawLanes = Array.isArray(template.lanes) ? template.lanes : []
+  const safeLanes = [...rawLanes].sort((a, b) => {
+    const ai = LANE_ORDER.indexOf(a.key)
+    const bi = LANE_ORDER.indexOf(b.key)
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+  })
   const checklistDone = Object.values(safeMainChecklist).filter(Boolean).length
   const checklistTotal = Object.keys(safeMainChecklist).length
 
