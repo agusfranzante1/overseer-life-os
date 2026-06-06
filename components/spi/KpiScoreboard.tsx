@@ -1,6 +1,7 @@
 'use client'
 import { useMemo, useState } from 'react'
-import { Target, Plus, Minus, ChevronDown, ChevronUp, Pencil, X } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Target, Plus, Minus, ChevronDown, ChevronUp, X } from 'lucide-react'
 import { useKpisStore, parseKpiValue, kpiCompletionPct, serializeKpiValue } from '@/lib/store/kpisStore'
 import { useSPIStore } from '@/lib/store/spiStore'
 import { useTranslation } from '@/hooks/useTranslation'
@@ -125,20 +126,27 @@ export function KpiScoreboard({
             <p className="text-[10px] text-zinc-500 mt-0.5">{selectedDefs.length} {t('kpis.activeKpis').toLowerCase()}</p>
           </div>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           {!isClosed && (
-            <button
+            <motion.button
+              whileHover={{ scale: 1.03, y: -1 }}
+              whileTap={{ scale: 0.97 }}
               onClick={() => setShowPicker(true)}
-              className="text-[10px] font-mono text-fuchsia-300 hover:text-fuchsia-200 hover:bg-fuchsia-500/10 transition-colors px-2 py-1 rounded flex items-center gap-1"
+              className="px-4 py-2 rounded-xl text-[12px] font-semibold text-white transition-all flex items-center gap-1.5"
+              style={{
+                background: 'linear-gradient(135deg, #d946ef, #a855f7)',
+                boxShadow: '0 0 20px -6px rgba(217, 70, 239, 0.55), inset 0 1px 0 rgba(255,255,255,0.15)',
+              }}
+              title="Encender o apagar KPIs de tu library para esta semana"
             >
-              <Pencil className="w-3 h-3" /> {t('common.edit')}
-            </button>
+              <Plus className="w-3.5 h-3.5" /> Encender KPIs
+            </motion.button>
           )}
           <Link
             href="/kpis"
-            className="text-[10px] font-mono text-fuchsia-300/70 hover:text-fuchsia-200 hover:bg-fuchsia-500/10 transition-colors px-2 py-1 rounded"
+            className="text-[11px] font-mono text-fuchsia-300/70 hover:text-fuchsia-200 hover:bg-fuchsia-500/10 transition-colors px-2 py-1.5 rounded-lg"
           >
-            {t('kpis.library').toLowerCase()} →
+            library →
           </Link>
         </div>
       </div>
@@ -186,6 +194,37 @@ export function KpiScoreboard({
               onValueChange={onValueChange}
             />
           ))}
+        </div>
+      )}
+
+      {/* ── Otros KPIs en library — chips inline para encender directo
+          sin abrir modal. Solo aparece si hay KPIs en library que NO
+          están seleccionados esta semana y el SPI sigue editable. */}
+      {!isClosed && eligibleLibrary.length > selectedDefs.length && (
+        <div className="pt-3 border-t border-white/[0.06]">
+          <p className="text-[10px] font-mono uppercase tracking-[0.15em] text-zinc-500 mb-2.5">
+            Otros KPIs de tu library · encender para esta semana
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {eligibleLibrary
+              .filter((kpi) => !selected.includes(kpi.id))
+              .map((kpi) => (
+                <button
+                  key={kpi.id}
+                  onClick={() => onSelectedChange([...selected, kpi.id])}
+                  title={`Encender "${kpi.name}" para esta semana`}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] text-zinc-300 hover:text-white transition-all"
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: `1px solid ${kpi.color}40`,
+                  }}
+                >
+                  <Plus className="w-3 h-3" style={{ color: kpi.color }} />
+                  <span>{kpi.icon}</span>
+                  <span className="font-medium">{kpi.name}</span>
+                </button>
+              ))}
+          </div>
         </div>
       )}
 
