@@ -322,16 +322,39 @@ function WalletCard({ wallet, selected, onClick, onRequestDelete }: { wallet: Wa
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
       className="relative text-left p-4 rounded-2xl border transition-all overflow-hidden group cursor-pointer focus:outline-none focus:ring-2 focus:ring-white/20"
       style={{
-        background: selected ? wallet.color : `${wallet.color}18`,
-        borderColor: selected ? wallet.color : `${wallet.color}40`,
+        // Estilo del mockup: card oscura uniforme con glow radial del
+        // color del brand en la esquina sup-izq. El borde se ilumina
+        // SOLO cuando el wallet está seleccionado.
+        background: `
+          radial-gradient(circle at 0% 0%, ${wallet.color}28, transparent 50%),
+          rgba(255, 255, 255, 0.03)
+        `,
+        borderColor: selected ? `${wallet.color}99` : 'rgba(255, 255, 255, 0.08)',
+        boxShadow: selected
+          ? `inset 0 0 0 1px ${wallet.color}55, 0 0 24px -8px ${wallet.color}77`
+          : 'inset 0 1px 0 rgba(255,255,255,0.04)',
       }}
     >
-      <div className="flex items-start justify-between mb-2">
-        <span className="text-2xl">{wallet.icon}</span>
+      {/* Icon badge top-left — circle con el color del brand */}
+      <div className="flex items-start justify-between mb-3">
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center text-lg"
+          style={{
+            background: `${wallet.color}22`,
+            border: `1px solid ${wallet.color}40`,
+          }}
+        >
+          <span>{wallet.icon}</span>
+        </div>
+        {/* Dot verde "selected" en la esquina sup-der */}
         {selected && (
-          <div className="w-2 h-2 rounded-full bg-white mt-1" />
+          <div
+            className="w-2 h-2 rounded-full bg-emerald-400 mt-1.5"
+            style={{ boxShadow: '0 0 6px rgba(52, 211, 153, 0.7)' }}
+          />
         )}
       </div>
+
       {editingName ? (
         <input
           autoFocus
@@ -344,21 +367,22 @@ function WalletCard({ wallet, selected, onClick, onRequestDelete }: { wallet: Wa
             if (e.key === 'Enter') commitName()
             if (e.key === 'Escape') { setNameDraft(wallet.name); setEditingName(false) }
           }}
-          className={`w-full bg-transparent border-b ${selected ? 'border-white/40 text-white' : 'border-zinc-600 text-zinc-100'} text-sm font-bold focus:outline-none focus:border-white px-0 py-0`}
+          className="w-full bg-transparent border-b border-white/20 text-white text-[13px] font-medium focus:outline-none focus:border-white/50 px-0 py-0"
         />
       ) : (
-        <p onClick={(e) => { e.stopPropagation(); setEditingName(true) }}
+        <p
+          onClick={(e) => { e.stopPropagation(); setEditingName(true) }}
           title="Click para renombrar"
-          className={`text-sm font-bold truncate cursor-text ${selected ? 'text-white' : 'text-zinc-200'} hover:opacity-80`}>
+          className="text-[13px] font-medium text-white/90 truncate cursor-text hover:text-white"
+        >
           {wallet.name}
         </p>
       )}
-      {/* Headline balance — primary currency, big */}
+      {/* Headline balance — grande y blanco como en el mockup */}
       {headline && (
-        <p className={`text-lg font-black tabular-nums mt-0.5 ${selected ? 'text-white' : ''}`}
-          style={{ color: selected ? 'white' : headline.cur!.color }}>
+        <p className="text-xl font-bold tabular-nums mt-1 text-white">
           {headline.cur!.symbol}{fmt(headline.balance)}
-          <span className="text-xs font-semibold ml-1 opacity-70">{headline.code}</span>
+          <span className="text-[11px] font-mono ml-1.5 text-zinc-500">{headline.code}</span>
         </p>
       )}
       {/* Additional currencies — vertical list, each with its own color.
