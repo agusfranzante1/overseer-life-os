@@ -1,5 +1,5 @@
 'use client'
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useLayoutEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -1470,12 +1470,12 @@ function PrincipalCascadeBlock({
                 {[0, 1, 2].map((idx) => (
                   <div key={idx} className="flex items-start gap-2">
                     <span className="text-[10px] font-mono text-zinc-600 mt-2 w-4 shrink-0">{idx + 1}.</span>
-                    <textarea
+                    <AutoGrowTextarea
                       value={subs[idx]}
                       onChange={(e) => onValueChange('principal_cascade', `${areaKey}_sub${idx + 1}`, e.target.value)}
                       placeholder={`Sub-meta ${idx + 1}...`}
-                      rows={2}
-                      className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-amber-500/40 resize-y"
+                      minRows={2}
+                      className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-amber-500/40"
                     />
                   </div>
                 ))}
@@ -1637,6 +1637,35 @@ function WheelOfLifeChart({ values }: { values: Record<string, string> }) {
   )
 }
 
+/** Textarea que crece automáticamente para mostrar TODO el contenido sin
+ *  scroll. Mismo helper que existe en SPIPage — duplicado mínimo para no
+ *  expandir la API de un módulo solo para esto. Cualquier cambio a la
+ *  estrategia (reset height → scrollHeight) hay que aplicarlo en ambos. */
+function AutoGrowTextarea({
+  value, minRows = 3, style, ...rest
+}: Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'rows'> & {
+  minRows?: number
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null)
+  useLayoutEffect(() => {
+    const ta = ref.current
+    if (!ta) return
+    // Reset → scrollHeight reflects natural content size. Sin esto el
+    // textarea solo crece, nunca decrece al borrar.
+    ta.style.height = 'auto'
+    ta.style.height = `${ta.scrollHeight}px`
+  }, [value])
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      rows={minRows}
+      style={{ resize: 'none', overflow: 'hidden', ...style }}
+      {...rest}
+    />
+  )
+}
+
 function Field({
   field, value, onChange,
 }: { field: SectionField; value: string; onChange: (v: string) => void }) {
@@ -1647,12 +1676,12 @@ function Field({
         <p className="text-[10px] text-zinc-600 italic mb-1.5">{field.hint}</p>
       )}
       {field.type === 'textarea' ? (
-        <textarea
+        <AutoGrowTextarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.placeholder}
-          rows={3}
-          className="w-full bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-indigo-500/40 resize-y"
+          minRows={3}
+          className="w-full bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-indigo-500/40"
         />
       ) : field.type === 'score' ? (
         // 0-100 slider. Value is stored as a string so it fits the existing
@@ -1754,12 +1783,12 @@ function ClosePlanModal({
           </div>
           <div>
             <label className="text-xs text-zinc-400 mb-1.5 block">Reflexión / aprendizaje (opcional)</label>
-            <textarea
+            <AutoGrowTextarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="¿Qué te llevás de este período?"
-              rows={3}
-              className="w-full bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-emerald-500/40 resize-none"
+              minRows={3}
+              className="w-full bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-emerald-500/40"
             />
           </div>
         </div>
