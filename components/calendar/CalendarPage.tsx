@@ -329,7 +329,7 @@ export function CalendarPage() {
           width instead of squeezing next to the title. */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-3 shrink-0">
         <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">{t('calendar.title')}</h1>
+          <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight leading-none">{t('calendar.title')}</h1>
           <p className="text-zinc-500 text-sm">
             {view === 'month'
               ? format(currentDate, 'MMMM yyyy')
@@ -417,7 +417,7 @@ export function CalendarPage() {
         {banner && (
           <motion.div
             initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-            className={`mb-4 flex items-center gap-3 px-4 py-3 rounded-xl border ${
+            className={`mb-4 flex items-center gap-3 px-4 py-3 rounded-2xl border ${
               banner.kind === 'success'
                 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
                 : banner.kind === 'error'
@@ -1448,7 +1448,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
     // left a black band at the bottom when the offset didn't match
     // (different headers, mobile top bar, removed ChatBox, etc.).
     <div
-      className="border border-white/[0.08]/60 rounded-xl overflow-hidden flex flex-col h-full min-h-0"
+      className="border border-white/[0.08]/60 rounded-2xl overflow-hidden flex flex-col h-full min-h-0"
       style={{
         backgroundColor: '#1f1f1f',
         fontFamily: 'Roboto, "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
@@ -1942,7 +1942,7 @@ function NightHidePill({ enabled, start, end, onToggle, onRangeChange }: NightHi
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.98 }}
             transition={{ duration: 0.12 }}
-            className="absolute right-0 top-full mt-2 w-72 z-30 bg-white/[0.03] border border-white/[0.12] rounded-xl shadow-2xl p-4"
+            className="absolute right-0 top-full mt-2 w-72 z-30 bg-white/[0.03] border border-white/[0.12] rounded-2xl shadow-2xl p-4"
           >
             <h4 className="text-xs font-bold text-white mb-1 flex items-center gap-2">
               <Moon className="w-3.5 h-3.5 text-indigo-400" /> Ocultar período

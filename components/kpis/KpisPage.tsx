@@ -33,7 +33,7 @@ export function KpisPage() {
             {t('kpis.subtitle')}
           </p>
         </div>
-        <div className="flex items-center gap-1 bg-white/[0.03] border border-white/[0.08] rounded-xl p-1">
+        <div className="flex items-center gap-1 bg-white/[0.03] border border-white/[0.08] rounded-2xl p-1">
           <button
             onClick={() => setView('thisweek')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${

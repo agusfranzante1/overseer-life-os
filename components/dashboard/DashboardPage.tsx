@@ -270,13 +270,13 @@ export function DashboardPage() {
               </span>
             )}
           </div>
-          {/* Saludo gigante — 4xl-5xl bold tight tracking */}
-          <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight leading-[1.05]">
+          {/* Saludo MUY grande — 5xl-6xl bold tight tracking, dos líneas */}
+          <h1 className="text-5xl md:text-6xl font-bold text-white tracking-tight leading-[1.02]">
             {greeting},
             <br />
             {displayName}
           </h1>
-          <p className="text-[13px] text-zinc-500 max-w-md">
+          <p className="text-sm text-zinc-500 max-w-md">
             Que tengas un buen día. Tu sistema te espera.
           </p>
         </div>

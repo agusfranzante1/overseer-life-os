@@ -391,7 +391,7 @@ function WeekCard({
     : null  // not_started → no badge, just the "Empezar" CTA inside
 
   return (
-    <div className={`rounded-xl border overflow-hidden transition-colors mb-3 ${
+    <div className={`rounded-2xl border overflow-hidden transition-colors mb-3 ${
       isCurrent
         ? 'bg-black/30/60 border-fuchsia-500/30'
         : 'bg-black/30/40 border-white/[0.08]'
@@ -950,7 +950,7 @@ function LabPickerModal({
           )}
           {exercises.map((ex) => (
             <button key={ex.key} onClick={() => onPick(ex.key)}
-              className="w-full text-left p-3 rounded-xl border bg-white/[0.03]/60 border-white/[0.08] hover:border-fuchsia-500/40 hover:bg-white/[0.03] transition-colors flex items-start gap-3 group">
+              className="w-full text-left p-3 rounded-2xl border bg-white/[0.03]/60 border-white/[0.08] hover:border-fuchsia-500/40 hover:bg-white/[0.03] transition-colors flex items-start gap-3 group">
               <span className="text-xl shrink-0">{ex.emoji}</span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -1017,7 +1017,7 @@ function LanePicker({
             <button
               key={lane.key}
               onClick={() => toggle(lane.key)}
-              className={`text-left p-4 rounded-xl border-2 transition-all ${
+              className={`text-left p-4 rounded-2xl border-2 transition-all ${
                 isPicked
                   ? 'bg-white/[0.03] shadow-lg'
                   : 'bg-black/30/40 border-white/[0.08] hover:border-white/[0.12]'
@@ -1522,7 +1522,7 @@ function Section({
   const fullKey = parentKey ? `${parentKey}.${section.key}` : section.key
 
   return (
-    <div className={`bg-black/30/40 border border-white/[0.08] rounded-xl ${parentKey ? 'ml-4 mt-2' : ''}`}>
+    <div className={`bg-black/30/40 border border-white/[0.08] rounded-2xl ${parentKey ? 'ml-4 mt-2' : ''}`}>
       <button
         onClick={() => setOpen((v) => !v)}
         className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-white/[0.03]/40 transition-colors rounded-t-xl"
@@ -1703,7 +1703,7 @@ function TasksBlock({
   const linkedCount = sessionTasks.filter((t) => !!t.linkedTaskId).length
 
   return (
-    <div className="bg-gradient-to-br from-fuchsia-950/20 to-zinc-950/40 border border-fuchsia-500/20 rounded-xl p-5">
+    <div className="bg-gradient-to-br from-fuchsia-950/20 to-zinc-950/40 border border-fuchsia-500/20 rounded-2xl p-5">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-zinc-200 flex items-center gap-2">
           ⚒️ Tareas de la semana
@@ -2053,7 +2053,7 @@ function BitacoraBlock({
   const resolvedCount = entries.filter((e) => e.kind === 'broken' && e.resolved).length
 
   return (
-    <div className="bg-black/30/40 border border-white/[0.08] rounded-xl overflow-hidden">
+    <div className="bg-black/30/40 border border-white/[0.08] rounded-2xl overflow-hidden">
       {/* Header */}
       <button
         onClick={() => setCollapsed((v) => !v)}
@@ -2595,7 +2595,7 @@ function ProjectionContext({
   const nothingExists = !yearPlan && !quarterPlan && !monthPlan
 
   return (
-    <div className="bg-gradient-to-br from-blue-950/30 to-indigo-950/20 border border-blue-500/20 rounded-xl p-4 space-y-3">
+    <div className="bg-gradient-to-br from-blue-950/30 to-indigo-950/20 border border-blue-500/20 rounded-2xl p-4 space-y-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[10px] font-mono uppercase tracking-wider text-blue-300/80">
           📐 Contexto desde Proyección

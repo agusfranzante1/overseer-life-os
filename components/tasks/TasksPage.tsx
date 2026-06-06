@@ -960,24 +960,28 @@ export function TasksPage() {
                   }}
                 />
               ) : (
-                <h1 className="text-3xl font-bold text-white tracking-tight">{t('tasks.title')}</h1>
+                <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight leading-none">{t('tasks.title')}</h1>
               )}
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
               <button
                 onClick={() => setShowBreakdown({ task: null })}
-                className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 border border-indigo-500/40 hover:border-indigo-400 text-indigo-300 rounded-lg text-sm font-bold transition-all"
+                className="flex items-center gap-2 px-4 py-2.5 bg-white/[0.04] border border-white/[0.08] hover:border-indigo-400/40 hover:bg-indigo-500/10 text-zinc-200 hover:text-indigo-200 rounded-xl text-sm font-medium transition-all"
                 title="Pedile a la IA que desglose una tarea en sub-pasos"
               >
-                <Wand2 className="w-3.5 h-3.5" />
+                <Wand2 className="w-4 h-4" />
                 Desglosar con IA
               </button>
               <button
                 onClick={() => setNewTaskProjectId(activeProject?.id ?? projectList[0]?.id ?? null)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition-colors"
+                className="flex items-center gap-2 px-4 py-2.5 text-white rounded-xl text-sm font-semibold transition-all"
+                style={{
+                  background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                  boxShadow: '0 0 24px -8px rgba(99,102,241,0.6), inset 0 1px 0 rgba(255,255,255,0.15)',
+                }}
               >
-                <Plus className="w-3.5 h-3.5" />
+                <Plus className="w-4 h-4" />
                 {t('tasks.newTask')}
               </button>
             </div>

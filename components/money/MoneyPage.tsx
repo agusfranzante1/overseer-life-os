@@ -46,9 +46,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-const INPUT = 'w-full bg-zinc-800 border border-white/[0.12] rounded-xl px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 transition-colors'
-const SELECT = 'w-full bg-zinc-800 border border-white/[0.12] rounded-xl px-3 py-2.5 text-sm text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors'
-const BTN_PRIMARY = 'w-full bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl py-2.5 text-sm font-bold transition-colors'
+const INPUT = 'w-full bg-zinc-800 border border-white/[0.12] rounded-2xl px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 transition-colors'
+const SELECT = 'w-full bg-zinc-800 border border-white/[0.12] rounded-2xl px-3 py-2.5 text-sm text-zinc-200 focus:outline-none focus:border-indigo-500 transition-colors'
+const BTN_PRIMARY = 'w-full bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl py-2.5 text-sm font-bold transition-colors'
 
 // ─── Add Wallet Modal ─────────────────────────────────────────────────────────
 function AddWalletModal({ onClose }: { onClose: () => void }) {
@@ -77,7 +77,7 @@ function AddWalletModal({ onClose }: { onClose: () => void }) {
           <div className="flex flex-wrap gap-2">
             {WALLET_ICONS.map(ic => (
               <button key={ic} onClick={() => setIcon(ic)}
-                className={`w-9 h-9 rounded-xl text-lg flex items-center justify-center transition-all ${icon === ic ? 'ring-2 ring-indigo-500 bg-indigo-500/20' : 'bg-zinc-800 hover:bg-zinc-700'}`}>
+                className={`w-9 h-9 rounded-2xl text-lg flex items-center justify-center transition-all ${icon === ic ? 'ring-2 ring-indigo-500 bg-indigo-500/20' : 'bg-zinc-800 hover:bg-zinc-700'}`}>
                 {ic}
               </button>
             ))}
@@ -153,7 +153,7 @@ function TransactionModal({ walletId, type, currencyCode, onClose }: {
           <input value={date} onChange={e => setDate(e.target.value)} type="date" className={INPUT} />
         </Field>
         <button onClick={submit}
-          className={`w-full rounded-xl py-2.5 text-sm font-bold transition-colors text-white ${type === 'income' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-red-600 hover:bg-red-500'}`}>
+          className={`w-full rounded-2xl py-2.5 text-sm font-bold transition-colors text-white ${type === 'income' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-red-600 hover:bg-red-500'}`}>
           {type === 'income' ? 'Registrar ingreso' : 'Registrar egreso'}
         </button>
       </div>
@@ -224,7 +224,7 @@ function TransferModal({ onClose }: { onClose: () => void }) {
           <input value={rate} onChange={e => setRate(e.target.value)} type="number" min="0" step="0.0001" className={INPUT} />
         </Field>
         {parseFloat(amount) > 0 && (
-          <div className="bg-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-300">
+          <div className="bg-zinc-800 rounded-2xl px-4 py-3 text-sm text-zinc-300">
             Recibís: <span className="font-bold" style={{ color: tcur?.color }}>
               {tcur?.symbol} {toAmount.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {tc}
             </span>
@@ -338,7 +338,7 @@ function WalletCard({ wallet, selected, onClick, onRequestDelete }: { wallet: Wa
       {/* Icon badge top-left — circle con el color del brand */}
       <div className="flex items-start justify-between mb-3">
         <div
-          className="w-9 h-9 rounded-xl flex items-center justify-center text-lg"
+          className="w-9 h-9 rounded-2xl flex items-center justify-center text-lg"
           style={{
             background: `${wallet.color}22`,
             border: `1px solid ${wallet.color}40`,
@@ -450,7 +450,7 @@ function EditWalletModal({ wallet, onClose }: { wallet: Wallet; onClose: () => v
           <div className="flex flex-wrap gap-2">
             {WALLET_ICONS.map(ic => (
               <button key={ic} onClick={() => setIcon(ic)}
-                className={`w-9 h-9 rounded-xl text-lg flex items-center justify-center transition-all ${icon === ic ? 'ring-2 ring-indigo-500 bg-indigo-500/20' : 'bg-zinc-800 hover:bg-zinc-700'}`}>
+                className={`w-9 h-9 rounded-2xl text-lg flex items-center justify-center transition-all ${icon === ic ? 'ring-2 ring-indigo-500 bg-indigo-500/20' : 'bg-zinc-800 hover:bg-zinc-700'}`}>
                 {ic}
               </button>
             ))}
@@ -1296,7 +1296,7 @@ function DeleteWalletModal({ wallet, onConfirm, onClose }: { wallet: Wallet; onC
   return (
     <Modal title="Eliminar billetera" onClose={onClose}>
       <div className="space-y-4">
-        <div className="flex items-start gap-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+        <div className="flex items-start gap-3 p-3 rounded-2xl bg-red-500/10 border border-red-500/20">
           <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-semibold text-white">
@@ -1327,11 +1327,11 @@ function DeleteWalletModal({ wallet, onConfirm, onClose }: { wallet: Wallet; onC
 
         <div className="flex gap-2 pt-2">
           <button onClick={onClose}
-            className="flex-1 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl text-sm font-semibold transition-colors">
+            className="flex-1 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-2xl text-sm font-semibold transition-colors">
             Cancelar
           </button>
           <button onClick={() => { onConfirm(); onClose() }}
-            className="flex-1 px-4 py-2.5 bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 text-red-400 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2">
+            className="flex-1 px-4 py-2.5 bg-red-500/15 border border-red-500/30 hover:bg-red-500/25 text-red-400 rounded-2xl text-sm font-semibold transition-colors flex items-center justify-center gap-2">
             <Trash2 className="w-4 h-4" /> Eliminar
           </button>
         </div>
@@ -1373,7 +1373,7 @@ function UndoToast({ deletedId, walletName, walletIcon, onUndo, onDismiss }: {
       <button
         onClick={onUndo}
         title="Deshacer (rehacer rápido)"
-        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 text-emerald-400 text-sm font-bold transition-all group"
+        className="flex items-center gap-1.5 px-3 py-2 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 text-emerald-400 text-sm font-bold transition-all group"
       >
         <Undo2 className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
         Deshacer
@@ -1449,7 +1449,7 @@ function DeletedWalletsHistory() {
                     initial={{ opacity: 0, x: -8 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: 8 }}
-                    className="flex items-center gap-3 p-3 rounded-xl border border-white/[0.08] bg-black/30/40 hover:border-white/[0.12] transition-all"
+                    className="flex items-center gap-3 p-3 rounded-2xl border border-white/[0.08] bg-black/30/40 hover:border-white/[0.12] transition-all"
                     style={{ borderLeftColor: entry.wallet.color, borderLeftWidth: 3 }}
                   >
                     <span className="text-2xl shrink-0">{entry.wallet.icon}</span>
@@ -1552,7 +1552,7 @@ export function MoneyPage() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight flex items-center gap-2">
+          <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight leading-none flex items-center gap-2">
             <WalletIcon className="w-5 h-5 text-emerald-400" />
             {t('wallet.title')}
           </h1>
@@ -1561,17 +1561,17 @@ export function MoneyPage() {
         <div className="flex items-center gap-2">
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
             onClick={() => setModal({ type: 'transfer' })}
-            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-500/10 border border-indigo-500/30 hover:bg-indigo-500/20 text-indigo-400 rounded-xl text-sm font-semibold transition-all">
+            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-500/10 border border-indigo-500/30 hover:bg-indigo-500/20 text-indigo-400 rounded-2xl text-sm font-semibold transition-all">
             <ArrowLeftRight className="w-4 h-4" /> {t('wallet.transfer')}
           </motion.button>
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
             onClick={() => setModal({ type: 'addCurrency' })}
-            className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 border border-white/[0.12] hover:bg-zinc-700 text-zinc-300 rounded-xl text-sm font-semibold transition-all">
+            className="flex items-center gap-2 px-4 py-2.5 bg-zinc-800 border border-white/[0.12] hover:bg-zinc-700 text-zinc-300 rounded-2xl text-sm font-semibold transition-all">
             <Settings className="w-4 h-4" /> {t('wallet.currencies')}
           </motion.button>
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
             onClick={() => setModal({ type: 'addWallet' })}
-            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 text-emerald-400 rounded-xl text-sm font-semibold transition-all">
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 text-emerald-400 rounded-2xl text-sm font-semibold transition-all">
             <Plus className="w-4 h-4" /> {t('wallet.walletShort')}
           </motion.button>
         </div>
@@ -1581,7 +1581,7 @@ export function MoneyPage() {
       {summary.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {summary.map(({ cur, income, expense, balance }) => (
-            <div key={cur.code} className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-4"
+            <div key={cur.code} className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4"
               style={{ borderLeftColor: cur.color, borderLeftWidth: 3 }}>
               <div className="flex items-center gap-1.5 mb-2">
                 <div className="w-2 h-2 rounded-full" style={{ background: cur.color }} />

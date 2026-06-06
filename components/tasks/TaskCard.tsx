@@ -285,23 +285,28 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
     setOverSubId(null)
   }
 
-  // Border logic basado en la prioridad EFECTIVA — no tocamos colores
-  // especiales para "tiene hija urgente": como la efectiva ya es high
-  // en ese caso, la madre se ve con el borde rojo claro de high. Sin
-  // hijas urgentes y sin prioridad alta propia, vuelve al borde neutro.
-  const borderClass = isDone
-    ? 'border-white/[0.08] opacity-60'
+  // Color del border-top según urgencia EFECTIVA — estilo del mockup
+  // de Gestor de Tareas: barra superior coloreada según la prioridad.
+  //   urgente (red)        → barra roja fuerte
+  //   high / overdue       → barra naranja
+  //   medium               → barra azul
+  //   low / default        → barra gris sutil
+  //   done                 → barra muy tenue + card opaca
+  const accentColor = isDone
+    ? '#52525b'
     : isUrgent
-      ? 'border-red-500 shadow-[0_0_0_1px_rgba(239,68,68,0.3)]'
+      ? '#ef4444'
       : isHighPriority || isOverdue
-        ? 'border-red-500/40'
-        : 'border-white/[0.08] hover:border-white/[0.12]'
+        ? '#f97316'
+        : effPriority === 'medium'
+          ? '#3b82f6'
+          : '#71717a'
 
   // Apply task-to-task drag visual state. Solid violet ring while a
   // foreign TaskCard is hovering over this card (= valid drop target);
   // soft opacity dip on the source while it's being dragged.
   const dndClass = isDropTarget
-    ? 'ring-2 ring-violet-400 ring-offset-2 ring-offset-zinc-950'
+    ? 'ring-2 ring-violet-400 ring-offset-2 ring-offset-[#0a0e15]'
     : ''
   const dndStyle: React.CSSProperties = isDraggingThisCard
     ? { opacity: 0.4 }
@@ -319,12 +324,24 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
       onDragLeave={onTaskDragLeave}
       onDrop={onTaskDrop}
       onDragEnd={onTaskDragEnd}
-      style={dndStyle}
-      className={`bg-white/[0.03] border rounded-xl transition-all ${borderClass} ${dndClass}`}
+      style={{
+        ...dndStyle,
+        // Estilo del mockup: card oscura translúcida, borde sutil
+        // EXCEPTO el TOP que se ilumina con el color de urgencia +
+        // un glow interno del mismo color que tiñe sutilmente.
+        background: `
+          linear-gradient(180deg, ${accentColor}1a 0%, transparent 25%),
+          rgba(255, 255, 255, 0.025)
+        `,
+        borderTop: `2px solid ${accentColor}`,
+        boxShadow: `inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0,0,0,0.3)`,
+        opacity: isDone ? 0.55 : 1,
+      }}
+      className={`rounded-2xl transition-all overflow-hidden ${dndClass}`}
     >
       {/* Body — clicking it opens the detail modal */}
       <div
-        className="p-3 cursor-pointer"
+        className="p-4 cursor-pointer"
         onClick={(e) => {
           // Don't trigger if user clicked an interactive element (they handle their own clicks with stopPropagation)
           if ((e.target as HTMLElement).closest('[data-interactive]')) return

@@ -192,7 +192,7 @@ export function HabitsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight flex items-center gap-2">
+          <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight leading-none flex items-center gap-2">
             <Activity className="w-5 h-5 text-pink-400" />
             {t('habits.title')}
           </h1>
@@ -203,7 +203,7 @@ export function HabitsPage() {
             <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
               onClick={() => { setReorderMode((v) => !v); if (showForm) setShowForm(false) }}
               title={reorderMode ? t('habits.done') : t('habits.reorder')}
-              className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
+              className={`flex items-center gap-2 px-3 py-2.5 rounded-2xl text-sm font-semibold transition-all border ${
                 reorderMode
                   ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
                   : 'bg-white/[0.03] border-white/[0.08] hover:border-white/[0.12] text-zinc-400 hover:text-zinc-200'
@@ -215,7 +215,7 @@ export function HabitsPage() {
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
             onClick={() => setShowForm(!showForm)}
             disabled={reorderMode}
-            className="flex items-center gap-2 px-4 py-2.5 bg-pink-500/10 border border-pink-500/30 hover:bg-pink-500/20 disabled:opacity-40 disabled:cursor-not-allowed text-pink-400 rounded-xl text-sm font-semibold transition-all">
+            className="flex items-center gap-2 px-4 py-2.5 bg-pink-500/10 border border-pink-500/30 hover:bg-pink-500/20 disabled:opacity-40 disabled:cursor-not-allowed text-pink-400 rounded-2xl text-sm font-semibold transition-all">
             <Plus className="w-4 h-4" /> {t('habits.newHabit')}
           </motion.button>
         </div>
@@ -403,7 +403,7 @@ export function HabitsPage() {
                 // no marear, pero el borde blanco lo deja inequívoco.
                 // (No aplicamos hover si estás en reorder mode o si la fila
                 // ya está resaltada como drop-target.)
-                className={`bg-white/[0.03] border rounded-xl px-4 py-3 flex items-center gap-4 group transition-all ${
+                className={`bg-white/[0.03] border rounded-2xl px-4 py-3 flex items-center gap-4 group transition-all ${
                   isDragging
                     ? 'border-emerald-500/60 opacity-50 cursor-grabbing'
                     : isDropTarget
@@ -658,7 +658,7 @@ export function HabitsPage() {
 
 function SummaryCard({ label, value, color, icon }: { label: string; value: string; color: string; icon?: React.ReactNode }) {
   return (
-    <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-4" style={{ borderLeftColor: color, borderLeftWidth: 3 }}>
+    <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4" style={{ borderLeftColor: color, borderLeftWidth: 3 }}>
       <p className="text-xs text-zinc-400 uppercase tracking-wider font-semibold mb-2 flex items-center gap-1">
         {icon}{label}
       </p>
@@ -719,7 +719,7 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
 
   if (series.length === 0) {
     return (
-      <div className="bg-black/30/60 border border-white/[0.08] rounded-xl p-6 text-center text-xs text-zinc-600">
+      <div className="bg-black/30/60 border border-white/[0.08] rounded-2xl p-6 text-center text-xs text-zinc-600">
         Sin datos este mes
       </div>
     )
@@ -738,7 +738,7 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
   const avgColor = monthAvg >= 75 ? '#10b981' : monthAvg >= 50 ? '#f59e0b' : '#ef4444'
 
   return (
-    <div className="bg-black/30/60 border border-white/[0.08] rounded-xl p-5">
+    <div className="bg-black/30/60 border border-white/[0.08] rounded-2xl p-5">
       {/* Stats strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <StatChip label="Nota mensual" value={`${monthAvg}%`} color={avgColor} highlight />
@@ -809,7 +809,7 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
 
 function StatChip({ label, value, color, highlight }: { label: string; value: string; color: string; highlight?: boolean }) {
   return (
-    <div className={`rounded-xl p-3 ${highlight ? 'bg-white/[0.03] border-2' : 'bg-white/[0.03]/70 border'}`}
+    <div className={`rounded-2xl p-3 ${highlight ? 'bg-white/[0.03] border-2' : 'bg-white/[0.03]/70 border'}`}
       style={{ borderColor: highlight ? color : '#27272a' }}>
       <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">{label}</p>
       <p className="text-2xl font-extrabold tabular-nums mt-0.5" style={{ color }}>{value}</p>
