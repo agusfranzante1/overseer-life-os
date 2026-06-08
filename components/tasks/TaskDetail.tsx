@@ -773,10 +773,10 @@ function RecurrencePicker({
 
           {recurrence && (
             <p className="text-[10px] text-zinc-600 mt-2 italic leading-relaxed">
-              Te creamos las próximas 6 instancias (<span className="text-zinc-400">{recurrenceLabel(recurrence)}</span>) de una
-              para que veas la semana entera en el task manager y en el calendario.
-              A medida que las completás se va creando la siguiente al final, y si te olvidás de marcar alguna también
-              aparece sola apenas pase su fecha.
+              Te creamos solo las instancias de la semana en curso (<span className="text-zinc-400">{recurrenceLabel(recurrence)}</span>) —
+              1 si es semanal, hasta 5 si es Lun-Vie, hasta 7 si es diaria, según los días que caen.
+              Al completar la última de la semana se llena la semana siguiente, y si te olvidás de marcar alguna
+              también aparece sola apenas pase su fecha.
             </p>
           )}
         </>

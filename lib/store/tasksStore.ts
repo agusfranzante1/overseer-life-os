@@ -357,29 +357,52 @@ export const useTasksStore = create<TasksState>()(
         return id
       },
 
-      /** Llena el buffer de instancias recurrentes para el TASK ID dado.
-       *  Camina la cadena hasta tener `lookaheadCount` instancias futuras
-       *  encadenadas (default 6 → semana entera). Idempotente: si la
-       *  cadena ya está completa, no hace nada.
+      /** Llena el buffer de instancias recurrentes para el TASK ID dado
+       *  hasta el FIN de la semana de la dueDate del head (Lun→Dom).
+       *  El parámetro `lookaheadCount` se mantiene como tope de seguridad
+       *  (no más de N pasos en la cadena), pero el corte real es la
+       *  ventana semanal — así una recurrencia weekly genera 1, weekdays
+       *  genera ≤5, daily genera ≤7, custom genera tantas como días
+       *  caigan en la semana.
+       *
+       *  Idempotente: si la cadena ya cubre la semana, no hace nada.
        *
        *  Se llama tanto al CREAR una recurrente (vía addTask) como al
-       *  AGREGAR recurrencia a una tarea existente (vía updateTask). Sin
-       *  esto el user agregaba recurrence a una tarea ya creada y no
-       *  veía nada de la semana hasta completarla. */
-      ensureRecurringBuffer: (taskId, lookaheadCount = 6) => {
+       *  AGREGAR recurrencia a una tarea existente (vía updateTask) y
+       *  como BACKFILL al montar TasksPage. Sin esto el user agregaba
+       *  recurrence a una tarea ya creada y no veía nada de la semana
+       *  hasta completarla. */
+      ensureRecurringBuffer: (taskId, lookaheadCount = 14) => {
         const nowIso = new Date().toISOString()
         set((s) => {
           const head = s.tasks[taskId]
           if (!head?.recurrence || !head.dueDate) return s
           const tasks = { ...s.tasks }
           let projects = s.projects
-          let prevId = taskId
-          let prevDue = head.dueDate
-          // Si la cadena ya tiene siguiente instancia, saltamos hasta el
-          // final. Cómo: si la actual tiene `recurrenceSpawnedNext: true`
-          // buscamos en s.tasks una con mismo projectId+title cuya
-          // dueDate sea exactamente nextRecurrenceDueDate(prevDue) — esa
-          // es la próxima ya creada. Camina hasta donde no haya más.
+
+          // ─── Ventana semanal Lun→Dom de la dueDate del head ───
+          // Si el head es Sábado, la "semana" es esa Lun anterior → Dom
+          // siguiente. Si el head es Lunes, esa misma semana. Spawneamos
+          // solo instancias cuyo dueDate cae dentro de esta ventana.
+          //
+          // Por qué la semana del head y no la de hoy: el user crea sus
+          // recurrentes el Sábado/Domingo para la semana que ARRANCA;
+          // la dueDate apunta al Lunes (o al día que elija). La ventana
+          // que importa es la del head, no la de "ahora".
+          const [hy, hm, hd] = head.dueDate.split('-').map(Number)
+          const headDate = new Date(hy, hm - 1, hd); headDate.setHours(0, 0, 0, 0)
+          // Lun=1 … Dom=0. Queremos arrancar la semana en Lun.
+          const dayOfWeek = headDate.getDay()                  // 0..6 (Dom=0)
+          const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+          const weekStart = new Date(headDate); weekStart.setDate(headDate.getDate() - daysToMonday)
+          const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6)
+          const fmtYmd = (d: Date) =>
+            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+          const weekEndYmd = fmtYmd(weekEnd)
+
+          // Identificación de "siguiente instancia ya creada" — matcheamos
+          // por mismo projectId + title + dueDate esperada. La cadena se
+          // marca con recurrenceSpawnedNext: true cuando ya existe la sig.
           const findNextExisting = (currentTaskId: string, currentDue: string): { nextId: string; nextDue: string } | null => {
             const cur = tasks[currentTaskId]
             if (!cur?.recurrenceSpawnedNext) return null
@@ -394,31 +417,26 @@ export const useTasksStore = create<TasksState>()(
             )
             return next ? { nextId: next.id, nextDue: expectedDue } : null
           }
-          // Avanzar al final de la cadena ya existente.
-          for (let safety = 0; safety < 30; safety++) {
+
+          // Avanzar al final de la cadena ya existente — desde acá vamos
+          // a spawnear hacia adelante hasta el corte semanal.
+          let prevId = taskId
+          let prevDue = head.dueDate
+          for (let safety = 0; safety < lookaheadCount; safety++) {
             const hop = findNextExisting(prevId, prevDue)
             if (!hop) break
             prevId = hop.nextId
             prevDue = hop.nextDue
           }
-          // Ahora spawneamos hasta llegar al lookaheadCount desde el
-          // head. Calculamos cuántas faltan: contamos las que ya existen.
-          let existingChainLength = 0
-          {
-            let walkId = taskId
-            let walkDue = head.dueDate
-            for (let i = 0; i < lookaheadCount; i++) {
-              const hop = findNextExisting(walkId, walkDue)
-              if (!hop) break
-              existingChainLength++
-              walkId = hop.nextId
-              walkDue = hop.nextDue
-            }
-          }
-          const toSpawn = Math.max(0, lookaheadCount - existingChainLength)
-          for (let i = 0; i < toSpawn; i++) {
+
+          // Spawn loop — para hasta que la próxima caiga fuera de la
+          // semana del head, o hasta el lookaheadCount como tope de
+          // seguridad anti-loop. Sin esto un bug en recurrence podría
+          // generar instancias infinitas.
+          for (let i = 0; i < lookaheadCount; i++) {
             const next = nextRecurrenceDueDate(prevDue, head.recurrence!)
-            if (!next) break
+            if (!next) break                         // serie terminó (until)
+            if (next > weekEndYmd) break             // ya nos pasamos del Domingo de la semana del head
             const newId = genId()
             const proj = projects[head.projectId]
             const todoStatus = proj?.statuses[0]?.label ?? 'To Do'
@@ -606,6 +624,9 @@ export const useTasksStore = create<TasksState>()(
         if (taskBefore.gcalEventId && taskBefore.gcalCalendarId) {
           unlinkTaskFromGcal(taskBefore).catch(() => { /* noop */ })
         }
+        // Captura del id de la instancia spawneada (si hay) — lo seteamos
+        // adentro del set() y lo leemos después para fillear su semana.
+        let postSpawnedId: string | null = null
         set((s) => {
           const task = s.tasks[id]
           if (!task) return s
@@ -634,6 +655,9 @@ export const useTasksStore = create<TasksState>()(
           // del `until`, no se crea nada. Si `recurrenceSpawnedNext` ya
           // está en true → la siguiente ya fue spawneada por
           // `ensureRecurringSpawns` (overdue auto-spawn) y no creamos otra.
+          // (postSpawnedId vive en el scope de completeTask — lo seteamos
+          // si spawneamos para que el post-set fill la semana de la nueva.)
+
           if (task.recurrence && task.dueDate && !task.recurrenceSpawnedNext) {
             const nextDueDate = nextRecurrenceDueDate(task.dueDate, task.recurrence)
             if (nextDueDate) {
@@ -676,11 +700,21 @@ export const useTasksStore = create<TasksState>()(
               // Marcamos la actual como "ya spawneada" para que ensureRecurringSpawns
               // no cree otra copia si esta misma sigue overdue después.
               updatedTasks[id] = { ...updatedTasks[id], recurrenceSpawnedNext: true }
+              postSpawnedId = newId
             }
           }
 
           return { tasks: updatedTasks, projects: updatedProjects }
         })
+
+        // Post-set: si spawneamos una nueva instancia recurrente,
+        // llenamos su semana entera de una. ensureRecurringBuffer recorta
+        // automáticamente al fin de semana de la dueDate del head, así
+        // que llamarla con la nueva task crea solo las que faltan para
+        // esa semana — para weekly = 0 más; para daily = hasta 6 más.
+        if (postSpawnedId) {
+          get().ensureRecurringBuffer(postSpawnedId, 14)
+        }
       },
 
       duplicateTask: (id) => {
@@ -871,6 +905,10 @@ export const useTasksStore = create<TasksState>()(
       ensureRecurringSpawns: (todayKey) => {
         let spawned = 0
         const nowIso = new Date().toISOString()
+        // Recopilamos los ids spawneados para hacer post-fill semanal
+        // (igual que completeTask): la nueva instancia puede ser parte
+        // de una semana que también querés ver entera.
+        const spawnedIds: string[] = []
         set((s) => {
           const tasks = { ...s.tasks }
           let projects = s.projects
@@ -927,9 +965,15 @@ export const useTasksStore = create<TasksState>()(
               }
             }
             spawned++
+            spawnedIds.push(newId)
           }
           return { tasks, projects }
         })
+        // Post-set: fillea la semana de cada spawned (idempotente — si
+        // ya cubría la semana no hace nada).
+        for (const newId of spawnedIds) {
+          get().ensureRecurringBuffer(newId, 14)
+        }
         return spawned
       },
 
