@@ -809,8 +809,69 @@ function ThisWeekView() {
   // aclarando que la planificación quedó congelada pero los KPIs siguen
   // editables hasta el próximo sábado.
   const sessionClosed = !!session.closedAt
+
+  // Calculamos el rango "de cuándo a cuándo" que esta sesión cubre — la
+  // SEMANA está en LUNES→DOMINGO, no en sábado→viernes (los KPIs viven
+  // en la sesión cuya ventana Mon-Sun contiene el día actual). Esto le
+  // da orientación al user de qué semana exacta está trackeando.
+  const weekRange = useMemo(() => {
+    const [y, m, d] = session.weekStartDate.split('-').map(Number)
+    const sat = new Date(y, m - 1, d)
+    // El sábado de weekStartDate "owns" la semana Mon(+2) → Sun(+8).
+    const monday = new Date(sat); monday.setDate(sat.getDate() + 2)
+    const sunday = new Date(sat); sunday.setDate(sat.getDate() + 8)
+    const fmt = (date: Date) =>
+      date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const todayCopy = new Date(today)
+    const isCurrent = today >= monday && todayCopy <= sunday
+    const isFuture = monday > today
+    return { mondayLabel: fmt(monday), sundayLabel: fmt(sunday), isCurrent, isFuture }
+  }, [session.weekStartDate])
+
   return (
     <div className="space-y-3">
+      {/* Chip con el rango de la semana — orientación visual sobre
+          cuándo arranca y cuándo cierra esta sesión de KPIs. */}
+      <div
+        className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl"
+        style={{
+          background: 'rgba(255, 255, 255, 0.025)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.04)',
+        }}
+      >
+        <div
+          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+          style={{
+            background: 'rgba(217, 70, 239, 0.18)',
+            border: '1px solid rgba(217, 70, 239, 0.40)',
+          }}
+        >
+          <Calendar className="w-4 h-4 text-fuchsia-300" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[11px] font-mono uppercase tracking-[0.15em] text-zinc-500">
+            Semana trackeada
+          </p>
+          <p className="text-[13px] font-semibold text-white">
+            Lun {weekRange.mondayLabel} → Dom {weekRange.sundayLabel}
+          </p>
+        </div>
+        <span
+          className={`text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded-full ${
+            weekRange.isCurrent
+              ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
+              : weekRange.isFuture
+                ? 'bg-blue-500/15 border border-blue-500/30 text-blue-300'
+                : 'bg-zinc-500/15 border border-zinc-500/30 text-zinc-400'
+          }`}
+        >
+          {weekRange.isCurrent ? 'En curso' : weekRange.isFuture ? 'Próxima' : 'Pasada'}
+        </span>
+      </div>
+
       {sessionClosed && (
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 text-[11px] text-amber-200/90 flex items-start gap-2">
           <span className="text-base leading-none">ℹ️</span>
