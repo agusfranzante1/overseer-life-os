@@ -80,6 +80,11 @@ interface TasksState {
    *  igual la siguiente aparece sola en su nueva fecha — no perdés el
    *  hilo. Devuelve cuántas instancias nuevas se crearon. */
   ensureRecurringSpawns: (todayKey: string) => number
+  /** Llena el buffer de instancias recurrentes para la TASK ID dada
+   *  hasta tener `lookaheadCount` instancias chained. Idempotente —
+   *  si la cadena ya está completa, no hace nada. Se llama al crear
+   *  una recurrente Y al agregar recurrence a una tarea existente. */
+  ensureRecurringBuffer: (taskId: string, lookaheadCount?: number) => void
   /** Restore an archived task: clear its archivedAt + completedAt and reset
    *  its status to the first non-done status of its project. */
   restoreFromArchive: (id: string) => void
@@ -332,58 +337,12 @@ export const useTasksStore = create<TasksState>()(
           },
         }))
         // Buffer recurrente: si la task viene con recurrence + dueDate,
-        // spawneamos las próximas 6 instancias chained para que el user
-        // tenga la semana entera visible de una. Las del medio quedan
-        // marcadas con `recurrenceSpawnedNext: true` para que completarlas
-        // no genere duplicados (la siguiente ya existe). La última de la
-        // cadena queda en `false` — al completarla, `completeTask` spawn
-        // la próxima y el buffer rueda solo.
+        // disparamos el helper que spawnea las próximas 6 instancias.
+        // Si NO viene con recurrence al crear (el caso común: el user
+        // agrega recurrence después desde TaskDetail), `updateTask`
+        // dispara el buffer cuando detecta la patch.
         if (task.recurrence && task.dueDate) {
-          set((s) => {
-            const tasks = { ...s.tasks }
-            let projects = s.projects
-            let prevId = id
-            let prevDue = task.dueDate!
-            for (let i = 0; i < 6; i++) {
-              const next = nextRecurrenceDueDate(prevDue, task.recurrence!)
-              if (!next) break
-              const newId = genId()
-              const proj = projects[task.projectId]
-              const todoStatus = proj?.statuses[0]?.label ?? 'To Do'
-              tasks[newId] = {
-                ...task,
-                id: newId,
-                dueDate: next,
-                status: todoStatus,
-                completedAt: undefined,
-                archivedAt: undefined,
-                createdAt: now,
-                updatedAt: now,
-                postponedCount: 0,
-                subtasks: (task.subtasks ?? []).map((sub) => ({
-                  ...sub, id: genId(), completed: false, completedAt: undefined, status: todoStatus,
-                })),
-                recurrenceSpawnedNext: false,
-                gcalEventId: undefined,
-                gcalCalendarId: undefined,
-              }
-              // El anterior pasa a estar "ya spawneado" — completarlo no
-              // crea otro duplicado porque la siguiente fecha ya existe.
-              tasks[prevId] = { ...tasks[prevId], recurrenceSpawnedNext: true }
-              if (proj) {
-                projects = {
-                  ...projects,
-                  [proj.id]: {
-                    ...proj,
-                    taskIds: [...(projects[proj.id]?.taskIds ?? []), newId],
-                  },
-                }
-              }
-              prevId = newId
-              prevDue = next
-            }
-            return { tasks, projects }
-          })
+          get().ensureRecurringBuffer(id, 6)
         }
 
         // GCal sync fire-and-forget — no bloqueamos la respuesta del store.
@@ -396,6 +355,105 @@ export const useTasksStore = create<TasksState>()(
           }
         })()
         return id
+      },
+
+      /** Llena el buffer de instancias recurrentes para el TASK ID dado.
+       *  Camina la cadena hasta tener `lookaheadCount` instancias futuras
+       *  encadenadas (default 6 → semana entera). Idempotente: si la
+       *  cadena ya está completa, no hace nada.
+       *
+       *  Se llama tanto al CREAR una recurrente (vía addTask) como al
+       *  AGREGAR recurrencia a una tarea existente (vía updateTask). Sin
+       *  esto el user agregaba recurrence a una tarea ya creada y no
+       *  veía nada de la semana hasta completarla. */
+      ensureRecurringBuffer: (taskId, lookaheadCount = 6) => {
+        const nowIso = new Date().toISOString()
+        set((s) => {
+          const head = s.tasks[taskId]
+          if (!head?.recurrence || !head.dueDate) return s
+          const tasks = { ...s.tasks }
+          let projects = s.projects
+          let prevId = taskId
+          let prevDue = head.dueDate
+          // Si la cadena ya tiene siguiente instancia, saltamos hasta el
+          // final. Cómo: si la actual tiene `recurrenceSpawnedNext: true`
+          // buscamos en s.tasks una con mismo projectId+title cuya
+          // dueDate sea exactamente nextRecurrenceDueDate(prevDue) — esa
+          // es la próxima ya creada. Camina hasta donde no haya más.
+          const findNextExisting = (currentTaskId: string, currentDue: string): { nextId: string; nextDue: string } | null => {
+            const cur = tasks[currentTaskId]
+            if (!cur?.recurrenceSpawnedNext) return null
+            const expectedDue = nextRecurrenceDueDate(currentDue, head.recurrence!)
+            if (!expectedDue) return null
+            const next = Object.values(tasks).find((t) =>
+              t.id !== currentTaskId
+              && t.projectId === head.projectId
+              && t.title === head.title
+              && t.dueDate === expectedDue
+              && !t.archivedAt,
+            )
+            return next ? { nextId: next.id, nextDue: expectedDue } : null
+          }
+          // Avanzar al final de la cadena ya existente.
+          for (let safety = 0; safety < 30; safety++) {
+            const hop = findNextExisting(prevId, prevDue)
+            if (!hop) break
+            prevId = hop.nextId
+            prevDue = hop.nextDue
+          }
+          // Ahora spawneamos hasta llegar al lookaheadCount desde el
+          // head. Calculamos cuántas faltan: contamos las que ya existen.
+          let existingChainLength = 0
+          {
+            let walkId = taskId
+            let walkDue = head.dueDate
+            for (let i = 0; i < lookaheadCount; i++) {
+              const hop = findNextExisting(walkId, walkDue)
+              if (!hop) break
+              existingChainLength++
+              walkId = hop.nextId
+              walkDue = hop.nextDue
+            }
+          }
+          const toSpawn = Math.max(0, lookaheadCount - existingChainLength)
+          for (let i = 0; i < toSpawn; i++) {
+            const next = nextRecurrenceDueDate(prevDue, head.recurrence!)
+            if (!next) break
+            const newId = genId()
+            const proj = projects[head.projectId]
+            const todoStatus = proj?.statuses[0]?.label ?? 'To Do'
+            tasks[newId] = {
+              ...head,
+              id: newId,
+              dueDate: next,
+              status: todoStatus,
+              completedAt: undefined,
+              archivedAt: undefined,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+              postponedCount: 0,
+              subtasks: (head.subtasks ?? []).map((sub) => ({
+                ...sub, id: genId(), completed: false, completedAt: undefined, status: todoStatus,
+              })),
+              recurrenceSpawnedNext: false,
+              gcalEventId: undefined,
+              gcalCalendarId: undefined,
+            }
+            tasks[prevId] = { ...tasks[prevId], recurrenceSpawnedNext: true }
+            if (proj) {
+              projects = {
+                ...projects,
+                [proj.id]: {
+                  ...proj,
+                  taskIds: [...(projects[proj.id]?.taskIds ?? []), newId],
+                },
+              }
+            }
+            prevId = newId
+            prevDue = next
+          }
+          return { tasks, projects }
+        })
       },
 
       updateTask: (id, patch) => {
@@ -440,6 +498,14 @@ export const useTasksStore = create<TasksState>()(
 
           const merged = { ...prev, ...patch, ...completedAtPatch, ...priorityPatch, ...durationPatch, updatedAt: new Date().toISOString() }
           nextTask = merged
+          // Flag: ¿la patch acaba de AGREGAR recurrence o cambió su kind?
+          // Si sí, después del set() vamos a disparar el buffer para que
+          // la semana entera se vea instantáneamente. Importante: solo
+          // si hay dueDate (sin fecha no hay ancla).
+          const prevR = prev.recurrence
+          const newR = merged.recurrence
+          const recurrenceJustAdded = !!(merged.dueDate && newR && (!prevR || prevR.kind !== newR.kind || JSON.stringify(prevR.daysOfWeek ?? []) !== JSON.stringify(newR.daysOfWeek ?? [])))
+          ;(merged as Task & { __triggerBuffer?: boolean }).__triggerBuffer = recurrenceJustAdded
 
           // Decidir si re-sincronizar a GCal. Trigger cuando cambia algo
           // que afecta el evento: title, dueDate, dueTime, durationMinutes,
@@ -456,6 +522,14 @@ export const useTasksStore = create<TasksState>()(
             },
           }
         })
+        // Si la patch acaba de agregar/cambiar recurrence, disparamos
+        // el buffer para llenar la semana de una. El flag fue seteado
+        // dentro del set() arriba; lo leemos y limpiamos ahora.
+        if (nextTask && (nextTask as Task & { __triggerBuffer?: boolean }).__triggerBuffer) {
+          delete (nextTask as Task & { __triggerBuffer?: boolean }).__triggerBuffer
+          get().ensureRecurringBuffer(id, 6)
+        }
+
         // Sync fire-and-forget — el patch que devuelve syncTaskToGcal
         // contiene los IDs del evento creado/borrado; lo aplicamos vía
         // un segundo set() bypaseando esta misma updateTask (para no

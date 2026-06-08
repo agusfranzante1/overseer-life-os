@@ -773,8 +773,10 @@ function RecurrencePicker({
 
           {recurrence && (
             <p className="text-[10px] text-zinc-600 mt-2 italic leading-relaxed">
-              La siguiente instancia (<span className="text-zinc-400">{recurrenceLabel(recurrence)}</span>) se crea automáticamente
-              al completar esta tarea. Si te olvidás de marcarla, igual aparece sola apenas pase su fecha — no perdés el hilo.
+              Te creamos las próximas 6 instancias (<span className="text-zinc-400">{recurrenceLabel(recurrence)}</span>) de una
+              para que veas la semana entera en el task manager y en el calendario.
+              A medida que las completás se va creando la siguiente al final, y si te olvidás de marcar alguna también
+              aparece sola apenas pase su fecha.
             </p>
           )}
         </>

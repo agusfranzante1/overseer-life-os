@@ -1387,6 +1387,18 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
   const weekEnd   = endOfWeek(anchor, { weekStartsOn: 1 })
   const days = eachDayOfInterval({ start: weekStart, end: weekEnd })
 
+  // All-day strip colapsable — el listado de tareas+eventos all-day por
+  // día puede crecer mucho y comerse altura del grid horario. Persistimos
+  // en localStorage para que la preferencia sobreviva a reloads. */
+  const [allDayCollapsed, setAllDayCollapsed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem('overseer-cal-allday-collapsed') === '1'
+  })
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem('overseer-cal-allday-collapsed', allDayCollapsed ? '1' : '0')
+  }, [allDayCollapsed])
+
   // ── Drag-and-drop state for event rescheduling ──
   // While dragging: track which event, its original Y, and the live
   // vertical offset in pixels. We render a ghost overlay at the
@@ -1572,16 +1584,37 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
         })}
       </div>
 
-      {/* All-day strip */}
+      {/* All-day strip — colapsable via el botón GMT-03 (chevron a la
+          izquierda). Cuando está colapsado, cada celda muestra solo un
+          contador "N items" en vez de la lista. */}
       {[...allDayEventsByDay.values()].some((arr) => arr.length > 0) || days.some((d) => (tasksByDay.get(format(d, 'yyyy-MM-dd')) ?? []).length > 0) ? (
         <div className="grid border-b border-white/[0.05] shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
-          <div className="flex items-center justify-end pr-2">
+          <button
+            onClick={() => setAllDayCollapsed((v) => !v)}
+            title={allDayCollapsed ? 'Mostrar tareas y eventos all-day' : 'Ocultar tareas y eventos all-day'}
+            className="flex items-center justify-end gap-1 pr-2 hover:bg-white/[0.04] transition-colors"
+          >
+            {allDayCollapsed
+              ? <ChevronRight className="w-3 h-3 text-zinc-500" />
+              : <ChevronDown className="w-3 h-3 text-zinc-500" />}
             <span className="text-[11px] text-zinc-400">GMT-03</span>
-          </div>
+          </button>
           {days.map((day) => {
             const dateKey = format(day, 'yyyy-MM-dd')
             const allDay = allDayEventsByDay.get(dateKey) ?? []
             const dayTasks = tasksByDay.get(dateKey) ?? []
+            if (allDayCollapsed) {
+              const total = allDay.length + dayTasks.length
+              return (
+                <button key={dateKey}
+                  onClick={() => setAllDayCollapsed(false)}
+                  className="border-l border-white/[0.05] min-h-[22px] text-[10px] text-zinc-500 hover:bg-white/[0.04] transition-colors"
+                  title={total > 0 ? `${total} item${total > 1 ? 's' : ''} — click para expandir` : 'Sin items'}
+                >
+                  {total > 0 ? `${total}` : ''}
+                </button>
+              )
+            }
             return (
               <div key={dateKey} className="border-l border-white/[0.05] p-1 min-h-[34px] space-y-0.5">
                 {allDay.map((ev) => {

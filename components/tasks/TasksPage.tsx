@@ -518,6 +518,21 @@ export function TasksPage() {
     projects, tasks, selectedProjectId, setSelectedProject, addProject, addTask,
     updateProject, deleteProject,
   } = tasksStoreApi
+
+  // Backfill one-shot del buffer recurrente: las tareas recurrentes
+  // creadas antes de esta versión solo tienen 1 instancia visible. Al
+  // entrar a /tasks llamamos ensureRecurringBuffer para cada tarea
+  // recurrente activa, así la semana queda visible al toque. Idempotente:
+  // si ya tiene 6 instancias chained no hace nada. Corre 1 vez por mount.
+  useEffect(() => {
+    const heads = Object.values(tasksStoreApi.tasks).filter(
+      (t) => t.recurrence && t.dueDate && !t.archivedAt && !t.completedAt,
+    )
+    for (const t of heads) {
+      tasksStoreApi.ensureRecurringBuffer(t.id, 6)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const { t, tStatus } = useTranslation()
   const [showProjectForm, setShowProjectForm] = useState(false)
   const [newTaskProjectId, setNewTaskProjectId] = useState<string | null>(null)
