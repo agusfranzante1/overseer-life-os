@@ -53,10 +53,17 @@ export function KpiScoreboard({
 
   const selected = session.selectedKpiIds ?? []
   const selectedDefs = useMemo(() => {
+    // Filtramos por `activatedAt <= weekEnd` (viernes siguiente al
+    // sábado de la sesión). Esto evita el bug donde un KPI creado el
+    // sábado para la próxima semana terminaba apareciendo como activo
+    // en el scoreboard de la semana en curso — su id podía estar en
+    // selectedKpiIds por inheritance o data legacy, pero su activatedAt
+    // posterior al weekEnd indica que aún no rige en esta semana.
+    const weekEnd = addDaysYmd(session.weekStartDate, 6)
     return selected
       .map((id) => library.find((d) => d.id === id))
-      .filter((d): d is KPIDefinition => !!d && !d.archivedAt)
-  }, [selected, library])
+      .filter((d): d is KPIDefinition => !!d && !d.archivedAt && d.activatedAt <= weekEnd)
+  }, [selected, library, session.weekStartDate])
 
   // Library elegible: KPIs activos + activados ANTES del FINAL de la
   // semana de esta sesión (sábado+6 = viernes siguiente).
