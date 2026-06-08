@@ -73,6 +73,13 @@ interface TasksState {
    *  store; they just become hidden from normal views. Returns the count
    *  archived. */
   archiveCompletedBefore: (todayKey: string, timezone: string) => number
+  /** Asegura que toda tarea recurrente OVERDUE (dueDate < hoy) que aún no
+   *  haya sido marcada como done tenga su "próxima instancia" creada en
+   *  el futuro. Idempotente — usa `recurrenceSpawnedNext` para evitar
+   *  duplicar. Si el user se olvida de completar una tarea recurrente,
+   *  igual la siguiente aparece sola en su nueva fecha — no perdés el
+   *  hilo. Devuelve cuántas instancias nuevas se crearon. */
+  ensureRecurringSpawns: (todayKey: string) => number
   /** Restore an archived task: clear its archivedAt + completedAt and reset
    *  its status to the first non-done status of its project. */
   restoreFromArchive: (id: string) => void
@@ -492,8 +499,10 @@ export const useTasksStore = create<TasksState>()(
           // siguiente instancia con el próximo dueDate calculado. La
           // instancia completada queda histórica como cualquier otra
           // (auto-archive eventual). Si la siguiente fecha cae más allá
-          // del `until`, no se crea nada.
-          if (task.recurrence && task.dueDate) {
+          // del `until`, no se crea nada. Si `recurrenceSpawnedNext` ya
+          // está en true → la siguiente ya fue spawneada por
+          // `ensureRecurringSpawns` (overdue auto-spawn) y no creamos otra.
+          if (task.recurrence && task.dueDate && !task.recurrenceSpawnedNext) {
             const nextDueDate = nextRecurrenceDueDate(task.dueDate, task.recurrence)
             if (nextDueDate) {
               const newId = genId()
@@ -521,6 +530,7 @@ export const useTasksStore = create<TasksState>()(
                 updatedAt: now,
                 postponedCount: 0,
                 subtasks: freshSubs,
+                recurrenceSpawnedNext: false,  // la nueva instancia arranca limpia
               }
               if (proj) {
                 updatedProjects = {
@@ -531,6 +541,9 @@ export const useTasksStore = create<TasksState>()(
                   },
                 }
               }
+              // Marcamos la actual como "ya spawneada" para que ensureRecurringSpawns
+              // no cree otra copia si esta misma sigue overdue después.
+              updatedTasks[id] = { ...updatedTasks[id], recurrenceSpawnedNext: true }
             }
           }
 
@@ -721,6 +734,71 @@ export const useTasksStore = create<TasksState>()(
           return { tasks }
         })
         return archived
+      },
+
+      ensureRecurringSpawns: (todayKey) => {
+        let spawned = 0
+        const nowIso = new Date().toISOString()
+        set((s) => {
+          const tasks = { ...s.tasks }
+          let projects = s.projects
+          for (const t of Object.values(s.tasks)) {
+            if (!t.recurrence) continue
+            if (!t.dueDate) continue
+            if (t.archivedAt) continue
+            if (t.recurrenceSpawnedNext) continue
+            // Solo nos importa si está OVERDUE — sino la siguiente
+            // todavía no debe existir.
+            if (t.dueDate >= todayKey) continue
+            const nextDueDate = nextRecurrenceDueDate(t.dueDate, t.recurrence)
+            if (!nextDueDate) {
+              // Fin de la serie (until alcanzado) — marcamos como
+              // spawneada para no reintentar cada apertura.
+              tasks[t.id] = { ...tasks[t.id], recurrenceSpawnedNext: true }
+              continue
+            }
+            const newId = genId()
+            const proj = s.projects[t.projectId]
+            const todoStatus = proj?.statuses[0]?.label ?? 'To Do'
+            const freshSubs: Subtask[] = (t.subtasks ?? [])
+              .filter((sub) => !sub.archivedAt)
+              .map((sub) => ({
+                ...sub,
+                id: genId(),
+                completed: false,
+                completedAt: undefined,
+                status: todoStatus,
+              }))
+            tasks[newId] = {
+              ...t,
+              id: newId,
+              dueDate: nextDueDate,
+              status: todoStatus,
+              completedAt: undefined,
+              archivedAt: undefined,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+              postponedCount: 0,
+              subtasks: freshSubs,
+              recurrenceSpawnedNext: false,
+            }
+            // Marcamos la actual como ya spawneada — la próxima
+            // ejecución la salta aunque siga overdue.
+            tasks[t.id] = { ...tasks[t.id], recurrenceSpawnedNext: true }
+            if (proj) {
+              projects = {
+                ...projects,
+                [proj.id]: {
+                  ...proj,
+                  taskIds: [...(projects[proj.id]?.taskIds ?? []), newId],
+                },
+              }
+            }
+            spawned++
+          }
+          return { tasks, projects }
+        })
+        return spawned
       },
 
       restoreFromArchive: (id) =>

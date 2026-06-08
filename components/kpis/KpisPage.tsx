@@ -2,9 +2,10 @@
 import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Target, Plus, Trash2, Archive, ArchiveRestore, BarChart3, Pencil, X, Check, Calendar } from 'lucide-react'
-import { useKpisStore } from '@/lib/store/kpisStore'
+import { useKpisStore, parseKpiValue, kpiCompletionPct } from '@/lib/store/kpisStore'
 import { useSPIStore, activeWeekAnchorYmd } from '@/lib/store/spiStore'
 import type { KPIDefinition, KPIKind } from '@/lib/kpi/types'
+import { readKpiValue, readKpiTargetOverride, KPI_VALUES_SECTION } from '@/lib/kpi/sessionHelpers'
 import { WHEEL_AREAS } from '@/lib/projection/templates'
 import { KpiScoreboard } from '@/components/spi/KpiScoreboard'
 import { useTranslation } from '@/hooks/useTranslation'
@@ -624,13 +625,64 @@ function HistoryView() {
   const active = definitions.filter((d) => !d.archivedAt)
 
   // Últimas 12 semanas — más recientes primero.
+  // BUGFIX: antes filtrábamos por `weekSnapshot + closedAt` — eso dejaba
+  // afuera CUALQUIER sesión donde el user había cargado valores de KPIs
+  // pero todavía no había "cerrado" formalmente el SPI semanal con el
+  // botón. Como cargar valores es lo que el user hace durante la semana
+  // y "cerrar" es un acto explícito que muchos no hacen, el historial
+  // se veía vacío aunque hubiera data válida.
+  //
+  // Nueva regla: incluir CUALQUIER sesión que tenga AL MENOS un valor
+  // de KPI cargado (sea en weekSnapshot frozen O en values vivos).
+  // Para sesiones cerradas con snapshot leemos del snapshot (congelado);
+  // para las demás computamos en vivo desde session.values usando
+  // kpiCompletionPct con los defs actuales.
   const last12 = useMemo(() => {
-    const closedWithSnapshot = sessions
-      .filter((s) => !!s.weekSnapshot && !!s.closedAt)
+    const eligible = sessions
+      .filter((s) => {
+        if (s.weekSnapshot?.kpis && s.weekSnapshot.kpis.length > 0) return true
+        // Si tiene valores de KPI cargados en la sección dedicada, incluir.
+        const kpiVals = s.values?.[KPI_VALUES_SECTION]
+        if (kpiVals && Object.keys(kpiVals).some((k) => kpiVals[k])) return true
+        // Si tiene KPIs seleccionados (incluso sin valores), incluir el
+        // header de la semana así el user ve que estuvo presente.
+        if ((s.selectedKpiIds ?? []).length > 0) return true
+        return false
+      })
       .sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate))
       .slice(0, 12)
-    return closedWithSnapshot.reverse()  // chronological izq→der
+    return eligible.reverse()  // chronological izq→der
   }, [sessions])
+
+  // Helper: dado un KPI y una sesión, devuelve el dato a mostrar en la
+  // celda — preferimos el snapshot frozen si existe, sino lo computamos
+  // en vivo desde session.values.
+  const cellDataFor = (kpi: KPIDefinition, sess: import('@/lib/spi/types').SPISession) => {
+    // Frozen snapshot tiene prioridad — preserva el target del momento.
+    const frozen = sess.weekSnapshot?.kpis?.find((k) => k.id === kpi.id)
+    if (frozen) {
+      return {
+        value: frozen.value,
+        target: frozen.target,
+        completionPct: frozen.completionPct,
+        kind: kpi.kind,
+      }
+    }
+    // Live: reconstruir desde session.values + target override.
+    // readKpiValue ya parsea el raw a number según el kind. Si no hay
+    // valor cargado, devuelve 0 — chequeamos contra el raw del store
+    // para distinguir "sin cargar" de "cargado como 0".
+    const rawString = sess.values?.[KPI_VALUES_SECTION]?.[kpi.id]
+    if (rawString === undefined || rawString === '') return null
+    const value = readKpiValue(sess, kpi.id, kpi.kind)
+    const override = readKpiTargetOverride(sess, kpi.id)
+    const target = override !== undefined ? override : kpi.target
+    const pctResult = kpiCompletionPct(value, target, kpi.kind)
+    // kpiCompletionPct devuelve `null` para casos sin target;
+    // KPISnapshot.completionPct usa `undefined`. Normalizamos a undefined.
+    const completionPct = pctResult ?? undefined
+    return { value, target, completionPct, kind: kpi.kind }
+  }
 
   if (active.length === 0) {
     return (
@@ -648,10 +700,10 @@ function HistoryView() {
     return (
       <div className="bg-black/20 border border-white/[0.08] border-dashed rounded-2xl p-10 text-center">
         <BarChart3 className="w-10 h-10 text-fuchsia-400/60 mx-auto mb-3" />
-        <p className="text-sm font-semibold text-zinc-200 mb-1">Sin semanas cerradas todavía</p>
+        <p className="text-sm font-semibold text-zinc-200 mb-1">Sin actividad de KPIs todavía</p>
         <p className="text-xs text-zinc-500 max-w-md mx-auto">
           Acá vas a ver el grid de las últimas 12 semanas con todos tus KPIs.
-          Cerrá tu primera sesión SPI con KPIs activos para empezar.
+          Activá KPIs en una sesión SPI semanal y cargá valores para empezar.
         </p>
       </div>
     )
@@ -660,7 +712,7 @@ function HistoryView() {
   return (
     <div className="bg-black/30 border border-white/[0.08] rounded-2xl p-4">
       <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-3">
-        Últimas {last12.length} semana{last12.length === 1 ? '' : 's'} cerradas
+        Últimas {last12.length} semana{last12.length === 1 ? '' : 's'} con KPIs
       </p>
       <div className="overflow-x-auto">
         <table className="min-w-full text-[11px]">
@@ -688,11 +740,11 @@ function HistoryView() {
                   <span className="mr-1.5">{kpi.icon}</span>{kpi.name}
                 </td>
                 {last12.map((sess) => {
-                  const snap = sess.weekSnapshot?.kpis?.find((k) => k.id === kpi.id)
-                  if (!snap) {
+                  const data = cellDataFor(kpi, sess)
+                  if (!data) {
                     return <td key={sess.id} className="px-0.5 py-1.5 text-center text-zinc-700">·</td>
                   }
-                  const pct = snap.completionPct
+                  const pct = data.completionPct
                   const bg = pct === undefined
                     ? 'bg-zinc-800/60 text-zinc-300'
                     : pct >= 100 ? 'bg-emerald-500/25 text-emerald-300'
@@ -700,15 +752,22 @@ function HistoryView() {
                     : pct >= 50 ? 'bg-amber-500/15 text-amber-300'
                     : 'bg-red-500/10 text-red-300'
                   const label = kpi.kind === 'boolean'
-                    ? (snap.value > 0 ? '✓' : '·')
+                    ? (data.value > 0 ? '✓' : '·')
                     : kpi.kind === 'percent'
-                      ? `${Math.round(snap.value)}%`
-                      : snap.target !== undefined
-                        ? `${snap.value}/${snap.target}`
-                        : String(snap.value)
+                      ? `${Math.round(data.value)}%`
+                      : data.target !== undefined
+                        ? `${data.value}/${data.target}`
+                        : String(data.value)
+                  // Marca visual sutil si la sesión NO está cerrada — el
+                  // user sabe que esa celda es live, no congelada.
+                  const isLive = !sess.closedAt
                   return (
                     <td key={sess.id} className="px-0.5 py-0.5">
-                      <div className={`rounded px-1.5 py-1 text-center tabular-nums ${bg}`}>
+                      <div
+                        className={`rounded px-1.5 py-1 text-center tabular-nums ${bg}`}
+                        title={isLive ? 'En vivo · semana sin cerrar' : 'Congelado al cierre'}
+                        style={isLive ? { outline: '1px dashed rgba(255,255,255,0.12)' } : undefined}
+                      >
                         {label}
                       </div>
                     </td>
@@ -720,7 +779,8 @@ function HistoryView() {
         </table>
       </div>
       <p className="text-[10px] text-zinc-600 italic mt-3">
-        Verde = ≥75% del target esa semana · ámbar = 50-74% · rojo = &lt;50% · gris = sin target o KPI no activo esa semana.
+        Verde ≥75% del target · ámbar 50-74% · rojo &lt;50% · gris sin target o KPI no activo esa semana.
+        Celdas con outline dasheado = semana en vivo (no cerrada todavía). Las demás son snapshot congelado al cierre.
       </p>
     </div>
   )

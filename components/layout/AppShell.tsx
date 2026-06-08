@@ -22,6 +22,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const timezone = useAppStore((s) => s.timezone)
   const autoPurgeCompletedTasks = useAppStore((s) => s.autoPurgeCompletedTasks)
   const archiveCompletedBefore = useTasksStore((s) => s.archiveCompletedBefore)
+  const ensureRecurringSpawns = useTasksStore((s) => s.ensureRecurringSpawns)
   const ensureWaitingStatusInAllProjects = useTasksStore((s) => s.ensureWaitingStatusInAllProjects)
   const processRecurringExpenses = useWalletStore((s) => s.processRecurringExpenses)
   const sidebarWidth = sidebarCollapsed ? 64 : 220
@@ -62,6 +63,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const runPurge = () => {
       const todayKey = todayKeyInTz(timezone)
       archiveCompletedBefore(todayKey, timezone)
+      // Mismo trigger: aseguramos que las recurrentes OVERDUE tengan
+      // su próxima instancia creada. Idempotente vía recurrenceSpawnedNext.
+      // Si el user olvida marcar como hecha una tarea recurrente, igual
+      // la siguiente aparece en su nueva fecha — no se rompe la cadena.
+      ensureRecurringSpawns(todayKey)
     }
 
     // Trigger #1 — immediately on mount.
@@ -115,7 +121,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if (midnightTimer) clearTimeout(midnightTimer)
       clearInterval(safetyInterval)
     }
-  }, [timezone, autoPurgeCompletedTasks, archiveCompletedBefore])
+  }, [timezone, autoPurgeCompletedTasks, archiveCompletedBefore, ensureRecurringSpawns])
 
   // Process recurring wallet expenses (suscripciones / pagos recurrentes).
   // Same pattern as task auto-purge: run on mount + 10s delayed (post-Supabase

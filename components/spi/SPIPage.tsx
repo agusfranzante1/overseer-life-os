@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Infinity as InfinityIcon, Plus, ChevronDown, ChevronRight, Flame, Trophy,
@@ -703,6 +703,10 @@ function ActiveSession({
           </div>
         </div>
       </div>
+
+      {/* Mini-calendario del mes — orienta al user respecto a qué semana
+          está planificando. Resaltada la ventana Mon→Sun del SPI activo. */}
+      <SpiWeekMiniCalendar weekStartDate={session.weekStartDate} />
 
       {/* Bitácora de Calibración — always visible, lane-agnostic. */}
       <BitacoraBlock
@@ -1644,6 +1648,169 @@ function Section({
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// SPI WEEK MINI CALENDAR — mes en curso con la semana planificada
+// (Mon→Sun) resaltada. Mismo lenguaje visual que el QuarterMiniCalendar
+// de la proyección trimestral, adaptado a 1 mes.
+// ─────────────────────────────────────────────────────────────────────
+const SPI_MONTH_NAMES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+]
+
+function getIsoWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7))
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86_400_000) + 1) / 7)
+}
+
+function SpiWeekMiniCalendar({ weekStartDate }: { weekStartDate: string }) {
+  // SPI session anchored on Saturday `weekStartDate`. La SEMANA PLANIFICADA
+  // arranca el lunes siguiente (Sat+2) y termina el domingo (Sat+8).
+  const [yStr, mStr, dStr] = weekStartDate.split('-').map(Number)
+  const saturday = new Date(yStr, mStr - 1, dStr)
+  const plannedMonday = new Date(saturday); plannedMonday.setDate(saturday.getDate() + 2)
+  const plannedSunday = new Date(saturday); plannedSunday.setDate(saturday.getDate() + 8)
+
+  // Mostramos el mes que CONTIENE al lunes planificado. Si la semana cruza
+  // dos meses (típico fin de mes), igual mostramos el del lunes — eso
+  // matchea cuál es el "mes vigente" para el cascade del SPI.
+  const year = plannedMonday.getFullYear()
+  const monthIdx = plannedMonday.getMonth()
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const isSameYMD = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate()
+
+  const isPlanned = (d: Date) => {
+    const time = d.getTime()
+    return time >= plannedMonday.getTime() && time <= plannedSunday.getTime()
+  }
+
+  // Build 6-row × 7-col grid, Monday-first.
+  const firstOfMonth = new Date(year, monthIdx, 1)
+  const dayOfWeek = (firstOfMonth.getDay() + 6) % 7
+  const gridStart = new Date(firstOfMonth)
+  gridStart.setDate(firstOfMonth.getDate() - dayOfWeek)
+
+  const weeks: { weekNo: number; days: { date: Date; inMonth: boolean }[] }[] = []
+  for (let w = 0; w < 6; w++) {
+    const weekRow: { date: Date; inMonth: boolean }[] = []
+    let weekNo = 0
+    for (let d = 0; d < 7; d++) {
+      const date = new Date(gridStart)
+      date.setDate(gridStart.getDate() + w * 7 + d)
+      if (d === 0) weekNo = getIsoWeekNumber(date)
+      weekRow.push({ date, inMonth: date.getMonth() === monthIdx })
+    }
+    weeks.push({ weekNo, days: weekRow })
+    const lastDayThisRow = weekRow[6].date
+    if (lastDayThisRow.getMonth() > monthIdx && w >= 3) break
+    if (lastDayThisRow.getMonth() !== monthIdx && lastDayThisRow.getFullYear() > year && w >= 3) break
+  }
+
+  const fmtRange = (d: Date) =>
+    `${d.getDate()} ${SPI_MONTH_NAMES[d.getMonth()].slice(0, 3).toLowerCase()}`
+
+  return (
+    <div className="bg-black/20 border border-white/[0.08] rounded-2xl p-4">
+      <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
+        <div>
+          <p className="text-[10px] font-mono uppercase tracking-[0.15em] text-zinc-500 mb-1">
+            Semana planificada
+          </p>
+          <p className="text-[13px] font-semibold text-white">
+            {SPI_MONTH_NAMES[monthIdx]} {year}
+          </p>
+        </div>
+        <span
+          className="text-[11px] font-mono px-2.5 py-1 rounded-full self-start"
+          style={{
+            background: 'rgba(217, 70, 239, 0.15)',
+            border: '1px solid rgba(217, 70, 239, 0.35)',
+            color: '#f0abfc',
+          }}
+        >
+          Lun {fmtRange(plannedMonday)} → Dom {fmtRange(plannedSunday)}
+        </span>
+      </div>
+
+      {/* Weekday headers (Lun, Mar, Mié, Jue, Vie, Sáb, Dom) */}
+      <div className="grid grid-cols-[24px_repeat(7,1fr)] gap-y-1 mb-1.5">
+        <span />
+        {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d, i) => (
+          <span key={i} className="text-[10px] text-zinc-500 text-center font-medium">{d}</span>
+        ))}
+      </div>
+
+      {/* Weeks */}
+      <div className="grid grid-cols-[24px_repeat(7,1fr)] gap-y-1">
+        {weeks.map((week, wi) => (
+          <React.Fragment key={wi}>
+            <span className="text-[9px] text-zinc-600 bg-white/[0.03] rounded text-center font-mono leading-6">
+              {week.weekNo}
+            </span>
+            {week.days.map((cell, di) => {
+              const isToday = isSameYMD(cell.date, today)
+              const isPlannedDay = isPlanned(cell.date)
+              const isWeekend = di >= 5
+              let textCls = 'text-zinc-200'
+              if (!cell.inMonth) textCls = 'text-zinc-700'
+              else if (isWeekend) textCls = 'text-red-400/80'
+              return (
+                <div key={di} className="text-center relative">
+                  {isToday ? (
+                    // HOY: círculo azul fuerte
+                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-500 text-white text-[11px] font-semibold">
+                      {cell.date.getDate()}
+                    </span>
+                  ) : isPlannedDay ? (
+                    // SEMANA PLANIFICADA: fucsia translúcido con borde
+                    <span
+                      className="inline-flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-semibold"
+                      style={{
+                        background: 'rgba(217, 70, 239, 0.18)',
+                        border: '1px solid rgba(217, 70, 239, 0.50)',
+                        color: '#f5d0fe',
+                        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08)',
+                      }}
+                    >
+                      {cell.date.getDate()}
+                    </span>
+                  ) : (
+                    <span className={`inline-block text-[11px] leading-7 ${textCls}`}>
+                      {cell.date.getDate()}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </React.Fragment>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/[0.06] text-[10px] text-zinc-500">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full bg-blue-500 inline-block" />
+          Hoy
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className="w-3 h-3 rounded-full inline-block"
+            style={{ background: 'rgba(217, 70, 239, 0.18)', border: '1px solid rgba(217, 70, 239, 0.50)' }}
+          />
+          Semana planificada
+        </span>
+      </div>
     </div>
   )
 }

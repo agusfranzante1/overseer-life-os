@@ -728,8 +728,9 @@ function RecurrencePicker({
           )}
 
           {recurrence && (
-            <p className="text-[10px] text-zinc-600 mt-2 italic">
-              Al completar esta tarea se crea automáticamente la siguiente: <span className="text-zinc-400">{recurrenceLabel(recurrence)}</span>.
+            <p className="text-[10px] text-zinc-600 mt-2 italic leading-relaxed">
+              La siguiente instancia (<span className="text-zinc-400">{recurrenceLabel(recurrence)}</span>) se crea automáticamente
+              al completar esta tarea. Si te olvidás de marcarla, igual aparece sola apenas pase su fecha — no perdés el hilo.
             </p>
           )}
         </>

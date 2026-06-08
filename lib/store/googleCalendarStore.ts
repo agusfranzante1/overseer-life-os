@@ -74,6 +74,11 @@ export interface GEvent {
    *  usa para tacharla en el calendario sin perder presencia visual
    *  hasta que el auto-purge la archive al cierre de la semana. */
   isCompleted?: boolean
+  /** Color del STATUS de la task linkeada (To Do / In Progress / Done / etc.).
+   *  En el calendario lo usamos para pintar el fondo del bloque, mientras
+   *  el borde-izquierdo conserva el color del proyecto — así de un vistazo
+   *  ves a qué proyecto pertenece (borde) y en qué estado está (fondo). */
+  taskStatusColor?: string
   /** Color del proyecto al que pertenece la task — para colorear el
    *  bloque sin tener que mirar el calendar.bg. */
   projectColor?: string

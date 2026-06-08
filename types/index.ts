@@ -116,8 +116,15 @@ export interface Task {
   postponedCount?: number
   category?: string
   /** Regla de recurrencia opcional. Al completar, el store crea la
-   *  siguiente instancia automáticamente (ver `tasksStore.completeTask`). */
+   *  siguiente instancia automáticamente (ver `tasksStore.completeTask`).
+   *  Si la tarea queda OVERDUE sin completarse, `ensureRecurringSpawns`
+   *  también dispara el spawn al abrir la app — así nunca pierde el
+   *  hilo aunque el user olvide marcarla. */
   recurrence?: TaskRecurrence
+  /** True cuando la "siguiente instancia" recurrente ya fue spawneada
+   *  desde esta task — sea por completion explícita o por overdue auto.
+   *  Evita que se cree más de una copia para la misma ocurrencia. */
+  recurrenceSpawnedNext?: boolean
   /** Override por-tarea de "cuánto tiempo antes" notificar. Si no está
    *  definido, se usa el valor global de `notificationPrefs.taskDueLeadMinutes`. */
   notifyBeforeMinutes?: number

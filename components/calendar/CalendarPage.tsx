@@ -142,6 +142,10 @@ export function CalendarPage() {
     for (const t of Object.values(tasks)) {
       if (t.archivedAt) continue
       const project = projects[t.projectId]
+      // Color del status de la TASK madre — lookup en las statuses
+      // del proyecto. El bloque del calendario lo usa para pintar el
+      // FONDO; el borde-izquierdo mantiene el projectColor.
+      const taskStatusColor = project?.statuses.find((s) => s.label === t.status)?.color
       // ── Bloque de la tarea madre
       if (t.dueDate && t.dueTime) {
         const [y, m, d] = t.dueDate.split('-').map(Number)
@@ -160,6 +164,7 @@ export function CalendarPage() {
           isTask: true,
           linkedTaskId: t.id,
           projectColor: project?.color,
+          taskStatusColor,
           isCompleted: !!t.completedAt,
         }
         if (!map.has(t.dueDate)) map.set(t.dueDate, [])
@@ -174,6 +179,8 @@ export function CalendarPage() {
         const start = new Date(y, m - 1, d, hh, mm, 0)
         const duration = sub.durationMinutes ?? 30
         const end = new Date(start.getTime() + duration * 60_000)
+        // Subtasks tienen su propio status — mismo lookup.
+        const subStatusColor = project?.statuses.find((s) => s.label === sub.status)?.color
         const ev: GEvent = {
           id: `subtask:${sub.id}`,
           calendarId: '__overseer_tasks__',
@@ -186,6 +193,7 @@ export function CalendarPage() {
           linkedTaskId: t.id,
           linkedSubtaskId: sub.id,
           projectColor: project?.color,
+          taskStatusColor: subStatusColor,
           isCompleted: !!sub.completedAt,
         }
         if (!map.has(sub.dueDate)) map.set(sub.dueDate, [])
@@ -215,6 +223,9 @@ export function CalendarPage() {
       // hasta que el auto-purge las archive al cierre semanal.
       if (t.archivedAt) continue
       const project = projects[t.projectId]
+      // Color del status — usado para el fondo del bloque del calendario,
+      // mientras el borde-izquierdo mantiene el projectColor.
+      const taskStatusColor = project?.statuses.find((s) => s.label === t.status)?.color
       // ── Tarea madre con dueTime
       if (t.dueDate && t.dueTime) {
         // Marcamos el GCal event como "ya cubierto por la task" para
@@ -238,6 +249,7 @@ export function CalendarPage() {
           isTask: true,
           linkedTaskId: t.id,
           projectColor: project?.color,
+          taskStatusColor,
           isCompleted: !!t.completedAt,
         })
       }
@@ -252,6 +264,7 @@ export function CalendarPage() {
         const start = new Date(y, m - 1, d, hh, mm, 0)
         const duration = sub.durationMinutes ?? 30
         const end = new Date(start.getTime() + duration * 60_000)
+        const subStatusColor = project?.statuses.find((s) => s.label === sub.status)?.color
         syntheticEvents.push({
           id: `subtask:${sub.id}`,
           calendarId: '__overseer_tasks__',
@@ -264,6 +277,7 @@ export function CalendarPage() {
           linkedTaskId: t.id,
           linkedSubtaskId: sub.id,
           projectColor: project?.color,
+          taskStatusColor: subStatusColor,
           isCompleted: !!sub.completedAt,
         })
       }
@@ -1763,29 +1777,31 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                       className={`absolute left-1 right-1 rounded-xl px-2 py-1.5 text-left overflow-hidden transition-all z-10 cursor-grab active:cursor-grabbing ${
                         isBeingDragged ? 'opacity-90 shadow-2xl scale-[1.02] z-30' : 'hover:brightness-110'
                       }`}
-                      style={{
-                        top: visualTop, height: visualHeight,
-                        // Cross-day drag: durante el move se traduce el bloque
-                        // horizontalmente para que el preview se vea sobre la
-                        // columna destino. dayShift * (columnWidth + gap).
-                        transform: isBeingDragged && dragState.mode === 'move' && dragState.dayShift !== 0
-                          ? `translateX(calc(${dragState.dayShift} * 100%))`
-                          : undefined,
-                        // Mockup style: bloque con gradient sutil del color
-                        // del calendario + glow lateral. Tasks llevan borde
-                        // izquierdo grueso del color (no dashed full border).
-                        background: ev.isTask
-                          ? `linear-gradient(90deg, ${color}55, ${color}22)`
-                          : `linear-gradient(180deg, ${color}, ${color}dd)`,
-                        borderLeft: `3px solid ${color}`,
-                        color: ev.isTask ? '#ffffff' : fg,
-                        opacity: ev.isCompleted ? 0.55 : undefined,
-                        minHeight: 18,
-                        boxShadow: isBeingDragged
-                          ? '0 8px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.10)'
-                          : `inset 0 1px 0 rgba(255,255,255,0.10), 0 1px 2px rgba(0,0,0,0.3)`,
-                        touchAction: 'none',  // prevent mobile scrolling while dragging
-                      }}
+                      style={(() => {
+                        // Para tasks: FONDO = color del status, BORDE-IZQ = color del proyecto.
+                        // Así de un vistazo ves a qué proyecto pertenece (borde)
+                        // y en qué estado está la tarea (fondo). Fallback al
+                        // projectColor si el status no tiene color asignado.
+                        const projectColor = ev.projectColor ?? '#6366f1'
+                        const statusColor = ev.taskStatusColor ?? projectColor
+                        return {
+                          top: visualTop, height: visualHeight,
+                          transform: isBeingDragged && dragState.mode === 'move' && dragState.dayShift !== 0
+                            ? `translateX(calc(${dragState.dayShift} * 100%))`
+                            : undefined,
+                          background: ev.isTask
+                            ? `linear-gradient(90deg, ${statusColor}55, ${statusColor}22)`
+                            : `linear-gradient(180deg, ${color}, ${color}dd)`,
+                          borderLeft: `3px solid ${ev.isTask ? projectColor : color}`,
+                          color: ev.isTask ? '#ffffff' : fg,
+                          opacity: ev.isCompleted ? 0.55 : undefined,
+                          minHeight: 18,
+                          boxShadow: isBeingDragged
+                            ? '0 8px 24px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.10)'
+                            : `inset 0 1px 0 rgba(255,255,255,0.10), 0 1px 2px rgba(0,0,0,0.3)`,
+                          touchAction: 'none' as const,
+                        }
+                      })()}
                       title={`${ev.isTask ? '📋 ' : ''}${ev.summary}\n${format(parseISO(ev.start), 'HH:mm')} – ${format(parseISO(ev.end), 'HH:mm')}${ev.recurringEventId ? '\n(recurrente · arrastrá para reagendar)' : ''}${ev.isTask ? '\n(task · click para abrir · ✓ para completar)' : ''}`}
                     >
                       <p
