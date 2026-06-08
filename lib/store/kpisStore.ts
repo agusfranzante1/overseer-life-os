@@ -79,32 +79,37 @@ export const useKpisStore = create<State>()(
         // ciclo. En runtime el módulo ya está cargado cuando se llama
         // addKpi, así que dynamic import es seguro.
         if (typeof window !== 'undefined') {
-          import('./spiStore').then(({ useSPIStore, activeWeekAnchorYmd }) => {
+          import('./spiStore').then(({ useSPIStore, activeWeekAnchorYmd, lastSaturdayYmd }) => {
             const spi = useSPIStore.getState()
-            // Auto-activamos un KPI recién creado en la sesión cuya
-            // semana Mon→Sun está EN CURSO. Antes usábamos lastSaturdayYmd
-            // que devuelve hoy si hoy es sábado, pero el sábado es el
-            // ritual de planificación de la PRÓXIMA semana — los KPIs
-            // semanales viven en la sesión del sábado ANTERIOR.
-            const target = activeWeekAnchorYmd()
+            // Resolución de "qué sesión activar" para un KPI recién
+            // creado:
+            //
+            //   1. Si hay una `activeSessionId` (el user está EDITANDO
+            //      activamente una sesión) Y esa sesión es una de las
+            //      dos "current" (la ritual sábado-de-hoy o la activa
+            //      Mon→Sun en curso) → usar ESA. Esto cubre el caso
+            //      sábado: el user planifica la semana próxima y crea
+            //      un KPI → debe encenderse en la sesión que está
+            //      llenando, no en la del sábado anterior.
+            //
+            //   2. Fallback: la sesión cuya semana Mon→Sun está EN
+            //      CURSO (activeWeekAnchorYmd). Para los días de
+            //      semana cuando ambos anchors coinciden.
+            const planningAnchor = lastSaturdayYmd()      // hoy si es sábado, el último sábado si no
+            const runningAnchor = activeWeekAnchorYmd()   // semana Mon→Sun en curso
+            const currentAnchors = new Set([planningAnchor, runningAnchor])
 
-            // Resolución de "qué sesión activar":
-            //   1. activeSession SI Y SOLO SI es de la semana en curso.
-            //      Esto evita el bug donde el user está editando una
-            //      sesión vieja y los KPIs nuevos terminaban activados
-            //      en esa semana vieja, no en la actual.
-            //   2. Fallback: sesión más recientemente actualizada con
-            //      weekStartDate === target. Maneja el caso de
-            //      múltiples sesiones para la misma semana (dups por
-            //      sync multi-device, history viejo, etc.).
             let session = null
             if (spi.activeSessionId) {
               const active = spi.sessions.find((s) => s.id === spi.activeSessionId)
-              if (active && active.weekStartDate === target) session = active
+              if (active && currentAnchors.has(active.weekStartDate)) {
+                session = active
+              }
             }
+            // Fallback: la sesión de la semana ACTUALMENTE en curso.
             if (!session) {
               const matching = spi.sessions
-                .filter((s) => s.weekStartDate === target)
+                .filter((s) => s.weekStartDate === runningAnchor)
                 .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
               session = matching[0] ?? null
             }
