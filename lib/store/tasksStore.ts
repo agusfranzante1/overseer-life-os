@@ -331,6 +331,61 @@ export const useTasksStore = create<TasksState>()(
             },
           },
         }))
+        // Buffer recurrente: si la task viene con recurrence + dueDate,
+        // spawneamos las próximas 6 instancias chained para que el user
+        // tenga la semana entera visible de una. Las del medio quedan
+        // marcadas con `recurrenceSpawnedNext: true` para que completarlas
+        // no genere duplicados (la siguiente ya existe). La última de la
+        // cadena queda en `false` — al completarla, `completeTask` spawn
+        // la próxima y el buffer rueda solo.
+        if (task.recurrence && task.dueDate) {
+          set((s) => {
+            const tasks = { ...s.tasks }
+            let projects = s.projects
+            let prevId = id
+            let prevDue = task.dueDate!
+            for (let i = 0; i < 6; i++) {
+              const next = nextRecurrenceDueDate(prevDue, task.recurrence!)
+              if (!next) break
+              const newId = genId()
+              const proj = projects[task.projectId]
+              const todoStatus = proj?.statuses[0]?.label ?? 'To Do'
+              tasks[newId] = {
+                ...task,
+                id: newId,
+                dueDate: next,
+                status: todoStatus,
+                completedAt: undefined,
+                archivedAt: undefined,
+                createdAt: now,
+                updatedAt: now,
+                postponedCount: 0,
+                subtasks: (task.subtasks ?? []).map((sub) => ({
+                  ...sub, id: genId(), completed: false, completedAt: undefined, status: todoStatus,
+                })),
+                recurrenceSpawnedNext: false,
+                gcalEventId: undefined,
+                gcalCalendarId: undefined,
+              }
+              // El anterior pasa a estar "ya spawneado" — completarlo no
+              // crea otro duplicado porque la siguiente fecha ya existe.
+              tasks[prevId] = { ...tasks[prevId], recurrenceSpawnedNext: true }
+              if (proj) {
+                projects = {
+                  ...projects,
+                  [proj.id]: {
+                    ...proj,
+                    taskIds: [...(projects[proj.id]?.taskIds ?? []), newId],
+                  },
+                }
+              }
+              prevId = newId
+              prevDue = next
+            }
+            return { tasks, projects }
+          })
+        }
+
         // GCal sync fire-and-forget — no bloqueamos la respuesta del store.
         // El sync helper persiste los IDs del evento creado de vuelta vía
         // updateTask cuando termina.
@@ -491,6 +546,9 @@ export const useTasksStore = create<TasksState>()(
               status: doneStatus,
               completedAt: now,
               updatedAt: now,
+              // Limpiar marca de "tardía" al completar — la urgencia
+              // visual deja de tener sentido una vez resuelta.
+              rescheduledFrom: undefined,
             },
           }
           let updatedProjects = s.projects
@@ -1188,27 +1246,68 @@ export const useTasksStore = create<TasksState>()(
           const firstOpenLabel = proj?.statuses.find((st) => !st.countsAsDone)?.label
             ?? proj?.statuses[0]?.label
           const nowIso = new Date().toISOString()
+          // Detectamos si esta subtarea tiene recurrencia + dueDate +
+          // está pasando a completed (no si la des-completamos). En ese
+          // caso, después del toggle, spawneamos la siguiente instancia
+          // como subtarea hermana del mismo task madre. Mismo motor que
+          // Task.recurrence.
+          const targetSub = task?.subtasks.find((st) => st.id === subtaskId)
+          const willComplete = targetSub && !targetSub.completed
+          const shouldSpawnNext = !!(willComplete
+            && targetSub?.recurrence
+            && targetSub?.dueDate
+            && !targetSub?.recurrenceSpawnedNext)
+          const nextDue = shouldSpawnNext
+            ? nextRecurrenceDueDate(targetSub!.dueDate!, targetSub!.recurrence!)
+            : null
+
           return {
             tasks: {
               ...s.tasks,
               [taskId]: {
                 ...task,
-                subtasks: task.subtasks.map((st) => {
-                  if (st.id !== subtaskId) return st
-                  const nowCompleted = !st.completed
-                  const newStatus = nowCompleted
-                    ? (doneLabel ?? st.status)
-                    : (firstOpenLabel ?? st.status)
-                  return {
-                    ...st,
-                    completed: nowCompleted,
-                    status: newStatus,
-                    // Mirror the Task contract: stamp completedAt when
-                    // checking, clear it when unchecking. El auto-purge
-                    // nocturno usa esto para archivar al día siguiente.
-                    completedAt: nowCompleted ? nowIso : undefined,
+                subtasks: (() => {
+                  const updated = task.subtasks.map((st) => {
+                    if (st.id !== subtaskId) return st
+                    const nowCompleted = !st.completed
+                    const newStatus = nowCompleted
+                      ? (doneLabel ?? st.status)
+                      : (firstOpenLabel ?? st.status)
+                    return {
+                      ...st,
+                      completed: nowCompleted,
+                      status: newStatus,
+                      // Mirror the Task contract: stamp completedAt when
+                      // checking, clear it when unchecking. El auto-purge
+                      // nocturno usa esto para archivar al día siguiente.
+                      completedAt: nowCompleted ? nowIso : undefined,
+                      // Marcamos como spawneada si efectivamente vamos
+                      // a crear la siguiente, así un re-toggle no la
+                      // duplica.
+                      recurrenceSpawnedNext: shouldSpawnNext && nextDue ? true : st.recurrenceSpawnedNext,
+                    }
+                  })
+                  // Spawn de la siguiente recurrente: copia plantilla
+                  // (título/priority/parentId/recurrence/durationMinutes)
+                  // pero arranca fresco (completed=false, completedAt
+                  // undefined, status=primer open, dueDate=nextDue).
+                  if (shouldSpawnNext && nextDue && targetSub) {
+                    const newSub: Subtask = {
+                      ...targetSub,
+                      id: genId(),
+                      completed: false,
+                      completedAt: undefined,
+                      archivedAt: undefined,
+                      status: firstOpenLabel ?? targetSub.status,
+                      dueDate: nextDue,
+                      recurrenceSpawnedNext: false,
+                      // Si el padre tiene order, la dejamos al final.
+                      order: Math.max(0, ...updated.map((x) => x.order ?? 0)) + 1,
+                    }
+                    updated.push(newSub)
                   }
-                }),
+                  return updated
+                })(),
                 updatedAt: nowIso,
               },
             },

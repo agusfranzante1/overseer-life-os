@@ -224,13 +224,31 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
   // y dentro de cada subtask1 sus subtask2 también ordenan por urgencia.
   const subtaskTree = useMemo(() => {
     const sorted = sortSubtasks(visibleSubtasks, subtaskSortMode, project)
-    const roots = sorted.filter((s) => !s.parentId)
+    const rawRoots = sorted.filter((s) => !s.parentId)
     const childrenByParent = new Map<string, Subtask[]>()
     for (const s of sorted) {
       if (s.parentId) {
         if (!childrenByParent.has(s.parentId)) childrenByParent.set(s.parentId, [])
         childrenByParent.get(s.parentId)!.push(s)
       }
+    }
+    // Sort secundario sobre roots: SIN hijos primero, CON hijos abajo.
+    // Mantiene el orden interno (sortMode) dentro de cada grupo via
+    // stable sort. Idea: separar visualmente las "tareas planas" de
+    // las "mini-proyectos" — replica el patrón de top-level donde los
+    // grupos con sub-trabajo viven más abajo. Mismo criterio para
+    // children (subtask2) por consistencia, aunque hoy subtask2 no
+    // tiene hijos: si en el futuro se permite, ya queda listo.
+    const hasKids = (id: string) => (childrenByParent.get(id)?.length ?? 0) > 0
+    const roots = [...rawRoots].sort((a, b) => {
+      const ah = hasKids(a.id) ? 1 : 0
+      const bh = hasKids(b.id) ? 1 : 0
+      return ah - bh
+    })
+    // Y dentro de cada parent, las subtask2 sin hijos primero (no aplica
+    // hoy, pero `hasKids` retorna false → sort estable, ningún reorder).
+    for (const [pid, kids] of childrenByParent.entries()) {
+      childrenByParent.set(pid, [...kids].sort((a, b) => (hasKids(a.id) ? 1 : 0) - (hasKids(b.id) ? 1 : 0)))
     }
     return { roots, childrenByParent }
   }, [visibleSubtasks, subtaskSortMode, project])
@@ -355,15 +373,40 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
         }}
       >
         <div className="flex items-start gap-3">
-          <button
-            data-interactive
-            onClick={(e) => { e.stopPropagation(); completeTask(task.id) }}
-            className={`mt-0.5 shrink-0 transition-colors ${
-              isDone ? 'text-emerald-400' : 'text-zinc-600 hover:text-emerald-400'
-            }`}
-          >
-            <CheckCircle2 className="w-4 h-4" />
-          </button>
+          {(() => {
+            // No permitir completar si quedan subtareas open (excluye
+            // las archivadas). Sirve para que el user no marque "Done"
+            // una tarea madre cuyo proceso todavía no terminó — pierde
+            // visibilidad del trabajo pendiente. SÍ permite des-completar
+            // (revertir) aunque haya subtareas open: el toggle es
+            // bidireccional siempre.
+            const openSubs = (task.subtasks ?? []).filter((s) => !s.completed && !s.archivedAt)
+            const blocked = !isDone && openSubs.length > 0
+            return (
+              <button
+                data-interactive
+                disabled={blocked}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (blocked) {
+                    alert(`Esta tarea tiene ${openSubs.length} subtarea${openSubs.length > 1 ? 's' : ''} pendiente${openSubs.length > 1 ? 's' : ''}. Completá esas primero — o si querés marcarla igual, abrila y completala desde el detalle.`)
+                    return
+                  }
+                  completeTask(task.id)
+                }}
+                title={blocked ? `Falta completar ${openSubs.length} subtarea(s)` : isDone ? 'Marcar como pendiente' : 'Marcar como completada'}
+                className={`mt-0.5 shrink-0 transition-colors ${
+                  isDone
+                    ? 'text-emerald-400'
+                    : blocked
+                      ? 'text-amber-500/60 cursor-not-allowed'
+                      : 'text-zinc-600 hover:text-emerald-400'
+                }`}
+              >
+                <CheckCircle2 className="w-4 h-4" />
+              </button>
+            )
+          })()}
 
           <div className="flex-1 min-w-0">
             {/* Project badge — only shown in mixed-project views (e.g. All
@@ -484,12 +527,22 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                 // Parse date in LOCAL time (avoids UTC roll-back bug).
                 const [y, m, d] = task.dueDate.split('-').map(Number)
                 const localDue = new Date(y, m - 1, d)
-                const color = isOverdue || isDueTomorrow ? 'text-red-400' : 'text-zinc-500'
+                const isToday = dueState === 'today'
+                const isLate = !!task.rescheduledFrom
+                const color = isOverdue || isLate ? 'text-red-400' : isToday ? 'text-amber-400' : isDueTomorrow ? 'text-red-400' : 'text-zinc-500'
                 return (
                   <span className={`text-xs ${color} flex items-center gap-1`}>
                     {isOverdue ? '⚠️ ' : ''}{format(localDue, 'MMM d')}
+                    {isToday && (
+                      <span className="text-[10px] font-semibold text-amber-400 px-1.5 py-0.5 rounded bg-amber-400/10 border border-amber-400/30">→ HOY</span>
+                    )}
                     {isDueTomorrow && (
                       <span className="text-[10px] font-medium text-red-400/80">→ Mañana</span>
+                    )}
+                    {isLate && (
+                      <span className="text-[10px] font-bold text-red-300 px-1.5 py-0.5 rounded bg-red-500/15 border border-red-500/40 animate-pulse" title={`Era para ${task.rescheduledFrom}`}>
+                        ⚠ TARDÍA
+                      </span>
                     )}
                   </span>
                 )
@@ -847,8 +900,10 @@ function InlineSelectBadge({ value, options, onChange, bgColor, fgColor, renderL
             left: pos.left,
             minWidth: pos.minWidth,
             zIndex: 9999,
+            background: '#11151c',
+            boxShadow: '0 10px 32px -8px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.04), 0 0 24px -8px rgba(99,102,241,0.35)',
           }}
-          className="bg-white/[0.03] border border-white/[0.12] rounded-lg shadow-2xl overflow-hidden"
+          className="rounded-lg overflow-hidden border border-white/[0.14]"
         >
           {options.map((opt) => (
             <button key={opt.value}
@@ -942,8 +997,18 @@ function InlineSubtask({
   }
 
   // Format dueDate as "DD/MM" for the chip; full string in tooltip.
+  // Si la fecha es HOY mostramos "HOY" en lugar de DD/MM para que el user
+  // entienda de un vistazo que esa subtask vence hoy.
+  const dueIsToday = (() => {
+    if (!subtask.dueDate) return false
+    const [y, m, d] = subtask.dueDate.split('-').map(Number)
+    const due = new Date(y, m - 1, d); due.setHours(0, 0, 0, 0)
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    return due.getTime() === today.getTime()
+  })()
   const dueDateChip = subtask.dueDate
     ? (() => {
+        if (dueIsToday) return 'HOY'
         const [y, m, d] = subtask.dueDate!.split('-').map(Number)
         const dt = new Date(y, m - 1, d)
         return dt.toLocaleDateString(locale, { day: '2-digit', month: '2-digit' })

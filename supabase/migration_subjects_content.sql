@@ -18,6 +18,12 @@ alter table public.projects
 alter table public.tasks
   add column if not exists parcial_id   text;
 
+-- parent_project_id — permite agrupar proyectos bajo un container (ej.
+-- "Estudios" como padre de todas las materias). El task manager filtra
+-- proyectos con parentProjectId para que NO aparezcan top-level.
+alter table public.projects
+  add column if not exists parent_project_id text;
+
 -- Index para buscar rápido todos los proyectos por type. Útil para que
 -- /estudio levante materias sin escanear todos los proyectos del user.
 create index if not exists idx_projects_type

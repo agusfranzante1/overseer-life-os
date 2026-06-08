@@ -17,7 +17,7 @@ import {
   ChevronLeft, ChevronRight, Calendar, Plus, RefreshCw, Trash2, X,
   Link as LinkIcon, Eye, EyeOff, LogOut, ExternalLink, AlertCircle,
   LayoutGrid, Rows, Moon, Sun, Settings as SettingsIcon,
-  PanelRightOpen, PanelRightClose, Check, Circle,
+  PanelRightOpen, PanelRightClose, Check, Circle, ChevronDown,
 } from 'lucide-react'
 
 type ViewMode = 'month' | 'week'
@@ -34,6 +34,10 @@ export function CalendarPage() {
 
   const [currentDate, setCurrentDate] = useState(new Date())
   const [selectedDay, setSelectedDay] = useState<Date | null>(new Date())
+  // Panel "Tareas + eventos del día" colapsable — el listado puede crecer
+  // mucho y comerse el espacio del sidebar. El user lo abre cuando quiere
+  // detalle, lo cierra cuando quiere ver el resto del rail.
+  const [dayPanelCollapsed, setDayPanelCollapsed] = useState(false)
   const view: ViewMode = gcal.view
   const setView = (v: ViewMode) => gcal.setView(v)
   const [showEventModal, setShowEventModal] = useState<{ mode: 'create' | 'edit'; event?: GEvent; date?: Date; startHour?: number } | null>(null)
@@ -341,10 +345,10 @@ export function CalendarPage() {
     >
       {/* Header — mockup style: título XXL + subtítulo gris fino + chips
           de control glass alineados a la derecha. */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between mb-6 gap-4 shrink-0">
-        <div className="space-y-1">
-          <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight leading-none">{t('calendar.title')}</h1>
-          <p className="text-zinc-500 text-[13px]">
+      <div className="flex items-center justify-between mb-3 gap-3 shrink-0">
+        <div className="flex items-baseline gap-3 min-w-0">
+          <h1 className="text-lg md:text-xl font-bold text-white tracking-tight leading-none shrink-0">{t('calendar.title')}</h1>
+          <p className="text-zinc-500 text-xs truncate">
             {view === 'month'
               ? format(currentDate, 'MMMM yyyy')
               : (() => {
@@ -626,15 +630,29 @@ export function CalendarPage() {
         {/* Sidebar */}
         {gcal.showSideRail && (
         <div className="space-y-4">
-          {/* Selected day */}
+          {/* Selected day — colapsable. El listado de tareas+eventos del
+              día ocupa mucho cuando el día es full; el chevron lo
+              minimiza dejando solo el header (fecha + count + acciones). */}
           <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4">
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
+              <button
+                onClick={() => setDayPanelCollapsed((v) => !v)}
+                className="flex items-center gap-2 flex-1 text-left"
+                title={dayPanelCollapsed ? 'Expandir' : 'Colapsar'}
+              >
+                {dayPanelCollapsed
+                  ? <ChevronRight className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                  : <ChevronDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />}
                 <Calendar className="w-4 h-4 text-indigo-400" />
                 <h3 className="text-sm font-semibold text-zinc-200">
                   {selectedDay ? format(selectedDay, 'EEEE d MMM') : 'Elegí un día'}
                 </h3>
-              </div>
+                {dayPanelCollapsed && (selectedDayTasks.length + selectedDayEvents.length) > 0 && (
+                  <span className="text-[10px] font-mono text-zinc-500 ml-1">
+                    · {selectedDayEvents.length + selectedDayTasks.length} item{(selectedDayEvents.length + selectedDayTasks.length) > 1 ? 's' : ''}
+                  </span>
+                )}
+              </button>
               {gcal.connected && selectedDay && (
                 <button
                   onClick={() => setShowEventModal({ mode: 'create', date: selectedDay })}
@@ -645,6 +663,8 @@ export function CalendarPage() {
                 </button>
               )}
             </div>
+
+            {!dayPanelCollapsed && (<>
 
             {/* Events */}
             {selectedDayEvents.length > 0 && (
@@ -692,6 +712,7 @@ export function CalendarPage() {
             {selectedDayEvents.length === 0 && selectedDayTasks.length === 0 && (
               <p className="text-xs text-zinc-600 text-center py-4">Sin eventos ni tareas</p>
             )}
+            </>)}
           </div>
 
           {/* Google Calendar panel */}
@@ -1025,18 +1046,31 @@ interface EventModalProps {
 
 /** UI options for the recurrence selector. The 'custom' option isn't
  *  implemented yet — keep the picker simple for v1. */
-type RecurrenceMode = 'none' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'yearly'
+type RecurrenceMode = 'none' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'yearly' | 'customWeekly'
 
 // Modos sin label — el label se traduce en el render via t('calendar.recurrence.<mode>').
-const RECURRENCE_MODES: RecurrenceMode[] = ['none', 'daily', 'weekdays', 'weekly', 'monthly', 'yearly']
+const RECURRENCE_MODES: RecurrenceMode[] = ['none', 'daily', 'weekdays', 'weekly', 'customWeekly', 'monthly', 'yearly']
 
-function buildRecurrenceRule(mode: RecurrenceMode): string[] | undefined {
+// ICS BYDAY tokens en orden Dom..Sáb para mapear el daysOfWeek que
+// usamos en otros pickers (0=Dom..6=Sáb) al RFC5545.
+const ICS_DAY_TOKENS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
+
+function buildRecurrenceRule(mode: RecurrenceMode, customDays?: number[]): string[] | undefined {
   switch (mode) {
     case 'daily':    return ['RRULE:FREQ=DAILY']
     case 'weekdays': return ['RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR']
     case 'weekly':   return ['RRULE:FREQ=WEEKLY']
     case 'monthly':  return ['RRULE:FREQ=MONTHLY']
     case 'yearly':   return ['RRULE:FREQ=YEARLY']
+    case 'customWeekly': {
+      // Días personalizados: el user elige cuáles días de la semana.
+      // Sin selección → falla suave a weekly normal. Con uno solo →
+      // 1×/semana ese día. Con varios → multi-day.
+      const days = (customDays ?? []).filter((d) => d >= 0 && d <= 6)
+      if (days.length === 0) return ['RRULE:FREQ=WEEKLY']
+      const tokens = days.map((d) => ICS_DAY_TOKENS[d]).join(',')
+      return [`RRULE:FREQ=WEEKLY;BYDAY=${tokens}`]
+    }
     default:         return undefined
   }
 }
@@ -1066,6 +1100,12 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
   // Recurrence — only editable on CREATE for now. Editing an existing
   // event's recurrence rule via UI is more invasive (changes the master).
   const [recurrence, setRecurrence] = useState<RecurrenceMode>('none')
+  // Días seleccionados para el modo customWeekly (0=Dom..6=Sáb). Si el
+  // user elige customWeekly sin tildar ninguno, fallback a semanal full.
+  const [customDays, setCustomDays] = useState<number[]>(() => {
+    const wd = baseDate.getDay()
+    return [wd]  // por defecto, el día de la fecha base
+  })
 
   const handleSave = () => {
     if (!summary.trim() || !calendarId) return
@@ -1110,7 +1150,7 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
 
       const startISO = allDay ? startDate : toLocalISO(startDate, startTime)
       const endISO   = allDay ? normalizedEndDate : toLocalISO(endDate, endTime)
-      const recurrenceRule = mode === 'create' ? buildRecurrenceRule(recurrence) : undefined
+      const recurrenceRule = mode === 'create' ? buildRecurrenceRule(recurrence, customDays) : undefined
       // IANA timezone del browser (ej. "America/Argentina/Buenos_Aires").
       // Google Calendar REQUIERE start.timeZone + end.timeZone para
       // eventos recurrentes con horario — sin esto el insert devuelve
@@ -1224,6 +1264,34 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
                   <option key={mode} value={mode}>{t(`calendar.recurrence.${mode}`)}</option>
                 ))}
               </select>
+              {recurrence === 'customWeekly' && (
+                <div className="mt-2">
+                  <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-1">Días específicos</p>
+                  <div className="flex items-center gap-1">
+                    {['D', 'L', 'M', 'M', 'J', 'V', 'S'].map((lbl, idx) => {
+                      const active = customDays.includes(idx)
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => {
+                            setCustomDays((arr) => {
+                              const set = new Set(arr)
+                              if (active) set.delete(idx); else set.add(idx)
+                              return Array.from(set).sort((a, b) => a - b)
+                            })
+                          }}
+                          className={`w-7 h-7 rounded text-[11px] font-bold transition-colors ${
+                            active
+                              ? 'bg-indigo-500/30 border border-indigo-500/60 text-indigo-200'
+                              : 'bg-zinc-800 border border-white/[0.10] text-zinc-500 hover:text-zinc-300'
+                          }`}
+                        >{lbl}</button>
+                      )
+                    })}
+                  </div>
+                  <p className="text-[10px] text-zinc-600 mt-1">D=Dom L=Lun M=Mar M=Mié J=Jue V=Vie S=Sáb</p>
+                </div>
+              )}
               {recurrence !== 'none' && (
                 <p className="text-[10px] text-indigo-400/80 mt-1">
                   ↻ Se va a crear como serie recurrente.

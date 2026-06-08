@@ -385,6 +385,50 @@ export function TaskDetail({ task, project, onClose }: Props) {
                   className="bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 w-28 disabled:opacity-40"
                 />
               </div>
+              {/* Botón "Reprogramada" — mueve dueDate a HOY y guarda la
+                  fecha original en rescheduledFrom para que la UI muestre
+                  un badge "TARDÍA" y genere urgencia visual sobre tareas
+                  arrastradas. Solo aparece cuando la dueDate actual NO
+                  es hoy (ya sea pasada o futura): si ya está en hoy y
+                  no hay rescheduledFrom no tiene sentido el botón. */}
+              {effective.dueDate && (() => {
+                const [y, m, d] = effective.dueDate.split('-').map(Number)
+                const due = new Date(y, m - 1, d); due.setHours(0, 0, 0, 0)
+                const today = new Date(); today.setHours(0, 0, 0, 0)
+                const isAlreadyToday = due.getTime() === today.getTime()
+                const isOverdue = due.getTime() < today.getTime()
+                const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+                if (isAlreadyToday && !effective.rescheduledFrom) return null
+                return (
+                  <div className="mt-2 flex items-center gap-2 flex-wrap">
+                    {!isAlreadyToday && (
+                      <button
+                        onClick={() => updateTask(effective.id, {
+                          rescheduledFrom: effective.rescheduledFrom ?? effective.dueDate,
+                          dueDate: todayYmd,
+                        })}
+                        title={isOverdue
+                          ? 'No la hiciste el día que correspondía — la movemos a HOY y queda marcada como tardía'
+                          : 'Adelantar la tarea a hoy y marcarla como reprogramada'}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors bg-amber-500/10 border border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
+                      >
+                        ⏱ Reprogramar para HOY
+                      </button>
+                    )}
+                    {effective.rescheduledFrom && (
+                      <span className="text-[10px] font-mono px-2 py-1 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30">
+                        ⚠ TARDÍA · era {effective.rescheduledFrom}
+                        <button
+                          onClick={() => updateTask(effective.id, { rescheduledFrom: undefined })}
+                          className="ml-1.5 text-amber-400/60 hover:text-amber-200"
+                          title="Quitar marca de tardía"
+                        >×</button>
+                      </span>
+                    )}
+                  </div>
+                )
+              })()}
+
               {/* Duration — solo aplica con dueTime. Sin hora una tarea es
                   to-do del día, no tiene duración. Default 1 hora. */}
               {effective.dueDate && effective.dueTime && (

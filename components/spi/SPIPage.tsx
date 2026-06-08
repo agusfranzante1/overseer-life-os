@@ -2071,8 +2071,10 @@ function TaskRow({
             className="overflow-hidden"
           >
             <div className="px-3 pb-3 pt-1 space-y-2 border-t border-white/[0.05]">
+              {/* Date picker — sin el icono Calendar para no competir
+                  visualmente con el bloque "para qué". El input type=date
+                  ya muestra su propio iconito nativo. */}
               <div className="flex items-center gap-2">
-                <Calendar className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
                 <input
                   type="date"
                   value={task.dueDate ?? ''}

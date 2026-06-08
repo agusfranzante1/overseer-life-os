@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   GraduationCap, Plus, ChevronLeft, ChevronDown, ChevronRight,
@@ -24,7 +24,7 @@ const SUBJECT_COLORS = [
 const SUBJECT_ICONS = ['📚', '📖', '🧮', '🔬', '🧪', '🧬', '⚖️', '🎨', '🎭', '🎼', '💻', '📐', '🗺️', '🏛️', '🧠']
 
 export function EstudioPage() {
-  const { projects, tasks } = useTasksStore()
+  const { projects, tasks, addProject, updateProject } = useTasksStore()
   const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
 
@@ -34,6 +34,25 @@ export function EstudioPage() {
       .filter((p) => p.type === 'subject' && !p.archived)
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [projects])
+
+  // Migración one-shot: las materias creadas ANTES de tener el sistema
+  // de container quedan top-level en el task manager. Las wireamos al
+  // container "Estudios" en cuanto abrimos la página. Si todas ya están
+  // wireadas, no toca nada. Idempotente. */
+  useEffect(() => {
+    const orphans = subjects.filter((s) => !s.parentProjectId)
+    if (orphans.length === 0) return
+    // Reusa container existente o crea uno.
+    const existing = Object.values(projects).find(
+      (p) => p.name === 'Estudios' && !p.parentProjectId && !p.archived,
+    )
+    const containerId = existing?.id ?? addProject({ name: 'Estudios', color: '#a855f7', description: undefined })
+    if (!existing) updateProject(containerId, { icon: '🎓' })
+    for (const o of orphans) {
+      updateProject(o.id, { parentProjectId: containerId })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjects.length])
 
   // Para cada materia computamos progreso: tasks done / total tasks (excluyendo archivadas).
   const subjectStats = useMemo(() => {
@@ -658,8 +677,31 @@ function ClaseRow({ task, color, onOpen }: { task: Task; color: string; onOpen: 
 
 // ─── Create Subject Modal ────────────────────────────────────────────
 
+/** Asegura que exista un proyecto raíz "Estudios" para colgar todas las
+ *  materias debajo. Devuelve su id. Reusa el existente si ya está
+ *  creado (busca por marker `type==='subject' && !parentProjectId` con
+ *  nombre "Estudios" — convención simple). Así las materias no
+ *  aparecen mezcladas en el task manager top-level. */
+function useEnsureEstudiosContainer() {
+  const { projects, addProject, updateProject } = useTasksStore()
+  return () => {
+    // Existente: marcado con name "Estudios" + sin parentProjectId.
+    const existing = Object.values(projects).find(
+      (p) => p.name === 'Estudios' && !p.parentProjectId && !p.archived,
+    )
+    if (existing) return existing.id
+    const newId = addProject({ name: 'Estudios', color: '#a855f7', description: undefined })
+    // Marcamos como container — no tiene type='subject' porque NO es una
+    // materia, solo agrupa. Lo dejamos type='standard' para que si el user
+    // quiere puede usarlo como proyecto normal también.
+    updateProject(newId, { icon: '🎓' })
+    return newId
+  }
+}
+
 function CreateSubjectModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const { addProject, updateProject } = useTasksStore()
+  const ensureContainer = useEnsureEstudiosContainer()
   const [name, setName] = useState('')
   const [color, setColor] = useState(SUBJECT_COLORS[0])
   const [icon, setIcon] = useState(SUBJECT_ICONS[0])
@@ -671,10 +713,14 @@ function CreateSubjectModal({ onClose, onCreated }: { onClose: () => void; onCre
   const handleCreate = () => {
     const trimmed = name.trim()
     if (!trimmed) return
+    // Aseguramos el container "Estudios" — si no existe lo crea, si
+    // existe lo reusa. Las materias van debajo via parentProjectId, así
+    // NO aparecen mezcladas en el task manager top-level.
+    const containerId = ensureContainer()
     const id = addProject({ name: trimmed, color, description: undefined })
-    // Inmediatamente actualizamos con type='subject' + meta + icon. addProject
-    // no acepta type ni icon en su signature minimalista, así que vamos por
-    // updateProject.
+    // Inmediatamente actualizamos con type='subject' + meta + icon + parent.
+    // addProject no acepta type/icon/parent en su signature minimalista, así
+    // que vamos por updateProject.
     const meta: SubjectMeta = {
       profesor: profesor.trim() || undefined,
       codigo: codigo.trim() || undefined,
@@ -686,6 +732,7 @@ function CreateSubjectModal({ onClose, onCreated }: { onClose: () => void; onCre
       type: 'subject',
       icon,
       subjectMeta: meta,
+      parentProjectId: containerId,
     })
     onCreated(id)
   }

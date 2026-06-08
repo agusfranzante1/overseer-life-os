@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Trash2, Plus, CheckCircle2 } from 'lucide-react'
-import { Priority, Subtask, Project } from '@/types'
+import { Priority, Subtask, Project, TaskRecurrence, TaskRecurrenceKind } from '@/types'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTranslation } from '@/hooks/useTranslation'
@@ -340,6 +340,14 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
               </div>
             </div>
 
+            {/* Recurrence — mismo motor que tasks. Solo se ofrece si hay
+                dueDate (sin fecha no hay ancla para "siguiente"). */}
+            <SubtaskRecurrenceField
+              dueDate={dueDate}
+              recurrence={subtask.recurrence}
+              onChange={(r) => updateSubtask(taskId, subtask.id, { recurrence: r })}
+            />
+
             {/* Description — short context, surfaced in chips/tooltips */}
             <div>
               <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">Descripción</label>
@@ -433,5 +441,98 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
         )}
       </motion.div>
     </AnimatePresence>
+  )
+}
+
+// Picker compacto de recurrencia para subtareas. Sin dueDate, mostramos
+// un hint disabled. Con dueDate, exponemos los 4 kinds (daily, weekdays,
+// weekly, monthly) + chips de días de la semana cuando kind='weekly'
+// + tope opcional "until". Mismo modelo que RecurrencePicker de tasks
+// — duplicamos en vez de reusar para evitar import circular.
+function SubtaskRecurrenceField({
+  dueDate, recurrence, onChange,
+}: {
+  dueDate: string
+  recurrence: TaskRecurrence | undefined
+  onChange: (r: TaskRecurrence | undefined) => void
+}) {
+  const KINDS: { value: TaskRecurrenceKind; label: string }[] = [
+    { value: 'daily', label: 'Todos los días' },
+    { value: 'weekdays', label: 'Lun a Vie' },
+    { value: 'weekly', label: 'Semanal' },
+    { value: 'monthly', label: 'Mensual' },
+  ]
+  const DAY_LABELS = ['D', 'L', 'M', 'M', 'J', 'V', 'S']
+  const current = recurrence
+
+  if (!dueDate) {
+    return (
+      <div>
+        <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">Recurrencia</label>
+        <p className="text-[11px] text-zinc-600 italic">Primero asigná una fecha para poder repetir esta subtarea.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2">Recurrencia</label>
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        <button
+          onClick={() => onChange(undefined)}
+          className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
+            !current
+              ? 'bg-zinc-800 border-white/[0.20] text-zinc-200'
+              : 'bg-transparent border-white/[0.10] text-zinc-500 hover:text-zinc-300'
+          }`}
+        >No</button>
+        {KINDS.map((k) => (
+          <button key={k.value}
+            onClick={() => onChange({ kind: k.value, ...(k.value === 'weekly' && current?.kind === 'weekly' ? { daysOfWeek: current.daysOfWeek } : {}) })}
+            className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition-colors ${
+              current?.kind === k.value
+                ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-200'
+                : 'bg-transparent border-white/[0.10] text-zinc-500 hover:text-zinc-300'
+            }`}
+          >{k.label}</button>
+        ))}
+      </div>
+      {current?.kind === 'weekly' && (
+        <div className="flex items-center gap-1 mb-2">
+          <span className="text-[10px] text-zinc-500 mr-1">Días:</span>
+          {DAY_LABELS.map((lbl, idx) => {
+            const active = (current.daysOfWeek ?? []).includes(idx)
+            return (
+              <button key={idx}
+                onClick={() => {
+                  const days = new Set(current.daysOfWeek ?? [])
+                  if (active) days.delete(idx); else days.add(idx)
+                  onChange({ ...current, daysOfWeek: Array.from(days).sort((a, b) => a - b) })
+                }}
+                className={`w-6 h-6 rounded text-[10px] font-bold transition-colors ${
+                  active
+                    ? 'bg-indigo-500/30 border border-indigo-500/60 text-indigo-200'
+                    : 'bg-zinc-800 border border-white/[0.08] text-zinc-500 hover:text-zinc-300'
+                }`}
+              >{lbl}</button>
+            )
+          })}
+        </div>
+      )}
+      {current && (
+        <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+          <span>Hasta:</span>
+          <input
+            type="date"
+            value={current.until ?? ''}
+            onChange={(e) => onChange({ ...current, until: e.target.value || undefined })}
+            className="bg-zinc-800 border border-white/[0.12] rounded px-2 py-0.5 text-[11px] text-zinc-300 focus:outline-none focus:border-indigo-500"
+          />
+          {current.until && (
+            <button onClick={() => onChange({ ...current, until: undefined })} className="text-zinc-600 hover:text-red-400">×</button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

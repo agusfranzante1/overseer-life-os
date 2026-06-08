@@ -354,14 +354,40 @@ export const useGoogleCalendarStore = create<State>()(
       },
 
       updateEvent: async (id, calendarId, patch) => {
-        const r = await fetch(`/api/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(patch),
-        })
-        const j = await r.json()
-        if (!j.ok) throw new Error(j.error ?? 'update_failed')
-        await get().loadEvents()
+        // OPTIMISTIC UPDATE: parcheamos el evento en el cache local ANTES
+        // de pegarle a la API. Así un drag-and-drop se ve instantáneo;
+        // el background sync con GCal corre después y al volver pulleamos
+        // para confirmar. Si la API falla, revertimos al snapshot previo.
+        const prev = get().events.find((e) => e.id === id)
+        if (prev) {
+          set((s) => ({
+            events: s.events.map((e) =>
+              e.id === id
+                ? { ...e, ...patch, start: patch.start ?? e.start, end: patch.end ?? e.end }
+                : e,
+            ),
+          }))
+        }
+        try {
+          const r = await fetch(`/api/calendar/events/${encodeURIComponent(id)}?calendarId=${encodeURIComponent(calendarId)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(patch),
+          })
+          const j = await r.json()
+          if (!j.ok) throw new Error(j.error ?? 'update_failed')
+          // Background refresh — NO await. La UI ya muestra el cambio
+          // optimista; el refresh actualiza con la versión canónica
+          // de GCal cuando llegue, sin bloquear interacción.
+          get().loadEvents()
+        } catch (err) {
+          // Revert al snapshot previo si la API falló — el user ve el
+          // evento volver a su lugar original.
+          if (prev) {
+            set((s) => ({ events: s.events.map((e) => (e.id === id ? prev : e)) }))
+          }
+          throw err
+        }
       },
 
       deleteEvent: async (id, calendarId, opts) => {

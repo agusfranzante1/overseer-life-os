@@ -185,6 +185,7 @@ export const en: Record<string, any> = {
       daily:    'Every day',
       weekdays: 'Weekdays (M-F)',
       weekly:   'Every week',
+      customWeekly: 'Specific days…',
       monthly:  'Every month',
       yearly:   'Every year',
     },

@@ -53,6 +53,15 @@ export interface Subtask {
   durationMinutes?: number
   /** Optional short description / context, surfaced in the detail modal. */
   description?: string
+  /** Regla de recurrencia opcional a nivel subtarea. Cuando está
+   *  definida y la subtarea tiene `dueDate`, al completarla el store
+   *  crea la siguiente instancia con el próximo dueDate calculado
+   *  (mismo motor que tasks). Útil para procesos donde una sub-pieza
+   *  se repite (revisión semanal, follow-up cada N días, etc). */
+  recurrence?: TaskRecurrence
+  /** True cuando la siguiente instancia recurrente ya fue spawneada
+   *  desde esta subtarea. Evita duplicados. */
+  recurrenceSpawnedNext?: boolean
 }
 
 /** Recurrence rule for a Task. Used by the store to auto-spawn the next
@@ -132,6 +141,12 @@ export interface Task {
    *  al `SubjectParcial.id` para agrupar la clase/capítulo en su parcial.
    *  Sin parcial asignado, la task aparece en la sección "Sin parcial". */
   parcialId?: string
+  /** Fecha original (YYYY-MM-DD) cuando la tarea fue "reprogramada" — el
+   *  user no la hizo el día que correspondía y movió `dueDate` a hoy
+   *  usando el botón "Reprogramada". Sirve para mostrar un badge de
+   *  TARDÍA y generar urgencia visual sobre tareas que arrastra. Se
+   *  limpia al completarse. */
+  rescheduledFrom?: string
 }
 
 export interface Project {
@@ -163,6 +178,14 @@ export interface Project {
   subjectMeta?: SubjectMeta
   /** Solo para `type === 'content'`. Metadata del canal/pipeline. */
   contentMeta?: ContentMeta
+  /** Proyecto padre — permite agrupar proyectos bajo un container. Usado
+   *  por el sistema de Estudios (materias type='subject' van bajo un
+   *  proyecto raíz "Estudios") y por Contenido (canales type='content'
+   *  bajo un proyecto raíz "Contenido"). En el task manager principal
+   *  filtramos los proyectos con parentProjectId para que NO aparezcan
+   *  mezclados con los proyectos top-level — se ven solo dentro del
+   *  container o en las páginas especializadas (/estudio, /contenido). */
+  parentProjectId?: string
 }
 
 /** Metadata extra para proyectos type='subject' (materias).

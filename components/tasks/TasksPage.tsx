@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTasksStore } from '@/lib/store/tasksStore'
+import { useTaskSnapshotsStore } from '@/lib/store/taskSnapshotsStore'
 import { useTranslation } from '@/hooks/useTranslation'
 import { Task, Project } from '@/types'
 import { TaskCard } from './TaskCard'
@@ -631,7 +632,14 @@ export function TasksPage() {
     } catch { /* ignore quota errors */ }
   }, [loadedKey, filterStorageKey, statusFilter, priorityFilter, categoryFilter])
 
-  const projectList = Object.values(projects).filter((p) => !p.archived)
+  // Proyectos top-level del task manager: excluimos los que tienen
+  // parentProjectId (materias bajo "Estudios", piezas bajo "Contenido",
+  // etc) para no mezclarlos con los proyectos regulares. Esos viven en
+  // sus páginas especializadas (/estudio, /contenido) o dentro del
+  // container abierto.
+  const projectList = Object.values(projects)
+    .filter((p) => !p.archived)
+    .filter((p) => !p.parentProjectId)
   const inArchiveView = selectedProjectId === ARCHIVE_SENTINEL
   const activeProject = selectedProjectId && !inArchiveView ? projects[selectedProjectId] : null
 
@@ -650,24 +658,32 @@ export function TasksPage() {
    *  Done tasks are excluded — a completed urgent task doesn't bump
    *  the project anymore. */
   const PRIO_RANK: Record<string, number> = { urgent: 3, high: 2, medium: 1, low: 0 }
+  /** Project list re-sorted: contamos CUÁNTAS open tasks de cada prioridad
+   *  hay y comparamos vector-style (urgent count first, luego high, etc).
+   *  Así un proyecto con 6 urgentes queda arriba de uno con 1 urgente —
+   *  no solo "tiene urgentes" sino "tiene más". También consideramos la
+   *  prioridad EFECTIVA (sube a 'high' si hija urgente) para que
+   *  subtareas urgentes también empujen al padre arriba. */
   const projectListSortedByUrgency = useMemo(() => {
-    const projectMaxPriority = new Map<string, number>()
+    const counts = new Map<string, [number, number, number, number]>() // [urgent, high, medium, low]
     for (const p of projectList) {
-      let maxRank = -1
-      const projTasks = getProjectTasks(p.id)
-      for (const t of projTasks) {
+      const c: [number, number, number, number] = [0, 0, 0, 0]
+      for (const t of getProjectTasks(p.id)) {
         const statusDef = p.statuses.find((st) => st.label === t.status)
         if (statusDef?.countsAsDone) continue
-        const rank = PRIO_RANK[t.priority] ?? 0
-        if (rank > maxRank) maxRank = rank
+        const eff = effectivePriority(t)
+        if (eff === 'urgent') c[0]++
+        else if (eff === 'high') c[1]++
+        else if (eff === 'medium') c[2]++
+        else c[3]++
       }
-      projectMaxPriority.set(p.id, maxRank)
+      counts.set(p.id, c)
     }
-    // Stable sort: keep original index as tiebreaker so user's manual
-    // ordering is preserved within the same urgency tier.
-    const indexed = projectList.map((p, i) => ({ p, i, urgency: projectMaxPriority.get(p.id) ?? -1 }))
+    const indexed = projectList.map((p, i) => ({ p, i, c: counts.get(p.id)! }))
     indexed.sort((a, b) => {
-      if (b.urgency !== a.urgency) return b.urgency - a.urgency
+      for (let k = 0; k < 4; k++) {
+        if (b.c[k] !== a.c[k]) return b.c[k] - a.c[k]
+      }
       return a.i - b.i
     })
     return indexed.map((x) => x.p)
@@ -965,6 +981,7 @@ export function TasksPage() {
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
+              <SnapshotControls />
               <button
                 onClick={() => setShowBreakdown({ task: null })}
                 className="flex items-center gap-2 px-4 py-2.5 bg-white/[0.04] border border-white/[0.08] hover:border-indigo-400/40 hover:bg-indigo-500/10 text-zinc-200 hover:text-indigo-200 rounded-xl text-sm font-medium transition-all"
@@ -1588,6 +1605,130 @@ function AllProjectsKanban({ projects, tasks, sortMode, onTaskClick }: { project
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Snapshot manual — "Guardar ahora" / "Cargar última versión"
+//
+// El user clickea "Guardar ahora" para crear un punto fijo de
+// proyectos+tareas antes de probar algo riesgoso o de moverse a otro
+// dispositivo. "Cargar última versión" abre un dropdown con los
+// snapshots locales+remotos para restaurar el que quiera. Sirve como
+// red de seguridad contra bugs de sync o cambios destructivos.
+// ────────────────────────────────────────────────────────────────────────
+function SnapshotControls() {
+  const { snapshots, saveNow, restore, remove, pullRemote } = useTaskSnapshotsStore()
+  const [busy, setBusy] = useState<'saving' | 'pulling' | null>(null)
+  const [openList, setOpenList] = useState(false)
+  const [feedback, setFeedback] = useState<string | null>(null)
+
+  const showFeedback = (msg: string) => {
+    setFeedback(msg)
+    setTimeout(() => setFeedback(null), 2500)
+  }
+
+  const handleSave = async () => {
+    setBusy('saving')
+    try {
+      const label = window.prompt('Etiqueta opcional para este snapshot (ej. "antes de probar X"):', '')?.trim() || undefined
+      await saveNow(label)
+      showFeedback('✓ Guardado')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const handleOpenList = async () => {
+    if (!openList) {
+      setBusy('pulling')
+      await pullRemote().catch(() => undefined)
+      setBusy(null)
+    }
+    setOpenList((v) => !v)
+  }
+
+  const handleRestore = (snapId: string, label?: string, createdAt?: string) => {
+    const when = createdAt ? new Date(createdAt).toLocaleString() : '?'
+    if (!confirm(`Reemplazar TODOS los proyectos y tareas con el snapshot "${label ?? when}"?\n\nEsto sobreescribe lo que tenés ahora. (los datos actuales NO se guardan automáticamente — guardá un snapshot antes si querés volver)`)) return
+    const ok = restore(snapId)
+    showFeedback(ok ? '✓ Restaurado' : '⚠ No se pudo restaurar')
+    setOpenList(false)
+  }
+
+  return (
+    <div className="relative flex items-center gap-1.5">
+      <button
+        onClick={handleSave}
+        disabled={busy === 'saving'}
+        title="Guardar copia inmutable de proyectos+tareas (local + remota)"
+        className="flex items-center gap-1.5 px-3 py-2.5 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 hover:border-emerald-500/50 text-emerald-200 rounded-xl text-xs font-semibold transition-all disabled:opacity-50"
+      >
+        💾 {busy === 'saving' ? 'Guardando…' : 'Guardar ahora'}
+      </button>
+      <button
+        onClick={handleOpenList}
+        title="Ver snapshots y restaurar una versión anterior"
+        className="flex items-center gap-1.5 px-3 py-2.5 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50 text-amber-200 rounded-xl text-xs font-semibold transition-all"
+      >
+        ⏮ Cargar versión
+      </button>
+
+      {feedback && (
+        <span className="absolute -bottom-7 right-0 text-[11px] font-mono px-2 py-0.5 rounded bg-zinc-900 border border-white/[0.12] text-zinc-300 whitespace-nowrap">
+          {feedback}
+        </span>
+      )}
+
+      {openList && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpenList(false)} />
+          <div className="absolute right-0 top-full mt-2 z-50 w-80 max-h-96 overflow-y-auto rounded-xl border border-white/[0.12] shadow-2xl"
+            style={{ background: '#11151c', boxShadow: '0 10px 32px -8px rgba(0,0,0,0.75)' }}
+          >
+            <div className="p-3 border-b border-white/[0.08] flex items-center justify-between">
+              <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Snapshots</span>
+              <span className="text-[10px] text-zinc-500">{busy === 'pulling' ? 'Sincronizando…' : `${snapshots.length} guardados`}</span>
+            </div>
+            {snapshots.length === 0 ? (
+              <div className="p-4 text-xs text-zinc-500 text-center">
+                No hay snapshots todavía.<br />Tocá "Guardar ahora" para crear el primero.
+              </div>
+            ) : (
+              <div className="divide-y divide-white/[0.05]">
+                {snapshots.map((s) => {
+                  const projCount = Object.keys(s.projects).length
+                  const taskCount = Object.keys(s.tasks).length
+                  return (
+                    <div key={s.id} className="px-3 py-2.5 hover:bg-white/[0.03] flex items-center gap-2 group">
+                      <button
+                        onClick={() => handleRestore(s.id, s.label, s.createdAt)}
+                        className="flex-1 text-left"
+                      >
+                        <div className="text-xs font-semibold text-zinc-200 truncate">
+                          {s.label ?? new Date(s.createdAt).toLocaleString()}
+                        </div>
+                        <div className="text-[10px] text-zinc-500 flex items-center gap-2 mt-0.5">
+                          {s.label && <span>{new Date(s.createdAt).toLocaleString()}</span>}
+                          <span>· {projCount} proyectos · {taskCount} tareas</span>
+                        </div>
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); if (confirm('¿Borrar este snapshot?')) remove(s.id) }}
+                        className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 p-1"
+                        title="Borrar snapshot"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }

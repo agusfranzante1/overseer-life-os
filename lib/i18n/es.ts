@@ -184,6 +184,7 @@ export const es: Translations = {
       daily:    'Cada día',
       weekdays: 'Días de semana (L-V)',
       weekly:   'Cada semana',
+      customWeekly: 'Días específicos…',
       monthly:  'Cada mes',
       yearly:   'Cada año',
     },

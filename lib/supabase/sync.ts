@@ -217,9 +217,10 @@ async function pushTasks() {
     // Sistema de Estudio + Contenido — tipo + metadata. Si el proyecto
     // es 'standard' o no tiene type, mandamos null para mantener el row
     // limpio. Requiere migration_subjects_content.sql aplicada.
-    type:         p.type         ?? null,
-    subject_meta: p.subjectMeta  ?? null,
-    content_meta: p.contentMeta  ?? null,
+    type:               p.type             ?? null,
+    subject_meta:       p.subjectMeta      ?? null,
+    content_meta:       p.contentMeta      ?? null,
+    parent_project_id:  p.parentProjectId  ?? null,
     created_at: p.createdAt,
   }))
 
@@ -251,6 +252,7 @@ async function pushTasks() {
     // Vinculación al parcial de una materia (solo aplica a tasks de
     // proyectos type='subject'). Requiere migration_subjects_content.sql.
     parcial_id:            t.parcialId            ?? null,
+    rescheduled_from:      t.rescheduledFrom      ?? null,
     created_at: t.createdAt,
     updated_at: t.updatedAt,
   }))
@@ -276,6 +278,7 @@ async function pushTasks() {
       due_time:         s.dueTime         ?? null,
       duration_minutes: s.durationMinutes ?? null,
       description:      s.description     ?? null,
+      recurrence:       s.recurrence      ?? null,
     }))
   )
 
@@ -347,9 +350,10 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
       // el tag y creaba uno nuevo.
       isSystemProject: !!(p.is_system_project as boolean),
       systemProjectKey: (p.system_project_key as 'spi' | null) ?? undefined,
-      type:        (p.type         as 'standard' | 'subject' | 'content' | null) ?? undefined,
-      subjectMeta: (p.subject_meta as import('@/types').SubjectMeta | null) ?? undefined,
-      contentMeta: (p.content_meta as import('@/types').ContentMeta | null) ?? undefined,
+      type:            (p.type              as 'standard' | 'subject' | 'content' | null) ?? undefined,
+      subjectMeta:     (p.subject_meta      as import('@/types').SubjectMeta | null) ?? undefined,
+      contentMeta:     (p.content_meta      as import('@/types').ContentMeta | null) ?? undefined,
+      parentProjectId: (p.parent_project_id as string | null) ?? undefined,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any])),
     tasks: Object.fromEntries((tasksRes.data ?? []).map((t: Row) => [t.id as string, {
@@ -382,6 +386,7 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
         dueTime:         (s.due_time         as string) ?? undefined,
         durationMinutes: (s.duration_minutes as number) ?? undefined,
         description:     (s.description      as string) ?? undefined,
+        recurrence:      (s.recurrence       as import('@/types').TaskRecurrence) ?? undefined,
       })),
       createdAt: t.created_at as string,
       scheduledFor: (t.scheduled_for as 'today' | 'tomorrow') ?? undefined,
@@ -400,6 +405,7 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
       notifyBeforeMinutes:  (t.notify_before_minutes as number) ?? undefined,
       recurrence:           (t.recurrence            as import('@/types').TaskRecurrence) ?? undefined,
       parcialId:            (t.parcial_id            as string) ?? undefined,
+      rescheduledFrom:      (t.rescheduled_from      as string) ?? undefined,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any])),
   })
