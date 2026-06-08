@@ -13,6 +13,7 @@ export const en: Record<string, any> = {
     health: 'Health',
     habits: 'Habits',
     kpis: 'KPIs',
+    estudio: 'Study',
     gym: 'Gym',
     food: 'Food & Diet',
     settings: 'Settings',

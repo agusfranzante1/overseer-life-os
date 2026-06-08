@@ -128,6 +128,10 @@ export interface Task {
   /** Override por-tarea de "cuánto tiempo antes" notificar. Si no está
    *  definido, se usa el valor global de `notificationPrefs.taskDueLeadMinutes`. */
   notifyBeforeMinutes?: number
+  /** Solo cuando la task pertenece a un proyecto type='subject'. Apunta
+   *  al `SubjectParcial.id` para agrupar la clase/capítulo en su parcial.
+   *  Sin parcial asignado, la task aparece en la sección "Sin parcial". */
+  parcialId?: string
 }
 
 export interface Project {
@@ -148,6 +152,71 @@ export interface Project {
   /** Optional key identifying which system owns this project. Used for
    *  auto-recreate logic and badge labels. Currently: 'spi'. */
   systemProjectKey?: 'spi'
+  /** Tipo de proyecto — discriminator opcional para vistas especializadas:
+   *   - 'standard' (o undefined): proyecto regular del task manager.
+   *   - 'subject': MATERIA del sistema de estudio. Renderea en /estudio
+   *     con grid de progreso por parcial.
+   *   - 'content': PIEZA/CANAL del sistema de contenido. Renderea en
+   *     /contenido como kanban pipeline con etapas customizables. */
+  type?: 'standard' | 'subject' | 'content'
+  /** Solo para `type === 'subject'`. Metadata específica de materia. */
+  subjectMeta?: SubjectMeta
+  /** Solo para `type === 'content'`. Metadata del canal/pipeline. */
+  contentMeta?: ContentMeta
+}
+
+/** Metadata extra para proyectos type='subject' (materias).
+ *  Profesor, código, cuatrimestre + lista de parciales/unidades que
+ *  agrupan las clases. */
+export interface SubjectMeta {
+  profesor?: string
+  codigo?: string
+  /** Ej. "1c 2026" o "Invierno 2026". Libre. */
+  cuatrimestre?: string
+  /** Universidad/Instituto. */
+  institucion?: string
+  /** Bloques de parcial/unidad para agrupar clases. Cada uno tiene un id
+   *  estable (referenciado desde Task.parcialId), nombre y orden. */
+  parciales: SubjectParcial[]
+}
+
+export interface SubjectParcial {
+  id: string
+  /** Ej. "Parcial 1", "Unidad 2 — Integrales", "Final". */
+  label: string
+  /** Orden visual dentro de la materia (0-indexed). */
+  order: number
+  /** Color opcional para diferenciarlo visualmente. */
+  color?: string
+  /** Fecha del examen/entrega (YYYY-MM-DD). Opcional. */
+  examDate?: string
+  /** Si está marcado como aprobado/cerrado, las clases que lo componen
+   *  se renderean con opacidad reducida. */
+  closed?: boolean
+}
+
+/** Metadata extra para proyectos type='content' (canales/pipelines de
+ *  contenido). Etapas customizables por canal — cada canal puede tener
+ *  su propio flow (podcast vs reel vs newsletter). */
+export interface ContentMeta {
+  /** Ej. "YouTube principal", "Newsletter semanal", "Instagram reels". */
+  channel?: string
+  /** Las etapas del pipeline en orden. Cada etapa es un status del
+   *  proyecto — el contenido avanza moviendo su Task madre por estos
+   *  statuses. Replicamos la info para que el orden no dependa del
+   *  array `statuses` (que el user reordena en el task manager). */
+  stages: ContentStage[]
+}
+
+export interface ContentStage {
+  id: string
+  /** Ej. "Idea", "Guion", "Grabación", "Edición", "Publicado". */
+  label: string
+  order: number
+  color?: string
+  /** Etapa final = se considera la pieza "publicada". El sistema usa
+   *  esto para calcular throughput semanal. */
+  isPublished?: boolean
 }
 
 export interface MetricEntry {

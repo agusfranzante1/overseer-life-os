@@ -214,6 +214,12 @@ async function pushTasks() {
     // ensureSystemProject no lo encontraba.
     is_system_project: p.isSystemProject ?? false,
     system_project_key: p.systemProjectKey ?? null,
+    // Sistema de Estudio + Contenido — tipo + metadata. Si el proyecto
+    // es 'standard' o no tiene type, mandamos null para mantener el row
+    // limpio. Requiere migration_subjects_content.sql aplicada.
+    type:         p.type         ?? null,
+    subject_meta: p.subjectMeta  ?? null,
+    content_meta: p.contentMeta  ?? null,
     created_at: p.createdAt,
   }))
 
@@ -242,6 +248,9 @@ async function pushTasks() {
     gcal_calendar_id:      t.gcalCalendarId       ?? null,
     notify_before_minutes: t.notifyBeforeMinutes  ?? null,
     recurrence:            t.recurrence           ?? null,
+    // Vinculación al parcial de una materia (solo aplica a tasks de
+    // proyectos type='subject'). Requiere migration_subjects_content.sql.
+    parcial_id:            t.parcialId            ?? null,
     created_at: t.createdAt,
     updated_at: t.updatedAt,
   }))
@@ -338,6 +347,9 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
       // el tag y creaba uno nuevo.
       isSystemProject: !!(p.is_system_project as boolean),
       systemProjectKey: (p.system_project_key as 'spi' | null) ?? undefined,
+      type:        (p.type         as 'standard' | 'subject' | 'content' | null) ?? undefined,
+      subjectMeta: (p.subject_meta as import('@/types').SubjectMeta | null) ?? undefined,
+      contentMeta: (p.content_meta as import('@/types').ContentMeta | null) ?? undefined,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any])),
     tasks: Object.fromEntries((tasksRes.data ?? []).map((t: Row) => [t.id as string, {
@@ -387,6 +399,7 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
       gcalCalendarId:       (t.gcal_calendar_id      as string) ?? undefined,
       notifyBeforeMinutes:  (t.notify_before_minutes as number) ?? undefined,
       recurrence:           (t.recurrence            as import('@/types').TaskRecurrence) ?? undefined,
+      parcialId:            (t.parcial_id            as string) ?? undefined,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any])),
   })
