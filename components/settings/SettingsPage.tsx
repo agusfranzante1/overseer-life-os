@@ -1131,7 +1131,128 @@ function NotificationPrefsSection() {
 
       {/* Email channel — alternativa o complemento al push */}
       <EmailNotificationsSection />
+
+      {/* Diagnóstico — para entender por qué una noti no llegó */}
+      <HabitNotificationDiagnose />
     </section>
+  )
+}
+
+function HabitNotificationDiagnose() {
+  const [loading, setLoading] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [result, setResult] = useState<any | null>(null)
+  const run = async () => {
+    setLoading(true); setResult(null)
+    try {
+      const r = await fetch('/api/notifications/diagnose')
+      const j = await r.json()
+      setResult(j)
+    } catch (e) {
+      setResult({ ok: false, error: e instanceof Error ? e.message : 'unknown' })
+    } finally { setLoading(false) }
+  }
+  return (
+    <div className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+            <span>🔬</span> Diagnosticar notificaciones de hábitos
+          </h4>
+          <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+            Si no te llegó una noti de hábito, hacé click acá. Te muestra ahora mismo el estado del server y por qué cada hábito dispararía o no.
+          </p>
+        </div>
+        <button
+          onClick={run}
+          disabled={loading}
+          className="px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/40 hover:bg-amber-500/25 disabled:opacity-40 text-amber-300 text-xs font-semibold transition-colors"
+        >
+          {loading ? 'Diagnosticando…' : 'Diagnosticar ahora'}
+        </button>
+      </div>
+      {result && (
+        <div className="mt-2 space-y-3 text-xs">
+          {result.ok ? (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                <Pill label="Hora server (TZ)" value={`${result.localTime} (${result.timezone})`} />
+                <Pill label="Suscripciones push" value={String(result.pushSubscriptions)} />
+                <Pill label="Email habilitado" value={String(result.prefs.emailNotifications)} />
+                <Pill label="Email destino" value={result.notificationEmail} />
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-[11px] font-mono uppercase tracking-wider text-amber-300">
+                  Hábitos ({result.summary.totalHabits})
+                </div>
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                {(result.habits as any[]).map((h: any) => (
+                  <div key={h.id} className="rounded-lg border border-white/[0.06] bg-black/30 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-sm font-semibold text-white">{h.name}</div>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                          h.wouldFire
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                            : 'bg-red-500/15 text-red-300 border border-red-500/30'
+                        }`}
+                      >
+                        {h.wouldFire ? '✓ DISPARARÍA AHORA' : '✗ NO dispara ahora'}
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                      {(h.gates as any[]).map((g: any, i: number) => (
+                        <div key={i} className="flex items-start gap-2 text-[11px]">
+                          <span className={g.pass ? 'text-emerald-400' : 'text-red-400'}>
+                            {g.pass ? '✓' : '✗'}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-semibold text-zinc-300">{g.gate}</div>
+                            <div className="text-zinc-500 text-[10px]">{g.detail}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {result.recentNotificationLog?.length > 0 && (
+                <div className="rounded-lg border border-white/[0.06] bg-black/30 p-3">
+                  <div className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 mb-2">
+                    Notis enviadas en las últimas 24h
+                  </div>
+                  <div className="space-y-1">
+                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                    {(result.recentNotificationLog as any[]).slice(0, 10).map((l: any, i: number) => (
+                      <div key={i} className="text-[10px] flex items-center gap-2 text-zinc-400">
+                        <span className="font-mono">{new Date(l.created_at).toLocaleTimeString()}</span>
+                        <span className="font-semibold text-zinc-300">{l.channel}</span>
+                        <span className="text-zinc-600">·</span>
+                        <span className="font-mono truncate">{l.dedupe_key}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-red-300 text-[11px]">Error: {result.error}</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Pill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-black/30 border border-white/[0.06] p-2">
+      <div className="text-[9px] font-mono uppercase tracking-wider text-zinc-600">{label}</div>
+      <div className="text-[11px] font-semibold text-zinc-200 truncate" title={value}>{value}</div>
+    </div>
   )
 }
 
