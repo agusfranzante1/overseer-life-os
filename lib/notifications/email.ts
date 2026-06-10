@@ -81,6 +81,16 @@ export function pushPayloadToEmail(
   const fullUrl = typeof url === 'string'
     ? (url.startsWith('http') ? url : `https://overseer.life${url}`)
     : null
+  // Gmail agrupa emails con subject idéntico del mismo sender en un
+  // mismo "conversation thread", entonces todas las notis del mismo
+  // canal se ven como UNA en la bandeja. Le agregamos un timestamp
+  // corto al subject para que cada notificación sea una conversación
+  // separada — el contenido (HTML body + título dentro) queda igual,
+  // pero la bandeja muestra cada una.
+  const now = new Date()
+  const stamp = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  const dateStamp = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}`
+  const subjectWithStamp = `${title} · ${dateStamp} ${stamp}`
   const html = `
 <!doctype html>
 <html><body style="margin:0;padding:24px;background:#0a0e15;font-family:-apple-system,Segoe UI,sans-serif;color:#e4e4e7;">
@@ -96,7 +106,7 @@ export function pushPayloadToEmail(
 </body></html>`
   return {
     to,
-    subject: title,
+    subject: subjectWithStamp,
     html,
     text: `${title}\n\n${body}${fullUrl ? `\n\n→ ${fullUrl}` : ''}`,
   }

@@ -962,7 +962,16 @@ function NotificationPrefsSection() {
       })
       const j = await r.json()
       if (j.ok) {
-        setTestResult({ kind: 'ok', msg: `✓ Enviada a ${j.sent} dispositivo${j.sent === 1 ? '' : 's'}`, ch: channelKey })
+        // Construimos el feedback uniendo push y email — cada canal puede
+        // tener cero, uno o ambos resultados según el setup del user.
+        const parts: string[] = []
+        if ((j.sent ?? 0) > 0) parts.push(`✓ Push a ${j.sent} dispositivo${j.sent === 1 ? '' : 's'}`)
+        if (j.emailOk) parts.push(`✓ Email a ${j.email}`)
+        else if (j.emailError) parts.push(`⚠ Email falló: ${j.emailError}`)
+        const msg = parts.length > 0
+          ? parts.join(' · ')
+          : '✓ Disparado (no había canales activos para mandar)'
+        setTestResult({ kind: 'ok', msg, ch: channelKey })
       } else {
         setTestResult({ kind: 'err', msg: j.error ?? 'Falló', ch: channelKey })
       }

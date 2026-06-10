@@ -87,33 +87,46 @@ export async function POST(req: NextRequest) {
     ? { sent: 0, gone: [] as string[], failed: [] as unknown[] }
     : await sendPushToMany(subs, payload)
 
-  // Email — solo si emailOnly O si el user tiene emailNotifications=true.
-  // Buscamos settings + auth email para resolver el destino.
-  let emailSent: { ok: boolean; to?: string; error?: string } | null = null
-  if (emailOnly) {
-    const { data: settings } = await sb
-      .from('user_settings')
-      .select('notification_email')
-      .eq('user_id', user.id)
-      .maybeSingle()
-    const customEmail = (settings as { notification_email?: string | null } | null)?.notification_email
+  // Email — mandamos si emailOnly=true (botón "Probar" del panel email)
+  // O si el user tiene emailNotifications=true en sus settings (botones
+  // "🔔 probar ahora" de cada canal deben también pegarle por email para
+  // que el user pueda verificar que efectivamente le llega al Gmail).
+  const { data: settings } = await sb
+    .from('user_settings')
+    .select('notification_email, notification_prefs')
+    .eq('user_id', user.id)
+    .maybeSingle()
+  type SettingsRow = { notification_email?: string | null; notification_prefs?: Record<string, unknown> | null }
+  const settingsRow = settings as SettingsRow | null
+  const prefs = (settingsRow?.notification_prefs ?? {}) as Record<string, unknown>
+  const userEmailEnabled = prefs.emailNotifications === true || prefs.emailNotifications === 'true'
+  const shouldSendEmail = emailOnly || userEmailEnabled
+
+  let emailSent: { ok: boolean; to?: string; error?: string; skipped?: boolean } | null = null
+  if (shouldSendEmail) {
+    const customEmail = settingsRow?.notification_email
     const to = customEmail || user.email
     if (!to) {
-      return NextResponse.json({
-        ok: false,
-        error: 'No hay email destino: ni custom en settings ni en tu cuenta.',
-      }, { status: 400 })
-    }
-    const emailPayload = pushPayloadToEmail(payload, to)
-    const r = await sendEmail(emailPayload)
-    emailSent = { ok: r.ok, to, error: r.error }
-    if (!r.ok) {
-      return NextResponse.json({
-        ok: false,
-        error: r.skipped
-          ? 'RESEND_API_KEY no está configurado en el server. Pedile al admin que lo agregue a Vercel.'
-          : r.error ?? 'Falló el envío de email',
-      }, { status: 500 })
+      if (emailOnly) {
+        return NextResponse.json({
+          ok: false,
+          error: 'No hay email destino: ni custom en settings ni en tu cuenta.',
+        }, { status: 400 })
+      }
+      // Sin destino en modo no-emailOnly: skipeamos sin romper el push.
+      emailSent = { ok: false, error: 'no email destination', skipped: true }
+    } else {
+      const emailPayload = pushPayloadToEmail(payload, to)
+      const r = await sendEmail(emailPayload)
+      emailSent = { ok: r.ok, to, error: r.error, skipped: r.skipped }
+      if (!r.ok && emailOnly) {
+        return NextResponse.json({
+          ok: false,
+          error: r.skipped
+            ? 'RESEND_API_KEY no está configurado en el server. Pedile al admin que lo agregue a Vercel.'
+            : r.error ?? 'Falló el envío de email',
+        }, { status: 500 })
+      }
     }
   }
 
@@ -124,5 +137,6 @@ export async function POST(req: NextRequest) {
     failed: pushResult.failed.length,
     email: emailSent?.to,
     emailOk: emailSent?.ok,
+    emailError: emailSent && !emailSent.ok ? emailSent.error : undefined,
   })
 }
