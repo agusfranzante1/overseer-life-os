@@ -1503,50 +1503,113 @@ function KanbanBoard({ project, tasks, sortMode, onTaskClick }: { project: Proje
   const { tStatus } = useTranslation()
   const [dragId, setDragId] = useState<string | null>(null)
   const columns = project.statuses.slice().sort((a, b) => a.order - b.order)
+  // Estado de columnas ocultas — persistido por proyecto en localStorage
+  // para que la preferencia sobreviva a reloads y sea independiente entre
+  // proyectos (puede que en un proyecto quieras ocultar "Pausado" pero en
+  // otro no). La key incluye el proj.id para esa separación.
+  const storageKey = `overseer-kanban-hidden:${project.id}`
+  const [hidden, setHidden] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set()
+    try {
+      const raw = window.localStorage.getItem(storageKey)
+      return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
+    } catch { return new Set() }
+  })
+  const toggleHidden = (label: string) => {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(label)) next.delete(label); else next.add(label)
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(storageKey, JSON.stringify(Array.from(next)))
+      }
+      return next
+    })
+  }
 
   const tasksByStatus = (label: string) => sortTasks(tasks.filter((t) => t.status === label), sortMode)
+  const visibleColumns = columns.filter((c) => !hidden.has(c.label))
 
   return (
-    <div className="overflow-x-auto pb-2">
-      <div className="flex gap-3 min-w-max">
+    <div className="space-y-2">
+      {/* Barra de toggles para ocultar/mostrar columnas. Por defecto todas
+          aparecen; click en una la oculta (queda en ghost). Re-click la
+          devuelve. Sirve para enfocarte en menos columnas a la vez sin
+          perder el contexto. */}
+      <div className="flex items-center gap-1.5 flex-wrap pb-1">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-600 mr-1">Columnas:</span>
         {columns.map((col) => {
-          const colTasks = tasksByStatus(col.label)
+          const isHidden = hidden.has(col.label)
           return (
-            <div key={col.id}
-              onDragOver={(e) => { e.preventDefault(); }}
-              onDrop={(e) => {
-                e.preventDefault()
-                if (dragId) {
-                  updateTask(dragId, { status: col.label })
-                  setDragId(null)
-                }
+            <button
+              key={col.id}
+              onClick={() => toggleHidden(col.label)}
+              className="px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-all flex items-center gap-1"
+              style={{
+                background: isHidden ? 'transparent' : `${col.color}20`,
+                borderColor: isHidden ? 'rgba(255,255,255,0.10)' : col.color,
+                color: isHidden ? '#71717a' : col.color,
+                textDecoration: isHidden ? 'line-through' : 'none',
+                opacity: isHidden ? 0.5 : 1,
               }}
-              className="w-72 shrink-0 bg-black/30 border border-white/[0.08] rounded-2xl p-3">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full" style={{ background: col.color }} />
-                  <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: col.color }}>{tStatus(col.label)}</h3>
-                </div>
-                <span className="text-[10px] font-mono text-zinc-600">{colTasks.length}</span>
-              </div>
-              <div className="space-y-2">
-                {colTasks.length === 0 ? (
-                  <p className="text-[10px] text-zinc-700 text-center py-4 italic">drop here</p>
-                ) : (
-                  colTasks.map((task) => (
-                    <div key={task.id}
-                      draggable
-                      onDragStart={() => setDragId(task.id)}
-                      onDragEnd={() => setDragId(null)}
-                      style={{ opacity: dragId === task.id ? 0.4 : 1, cursor: 'grab' }}>
-                      <TaskCard task={task} project={project} onClick={() => onTaskClick(task)} subtaskSortMode={sortMode} />
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+              title={isHidden ? 'Click para mostrar' : 'Click para ocultar'}
+            >
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: col.color }} />
+              {tStatus(col.label)}
+            </button>
           )
         })}
+      </div>
+
+      <div className="overflow-x-auto pb-2">
+        <div className="flex gap-3 min-w-max">
+          {visibleColumns.map((col) => {
+            const colTasks = tasksByStatus(col.label)
+            return (
+              <div key={col.id}
+                onDragOver={(e) => { e.preventDefault(); }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  if (dragId) {
+                    updateTask(dragId, { status: col.label })
+                    setDragId(null)
+                  }
+                }}
+                className="w-[22rem] shrink-0 bg-black/30 border border-white/[0.08] rounded-2xl p-3">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full" style={{ background: col.color }} />
+                    <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: col.color }}>{tStatus(col.label)}</h3>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-mono text-zinc-600">{colTasks.length}</span>
+                    <button
+                      onClick={() => toggleHidden(col.label)}
+                      className="text-zinc-600 hover:text-zinc-300 transition-colors"
+                      title="Ocultar esta columna"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {colTasks.length === 0 ? (
+                    <p className="text-[10px] text-zinc-700 text-center py-4 italic">drop here</p>
+                  ) : (
+                    colTasks.map((task) => (
+                      <div key={task.id}
+                        draggable
+                        onDragStart={() => setDragId(task.id)}
+                        onDragEnd={() => setDragId(null)}
+                        style={{ opacity: dragId === task.id ? 0.4 : 1, cursor: 'grab' }}>
+                        <TaskCard task={task} project={project} onClick={() => onTaskClick(task)} subtaskSortMode={sortMode} />
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
@@ -1558,6 +1621,27 @@ function AllProjectsKanban({ projects, tasks, sortMode, onTaskClick }: { project
   const { updateTask } = useTasksStore()
   const { tStatus } = useTranslation()
   const [dragId, setDragId] = useState<string | null>(null)
+  // Misma key independiente para el All Projects kanban — separa la
+  // preferencia de columnas ocultas del "por proyecto" individual.
+  const storageKey = `overseer-kanban-hidden:__all__`
+  const [hidden, setHidden] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set()
+    try {
+      const raw = window.localStorage.getItem(storageKey)
+      return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
+    } catch { return new Set() }
+  })
+  const toggleHidden = (label: string) => {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(label.toLowerCase())) next.delete(label.toLowerCase())
+      else next.add(label.toLowerCase())
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(storageKey, JSON.stringify(Array.from(next)))
+      }
+      return next
+    })
+  }
 
   // Aggregate ALL unique status labels across projects (case-insensitive merge)
   const uniqueStatuses = (() => {
@@ -1573,52 +1657,90 @@ function AllProjectsKanban({ projects, tasks, sortMode, onTaskClick }: { project
 
   const tasksByStatus = (label: string) =>
     sortTasks(tasks.filter((t) => t.status.toLowerCase() === label.toLowerCase()), sortMode)
+  const visibleStatuses = uniqueStatuses.filter((c) => !hidden.has(c.label.toLowerCase()))
 
   return (
-    <div className="overflow-x-auto pb-2">
-      <div className="flex gap-3 min-w-max">
+    <div className="space-y-2">
+      {/* Toggles para ocultar columnas — mismo patrón que KanbanBoard. */}
+      <div className="flex items-center gap-1.5 flex-wrap pb-1">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-600 mr-1">Columnas:</span>
         {uniqueStatuses.map((col) => {
-          const colTasks = tasksByStatus(col.label)
+          const isHidden = hidden.has(col.label.toLowerCase())
           return (
-            <div key={col.label}
-              onDragOver={(e) => { e.preventDefault() }}
-              onDrop={(e) => {
-                e.preventDefault()
-                if (dragId) {
-                  updateTask(dragId, { status: col.label })
-                  setDragId(null)
-                }
+            <button
+              key={col.label}
+              onClick={() => toggleHidden(col.label)}
+              className="px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-all flex items-center gap-1"
+              style={{
+                background: isHidden ? 'transparent' : `${col.color}20`,
+                borderColor: isHidden ? 'rgba(255,255,255,0.10)' : col.color,
+                color: isHidden ? '#71717a' : col.color,
+                textDecoration: isHidden ? 'line-through' : 'none',
+                opacity: isHidden ? 0.5 : 1,
               }}
-              className="w-72 shrink-0 bg-black/30 border border-white/[0.08] rounded-2xl p-3">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full" style={{ background: col.color }} />
-                  <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: col.color }}>{tStatus(col.label)}</h3>
-                </div>
-                <span className="text-[10px] font-mono text-zinc-600">{colTasks.length}</span>
-              </div>
-              <div className="space-y-2">
-                {colTasks.length === 0 ? (
-                  <p className="text-[10px] text-zinc-700 text-center py-4 italic">drop here</p>
-                ) : (
-                  colTasks.map((task) => {
-                    const proj = projects.find((p) => p.id === task.projectId)
-                    if (!proj) return null
-                    return (
-                      <div key={task.id}
-                        draggable
-                        onDragStart={() => setDragId(task.id)}
-                        onDragEnd={() => setDragId(null)}
-                        style={{ opacity: dragId === task.id ? 0.4 : 1, cursor: 'grab' }}>
-                        <TaskCard task={task} project={proj} onClick={() => onTaskClick(task)} showProjectBadge subtaskSortMode={sortMode} />
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            </div>
+              title={isHidden ? 'Click para mostrar' : 'Click para ocultar'}
+            >
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: col.color }} />
+              {tStatus(col.label)}
+            </button>
           )
         })}
+      </div>
+
+      <div className="overflow-x-auto pb-2">
+        <div className="flex gap-3 min-w-max">
+          {visibleStatuses.map((col) => {
+            const colTasks = tasksByStatus(col.label)
+            return (
+              <div key={col.label}
+                onDragOver={(e) => { e.preventDefault() }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  if (dragId) {
+                    updateTask(dragId, { status: col.label })
+                    setDragId(null)
+                  }
+                }}
+                className="w-[22rem] shrink-0 bg-black/30 border border-white/[0.08] rounded-2xl p-3">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full" style={{ background: col.color }} />
+                    <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: col.color }}>{tStatus(col.label)}</h3>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-mono text-zinc-600">{colTasks.length}</span>
+                    <button
+                      onClick={() => toggleHidden(col.label)}
+                      className="text-zinc-600 hover:text-zinc-300 transition-colors"
+                      title="Ocultar esta columna"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {colTasks.length === 0 ? (
+                    <p className="text-[10px] text-zinc-700 text-center py-4 italic">drop here</p>
+                  ) : (
+                    colTasks.map((task) => {
+                      const proj = projects.find((p) => p.id === task.projectId)
+                      if (!proj) return null
+                      return (
+                        <div key={task.id}
+                          draggable
+                          onDragStart={() => setDragId(task.id)}
+                          onDragEnd={() => setDragId(null)}
+                          style={{ opacity: dragId === task.id ? 0.4 : 1, cursor: 'grab' }}>
+                          <TaskCard task={task} project={proj} onClick={() => onTaskClick(task)} showProjectBadge subtaskSortMode={sortMode} />
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
