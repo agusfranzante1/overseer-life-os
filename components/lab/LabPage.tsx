@@ -3,9 +3,10 @@ import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FlaskConical, Plus, ChevronRight, ChevronLeft, ChevronDown, Trophy, Search, Sparkles, Check, X, Wand2, RotateCcw, Trash2, Pencil } from 'lucide-react'
 import { CustomExerciseBuilder } from './CustomExerciseBuilder'
+import { CustomCategoryBuilder } from './CustomCategoryBuilder'
 import { useLabStore } from '@/lib/store/labStore'
-import { LAB_CATEGORIES, findCategory } from '@/lib/lab/templates'
-import { useExercisesByCategory, findExerciseCombined as findExercise } from '@/lib/store/labStore'
+import { LAB_CATEGORIES } from '@/lib/lab/templates'
+import { useExercisesByCategory, findExerciseCombined as findExercise, useAllCategories, findCategoryCombined as findCategory } from '@/lib/store/labStore'
 import type { LabCategory, LabExercise, LabSession, LabBelief } from '@/lib/lab/types'
 import { ExerciseRunner } from './ExerciseRunner'
 
@@ -100,8 +101,7 @@ export function LabPage() {
       )}
 
       {view.kind === 'home' && (
-        <HomeView
-          categories={LAB_CATEGORIES}
+        <HomeViewWithCustom
           openSessions={openSessions}
           closedSessions={closedSessions}
           onOpenCategory={(key) => setView({ kind: 'category', categoryKey: key })}
@@ -130,8 +130,61 @@ export function LabPage() {
 
 // ─── HOME VIEW ───────────────────────────────────────────────────────────────
 
+/** Wrapper sobre HomeView que: (1) le inyecta las categorías combinadas
+ *  (built-in + custom desde el store), y (2) le agrega un slot para crear
+ *  nuevas categorías custom. Mantiene HomeView abajo intacto para no
+ *  romper el render existente. */
+function HomeViewWithCustom(props: {
+  openSessions: LabSession[]
+  closedSessions: LabSession[]
+  onOpenCategory: (key: string) => void
+  onOpenSession: (id: string) => void
+  onLaunch: (exerciseKey: string) => void
+}) {
+  const categories = useAllCategories()
+  const [showBuilder, setShowBuilder] = useState<{ existing?: LabCategory | null } | null>(null)
+  const updateCustomCategory = useLabStore((s) => s.updateCustomCategory)
+  const removeCustomCategory = useLabStore((s) => s.removeCustomCategory)
+  const addCustomCategory = useLabStore((s) => s.addCustomCategory)
+
+  return (
+    <>
+      <HomeView
+        {...props}
+        categories={categories}
+        onEditCategory={(cat) => setShowBuilder({ existing: cat })}
+        onCreateCategory={() => setShowBuilder({ existing: null })}
+      />
+      <AnimatePresence>
+        {showBuilder && (
+          <CustomCategoryBuilder
+            existing={showBuilder.existing ?? null}
+            onSave={(payload) => {
+              if (showBuilder.existing) updateCustomCategory(showBuilder.existing.key, payload)
+              else addCustomCategory(payload)
+              setShowBuilder(null)
+            }}
+            onDelete={showBuilder.existing && showBuilder.existing.key.startsWith('cat_')
+              ? () => {
+                  const ok = removeCustomCategory(showBuilder.existing!.key)
+                  if (!ok) {
+                    alert('No se puede eliminar: hay ejercicios custom adentro. Movelos o eliminalos primero.')
+                    return
+                  }
+                  setShowBuilder(null)
+                }
+              : undefined}
+            onClose={() => setShowBuilder(null)}
+          />
+        )}
+      </AnimatePresence>
+    </>
+  )
+}
+
 function HomeView({
   categories, openSessions, closedSessions, onOpenCategory, onOpenSession, onLaunch,
+  onEditCategory, onCreateCategory,
 }: {
   categories: LabCategory[]
   openSessions: LabSession[]
@@ -139,6 +192,10 @@ function HomeView({
   onOpenCategory: (key: string) => void
   onOpenSession: (id: string) => void
   onLaunch: (exerciseKey: string) => void
+  /** Si está, las cards de categorías custom muestran un botón ✏️ */
+  onEditCategory?: (cat: LabCategory) => void
+  /** Si está, aparece una "+ Nueva categoría" card después del grid. */
+  onCreateCategory?: () => void
 }) {
   const [search, setSearch] = useState('')
   const [showAllHistory, setShowAllHistory] = useState(false)
@@ -189,16 +246,27 @@ function HomeView({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {categories.map((cat) => {
             const catSessions = openSessions.concat(closedSessions).filter((s) => s.categoryKey === cat.key)
+            const isCustomCat = cat.key.startsWith('cat_')
             return (
               <CategoryCard
                 key={cat.key}
                 category={cat}
                 sessionCount={catSessions.length}
+                isCustom={isCustomCat}
                 onClick={() => onOpenCategory(cat.key)}
                 onQuickStart={(exKey) => onLaunch(exKey)}
+                onEdit={isCustomCat && onEditCategory ? () => onEditCategory(cat) : undefined}
               />
             )
           })}
+          {onCreateCategory && (
+            <button onClick={onCreateCategory}
+              className="rounded-2xl border-2 border-dashed border-zinc-700 hover:border-violet-500/60 hover:bg-violet-500/[0.04] text-zinc-500 hover:text-violet-300 transition-all flex flex-col items-center justify-center min-h-[120px] gap-1.5">
+              <Plus className="w-6 h-6" />
+              <span className="text-xs font-semibold">Nueva categoría</span>
+              <span className="text-[10px] text-zinc-600">Armá tu propio pabellón</span>
+            </button>
+          )}
         </div>
       </section>
 
@@ -240,12 +308,14 @@ function HomeView({
 // ─── CATEGORY CARD ───────────────────────────────────────────────────────────
 
 function CategoryCard({
-  category, sessionCount, onClick, onQuickStart,
+  category, sessionCount, onClick, onQuickStart, isCustom, onEdit,
 }: {
   category: LabCategory
   sessionCount: number
   onClick: () => void
   onQuickStart: (exerciseKey: string) => void
+  isCustom?: boolean
+  onEdit?: () => void
 }) {
   const exs = useExercisesByCategory(category.key)
   const [hover, setHover] = useState(false)
@@ -253,7 +323,7 @@ function CategoryCard({
     <div
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      className="rounded-2xl border-2 transition-all duration-200 overflow-hidden cursor-pointer"
+      className="relative rounded-2xl border-2 transition-all duration-200 overflow-hidden cursor-pointer"
       style={{
         background: hover ? category.color + '22' : category.color + '08',
         borderColor: hover ? category.color + '90' : category.color + '30',
@@ -261,13 +331,25 @@ function CategoryCard({
         transform: hover ? 'translateY(-2px)' : 'translateY(0)',
       }}
     >
+      {onEdit && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onEdit() }}
+          className="absolute top-2 right-2 z-10 p-1.5 rounded-md text-zinc-500 hover:text-violet-300 hover:bg-black/30 transition-colors"
+          title="Editar categoría"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
+      )}
       <button onClick={onClick} className="w-full text-left p-4 transition-colors">
         <div className="flex items-start justify-between gap-2 mb-1">
           <span className="text-2xl transition-transform duration-200" style={{ transform: hover ? 'scale(1.15) rotate(-4deg)' : 'scale(1)' }}>
             {category.emoji}
           </span>
-          <span className="text-[10px] font-mono"
+          <span className="text-[10px] font-mono flex items-center gap-2"
             style={{ color: hover ? category.color : '#71717a' }}>
+            {isCustom && (
+              <span className="px-1.5 py-0.5 rounded border bg-violet-500/10 border-violet-500/30 text-violet-300 text-[9px] uppercase tracking-wider">custom</span>
+            )}
             {sessionCount} {sessionCount === 1 ? 'sesión' : 'sesiones'}
           </span>
         </div>

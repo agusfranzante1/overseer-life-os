@@ -1,8 +1,8 @@
 'use client'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { LabSession, LabSessionStatus, LabBelief, LabBeliefStatus, LabExercise, LabExerciseStep } from '@/lib/lab/types'
-import { findExercise as findBuiltInExercise, LAB_EXERCISES } from '@/lib/lab/templates'
+import type { LabSession, LabSessionStatus, LabBelief, LabBeliefStatus, LabExercise, LabExerciseStep, LabCategory } from '@/lib/lab/types'
+import { findExercise as findBuiltInExercise, LAB_EXERCISES, LAB_CATEGORIES, findCategory as findBuiltInCategory } from '@/lib/lab/templates'
 
 function genId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
@@ -20,6 +20,10 @@ interface LabState {
    *  mismo shape para que el ExerciseRunner funcione sin cambios. Las
    *  keys arrancan con `custom_` para evitar colisión. */
   customExercises: LabExercise[]
+  /** Categorías CUSTOM creadas por el user. Se mergean con las built-in
+   *  via los helpers `findCategoryCombined` / `useAllCategories`. Las
+   *  keys arrancan con `cat_` para evitar colisión con built-in. */
+  customCategories: LabCategory[]
 
   // Session lifecycle
   /** Create a new session for an exercise. Returns the new session id.
@@ -70,6 +74,16 @@ interface LabState {
    *  (quedan como huérfanas con `exerciseKey` apuntando a un ej. que ya no
    *  existe — la UI las puede ocultar o tratar como modo lectura). */
   removeCustomExercise: (key: string) => void
+
+  // Custom categories CRUD
+  /** Crea una nueva categoría custom. Devuelve la key generada (cat_XXX). */
+  addCustomCategory: (input: Omit<LabCategory, 'key'>) => string
+  /** Actualiza una categoría custom. Si la key no es cat_, no-op. */
+  updateCustomCategory: (key: string, patch: Partial<LabCategory>) => void
+  /** Elimina una categoría custom. Bloquea si tiene ejercicios custom adentro
+   *  (el caller debe pedir confirmación o mover los ejercicios primero).
+   *  Devuelve true si borró, false si bloqueó. */
+  removeCustomCategory: (key: string) => boolean
 
   // Beliefs CRUD
   addBelief: (text: string, categoryKey?: string) => string
@@ -124,6 +138,30 @@ export const useLabStore = create<LabState>()(
       sessions: [],
       beliefs: [],
       customExercises: [],
+      customCategories: [],
+
+      addCustomCategory: (input) => {
+        const key = `cat_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`
+        const cat: LabCategory = { ...input, key }
+        set((s) => ({ customCategories: [cat, ...s.customCategories] }))
+        return key
+      },
+      updateCustomCategory: (key, patch) => {
+        if (!key.startsWith('cat_')) return
+        set((s) => ({
+          customCategories: s.customCategories.map((c) =>
+            c.key === key ? { ...c, ...patch, key: c.key } : c,
+          ),
+        }))
+      },
+      removeCustomCategory: (key) => {
+        if (!key.startsWith('cat_')) return false
+        const state = get()
+        const hasExercises = state.customExercises.some((e) => e.categoryKey === key)
+        if (hasExercises) return false   // bloquea: hay ejercicios adentro
+        set((s) => ({ customCategories: s.customCategories.filter((c) => c.key !== key) }))
+        return true
+      },
 
       addCustomExercise: (input) => {
         const key = `custom_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`
@@ -385,11 +423,17 @@ export const useLabStore = create<LabState>()(
     }),
     {
       name: 'overseer-lab',
-      partialize: (s) => ({ sessions: s.sessions, beliefs: s.beliefs, customExercises: s.customExercises }),
+      partialize: (s) => ({
+        sessions: s.sessions,
+        beliefs: s.beliefs,
+        customExercises: s.customExercises,
+        customCategories: s.customCategories,
+      }),
       onRehydrateStorage: () => (state) => {
         if (state && !Array.isArray(state.sessions)) state.sessions = []
         if (state && !Array.isArray(state.beliefs)) state.beliefs = []
         if (state && !Array.isArray(state.customExercises)) state.customExercises = []
+        if (state && !Array.isArray(state.customCategories)) state.customCategories = []
       },
     }
   )
@@ -423,3 +467,23 @@ export function useExercisesByCategory(categoryKey: string): LabExercise[] {
 
 /** Re-export útil para componentes que solo quieren el tipo de step. */
 export type { LabExerciseStep }
+
+// ─── Category helpers (built-in + custom combinados) ───────────────────
+
+/** Busca una categoría (built-in O custom) por key. */
+export function findCategoryCombined(key: string): LabCategory | undefined {
+  return useLabStore.getState().customCategories.find((c) => c.key === key) ?? findBuiltInCategory(key)
+}
+
+/** Devuelve TODAS las categorías (built-in + custom), built-in primero
+ *  para mantener el orden histórico. Los custom van al final. */
+export function allCategoriesCombined(): LabCategory[] {
+  const custom = useLabStore.getState().customCategories
+  return [...LAB_CATEGORIES, ...custom]
+}
+
+/** Hook reactivo — para que la UI se actualice cuando agregás categorías. */
+export function useAllCategories(): LabCategory[] {
+  const customCategories = useLabStore((s) => s.customCategories)
+  return [...LAB_CATEGORIES, ...customCategories]
+}

@@ -14,8 +14,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { X, Plus, Trash2, GripVertical, ChevronDown, ChevronRight } from 'lucide-react'
-import { useLabStore } from '@/lib/store/labStore'
-import { LAB_CATEGORIES } from '@/lib/lab/templates'
+import { useLabStore, useAllCategories } from '@/lib/store/labStore'
 import type { LabExercise, LabExerciseStep } from '@/lib/lab/types'
 import type { SectionField, SectionFieldType } from '@/lib/spi/types'
 
@@ -48,7 +47,8 @@ export function CustomExerciseBuilder({ existing, defaultCategoryKey, onClose }:
   const [shortDescription, setShortDescription] = useState(existing?.shortDescription ?? '')
   const [intro, setIntro] = useState(existing?.intro ?? '')
   const [outro, setOutro] = useState(existing?.outro ?? '')
-  const [categoryKey, setCategoryKey] = useState(existing?.categoryKey ?? defaultCategoryKey ?? LAB_CATEGORIES[0].key)
+  const allCategories = useAllCategories()
+  const [categoryKey, setCategoryKey] = useState(existing?.categoryKey ?? defaultCategoryKey ?? allCategories[0]?.key ?? '')
   const [steps, setSteps] = useState<LabExerciseStep[]>(
     existing?.steps && existing.steps.length > 0
       ? existing.steps
@@ -191,7 +191,7 @@ export function CustomExerciseBuilder({ existing, defaultCategoryKey, onClose }:
             <FormField label="Categoría">
               <select value={categoryKey} onChange={(e) => setCategoryKey(e.target.value)}
                 className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500">
-                {LAB_CATEGORIES.map((c) => (
+                {allCategories.map((c) => (
                   <option key={c.key} value={c.key}>{c.emoji} {c.title}</option>
                 ))}
               </select>
