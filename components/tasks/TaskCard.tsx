@@ -363,9 +363,12 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
       }}
       className={`rounded-2xl transition-all overflow-hidden ${dndClass}`}
     >
-      {/* Body — clicking it opens the detail modal */}
+      {/* Body — clicking it opens the detail modal. La clase `group/card`
+          permite que los action buttons hijos usen `group-hover/card:` para
+          aparecer solo al hover sobre esta card (vs. afectar elementos
+          de otras cards).  */}
       <div
-        className="p-4 cursor-pointer"
+        className="p-4 cursor-pointer group/card"
         onClick={(e) => {
           // Don't trigger if user clicked an interactive element (they handle their own clicks with stopPropagation)
           if ((e.target as HTMLElement).closest('[data-interactive]')) return
@@ -555,6 +558,10 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
             </div>
           </div>
 
+          {/* Chevron de expand/collapse — siempre visible cuando hay
+              subtareas (es un toggle de estado, no acción destructiva).
+              Vive afuera del grupo hover-only para que el user vea de un
+              vistazo qué tareas tienen hijas. */}
           <div className="flex items-center gap-1 shrink-0">
             {visibleSubtasks.length > 0 && (
               <button
@@ -565,6 +572,12 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                 {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
               </button>
             )}
+          </div>
+          {/* Action buttons (Plus / Clock / Copy / Trash) — visibles SOLO
+              al hover. En Kanban con columnas finitas (288px) estos
+              botones se comían el ancho del título. Por defecto invisibles,
+              al hover sobre la card aparecen. */}
+          <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover/card:opacity-100 transition-opacity">
             {/* "+" rápido para agregar subtask1 sin abrir el modal de
                 detalle. Si la card está colapsada, la expandimos. El
                 flag `shouldFocusSubtaskInput` triggera el useEffect que

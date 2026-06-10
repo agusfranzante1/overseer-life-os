@@ -32,6 +32,32 @@ export type ContentFormat =
   | 'short'       // YT Short
   | 'other'
 
+/** Redes / canales donde se publica una pieza. Cada item se taggea con
+ *  UNA red — si querés cross-postear, duplicás el item con `network`
+ *  distinto (los algoritmos premian contenido nativo, no copy-paste). */
+export type ContentNetwork =
+  | 'instagram'
+  | 'tiktok'
+  | 'youtube'
+  | 'linkedin'
+  | 'x'
+  | 'newsletter'
+  | 'website'
+  | 'podcast'
+  | 'other'
+
+export const NETWORK_META: Record<ContentNetwork, { label: string; icon: string; color: string }> = {
+  instagram:   { label: 'Instagram',  icon: '📷', color: '#e1306c' },
+  tiktok:      { label: 'TikTok',     icon: '🎵', color: '#ff0050' },
+  youtube:     { label: 'YouTube',    icon: '▶️', color: '#ff0000' },
+  linkedin:    { label: 'LinkedIn',   icon: '💼', color: '#0a66c2' },
+  x:           { label: 'X / Twitter', icon: '𝕏', color: '#1da1f2' },
+  newsletter:  { label: 'Newsletter', icon: '✉️', color: '#a855f7' },
+  website:     { label: 'Web / Blog', icon: '🌐', color: '#10b981' },
+  podcast:     { label: 'Podcast',    icon: '🎙️', color: '#f59e0b' },
+  other:       { label: 'Otro',       icon: '·',  color: '#71717a' },
+}
+
 export type ContentStageId =
   | 'idea'
   | 'script'
@@ -45,7 +71,28 @@ export type ContentStageId =
 export type PostCycleAction = 'repeat' | 'improve' | 'delete' | 'undecided'
 
 // ───────────────────────────────────────────────────────────────────
-// ADN DE MARCA — singleton por usuario
+// PERFIL — cada perfil tiene su propio ADN, pilares y redes.
+// Un user puede tener varios perfiles (marca personal, segundo proyecto,
+// cliente, etc) y cada uno se administra de forma independiente.
+// ───────────────────────────────────────────────────────────────────
+export interface ContentProfile {
+  id: string
+  /** Nombre del perfil — "Personal", "Marca X", "Cliente Y". */
+  name: string
+  /** Color de identidad — usado para chips y bordes. */
+  color: string
+  /** Emoji o ícono para identificar el perfil de un vistazo. */
+  icon?: string
+  /** ADN específico de este perfil (audiencia, pilares, etc). */
+  brandDNA: ContentBrandDNA
+  /** Redes que usa este perfil. Sirve para filtrar el calendario y
+   *  sugerir formatos al crear items. */
+  networks: ContentNetwork[]
+  createdAt: string
+}
+
+// ───────────────────────────────────────────────────────────────────
+// ADN DE MARCA — uno por perfil
 // ───────────────────────────────────────────────────────────────────
 export interface ContentBrandDNA {
   // Auditoría e "Insights"
@@ -94,6 +141,8 @@ export interface ContentPillar {
 // ───────────────────────────────────────────────────────────────────
 export interface ContentCampaign {
   id: string
+  /** Perfil dueño de la campaña. */
+  profileId: string
   /** Mes al que aplica — "YYYY-MM". */
   monthYmd: string
   /** Título corto de la campaña ("Lanzamiento X", "Viaje a Japón", etc). */
@@ -129,6 +178,10 @@ export interface ContentWeeklyFocus {
 // ───────────────────────────────────────────────────────────────────
 export interface ContentItem {
   id: string
+  /** Perfil dueño del item. */
+  profileId: string
+  /** Red / canal donde se publica. */
+  network: ContentNetwork
   /** Campaña a la que pertenece (opcional). */
   campaignId?: string
   /** Foco semanal específico (opcional). */

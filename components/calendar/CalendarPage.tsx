@@ -175,6 +175,7 @@ export function CalendarPage() {
           projectColor: project?.color,
           taskStatusColor,
           taskPriorityColor,
+          taskIsLate: !!t.rescheduledFrom,
           isCompleted: !!t.completedAt,
         }
         if (!map.has(t.dueDate)) map.set(t.dueDate, [])
@@ -266,6 +267,7 @@ export function CalendarPage() {
           projectColor: project?.color,
           taskStatusColor,
           taskPriorityColor,
+          taskIsLate: !!t.rescheduledFrom,
           isCompleted: !!t.completedAt,
         })
       }
@@ -534,8 +536,9 @@ export function CalendarPage() {
                           <div key={ev.id}
                             className="text-[10px] px-1.5 py-0.5 rounded truncate flex items-center gap-1 font-medium"
                             style={{ backgroundColor: color, color: fg }}
-                            title={ev.summary}
+                            title={ev.taskIsLate ? `⚠ TARDÍA · ${ev.summary}` : ev.summary}
                           >
+                            {ev.taskIsLate && <span className="text-[8px] font-bold">⚠</span>}
                             {!ev.allDay && <span className="font-mono opacity-80 text-[9px]">{format(parseISO(ev.start), 'HH:mm')}</span>}
                             <span className="truncate">{ev.summary}</span>
                           </div>
@@ -718,7 +721,12 @@ export function CalendarPage() {
                     >
                       <div className="w-2 h-2 rounded-full mt-1 shrink-0" style={{ backgroundColor: proj?.color ?? '#6366f1' }} />
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs text-zinc-200 truncate">{task.title}</p>
+                        <p className="text-xs text-zinc-200 truncate flex items-center gap-1.5">
+                          {task.title}
+                          {task.rescheduledFrom && !task.completedAt && (
+                            <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/40 shrink-0">⚠ TARDÍA</span>
+                          )}
+                        </p>
                         {proj && <p className="text-[10px] text-zinc-500">{proj.name}</p>}
                       </div>
                       <button
@@ -1653,14 +1661,15 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                   const fg = contrastText(color)
                   return (
                     <button key={ev.id} onClick={() => onEventClick(ev)}
-                      title={ev.summary}
-                      className="w-full text-[11px] px-1.5 py-0.5 rounded-md truncate text-left font-medium hover:brightness-110 transition-all"
+                      title={ev.taskIsLate ? `⚠ TARDÍA · ${ev.summary}` : ev.summary}
+                      className="w-full text-[11px] px-1.5 py-0.5 rounded-md truncate text-left font-medium hover:brightness-110 transition-all flex items-center gap-1"
                       style={{
                         backgroundColor: color,
                         color: fg,
                         boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.06)',
                       }}>
-                      {ev.summary}
+                      {ev.taskIsLate && <span className="text-[8px] font-bold">⚠</span>}
+                      <span className="truncate">{ev.summary}</span>
                     </button>
                   )
                 })}
@@ -1945,6 +1954,15 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                         {ev.summary}
                         {ev.recurringEventId && <span className="ml-1 opacity-70">↻</span>}
                       </p>
+                      {/* Badge ⚠ TARDÍA — solo visible si la task tiene
+                          rescheduledFrom seteado. Se renderea pegado a la
+                          parte superior derecha del bloque con animate-pulse
+                          para llamar la atención. */}
+                      {ev.taskIsLate && !ev.isCompleted && (
+                        <span className="absolute top-0.5 right-0.5 text-[8px] font-bold px-1 py-0.5 rounded bg-red-500/90 text-white shadow-sm animate-pulse z-10 pointer-events-none">
+                          ⚠ TARDÍA
+                        </span>
+                      )}
                       {visualHeight > 30 && (
                         <p className={`text-[10px] opacity-90 truncate leading-tight mt-0.5 ${ev.isCompleted ? 'line-through' : ''}`}>
                           {isBeingDragged && dragState

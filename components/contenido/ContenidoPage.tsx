@@ -3,23 +3,30 @@ import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Sparkles, Target, Calendar as CalendarIcon, ChevronLeft, ChevronRight,
-  Plus, Trash2, X, Pencil, Copy, BookOpen, Layers, Zap,
+  Plus, Trash2, X, BookOpen, Layers, Zap, Pencil,
 } from 'lucide-react'
 import { useContentStore, buildAIContentPrompt } from '@/lib/store/contentStore'
 import {
-  FORMAT_LABELS, MOMENT_LABELS, STAGE_LABELS, ANGLE_SUGGESTIONS, DEFAULT_PILLARS,
+  FORMAT_LABELS, MOMENT_LABELS, STAGE_LABELS, ANGLE_SUGGESTIONS,
+  NETWORK_META,
 } from '@/types/content'
 import type {
   ContentItem, ContentFormat, ContentMomentType, ContentStageId,
-  ContentPillar, ContentCampaign, PostCycleAction,
+  ContentProfile, PostCycleAction, ContentNetwork,
 } from '@/types/content'
 
 type Tab = 'estrategia' | 'mes' | 'calendario' | 'pipeline'
+
+const ALL_NETWORKS: ContentNetwork[] = [
+  'instagram', 'tiktok', 'youtube', 'linkedin', 'x',
+  'newsletter', 'website', 'podcast', 'other',
+]
 
 export function ContenidoPage() {
   const [tab, setTab] = useState<Tab>('estrategia')
   const [editingItem, setEditingItem] = useState<ContentItem | null>(null)
   const [creatingForDay, setCreatingForDay] = useState<string | null>(null)
+  const [networkFilter, setNetworkFilter] = useState<ContentNetwork | 'all'>('all')
   const [currentMonth, setCurrentMonth] = useState(() => {
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -29,9 +36,14 @@ export function ContenidoPage() {
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      className="p-6 space-y-6"
+      className="p-4 sm:p-6 space-y-5 w-full"
     >
-      <Header tab={tab} setTab={setTab} currentMonth={currentMonth} setCurrentMonth={setCurrentMonth} />
+      <Header
+        tab={tab} setTab={setTab}
+        currentMonth={currentMonth} setCurrentMonth={setCurrentMonth}
+        networkFilter={networkFilter} setNetworkFilter={setNetworkFilter}
+      />
+      <ProfileBar />
 
       <AnimatePresence mode="wait">
         {tab === 'estrategia' && (
@@ -48,6 +60,7 @@ export function ContenidoPage() {
           <motion.div key="t3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <CalendarioTab
               monthYmd={currentMonth}
+              networkFilter={networkFilter}
               onEditItem={setEditingItem}
               onCreateForDay={setCreatingForDay}
             />
@@ -55,12 +68,11 @@ export function ContenidoPage() {
         )}
         {tab === 'pipeline' && (
           <motion.div key="t4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <PipelineTab onEditItem={setEditingItem} />
+            <PipelineTab networkFilter={networkFilter} onEditItem={setEditingItem} />
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Modal de edición/creación */}
       <AnimatePresence>
         {(editingItem || creatingForDay) && (
           <ItemModal
@@ -76,12 +88,14 @@ export function ContenidoPage() {
 }
 
 // ───────────────────────────────────────────────────────────────────
-// HEADER + tabs
+// HEADER + tabs + network filter
 // ───────────────────────────────────────────────────────────────────
 function Header({
-  tab, setTab, currentMonth, setCurrentMonth,
+  tab, setTab, currentMonth, setCurrentMonth, networkFilter, setNetworkFilter,
 }: {
-  tab: Tab; setTab: (t: Tab) => void; currentMonth: string; setCurrentMonth: (m: string) => void
+  tab: Tab; setTab: (t: Tab) => void
+  currentMonth: string; setCurrentMonth: (m: string) => void
+  networkFilter: ContentNetwork | 'all'; setNetworkFilter: (n: ContentNetwork | 'all') => void
 }) {
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: 'estrategia',  label: 'ADN de marca',   icon: <Target className="w-3.5 h-3.5" /> },
@@ -99,12 +113,21 @@ function Header({
     const d = new Date(y, m - 1, 1)
     return d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })
   })()
+
+  const profile = useContentStore((s) => s.profiles.find((p) => p.id === s.currentProfileId))
+  const profileNetworks = profile?.networks ?? []
+  const filterableNetworks = [...profileNetworks]
+  // En el calendario/pipeline mostramos los chips de filtro de red
+  const showNetworkFilter = tab === 'calendario' || tab === 'pipeline'
+
   return (
     <div className="space-y-3">
-      <div className="flex items-baseline justify-between gap-4">
+      <div className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Calendario de contenido</h1>
-          <p className="text-xs text-zinc-500 mt-0.5">ADN → Pilares → Campaña → Foco semanal → Pieza diaria. Cada post es una célula visible de tu pensamiento estratégico.</p>
+          <p className="text-xs text-zinc-500 mt-0.5">
+            Perfil → ADN → Pilares → Campaña → Foco semanal → Pieza diaria. Cada post es una célula visible de tu pensamiento estratégico.
+          </p>
         </div>
         {(tab === 'mes' || tab === 'calendario') && (
           <div className="flex items-center gap-1 bg-white/[0.03] border border-white/[0.08] rounded-xl p-0.5">
@@ -120,6 +143,8 @@ function Header({
           </div>
         )}
       </div>
+
+      {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-white/[0.06] -mb-2">
         {tabs.map((t) => (
           <button
@@ -135,42 +160,243 @@ function Header({
           </button>
         ))}
       </div>
+
+      {/* Network filter chips — solo en calendario/pipeline */}
+      {showNetworkFilter && filterableNetworks.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap pt-1">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-600">Red:</span>
+          <button
+            onClick={() => setNetworkFilter('all')}
+            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-colors ${
+              networkFilter === 'all'
+                ? 'bg-white/[0.08] border-white/[0.16] text-zinc-100'
+                : 'bg-transparent border-white/[0.08] text-zinc-500 hover:text-zinc-300'
+            }`}
+          >Todas</button>
+          {filterableNetworks.map((n) => {
+            const meta = NETWORK_META[n]
+            const active = networkFilter === n
+            return (
+              <button
+                key={n}
+                onClick={() => setNetworkFilter(n)}
+                className="px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-colors flex items-center gap-1"
+                style={{
+                  background: active ? `${meta.color}20` : 'transparent',
+                  borderColor: active ? meta.color : 'rgba(255,255,255,0.08)',
+                  color: active ? meta.color : '#71717a',
+                }}
+              >
+                <span>{meta.icon}</span>{meta.label}
+              </button>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
 
 // ───────────────────────────────────────────────────────────────────
-// TAB 1: Estrategia / ADN
+// Profile bar — chips de perfiles + crear/editar
+// ───────────────────────────────────────────────────────────────────
+function ProfileBar() {
+  const profiles = useContentStore((s) => s.profiles)
+  const currentProfileId = useContentStore((s) => s.currentProfileId)
+  const setCurrentProfile = useContentStore((s) => s.setCurrentProfile)
+  const addProfile = useContentStore((s) => s.addProfile)
+  const updateProfile = useContentStore((s) => s.updateProfile)
+  const removeProfile = useContentStore((s) => s.removeProfile)
+  const [editing, setEditing] = useState<ContentProfile | null>(null)
+  const [creating, setCreating] = useState(false)
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap p-2 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+      <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-600 mr-1">Perfil:</span>
+      {profiles.map((p) => {
+        const active = p.id === currentProfileId
+        return (
+          <div key={p.id} className="flex items-center group">
+            <button
+              onClick={() => setCurrentProfile(p.id)}
+              className="px-3 py-1 rounded-l-lg text-xs font-semibold border transition-colors flex items-center gap-1.5"
+              style={{
+                background: active ? `${p.color}25` : 'transparent',
+                borderColor: active ? p.color : 'rgba(255,255,255,0.08)',
+                color: active ? '#fff' : '#a1a1aa',
+              }}
+            >
+              <span>{p.icon ?? '·'}</span>{p.name}
+            </button>
+            {active && (
+              <button
+                onClick={() => setEditing(p)}
+                className="px-1.5 py-1 rounded-r-lg border-y border-r text-xs hover:bg-white/[0.05]"
+                style={{ borderColor: p.color, color: '#a1a1aa' }}
+                title="Editar perfil"
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        )
+      })}
+      <button
+        onClick={() => setCreating(true)}
+        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-dashed border-white/[0.10] text-zinc-500 hover:text-violet-300 hover:border-violet-400/40 transition-colors flex items-center gap-1"
+      >
+        <Plus className="w-3 h-3" /> Nuevo perfil
+      </button>
+
+      <AnimatePresence>
+        {creating && (
+          <ProfileModal
+            onSave={(name, color, icon, networks) => {
+              addProfile({ name, color, icon, networks })
+              setCreating(false)
+            }}
+            onClose={() => setCreating(false)}
+          />
+        )}
+        {editing && (
+          <ProfileModal
+            profile={editing}
+            onSave={(name, color, icon, networks) => {
+              updateProfile(editing.id, { name, color, icon, networks })
+              setEditing(null)
+            }}
+            onDelete={profiles.length > 1 ? () => {
+              if (confirm(`¿Eliminar el perfil "${editing.name}" y TODO su contenido (items + campañas)?`)) {
+                removeProfile(editing.id)
+                setEditing(null)
+              }
+            } : undefined}
+            onClose={() => setEditing(null)}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function ProfileModal({
+  profile, onSave, onDelete, onClose,
+}: {
+  profile?: ContentProfile
+  onSave: (name: string, color: string, icon: string, networks: ContentNetwork[]) => void
+  onDelete?: () => void
+  onClose: () => void
+}) {
+  const [name, setName] = useState(profile?.name ?? '')
+  const [color, setColor] = useState(profile?.color ?? '#a855f7')
+  const [icon, setIcon] = useState(profile?.icon ?? '🧑‍🎨')
+  const [networks, setNetworks] = useState<ContentNetwork[]>(profile?.networks ?? ['instagram'])
+
+  const toggleNetwork = (n: ContentNetwork) => {
+    setNetworks((arr) => arr.includes(n) ? arr.filter((x) => x !== n) : [...arr, n])
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      onClick={onClose}
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+    >
+      <motion.div
+        initial={{ scale: 0.97, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.97, y: 10 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-zinc-900 border border-white/[0.10] rounded-2xl w-full max-w-md p-5 space-y-4"
+      >
+        <h2 className="text-base font-semibold text-white">{profile ? 'Editar perfil' : 'Nuevo perfil'}</h2>
+        <div className="space-y-3">
+          <FormField label="Nombre">
+            <input value={name} onChange={(e) => setName(e.target.value)}
+              className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500" />
+          </FormField>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Color">
+              <input type="color" value={color} onChange={(e) => setColor(e.target.value)}
+                className="w-full h-9 bg-zinc-800 border border-white/[0.12] rounded-lg cursor-pointer" />
+            </FormField>
+            <FormField label="Icono (emoji)">
+              <input value={icon} onChange={(e) => setIcon(e.target.value)}
+                className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500" />
+            </FormField>
+          </div>
+          <FormField label="Redes activas">
+            <div className="flex gap-1.5 flex-wrap">
+              {ALL_NETWORKS.map((n) => {
+                const meta = NETWORK_META[n]
+                const active = networks.includes(n)
+                return (
+                  <button key={n} onClick={() => toggleNetwork(n)}
+                    className="px-2 py-1 rounded-full text-[11px] font-semibold border transition-colors flex items-center gap-1"
+                    style={{
+                      background: active ? `${meta.color}20` : 'transparent',
+                      borderColor: active ? meta.color : 'rgba(255,255,255,0.10)',
+                      color: active ? meta.color : '#71717a',
+                    }}>
+                    <span>{meta.icon}</span>{meta.label}
+                  </button>
+                )
+              })}
+            </div>
+          </FormField>
+        </div>
+        <div className="flex gap-2 items-center pt-2 border-t border-white/[0.06]">
+          {onDelete && (
+            <button onClick={onDelete} className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 text-xs font-semibold transition-colors flex items-center gap-1.5">
+              <Trash2 className="w-3 h-3" /> Eliminar
+            </button>
+          )}
+          <button onClick={onClose} className="ml-auto px-3 py-2 rounded-lg bg-zinc-800 hover:bg-white/[0.08] text-zinc-300 text-xs font-semibold transition-colors">
+            Cancelar
+          </button>
+          <button onClick={() => { if (!name.trim()) return; onSave(name.trim(), color, icon, networks) }}
+            className="px-3 py-2 rounded-lg bg-violet-500/20 border border-violet-500/40 hover:bg-violet-500/30 text-violet-200 text-xs font-bold transition-colors">
+            Guardar
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────
+// TAB 1: Estrategia / ADN — del perfil activo
 // ───────────────────────────────────────────────────────────────────
 function EstrategiaTab() {
-  const brandDNA = useContentStore((s) => s.brandDNA)
-  const updateBrandDNA = useContentStore((s) => s.updateBrandDNA)
+  const profile = useContentStore((s) => s.profiles.find((p) => p.id === s.currentProfileId))
+  const updateActiveBrandDNA = useContentStore((s) => s.updateActiveBrandDNA)
+  if (!profile) return null
+  const brandDNA = profile.brandDNA
+
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
       <Card title="Auditoría e Insights" subtitle="Detectá tu diferencial.">
         <TextField label="Diferencial" hint="Qué te vuelve distinto."
           value={brandDNA.differential}
-          onChange={(v) => updateBrandDNA({ differential: v })} />
-        <TextField label="Tensión que resolvés en el mercado" hint="Qué problema/dolor existente en la industria atacás."
+          onChange={(v) => updateActiveBrandDNA({ differential: v })} />
+        <TextField label="Tensión que resolvés en el mercado" hint="Qué problema/dolor existente atacás."
           value={brandDNA.marketTension}
-          onChange={(v) => updateBrandDNA({ marketTension: v })} />
-        <TextField label="Deseo que representás" hint="A qué aspiración apuntás en las personas."
+          onChange={(v) => updateActiveBrandDNA({ marketTension: v })} />
+        <TextField label="Deseo que representás" hint="A qué aspiración apuntás."
           value={brandDNA.desire}
-          onChange={(v) => updateBrandDNA({ desire: v })} />
+          onChange={(v) => updateActiveBrandDNA({ desire: v })} />
       </Card>
 
       <Card title="Sistema implícito" subtitle="El 'software interno' que guía el criterio estético y narrativo.">
-        <TextField label="Intereses" value={brandDNA.interests} onChange={(v) => updateBrandDNA({ interests: v })} />
-        <TextField label="Obsesiones" value={brandDNA.obsessions} onChange={(v) => updateBrandDNA({ obsessions: v })} />
-        <TextField label="Miedos" value={brandDNA.fears} onChange={(v) => updateBrandDNA({ fears: v })} />
+        <TextField label="Intereses" value={brandDNA.interests} onChange={(v) => updateActiveBrandDNA({ interests: v })} />
+        <TextField label="Obsesiones" value={brandDNA.obsessions} onChange={(v) => updateActiveBrandDNA({ obsessions: v })} />
+        <TextField label="Miedos" value={brandDNA.fears} onChange={(v) => updateActiveBrandDNA({ fears: v })} />
         <TextField label="Referencias" hint="Gente, libros, marcas, lugares."
-          value={brandDNA.references} onChange={(v) => updateBrandDNA({ references: v })} />
+          value={brandDNA.references} onChange={(v) => updateActiveBrandDNA({ references: v })} />
       </Card>
 
-      <Card title="Problema específico" subtitle="Definí exactamente qué solucionás, cómo y a quién.">
-        <TextField label="Qué problema solucionás" value={brandDNA.problem} onChange={(v) => updateBrandDNA({ problem: v })} />
-        <TextField label="De qué forma específica" value={brandDNA.solutionApproach} onChange={(v) => updateBrandDNA({ solutionApproach: v })} />
-        <TextField label="A quién" value={brandDNA.audience} onChange={(v) => updateBrandDNA({ audience: v })} />
+      <Card title="Problema específico" subtitle="Qué solucionás, cómo y a quién.">
+        <TextField label="Qué problema solucionás" value={brandDNA.problem} onChange={(v) => updateActiveBrandDNA({ problem: v })} />
+        <TextField label="De qué forma específica" value={brandDNA.solutionApproach} onChange={(v) => updateActiveBrandDNA({ solutionApproach: v })} />
+        <TextField label="A quién" value={brandDNA.audience} onChange={(v) => updateActiveBrandDNA({ audience: v })} />
       </Card>
 
       <PillarsSection />
@@ -179,19 +405,22 @@ function EstrategiaTab() {
 }
 
 function PillarsSection() {
-  const pillars = useContentStore((s) => s.brandDNA.pillars)
+  const profile = useContentStore((s) => s.profiles.find((p) => p.id === s.currentProfileId))
   const addPillar = useContentStore((s) => s.addPillar)
   const updatePillar = useContentStore((s) => s.updatePillar)
   const removePillar = useContentStore((s) => s.removePillar)
-  const resetPillars = useContentStore((s) => s.resetBrandDNAPillars)
+  const resetPillars = useContentStore((s) => s.resetActivePillars)
   const [creating, setCreating] = useState(false)
   const [newLabel, setNewLabel] = useState('')
   const [newDesc, setNewDesc] = useState('')
 
+  if (!profile) return null
+  const pillars = profile.brandDNA.pillars
+
   return (
     <Card
       title="Pilares de comunicación"
-      subtitle="Equilibrá autoridad y conexión humana. Los 3 default son los recomendados por la metodología — editalos o agregá los tuyos."
+      subtitle="Equilibrá autoridad y conexión humana."
       right={
         <button onClick={resetPillars} className="text-[10px] text-zinc-500 hover:text-zinc-300">
           Reset a default
@@ -274,6 +503,7 @@ function PillarsSection() {
 // TAB 2: Mes en curso — campaña + roadmap 30 días + foco semanal
 // ───────────────────────────────────────────────────────────────────
 function MesTab({ monthYmd }: { monthYmd: string }) {
+  const currentProfileId = useContentStore((s) => s.currentProfileId)
   const getCampaign = useContentStore((s) => s.getCampaignForMonth)
   const addCampaign = useContentStore((s) => s.addCampaign)
   const updateCampaign = useContentStore((s) => s.updateCampaign)
@@ -284,13 +514,11 @@ function MesTab({ monthYmd }: { monthYmd: string }) {
 
   const campaign = getCampaign(monthYmd)
 
-  // Mondays del mes — para sugerir focos semanales
   const mondays = useMemo(() => {
     const [y, m] = monthYmd.split('-').map(Number)
     const firstDay = new Date(y, m - 1, 1)
     const result: string[] = []
     const cursor = new Date(firstDay)
-    // Avanzar al primer lunes (>=1° del mes)
     while (cursor.getDay() !== 1) cursor.setDate(cursor.getDate() + 1)
     while (cursor.getMonth() === m - 1) {
       result.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`)
@@ -301,118 +529,101 @@ function MesTab({ monthYmd }: { monthYmd: string }) {
 
   if (!campaign) {
     return (
-      <div className="max-w-2xl space-y-4">
-        <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-8 text-center">
-          <Sparkles className="w-10 h-10 text-violet-400/60 mx-auto mb-3" />
-          <h2 className="text-base font-semibold text-white mb-2">No hay campaña para este mes</h2>
-          <p className="text-xs text-zinc-500 mb-5 max-w-md mx-auto">
-            La metodología dice: cada mes empezás con UN gran objetivo o intención (lanzamiento, viaje, tema-eje). Después se descompone en focos semanales.
-          </p>
-          <button
-            onClick={() => addCampaign({ monthYmd, title: 'Nueva campaña', goal: '' })}
-            className="px-4 py-2 rounded-xl bg-violet-500/20 border border-violet-500/40 hover:bg-violet-500/30 text-violet-200 text-sm font-semibold transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5 inline mr-1" /> Crear campaña del mes
-          </button>
-        </div>
+      <div className="rounded-2xl bg-white/[0.03] border border-white/[0.08] p-8 text-center max-w-2xl mx-auto">
+        <Sparkles className="w-10 h-10 text-violet-400/60 mx-auto mb-3" />
+        <h2 className="text-base font-semibold text-white mb-2">No hay campaña para este mes</h2>
+        <p className="text-xs text-zinc-500 mb-5 max-w-md mx-auto">
+          Cada mes empezás con UN gran objetivo o intención. Después se descompone en focos semanales.
+        </p>
+        <button
+          onClick={() => addCampaign({ profileId: currentProfileId, monthYmd, title: 'Nueva campaña', goal: '' })}
+          className="px-4 py-2 rounded-xl bg-violet-500/20 border border-violet-500/40 hover:bg-violet-500/30 text-violet-200 text-sm font-semibold transition-colors"
+        >
+          <Plus className="w-3.5 h-3.5 inline mr-1" /> Crear campaña del mes
+        </button>
       </div>
     )
   }
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <Card
-        title="Campaña del mes"
-        subtitle="La intención macro que organiza todo el mes."
-        right={
-          <button
-            onClick={() => { if (confirm('¿Eliminar la campaña?')) removeCampaign(campaign.id) }}
-            className="text-[10px] text-zinc-500 hover:text-red-400"
-          >Eliminar</button>
-        }
-      >
-        <TextField label="Título"
-          value={campaign.title}
-          onChange={(v) => updateCampaign(campaign.id, { title: v })} />
-        <TextField label="Objetivo / Intención"
-          value={campaign.goal}
-          onChange={(v) => updateCampaign(campaign.id, { goal: v })}
-          multiline />
-      </Card>
-
-      <Card title="Roadmap 30 días" subtitle="El ciclo de 4 semanas — insights, calendarización, producción, análisis.">
-        <RoadmapPhase
-          num={1} title="Insights"
-          hint="Hipótesis estratégica del mes + qué observaste / qué hipótesis vas a testear."
-          value={campaign.hypothesis ?? ''}
-          onChange={(v) => updateCampaign(campaign.id, { hypothesis: v })}
-        />
-        <RoadmapPhase
-          num={2} title="Calendarización"
-          hint="Pulir guiones, definir formatos, agendar. Trabajá esto en la pestaña Calendario."
-          value={campaign.collectedInsights ?? ''}
-          onChange={(v) => updateCampaign(campaign.id, { collectedInsights: v })}
-        />
-        <RoadmapPhase
-          num={3} title="Producción / Posting"
-          hint="Grabar, editar, publicar. Usá la pestaña Pipeline para mover piezas por etapas."
-          value={''}
-          onChange={() => undefined}
-          readOnly
-        />
-        <RoadmapPhase
-          num={4} title="Análisis y optimización"
-          hint="Qué funcionó, qué no, qué arrastrar al mes siguiente."
-          value={`${campaign.whatWorked ?? ''}${campaign.whatDidntWork ? '\n\n— Lo que no:\n' + campaign.whatDidntWork : ''}${campaign.nextMonthFocus ? '\n\n— Foco que arrastro:\n' + campaign.nextMonthFocus : ''}`}
-          onChange={(v) => updateCampaign(campaign.id, { whatWorked: v })}
-          renderExtras={
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-              <TextField label="Lo que no funcionó" value={campaign.whatDidntWork ?? ''} onChange={(v) => updateCampaign(campaign.id, { whatDidntWork: v })} multiline />
-              <TextField label="Foco para el mes que viene" value={campaign.nextMonthFocus ?? ''} onChange={(v) => updateCampaign(campaign.id, { nextMonthFocus: v })} multiline />
-            </div>
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+      <div className="space-y-5">
+        <Card
+          title="Campaña del mes"
+          subtitle="La intención macro que organiza todo el mes."
+          right={
+            <button
+              onClick={() => { if (confirm('¿Eliminar la campaña?')) removeCampaign(campaign.id) }}
+              className="text-[10px] text-zinc-500 hover:text-red-400"
+            >Eliminar</button>
           }
-        />
-      </Card>
+        >
+          <TextField label="Título" value={campaign.title} onChange={(v) => updateCampaign(campaign.id, { title: v })} />
+          <TextField label="Objetivo / Intención" value={campaign.goal} onChange={(v) => updateCampaign(campaign.id, { goal: v })} multiline />
+        </Card>
 
-      <Card title="Foco por semana" subtitle="Cada semana del mes tiene un tema central derivado de la campaña.">
-        <div className="space-y-2">
-          {mondays.map((mondayYmd) => {
-            const existing = campaign.weeklyFoci.find((f) => f.weekStartYmd === mondayYmd)
-            const monday = (() => {
-              const [y, m, d] = mondayYmd.split('-').map(Number)
-              return new Date(y, m - 1, d).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
-            })()
-            return (
-              <div key={mondayYmd} className="flex items-start gap-2 group">
-                <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 w-16 shrink-0 mt-2">
-                  {monday}
-                </div>
-                <textarea
-                  value={existing?.theme ?? ''}
-                  onChange={(e) => {
-                    if (existing) updateWeeklyFocus(campaign.id, existing.id, e.target.value)
-                    else addWeeklyFocus(campaign.id, mondayYmd, e.target.value)
-                  }}
-                  placeholder="Tema central de la semana..."
-                  rows={1}
-                  className="flex-1 bg-white/[0.02] border border-white/[0.06] rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-violet-500/40 resize-none"
-                  style={{ minHeight: '32px' }}
-                />
-                {existing && (
-                  <button
-                    onClick={() => removeWeeklyFocus(campaign.id, existing.id)}
-                    className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 p-1 mt-1"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                )}
+        <Card title="Roadmap 30 días" subtitle="Insights / Calendarización / Producción / Análisis.">
+          <RoadmapPhase num={1} title="Insights"
+            hint="Hipótesis estratégica del mes."
+            value={campaign.hypothesis ?? ''}
+            onChange={(v) => updateCampaign(campaign.id, { hypothesis: v })} />
+          <RoadmapPhase num={2} title="Calendarización"
+            hint="Pulir guiones, formatos, agendar."
+            value={campaign.collectedInsights ?? ''}
+            onChange={(v) => updateCampaign(campaign.id, { collectedInsights: v })} />
+          <RoadmapPhase num={3} title="Producción / Posting"
+            hint="Grabar, editar, publicar. Movés en Pipeline."
+            value={''} onChange={() => undefined} readOnly />
+          <RoadmapPhase num={4} title="Análisis y optimización"
+            hint="Qué funcionó."
+            value={campaign.whatWorked ?? ''}
+            onChange={(v) => updateCampaign(campaign.id, { whatWorked: v })}
+            renderExtras={
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                <TextField label="Lo que no funcionó" value={campaign.whatDidntWork ?? ''} onChange={(v) => updateCampaign(campaign.id, { whatDidntWork: v })} multiline />
+                <TextField label="Foco para el mes que viene" value={campaign.nextMonthFocus ?? ''} onChange={(v) => updateCampaign(campaign.id, { nextMonthFocus: v })} multiline />
               </div>
-            )
-          })}
-        </div>
-      </Card>
+            } />
+        </Card>
+      </div>
 
-      <GenerarPromptCard monthYmd={monthYmd} />
+      <div className="space-y-5">
+        <Card title="Foco por semana" subtitle="Tema central derivado de la campaña.">
+          <div className="space-y-2">
+            {mondays.map((mondayYmd) => {
+              const existing = campaign.weeklyFoci.find((f) => f.weekStartYmd === mondayYmd)
+              const monday = (() => {
+                const [y, m, d] = mondayYmd.split('-').map(Number)
+                return new Date(y, m - 1, d).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
+              })()
+              return (
+                <div key={mondayYmd} className="flex items-start gap-2 group">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 w-16 shrink-0 mt-2">{monday}</div>
+                  <textarea
+                    value={existing?.theme ?? ''}
+                    onChange={(e) => {
+                      if (existing) updateWeeklyFocus(campaign.id, existing.id, e.target.value)
+                      else addWeeklyFocus(campaign.id, mondayYmd, e.target.value)
+                    }}
+                    placeholder="Tema central de la semana..."
+                    rows={1}
+                    className="flex-1 bg-white/[0.02] border border-white/[0.06] rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-violet-500/40 resize-none"
+                    style={{ minHeight: '32px' }}
+                  />
+                  {existing && (
+                    <button onClick={() => removeWeeklyFocus(campaign.id, existing.id)}
+                      className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 p-1 mt-1">
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+
+        <GenerarPromptCard monthYmd={monthYmd} />
+      </div>
     </div>
   )
 }
@@ -432,12 +643,8 @@ function RoadmapPhase({
       </div>
       <p className="text-[10px] text-zinc-500 mb-2">{hint}</p>
       {!readOnly && (
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          rows={3}
-          className="w-full bg-white/[0.02] border border-white/[0.06] rounded px-2 py-1.5 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-violet-500/40 resize-none"
-        />
+        <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={3}
+          className="w-full bg-white/[0.02] border border-white/[0.06] rounded px-2 py-1.5 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-violet-500/40 resize-none" />
       )}
       {renderExtras}
     </div>
@@ -445,91 +652,101 @@ function RoadmapPhase({
 }
 
 // ───────────────────────────────────────────────────────────────────
-// "Generar prompt IA" — copia un mega-prompt al portapapeles
+// Generar prompt IA — multi-perfil + opcional foco de red
 // ───────────────────────────────────────────────────────────────────
 function GenerarPromptCard({ monthYmd }: { monthYmd: string }) {
-  const state = useContentStore()
+  const profiles = useContentStore((s) => s.profiles)
+  const campaigns = useContentStore((s) => s.campaigns)
+  const items = useContentStore((s) => s.items)
+  const currentProfileId = useContentStore((s) => s.currentProfileId)
+  const profile = profiles.find((p) => p.id === currentProfileId)
   const [copied, setCopied] = useState(false)
   const [targetItems, setTargetItems] = useState(10)
   const [weekStart, setWeekStart] = useState<string>('')
+  const [networkFocus, setNetworkFocus] = useState<ContentNetwork | ''>('')
 
   const handleCopy = async () => {
     const prompt = buildAIContentPrompt(
-      { brandDNA: state.brandDNA, campaigns: state.campaigns, items: state.items },
-      { monthYmd, weekStartYmd: weekStart || undefined, targetItemCount: targetItems },
+      { profiles, campaigns, items },
+      {
+        profileId: currentProfileId,
+        monthYmd,
+        weekStartYmd: weekStart || undefined,
+        targetItemCount: targetItems,
+        network: networkFocus || undefined,
+      },
     )
     try {
       await navigator.clipboard.writeText(prompt)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2500)
+      setCopied(true); setTimeout(() => setCopied(false), 2500)
     } catch {
       const ta = document.createElement('textarea')
       ta.value = prompt; document.body.appendChild(ta); ta.select()
       document.execCommand('copy'); document.body.removeChild(ta)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2500)
+      setCopied(true); setTimeout(() => setCopied(false), 2500)
     }
   }
 
   return (
     <Card
       title="Generar prompt para IA"
-      subtitle="Copia un prompt que YA incluye tu ADN, pilares y contexto del mes. Pegalo en ChatGPT/Claude y te tira ideas alineadas."
+      subtitle="Compila ADN del perfil activo + campaña + foco semanal en un prompt listo para pegar en ChatGPT/Claude."
     >
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <div className="flex items-center gap-2 text-xs text-zinc-400">
           <span>Cantidad</span>
-          <input
-            type="number" min={1} max={50}
-            value={targetItems}
+          <input type="number" min={1} max={50} value={targetItems}
             onChange={(e) => setTargetItems(Number(e.target.value) || 10)}
-            className="w-14 bg-zinc-800 border border-white/[0.12] rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-violet-500"
-          />
+            className="w-14 bg-zinc-800 border border-white/[0.12] rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-violet-500" />
         </div>
         <div className="flex items-center gap-2 text-xs text-zinc-400">
-          <span>Foco semana</span>
-          <input
-            type="date"
-            value={weekStart}
-            onChange={(e) => setWeekStart(e.target.value)}
-            className="bg-zinc-800 border border-white/[0.12] rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-violet-500"
-          />
+          <span>Semana</span>
+          <input type="date" value={weekStart} onChange={(e) => setWeekStart(e.target.value)}
+            className="bg-zinc-800 border border-white/[0.12] rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-violet-500 w-full" />
         </div>
-        <button
-          onClick={handleCopy}
-          className="ml-auto px-4 py-2 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:brightness-110 text-white text-sm font-semibold transition-all flex items-center gap-2"
-          style={{ boxShadow: '0 0 24px -8px rgba(168, 85, 247, 0.6)' }}
-        >
-          {copied ? <><Sparkles className="w-3.5 h-3.5" /> ¡Copiado!</> : <><Copy className="w-3.5 h-3.5" /> Copiar prompt</>}
-        </button>
+        <div className="flex items-center gap-2 text-xs text-zinc-400">
+          <span>Red foco</span>
+          <select value={networkFocus} onChange={(e) => setNetworkFocus(e.target.value as ContentNetwork | '')}
+            className="bg-zinc-800 border border-white/[0.12] rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-violet-500 w-full">
+            <option value="">Mixto</option>
+            {(profile?.networks ?? []).map((n) => <option key={n} value={n}>{NETWORK_META[n].label}</option>)}
+          </select>
+        </div>
       </div>
+      <button
+        onClick={handleCopy}
+        className="w-full mt-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 hover:brightness-110 text-white text-sm font-semibold transition-all flex items-center gap-2 justify-center"
+        style={{ boxShadow: '0 0 24px -8px rgba(168, 85, 247, 0.6)' }}
+      >
+        {copied ? <><Sparkles className="w-3.5 h-3.5" /> ¡Copiado al portapapeles!</> : <>🤖 Copiar prompt para IA</>}
+      </button>
     </Card>
   )
 }
 
 // ───────────────────────────────────────────────────────────────────
-// TAB 3: Calendario mensual
+// TAB 3: Calendario mensual — full width, filtrable por red
 // ───────────────────────────────────────────────────────────────────
 function CalendarioTab({
-  monthYmd, onEditItem, onCreateForDay,
-}: { monthYmd: string; onEditItem: (i: ContentItem) => void; onCreateForDay: (d: string) => void }) {
+  monthYmd, networkFilter, onEditItem, onCreateForDay,
+}: { monthYmd: string; networkFilter: ContentNetwork | 'all'
+     onEditItem: (i: ContentItem) => void; onCreateForDay: (d: string) => void }) {
   const items = useContentStore((s) => s.items)
-  const pillars = useContentStore((s) => s.brandDNA.pillars)
+  const currentProfileId = useContentStore((s) => s.currentProfileId)
+  const profile = useContentStore((s) => s.profiles.find((p) => p.id === s.currentProfileId))
+  const pillars = profile?.brandDNA.pillars ?? []
 
   const days = useMemo(() => {
     const [y, m] = monthYmd.split('-').map(Number)
     const first = new Date(y, m - 1, 1)
     const last = new Date(y, m, 0)
-    const startDay = first.getDay() === 0 ? 6 : first.getDay() - 1   // Lun=0, ..., Dom=6
+    const startDay = first.getDay() === 0 ? 6 : first.getDay() - 1
     const total = last.getDate()
     const cells: { date: Date | null; ymd: string | null }[] = []
     for (let i = 0; i < startDay; i++) cells.push({ date: null, ymd: null })
     for (let d = 1; d <= total; d++) {
       const dt = new Date(y, m - 1, d)
-      cells.push({
-        date: dt,
-        ymd: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
-      })
+      cells.push({ date: dt, ymd: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}` })
     }
     while (cells.length % 7 !== 0) cells.push({ date: null, ymd: null })
     return cells
@@ -538,12 +755,14 @@ function CalendarioTab({
   const itemsByDay = useMemo(() => {
     const map = new Map<string, ContentItem[]>()
     for (const it of items) {
+      if (it.profileId !== currentProfileId) continue
+      if (networkFilter !== 'all' && it.network !== networkFilter) continue
       if (!it.scheduledYmd.startsWith(monthYmd)) continue
       if (!map.has(it.scheduledYmd)) map.set(it.scheduledYmd, [])
       map.get(it.scheduledYmd)!.push(it)
     }
     return map
-  }, [items, monthYmd])
+  }, [items, monthYmd, currentProfileId, networkFilter])
 
   const pillarById = new Map(pillars.map((p) => [p.id, p]))
   const today = new Date()
@@ -563,7 +782,7 @@ function CalendarioTab({
           return (
             <div
               key={i}
-              className={`min-h-[120px] rounded-lg border p-1.5 transition-colors group ${
+              className={`min-h-[140px] rounded-lg border p-2 transition-colors group ${
                 cell.ymd
                   ? isToday
                     ? 'bg-violet-500/[0.06] border-violet-500/40 hover:border-violet-500/60'
@@ -573,7 +792,7 @@ function CalendarioTab({
             >
               {cell.date && cell.ymd && (
                 <>
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center justify-between mb-1.5">
                     <span className={`text-xs font-semibold ${isToday ? 'text-violet-200' : 'text-zinc-500'}`}>
                       {cell.date.getDate()}
                     </span>
@@ -590,6 +809,7 @@ function CalendarioTab({
                       const pillar = pillarById.get(it.pillarId)
                       const color = pillar?.color ?? '#71717a'
                       const stage = STAGE_LABELS[it.stage]
+                      const netMeta = NETWORK_META[it.network]
                       return (
                         <button
                           key={it.id}
@@ -600,10 +820,13 @@ function CalendarioTab({
                             borderLeft: `2px solid ${color}`,
                           }}
                         >
-                          <div className="text-[10px] font-semibold text-zinc-200 truncate">
-                            {it.title || '(sin título)'}
+                          <div className="flex items-center gap-1 mb-0.5">
+                            <span className="text-[10px]" style={{ color: netMeta.color }}>{netMeta.icon}</span>
+                            <div className="text-[10px] font-semibold text-zinc-200 truncate flex-1 min-w-0">
+                              {it.title || '(sin título)'}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1 text-[8px] mt-0.5">
+                          <div className="flex items-center gap-1 text-[8px]">
                             <span style={{ color }}>{FORMAT_LABELS[it.format]}</span>
                             <span className="text-zinc-600">·</span>
                             <span style={{ color: stage.color }}>{stage.label}</span>
@@ -625,20 +848,29 @@ function CalendarioTab({
 // ───────────────────────────────────────────────────────────────────
 // TAB 4: Pipeline (kanban por etapa)
 // ───────────────────────────────────────────────────────────────────
-function PipelineTab({ onEditItem }: { onEditItem: (i: ContentItem) => void }) {
+function PipelineTab({
+  networkFilter, onEditItem,
+}: { networkFilter: ContentNetwork | 'all'; onEditItem: (i: ContentItem) => void }) {
   const items = useContentStore((s) => s.items)
-  const pillars = useContentStore((s) => s.brandDNA.pillars)
+  const currentProfileId = useContentStore((s) => s.currentProfileId)
+  const profile = useContentStore((s) => s.profiles.find((p) => p.id === s.currentProfileId))
+  const pillars = profile?.brandDNA.pillars ?? []
   const setItemStage = useContentStore((s) => s.setItemStage)
   const [dragId, setDragId] = useState<string | null>(null)
   const stages: ContentStageId[] = ['idea', 'script', 'recording', 'editing', 'scheduled', 'published']
   const pillarById = new Map(pillars.map((p) => [p.id, p]))
+
+  const filteredItems = items.filter((it) =>
+    it.profileId === currentProfileId
+    && (networkFilter === 'all' || it.network === networkFilter)
+  )
 
   return (
     <div className="overflow-x-auto pb-3">
       <div className="flex gap-3 min-w-max">
         {stages.map((stage) => {
           const stageMeta = STAGE_LABELS[stage]
-          const stageItems = items.filter((it) => it.stage === stage)
+          const stageItems = filteredItems.filter((it) => it.stage === stage)
           return (
             <div
               key={stage}
@@ -665,6 +897,7 @@ function PipelineTab({ onEditItem }: { onEditItem: (i: ContentItem) => void }) {
                   stageItems.map((it) => {
                     const pillar = pillarById.get(it.pillarId)
                     const color = pillar?.color ?? '#71717a'
+                    const netMeta = NETWORK_META[it.network]
                     return (
                       <div
                         key={it.id}
@@ -679,8 +912,11 @@ function PipelineTab({ onEditItem }: { onEditItem: (i: ContentItem) => void }) {
                           opacity: dragId === it.id ? 0.4 : 1,
                         }}
                       >
-                        <div className="text-xs font-semibold text-zinc-200 mb-1 line-clamp-2">
-                          {it.title || '(sin título)'}
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className="text-xs" style={{ color: netMeta.color }}>{netMeta.icon}</span>
+                          <div className="text-xs font-semibold text-zinc-200 line-clamp-2 flex-1 min-w-0">
+                            {it.title || '(sin título)'}
+                          </div>
                         </div>
                         <div className="flex items-center gap-2 text-[9px] text-zinc-500">
                           <span>{it.scheduledYmd}</span>
@@ -709,21 +945,26 @@ function ItemModal({
   const addItem = useContentStore((s) => s.addItem)
   const updateItem = useContentStore((s) => s.updateItem)
   const removeItem = useContentStore((s) => s.removeItem)
-  const pillars = useContentStore((s) => s.brandDNA.pillars)
+  const currentProfileId = useContentStore((s) => s.currentProfileId)
+  const profile = useContentStore((s) => s.profiles.find((p) => p.id === s.currentProfileId))
+  const pillars = profile?.brandDNA.pillars ?? []
   const campaign = useContentStore((s) => s.getCampaignForMonth(monthYmd))
+  const profileNetworks = profile?.networks ?? ['instagram']
 
   const [draft, setDraft] = useState<Partial<ContentItem>>(
     item ?? {
+      profileId: currentProfileId,
+      network: profileNetworks[0] ?? 'instagram',
       pillarId: pillars[0]?.id ?? '',
       scheduledYmd: defaultDate ?? `${monthYmd}-01`,
-      format: 'reel' as ContentFormat,
-      momentType: 'talk' as ContentMomentType,
+      format: 'reel',
+      momentType: 'talk',
       angle: 'Educativo',
       hook: '',
       title: '',
       script: '',
       hashtags: '',
-      stage: 'idea' as ContentStageId,
+      stage: 'idea',
       campaignId: campaign?.id,
     }
   )
@@ -739,6 +980,8 @@ function ItemModal({
       updateItem(item.id, draft)
     } else {
       addItem({
+        profileId: currentProfileId,
+        network: draft.network ?? 'instagram',
         pillarId: draft.pillarId ?? pillars[0]?.id ?? '',
         scheduledYmd: draft.scheduledYmd ?? defaultDate ?? `${monthYmd}-01`,
         scheduledTime: draft.scheduledTime,
@@ -770,11 +1013,13 @@ function ItemModal({
         className="bg-zinc-900 border border-white/[0.10] rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col"
       >
         <div className="flex items-center justify-between p-4 border-b border-white/[0.06]">
-          <div>
-            <h2 className="text-base font-semibold text-white">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-white truncate">
               {item ? 'Editar pieza' : 'Nueva pieza'}
             </h2>
-            <p className="text-[10px] text-zinc-500">{draft.scheduledYmd}{draft.scheduledTime ? ` · ${draft.scheduledTime}` : ''}</p>
+            <p className="text-[10px] text-zinc-500">
+              {profile?.name} · {draft.scheduledYmd}{draft.scheduledTime ? ` · ${draft.scheduledTime}` : ''}
+            </p>
           </div>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 p-1">
             <X className="w-5 h-5" />
@@ -782,8 +1027,14 @@ function ItemModal({
         </div>
 
         <div className="overflow-y-auto p-5 space-y-4">
-          {/* Cuándo */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Red + Fecha + Hora */}
+          <div className="grid grid-cols-3 gap-3">
+            <FormField label="Red">
+              <select value={draft.network ?? 'instagram'} onChange={(e) => setF('network', e.target.value as ContentNetwork)}
+                className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500">
+                {profileNetworks.map((n) => <option key={n} value={n}>{NETWORK_META[n].icon} {NETWORK_META[n].label}</option>)}
+              </select>
+            </FormField>
             <FormField label="Fecha">
               <input type="date" value={draft.scheduledYmd ?? ''} onChange={(e) => setF('scheduledYmd', e.target.value)}
                 className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500" />
@@ -834,7 +1085,6 @@ function ItemModal({
             </FormField>
           </div>
 
-          {/* Hook + título + script */}
           <FormField label="Hook (primeros 3 segundos)" hint="Lo más importante. Define si te miran o te pasan.">
             <textarea value={draft.hook ?? ''} onChange={(e) => setF('hook', e.target.value)} rows={2}
               className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500 resize-none" />
@@ -857,7 +1107,6 @@ function ItemModal({
               className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-violet-500 resize-none" />
           </FormField>
 
-          {/* Estado de producción */}
           <FormField label="Etapa de producción">
             <div className="flex gap-1 flex-wrap">
               {(Object.keys(STAGE_LABELS) as ContentStageId[]).map((s) => {
@@ -865,9 +1114,7 @@ function ItemModal({
                 const active = draft.stage === s
                 return (
                   <button key={s} onClick={() => setF('stage', s)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
-                      active ? 'border-2' : 'border'
-                    }`}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors`}
                     style={{
                       borderColor: active ? meta.color : 'rgba(255,255,255,0.1)',
                       background: active ? `${meta.color}25` : 'transparent',
@@ -880,7 +1127,6 @@ function ItemModal({
             </div>
           </FormField>
 
-          {/* Performance — solo si está publicado */}
           {draft.stage === 'published' && (
             <div className="pt-3 border-t border-white/[0.06] space-y-3">
               <h3 className="text-xs font-semibold text-emerald-300 flex items-center gap-2">
@@ -895,11 +1141,11 @@ function ItemModal({
                   </FormField>
                 ))}
               </div>
-              <FormField label="Notas cualitativas" hint="Qué comentarios hubo, qué aprendiste.">
+              <FormField label="Notas cualitativas">
                 <textarea value={draft.qualitativeNotes ?? ''} onChange={(e) => setF('qualitativeNotes', e.target.value)} rows={2}
                   className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-emerald-500 resize-none" />
               </FormField>
-              <FormField label="URL publicado (opcional)">
+              <FormField label="URL publicado">
                 <input type="url" value={draft.publishedUrl ?? ''} onChange={(e) => setF('publishedUrl', e.target.value || undefined)}
                   className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500" />
               </FormField>
@@ -911,7 +1157,7 @@ function ItemModal({
                     const active = draft.postCycleAction === a
                     return (
                       <button key={a} onClick={() => setF('postCycleAction', a)}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors`}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors"
                         style={{
                           borderColor: active ? color : 'rgba(255,255,255,0.1)',
                           background: active ? `${color}25` : 'transparent',

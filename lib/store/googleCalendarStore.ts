@@ -87,6 +87,10 @@ export interface GEvent {
    *  FONDO del bloque — la urgencia se ve de un vistazo. El borde
    *  izquierdo conserva el projectColor. */
   taskPriorityColor?: string
+  /** True cuando la task linkeada tiene marca de "tardía"
+   *  (rescheduledFrom seteado). El calendario muestra un badge ⚠ TARDÍA
+   *  sobre el bloque para que se vea de un vistazo. */
+  taskIsLate?: boolean
 }
 
 // Standard Google Calendar event color palette (matches the colors users see in calendar.google.com)
