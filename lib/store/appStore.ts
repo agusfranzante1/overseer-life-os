@@ -94,6 +94,14 @@ export interface AppState {
      *  tener su propia hora en `Habit.reminderTime`). Independiente del
      *  recordatorio general nocturno (`habitReminder`). */
     habitSpecificReminders?: boolean
+    /** Recibir las mismas notificaciones también por EMAIL. Útil cuando
+     *  no se quiere o no se puede configurar push en el celular. Para
+     *  que funcione, el server necesita RESEND_API_KEY en env vars. */
+    emailNotifications?: boolean
+    /** Email destino para el canal email. Si está vacío, el server usa
+     *  el email de auth (con el que te logueás). Sirve para mandar las
+     *  notis a un email distinto del de la cuenta. */
+    notificationEmail?: string
   }
 
   /** Sync de tareas-con-horario a Google Calendar.
@@ -106,7 +114,7 @@ export interface AppState {
     calendarId?: string
   }
   setGcalTasksSync: (patch: Partial<AppState['gcalTasksSync']>) => void
-  setNotificationPref: (key: keyof AppState['notificationPrefs'], value: boolean | number) => void
+  setNotificationPref: (key: keyof AppState['notificationPrefs'], value: boolean | number | string) => void
 
   setLanguage: (lang: Language) => void
   toggleSidebar: () => void

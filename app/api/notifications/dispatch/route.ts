@@ -11,6 +11,7 @@ import {
   buildTaskOverduePayload,
   buildSpiNewPayload,
 } from '@/lib/notifications/builders'
+import { sendEmail, pushPayloadToEmail } from '@/lib/notifications/email'
 
 // Necesitamos `nodejs` (no edge) porque web-push usa criptografía Node.
 export const runtime = 'nodejs'
@@ -39,6 +40,8 @@ interface DispatchStats {
   skipped: number
   errors: number
   gone_subs_removed: number
+  emails_sent: number
+  emails_failed: number
 }
 
 export async function POST(req: NextRequest) {
@@ -51,6 +54,7 @@ export async function POST(req: NextRequest) {
   const stats: DispatchStats = {
     habit: 0, habit_specific: 0, task_due: 0, task_overdue: 0, spi_new: 0,
     skipped: 0, errors: 0, gone_subs_removed: 0,
+    emails_sent: 0, emails_failed: 0,
   }
 
   try {
@@ -68,12 +72,23 @@ export async function POST(req: NextRequest) {
       if (!subsByUser.has(s.user_id)) subsByUser.set(s.user_id, [])
       subsByUser.get(s.user_id)!.push({ id: s.id, endpoint: s.endpoint, p256dh: s.p256dh, auth: s.auth })
     }
-    const userIds = Array.from(subsByUser.keys())
+
+    // ── 1b) Usuarios con emailNotifications habilitado en sus settings.
+    // El user puede recibir SOLO por email aunque no tenga push activo,
+    // así que armamos la unión de ambos grupos.
+    const { data: emailUsers } = await sb
+      .from('user_settings')
+      .select('user_id, notification_prefs, notification_email, timezone')
+      .or("notification_prefs->>emailNotifications.eq.true,notification_prefs->emailNotifications.eq.true")
+    const emailUserIds = new Set<string>((emailUsers ?? []).map((u) => u.user_id as string))
+
+    const allUserIds = new Set<string>([...subsByUser.keys(), ...emailUserIds])
+    const userIds = Array.from(allUserIds)
     if (userIds.length === 0) {
-      return NextResponse.json({ ok: true, ts: now.toISOString(), ...stats, note: 'no subscribed users' })
+      return NextResponse.json({ ok: true, ts: now.toISOString(), ...stats, note: 'no users opted in to any channel' })
     }
 
-    // ── 2) Bulk-load user_settings de TODOS los usuarios suscritos ────
+    // ── 2) Bulk-load user_settings de TODOS los usuarios afectados ────
     const { data: settingsAll } = await sb
       .from('user_settings')
       .select('*')
@@ -83,14 +98,68 @@ export async function POST(req: NextRequest) {
       settingsByUser.set(s.user_id, s as UserSettings)
     }
 
+    // ── 2b) Bulk-load auth.users para tener el email de cada user (lo
+    // necesitamos como fallback cuando notification_email no está seteado).
+    // Solo le pedimos a los users que tienen email habilitado para no
+    // bajar data innecesaria. Pasamos por la admin API porque auth.users
+    // no es legible vía PostgREST.
+    const authEmailByUser = new Map<string, string>()
+    for (const uid of emailUserIds) {
+      try {
+        const { data, error } = await sb.auth.admin.getUserById(uid)
+        if (!error && data?.user?.email) authEmailByUser.set(uid, data.user.email)
+      } catch { /* noop */ }
+    }
+
+    // Helper: manda push (a todas las subs del user) + email (si está
+    // habilitado). Centraliza el fan-out y la captura de stats para que
+    // los canales solo construyan el payload. Devuelve el `gone` de
+    // push para que el caller pueda hacer prune.
+    async function dispatchToUser(
+      userId: string,
+      subs: StoredSubscription[],
+      settings: UserSettings,
+      payload: { title?: string; body?: string; url?: string; data?: Record<string, unknown> },
+    ): Promise<{ gone: string[] }> {
+      // Push (si hay subs). El tipo PushPayload exige title/body como
+      // string; los builders siempre los devuelven, pero el genérico que
+      // usamos acá los tiene opcionales — los normalizamos.
+      const normalized = {
+        ...payload,
+        title: payload.title ?? 'Overseer',
+        body: payload.body ?? '',
+      }
+      const pushResult = subs.length > 0
+        ? await sendPushToMany(subs, normalized)
+        : { gone: [] as string[] }
+      await pruneGoneSubs(sb, pushResult.gone, stats)
+      // Email (si el user habilitó emailNotifications)
+      const prefs = (settings.notification_prefs ?? {}) as Record<string, unknown>
+      const emailEnabled = prefs.emailNotifications === true || prefs.emailNotifications === 'true'
+      if (emailEnabled) {
+        const to = settings.notification_email || authEmailByUser.get(userId)
+        if (to) {
+          const emailPayload = pushPayloadToEmail(payload, to)
+          const r = await sendEmail(emailPayload)
+          if (r.ok) stats.emails_sent++
+          else if (!r.skipped) stats.emails_failed++
+        }
+      }
+      return { gone: pushResult.gone }
+    }
+
     // ── 3) Por cada usuario, despachar en serie (no en paralelo masivo
     //    para no pegar a Supabase con un fan-out gigante). El dispatcher
     //    de pocos usuarios cabe en los 60s del maxDuration sin drama. ─
     for (const userId of userIds) {
       const settings = settingsByUser.get(userId) ?? defaultSettings(userId)
       const subs = subsByUser.get(userId) ?? []
-      if (subs.length === 0) continue
       const prefs = (settings.notification_prefs ?? {}) as Record<string, unknown>
+      const emailEnabled = prefs.emailNotifications === true || prefs.emailNotifications === 'true'
+      // El user califica para despacho si tiene push O email habilitado.
+      // Si no tiene ninguno (caso raro: estaba en una de las listas pero
+      // sin nada activo), skipeamos.
+      if (subs.length === 0 && !emailEnabled) continue
       const tz = settings.timezone || 'UTC'
       const local = localTimeIn(tz, now)
 
@@ -105,8 +174,7 @@ export async function POST(req: NextRequest) {
             const pending = computePendingHabits(habits, local.ymd)
             if (pending.length > 0) {
               const payload = buildHabitReminderPayload(pending)
-              const result = await sendPushToMany(subs, payload)
-              await pruneGoneSubs(sb, result.gone, stats)
+              const result = await dispatchToUser(userId, subs, settings, payload)
               await logSent(sb, userId, 'habit_reminder', dedupe, payload, result)
               stats.habit++
             } else {
@@ -141,8 +209,7 @@ export async function POST(req: NextRequest) {
           const dedupe = `habit-time:${h.id}:${local.ymd}`
           if (await wasSent(sb, userId, 'habit_specific', dedupe)) { stats.skipped++; continue }
           const payload = buildHabitSpecificPayload({ name: h.name, icon: h.icon }, rt)
-          const result = await sendPushToMany(subs, payload)
-          await pruneGoneSubs(sb, result.gone, stats)
+          const result = await dispatchToUser(userId, subs, settings, payload)
           await logSent(sb, userId, 'habit_specific', dedupe, payload, result)
           stats.habit_specific++
         }
@@ -170,8 +237,7 @@ export async function POST(req: NextRequest) {
             },
             lead,
           )
-          const result = await sendPushToMany(subs, payload)
-          await pruneGoneSubs(sb, result.gone, stats)
+          const result = await dispatchToUser(userId, subs, settings, payload)
           await logSent(sb, userId, 'task_due', dedupe, payload, result)
           stats.task_due++
         }
@@ -190,8 +256,7 @@ export async function POST(req: NextRequest) {
             const overdue = await fetchUserOverdueTasks(sb, userId, local.ymd)
             if (overdue.length > 0) {
               const payload = buildTaskOverduePayload(overdue.map((t) => ({ id: t.id, title: t.title })))
-              const result = await sendPushToMany(subs, payload)
-              await pruneGoneSubs(sb, result.gone, stats)
+              const result = await dispatchToUser(userId, subs, settings, payload)
               await logSent(sb, userId, 'task_overdue', dedupe, payload, result)
               stats.task_overdue++
             } else {
@@ -216,8 +281,7 @@ export async function POST(req: NextRequest) {
               const has = await hasSpiSessionForWeek(sb, userId, local.ymd)
               if (!has) {
                 const payload = buildSpiNewPayload(local.ymd)
-                const result = await sendPushToMany(subs, payload)
-                await pruneGoneSubs(sb, result.gone, stats)
+                const result = await dispatchToUser(userId, subs, settings, payload)
                 await logSent(sb, userId, 'spi_new', dedupe, payload, result)
                 stats.spi_new++
               } else {
@@ -257,6 +321,8 @@ interface UserSettings {
   habit_reminder_minute: number
   task_due_lead_minutes: number
   spi_new_lead_minutes: number
+  /** Email destino para canal email. Si null, fallback a auth.users.email. */
+  notification_email?: string | null
 }
 
 function defaultSettings(userId: string): UserSettings {

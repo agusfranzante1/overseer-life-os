@@ -1365,11 +1365,13 @@ async function pushAppPrefs() {
       taskOverdue: s.notificationPrefs.taskOverdue ?? true,
       habitReminder: s.notificationPrefs.habitReminder ?? false,
       habitSpecificReminders: s.notificationPrefs.habitSpecificReminders ?? true,
+      emailNotifications: s.notificationPrefs.emailNotifications ?? false,
     },
     habit_reminder_hour: s.notificationPrefs.habitReminderHour ?? 21,
     habit_reminder_minute: s.notificationPrefs.habitReminderMinute ?? 0,
     task_due_lead_minutes: s.notificationPrefs.taskDueLeadMinutes ?? 60,
     spi_new_lead_minutes: s.notificationPrefs.spiNewSessionLeadMinutes ?? 0,
+    notification_email: s.notificationPrefs.notificationEmail || null,
     updated_at: new Date().toISOString(),
   }, { onConflict: 'user_id' }).then((r: { error: { message: string } | null }) => {
     if (r.error) console.warn('[user_settings sync from pushAppPrefs] failed:', r.error.message)

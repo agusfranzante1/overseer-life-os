@@ -1119,7 +1119,105 @@ function NotificationPrefsSection() {
       <p className="text-[10px] text-zinc-600 italic">
         ⓘ Las tareas pueden tener su propio override del "cuánto antes" desde el detalle de la tarea — sobrescribe el ajuste global de acá.
       </p>
+
+      {/* Email channel — alternativa o complemento al push */}
+      <EmailNotificationsSection />
     </section>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// EMAIL NOTIFICATIONS — recibir las mismas notis al Gmail
+// ─────────────────────────────────────────────────────────────────────
+function EmailNotificationsSection() {
+  const notificationPrefs = useAppStore((s) => s.notificationPrefs)
+  const setNotificationPref = useAppStore((s) => s.setNotificationPref)
+  const enabled = notificationPrefs.emailNotifications ?? false
+  const customEmail = notificationPrefs.notificationEmail ?? ''
+  const [draftEmail, setDraftEmail] = useState(customEmail)
+  const [sending, setSending] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  useEffect(() => { setDraftEmail(customEmail) }, [customEmail])
+
+  const sendTest = async () => {
+    setSending(true); setResult(null)
+    try {
+      const r = await fetch('/api/notifications/test-dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'task_due', emailOnly: true }),
+      })
+      const j = await r.json()
+      if (j.ok) setResult({ ok: true, msg: `✓ Email enviado${j.email ? ` a ${j.email}` : ''}` })
+      else setResult({ ok: false, msg: j.error ?? 'Falló' })
+    } catch (e) {
+      setResult({ ok: false, msg: e instanceof Error ? e.message : 'unknown' })
+    } finally { setSending(false) }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-violet-500/20 bg-violet-500/[0.03] p-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+            <span>✉️</span> Recibir también por email
+          </h4>
+          <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+            Te llegan las mismas notificaciones al Gmail (o al email que indiques). Útil mientras no tengas push configurado en el celular.
+          </p>
+        </div>
+        <button
+          onClick={() => setNotificationPref('emailNotifications', !enabled)}
+          className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
+            enabled ? 'bg-violet-500' : 'bg-zinc-700'
+          }`}
+        >
+          <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${
+            enabled ? 'translate-x-4' : 'translate-x-0'
+          }`} />
+        </button>
+      </div>
+
+      {enabled && (
+        <>
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 block mb-1">
+                Email destino (opcional)
+              </label>
+              <input
+                type="email"
+                value={draftEmail}
+                onChange={(e) => setDraftEmail(e.target.value)}
+                onBlur={() => setNotificationPref('notificationEmail', draftEmail.trim())}
+                placeholder="vacío = email con el que te logueás"
+                className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-violet-500"
+              />
+            </div>
+            <button
+              onClick={sendTest}
+              disabled={sending}
+              className="px-3 py-1.5 rounded-lg bg-violet-500/15 border border-violet-500/40 hover:bg-violet-500/25 disabled:opacity-40 text-violet-300 text-xs font-semibold transition-colors"
+            >
+              {sending ? 'Enviando…' : 'Probar'}
+            </button>
+          </div>
+          {result && (
+            <div className={`text-[11px] px-2.5 py-1.5 rounded ${
+              result.ok ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/30'
+                        : 'bg-red-500/10 text-red-300 border border-red-500/30'
+            }`}>
+              {result.msg}
+            </div>
+          )}
+          <p className="text-[10px] text-zinc-600 italic leading-relaxed">
+            ⓘ Requiere que el servidor tenga <code className="text-zinc-500">RESEND_API_KEY</code> configurado. Si el botón "Probar" falla con "RESEND_API_KEY not configured", pedile al admin que cree una cuenta gratis en{' '}
+            <a href="https://resend.com" target="_blank" rel="noreferrer" className="text-violet-400 hover:underline">resend.com</a>{' '}
+            y agregue la API key a las env vars de Vercel.
+          </p>
+        </>
+      )}
+    </div>
   )
 }
 
