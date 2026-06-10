@@ -1,8 +1,8 @@
 'use client'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { LabSession, LabSessionStatus, LabBelief, LabBeliefStatus } from '@/lib/lab/types'
-import { findExercise } from '@/lib/lab/templates'
+import type { LabSession, LabSessionStatus, LabBelief, LabBeliefStatus, LabExercise, LabExerciseStep } from '@/lib/lab/types'
+import { findExercise as findBuiltInExercise, LAB_EXERCISES } from '@/lib/lab/templates'
 
 function genId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
@@ -15,6 +15,11 @@ interface LabState {
    *  adds beliefs from the diagnostic OR by hand, and launches Reencuadre
    *  sessions to work each one. */
   beliefs: LabBelief[]
+  /** Ejercicios CUSTOM creados por el user. Se mergean con los built-in
+   *  via `findExerciseAnywhere` / `allExercisesByCategory`. Tienen el
+   *  mismo shape para que el ExerciseRunner funcione sin cambios. Las
+   *  keys arrancan con `custom_` para evitar colisión. */
+  customExercises: LabExercise[]
 
   // Session lifecycle
   /** Create a new session for an exercise. Returns the new session id.
@@ -56,6 +61,16 @@ interface LabState {
   /** Get a session by id (or null). */
   getSession: (sessionId: string) => LabSession | null
 
+  // Custom exercises CRUD
+  /** Crea un nuevo ejercicio custom. Devuelve la key generada (custom_XXX). */
+  addCustomExercise: (input: Omit<LabExercise, 'key'>) => string
+  /** Actualiza un ejercicio custom existente. Si la key no es custom_, no-op. */
+  updateCustomExercise: (key: string, patch: Partial<LabExercise>) => void
+  /** Elimina un ejercicio custom. NO toca las sesiones ya creadas para él
+   *  (quedan como huérfanas con `exerciseKey` apuntando a un ej. que ya no
+   *  existe — la UI las puede ocultar o tratar como modo lectura). */
+  removeCustomExercise: (key: string) => void
+
   // Beliefs CRUD
   addBelief: (text: string, categoryKey?: string) => string
   /** Bulk insert from a multiline string — used by the diagnostic exercise's
@@ -68,8 +83,17 @@ interface LabState {
   beliefsFor: (categoryKey: string, status?: LabBeliefStatus) => LabBelief[]
 }
 
-function defaultTitleFor(exerciseKey: string): string {
-  const ex = findExercise(exerciseKey)
+/** Busca un ejercicio entre los built-in y los custom del user.
+ *  Wrapper sobre `findBuiltInExercise` que primero chequea los custom
+ *  pasados por arg. Necesario porque las acciones del store que necesitan
+ *  resolver un ejercicio (createSession, updateValue para auto-title)
+ *  tienen que mirar también los custom del store, no solo los estáticos. */
+function findExerciseAnywhere(key: string, customExercises: LabExercise[]): LabExercise | undefined {
+  return customExercises.find((e) => e.key === key) ?? findBuiltInExercise(key)
+}
+
+function defaultTitleFor(exerciseKey: string, customExercises: LabExercise[]): string {
+  const ex = findExerciseAnywhere(exerciseKey, customExercises)
   const now = new Date()
   const dd = String(now.getDate()).padStart(2, '0')
   const mm = String(now.getMonth() + 1).padStart(2, '0')
@@ -99,9 +123,29 @@ export const useLabStore = create<LabState>()(
     (set, get) => ({
       sessions: [],
       beliefs: [],
+      customExercises: [],
+
+      addCustomExercise: (input) => {
+        const key = `custom_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`
+        const ex: LabExercise = { ...input, key }
+        set((s) => ({ customExercises: [ex, ...s.customExercises] }))
+        return key
+      },
+      updateCustomExercise: (key, patch) => {
+        if (!key.startsWith('custom_')) return
+        set((s) => ({
+          customExercises: s.customExercises.map((e) =>
+            e.key === key ? { ...e, ...patch, key: e.key } : e,
+          ),
+        }))
+      },
+      removeCustomExercise: (key) => {
+        if (!key.startsWith('custom_')) return
+        set((s) => ({ customExercises: s.customExercises.filter((e) => e.key !== key) }))
+      },
 
       createSession: ({ exerciseKey, title, spiSessionId, linkedBeliefId, initialValues }) => {
-        const ex = findExercise(exerciseKey)
+        const ex = findExerciseAnywhere(exerciseKey, get().customExercises)
         if (!ex) return ''
         const now = new Date().toISOString()
         // If the caller passed an explicit title (e.g. "Reencuadre · 'X'"
@@ -109,7 +153,7 @@ export const useLabStore = create<LabState>()(
         // Otherwise the session starts auto-titled and the title updates live
         // as the user types into the exercise's titleField.
         const hasExplicitTitle = !!title?.trim()
-        let resolvedTitle = hasExplicitTitle ? title!.trim() : defaultTitleFor(exerciseKey)
+        let resolvedTitle = hasExplicitTitle ? title!.trim() : defaultTitleFor(exerciseKey, get().customExercises)
         // If initialValues are pre-populated and the titleField is among them,
         // derive an initial auto-title from that value right away (covers
         // the belief-launch case nicely — title becomes the belief text).
@@ -166,12 +210,12 @@ export const useLabStore = create<LabState>()(
             // exercise's declared titleField, we re-derive the title.
             let newTitle = sess.title
             if (sess.autoTitled === true) {
-              const ex = findExercise(sess.exerciseKey)
+              const ex = findExerciseAnywhere(sess.exerciseKey, s.customExercises)
               const tf = ex?.titleField
               if (tf) {
                 const tfStepKey = tf.stepKey ?? '__root'
                 if (tfStepKey === stepKey && tf.fieldKey === fieldKey) {
-                  newTitle = deriveAutoTitle(value, sess.createdAt) ?? defaultTitleFor(sess.exerciseKey)
+                  newTitle = deriveAutoTitle(value, sess.createdAt) ?? defaultTitleFor(sess.exerciseKey, s.customExercises)
                 }
               }
             }
@@ -341,11 +385,41 @@ export const useLabStore = create<LabState>()(
     }),
     {
       name: 'overseer-lab',
-      partialize: (s) => ({ sessions: s.sessions, beliefs: s.beliefs }),
+      partialize: (s) => ({ sessions: s.sessions, beliefs: s.beliefs, customExercises: s.customExercises }),
       onRehydrateStorage: () => (state) => {
         if (state && !Array.isArray(state.sessions)) state.sessions = []
         if (state && !Array.isArray(state.beliefs)) state.beliefs = []
+        if (state && !Array.isArray(state.customExercises)) state.customExercises = []
       },
     }
   )
 )
+
+// ─── Public helpers para consumers (LabPage, ExerciseRunner, SPIPage) ──
+// Estos wrappean el lookup combinado built-in + custom para que los
+// componentes no necesiten conocer el detalle interno del store.
+
+/** Devuelve el ejercicio (built-in O custom) por key, o undefined. */
+export function findExerciseCombined(key: string): LabExercise | undefined {
+  return findExerciseAnywhere(key, useLabStore.getState().customExercises)
+}
+
+/** Devuelve TODOS los ejercicios (built-in + custom) de una categoría —
+ *  los custom primero, después los built-in en su orden original. */
+export function exercisesByCategoryCombined(categoryKey: string): LabExercise[] {
+  const custom = useLabStore.getState().customExercises.filter((e) => e.categoryKey === categoryKey)
+  const builtIn = LAB_EXERCISES.filter((e) => e.categoryKey === categoryKey)
+  return [...custom, ...builtIn]
+}
+
+/** Hook reactivo — usalo en componentes para que se re-rendereen cuando
+ *  el user agregue/edite un ejercicio custom. */
+export function useExercisesByCategory(categoryKey: string): LabExercise[] {
+  const customExercises = useLabStore((s) => s.customExercises)
+  const custom = customExercises.filter((e) => e.categoryKey === categoryKey)
+  const builtIn = LAB_EXERCISES.filter((e) => e.categoryKey === categoryKey)
+  return [...custom, ...builtIn]
+}
+
+/** Re-export útil para componentes que solo quieren el tipo de step. */
+export type { LabExerciseStep }

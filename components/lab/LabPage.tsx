@@ -1,9 +1,11 @@
 'use client'
 import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FlaskConical, Plus, ChevronRight, ChevronLeft, ChevronDown, Trophy, Search, Sparkles, Check, X, Wand2, RotateCcw, Trash2 } from 'lucide-react'
+import { FlaskConical, Plus, ChevronRight, ChevronLeft, ChevronDown, Trophy, Search, Sparkles, Check, X, Wand2, RotateCcw, Trash2, Pencil } from 'lucide-react'
+import { CustomExerciseBuilder } from './CustomExerciseBuilder'
 import { useLabStore } from '@/lib/store/labStore'
-import { LAB_CATEGORIES, exercisesByCategory, findCategory, findExercise } from '@/lib/lab/templates'
+import { LAB_CATEGORIES, findCategory } from '@/lib/lab/templates'
+import { useExercisesByCategory, findExerciseCombined as findExercise } from '@/lib/store/labStore'
 import type { LabCategory, LabExercise, LabSession, LabBelief } from '@/lib/lab/types'
 import { ExerciseRunner } from './ExerciseRunner'
 
@@ -245,7 +247,7 @@ function CategoryCard({
   onClick: () => void
   onQuickStart: (exerciseKey: string) => void
 }) {
-  const exs = exercisesByCategory(category.key)
+  const exs = useExercisesByCategory(category.key)
   const [hover, setHover] = useState(false)
   return (
     <div
@@ -660,7 +662,7 @@ function CategoryView({
   onBack: () => void
 }) {
   const category = findCategory(categoryKey)
-  const exs = exercisesByCategory(categoryKey)
+  const exs = useExercisesByCategory(categoryKey)
   if (!category) return (
     <div className="text-center text-sm text-zinc-500">
       Pabellón no encontrado. <button onClick={onBack} className="text-indigo-400 hover:text-indigo-300">Volver</button>
@@ -698,22 +700,12 @@ function CategoryView({
       )}
 
       {/* Exercises */}
-      <section>
-        <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-2">
-          Ejercicios disponibles
-        </p>
-        <div className="space-y-2">
-          {exs.map((ex) => (
-            <ExerciseRow
-              key={ex.key}
-              exercise={ex}
-              accent={category.color}
-              sessionCountForThis={sessions.filter((s) => s.exerciseKey === ex.key).length}
-              onLaunch={() => onLaunch(ex.key)}
-            />
-          ))}
-        </div>
-      </section>
+      <CategoryExercisesSection
+        category={category}
+        exercises={exs}
+        sessions={sessions}
+        onLaunch={onLaunch}
+      />
 
       {/* Sessions in this category */}
       {sessions.length > 0 && (
@@ -734,20 +726,70 @@ function CategoryView({
   )
 }
 
+// ─── EXERCISES SECTION + custom builder trigger ───────────────────────
+function CategoryExercisesSection({
+  category, exercises, sessions, onLaunch,
+}: {
+  category: LabCategory
+  exercises: LabExercise[]
+  sessions: LabSession[]
+  onLaunch: (exerciseKey: string) => void
+}) {
+  const [showBuilder, setShowBuilder] = useState<{ existing?: LabExercise | null } | null>(null)
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+          Ejercicios disponibles
+        </p>
+        <button
+          onClick={() => setShowBuilder({ existing: null })}
+          className="text-[10px] font-semibold px-2 py-1 rounded-md border border-dashed transition-colors flex items-center gap-1"
+          style={{ borderColor: category.color + '55', color: category.color }}
+        >
+          + Nuevo ejercicio
+        </button>
+      </div>
+      <div className="space-y-2">
+        {exercises.map((ex) => (
+          <ExerciseRow
+            key={ex.key}
+            exercise={ex}
+            accent={category.color}
+            sessionCountForThis={sessions.filter((s) => s.exerciseKey === ex.key).length}
+            onLaunch={() => onLaunch(ex.key)}
+            onEdit={ex.key.startsWith('custom_') ? () => setShowBuilder({ existing: ex }) : undefined}
+          />
+        ))}
+      </div>
+      <AnimatePresence>
+        {showBuilder && (
+          <CustomExerciseBuilder
+            existing={showBuilder.existing ?? null}
+            defaultCategoryKey={category.key}
+            onClose={() => setShowBuilder(null)}
+          />
+        )}
+      </AnimatePresence>
+    </section>
+  )
+}
+
 // ─── ROW HELPERS ─────────────────────────────────────────────────────────────
 
 function ExerciseRow({
-  exercise, accent, sessionCountForThis, onLaunch,
+  exercise, accent, sessionCountForThis, onLaunch, onEdit,
 }: {
   exercise: LabExercise
   accent: string
   sessionCountForThis: number
   onLaunch: () => void
+  onEdit?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [hover, setHover] = useState(false)
   return (
-    <div className="rounded-xl overflow-hidden border-2 transition-all duration-150"
+    <div className="relative rounded-xl overflow-hidden border-2 transition-all duration-150"
       style={{
         background: hover || expanded ? accent + '12' : 'rgba(9, 9, 11, 0.4)',
         borderColor: hover || expanded ? accent + '70' : '#27272a',
@@ -767,6 +809,11 @@ function ExerciseRow({
                 rápido
               </span>
             )}
+            {exercise.key.startsWith('custom_') && (
+              <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border bg-violet-500/10 border-violet-500/30 text-violet-300">
+                custom
+              </span>
+            )}
             {sessionCountForThis > 0 && (
               <span className="text-[10px] font-mono text-zinc-600">· {sessionCountForThis} corridas</span>
             )}
@@ -775,6 +822,15 @@ function ExerciseRow({
         </div>
         {expanded ? <ChevronDown className="w-4 h-4 text-zinc-500 mt-1" /> : <ChevronRight className="w-4 h-4 text-zinc-500 mt-1" />}
       </button>
+      {onEdit && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onEdit() }}
+          className="absolute top-3 right-9 text-zinc-500 hover:text-violet-300 transition-colors p-1 shrink-0 z-10"
+          title="Editar ejercicio"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
+      )}
       <AnimatePresence initial={false}>
         {expanded && (
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}

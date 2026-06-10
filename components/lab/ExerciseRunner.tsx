@@ -2,8 +2,8 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronRight, ChevronLeft, Trophy, RotateCcw, Archive, Trash2 } from 'lucide-react'
-import { useLabStore } from '@/lib/store/labStore'
-import { findCategory, findExercise } from '@/lib/lab/templates'
+import { useLabStore, findExerciseCombined as findExercise } from '@/lib/store/labStore'
+import { findCategory } from '@/lib/lab/templates'
 import type { LabSession } from '@/lib/lab/types'
 import type { SectionField } from '@/lib/spi/types'
 
