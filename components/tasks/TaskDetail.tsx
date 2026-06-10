@@ -401,21 +401,30 @@ export function TaskDetail({ task, project, onClose }: Props) {
                   className="bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 w-28 disabled:opacity-40"
                 />
               </div>
-              {/* Botón "Reprogramada" — SOLO aparece para tareas VENCIDAS
-                  (dueDate ya pasó). Mueve la fecha a HOY y guarda la
+              {/* Botón "Reprogramada" — aparece para tareas VENCIDAS:
+                  - Fecha pasada (días) → vencida clásica
+                  - Fecha hoy + hora pasada → vencida por horario (ej.
+                    eran las 4pm y son las 5pm)
+                  Mueve la fecha a HOY (si era de otro día) y guarda la
                   original en rescheduledFrom para mostrar badge "TARDÍA".
-                  No tiene sentido en tareas futuras: si todavía no llegó
-                  el día simplemente cambiá la fecha desde el input.
-                  Si el user ya marcó tardía y la dueDate quedó en hoy,
-                  igual mostramos el badge para poder revertir.  */}
+                  Para tareas futuras no aparece — simplemente cambiá la
+                  fecha desde el input. */}
               {effective.dueDate && (() => {
                 const [y, m, d] = effective.dueDate.split('-').map(Number)
                 const due = new Date(y, m - 1, d); due.setHours(0, 0, 0, 0)
                 const today = new Date(); today.setHours(0, 0, 0, 0)
-                const isOverdue = due.getTime() < today.getTime()
+                const isDateOverdue = due.getTime() < today.getTime()
+                // Hora-overdue: misma fecha que hoy + dueTime ya pasó.
+                const isTimeOverdue = (() => {
+                  if (isDateOverdue) return false
+                  if (due.getTime() !== today.getTime()) return false
+                  if (!effective.dueTime) return false
+                  const [hh, mi] = effective.dueTime.split(':').map(Number)
+                  const dueMoment = new Date(y, m - 1, d, hh ?? 0, mi ?? 0, 0)
+                  return dueMoment.getTime() < new Date().getTime()
+                })()
+                const isOverdue = isDateOverdue || isTimeOverdue
                 const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-                // Mostrar SOLO si la tarea está vencida O si ya tiene
-                // marca de tardía (para poder removerla).
                 if (!isOverdue && !effective.rescheduledFrom) return null
                 return (
                   <div className="mt-2 flex items-center gap-2 flex-wrap">
@@ -424,11 +433,17 @@ export function TaskDetail({ task, project, onClose }: Props) {
                         onClick={() => updateTask(effective.id, {
                           rescheduledFrom: effective.rescheduledFrom ?? effective.dueDate,
                           dueDate: todayYmd,
+                          // Si está vencida solo por horario, dejamos la
+                          // dueTime sin tocar (queda hoy ya pasada y el
+                          // user la mueve a la hora que quiera con el
+                          // input de tiempo).
                         })}
-                        title="No la hiciste el día que correspondía — la movemos a HOY y queda marcada como tardía"
+                        title={isDateOverdue
+                          ? 'No la hiciste el día que correspondía — la movemos a HOY y queda marcada como tardía'
+                          : 'Se te pasó el horario — la dejamos para HOY y queda marcada como tardía'}
                         className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors bg-amber-500/10 border border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
                       >
-                        ⏱ Reprogramar para HOY
+                        ⏱ Marcar como TARDÍA
                       </button>
                     )}
                     {effective.rescheduledFrom && (

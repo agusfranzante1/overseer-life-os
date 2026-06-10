@@ -580,7 +580,47 @@ export const useTasksStore = create<TasksState>()(
             durationPatch.durationMinutes = 60
           }
 
-          const merged = { ...prev, ...patch, ...completedAtPatch, ...priorityPatch, ...durationPatch, updatedAt: new Date().toISOString() }
+          // ── Auto-detect "reprogramada":
+          // Si el user mueve dueDate o dueTime Y el momento ANTERIOR ya
+          // pasó (now > momento previo) Y el nuevo momento es POSTERIOR
+          // al anterior, marcamos la tarea como reprogramada. Captura
+          // tanto el caso clásico ("vencía ayer, la muevo a mañana") como
+          // el granular ("vencía hoy 4pm, son las 5pm, la muevo a 8pm").
+          // No pisamos rescheduledFrom si ya estaba seteado (preservamos
+          // la fecha original original).
+          const reschedPatch: { rescheduledFrom?: string } = {}
+          if (!prev.completedAt && !prev.archivedAt && ('dueDate' in patch || 'dueTime' in patch)) {
+            const buildMoment = (d: string | undefined, t: string | undefined): Date | null => {
+              if (!d) return null
+              const [yy, mm, dd] = d.split('-').map(Number)
+              if (!yy || !mm || !dd) return null
+              if (t) {
+                const [hh, mi] = t.split(':').map(Number)
+                return new Date(yy, mm - 1, dd, hh ?? 0, mi ?? 0, 0)
+              }
+              // Sin hora: el "momento" es el final del día (23:59:59).
+              // Así una tarea fechada ayer cuenta como overdue hoy en cualquier
+              // hora; una fechada HOY sin hora no cuenta como overdue salvo
+              // que terminemos el día.
+              return new Date(yy, mm - 1, dd, 23, 59, 59)
+            }
+            const prevMoment = buildMoment(prev.dueDate, prev.dueTime)
+            const newDueDate = ('dueDate' in patch ? patch.dueDate : prev.dueDate)
+            const newDueTime = ('dueTime' in patch ? patch.dueTime : prev.dueTime)
+            const newMoment = buildMoment(newDueDate, newDueTime)
+            const now = new Date()
+            if (
+              prevMoment
+              && newMoment
+              && prevMoment.getTime() < now.getTime()       // el anterior ya pasó
+              && newMoment.getTime() > prevMoment.getTime() // el nuevo es posterior
+              && !prev.rescheduledFrom                       // no pisar si ya estaba marcada
+            ) {
+              reschedPatch.rescheduledFrom = prev.dueDate
+            }
+          }
+
+          const merged = { ...prev, ...patch, ...completedAtPatch, ...priorityPatch, ...durationPatch, ...reschedPatch, updatedAt: new Date().toISOString() }
           nextTask = merged
           // Flag: ¿la patch acaba de AGREGAR recurrence o cambió su kind?
           // Si sí, después del set() vamos a disparar el buffer para que

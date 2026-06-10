@@ -141,6 +141,22 @@ export function EstudioPage() {
                     subject={subject}
                     stats={stats}
                     onClick={() => setSelectedSubjectId(subject.id)}
+                    onDelete={() => {
+                      // Confirm más detallado por el nivel de daño: la
+                      // materia + sus clases (tareas hijas) se borran.
+                      const taskCount = subject.taskIds.filter((id) => {
+                        const t = tasks[id]
+                        return t && !t.archivedAt
+                      }).length
+                      const detail = taskCount > 0
+                        ? `\nEsto también elimina ${taskCount} clase${taskCount > 1 ? 's' : ''} de esta materia.`
+                        : ''
+                      if (confirm(`¿Eliminar la materia "${subject.name}"?${detail}\n\nNo se puede deshacer.`)) {
+                        // Si estaba abierta como detail, cerrar antes de borrar.
+                        if (selectedSubjectId === subject.id) setSelectedSubjectId(null)
+                        useTasksStore.getState().deleteProject(subject.id)
+                      }
+                    }}
                   />
                 )
               })}
@@ -168,20 +184,21 @@ export function EstudioPage() {
 // ─── Subject Card ────────────────────────────────────────────────────
 
 function SubjectCard({
-  subject, stats, onClick,
+  subject, stats, onClick, onDelete,
 }: {
   subject: Project
   stats: { total: number; done: number; pct: number }
   onClick: () => void
+  onDelete: () => void
 }) {
   const meta = subject.subjectMeta
   const parciales = meta?.parciales ?? []
   return (
-    <motion.button
+    <motion.div
       whileHover={{ scale: 1.01, y: -1 }}
       whileTap={{ scale: 0.99 }}
       onClick={onClick}
-      className="text-left rounded-2xl p-5 transition-all"
+      className="relative group text-left rounded-2xl p-5 transition-all cursor-pointer"
       style={{
         background: `
           radial-gradient(circle at 0% 0%, ${subject.color}1f, transparent 50%),
@@ -194,6 +211,16 @@ function SubjectCard({
         boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
       }}
     >
+      {/* Botón eliminar — solo al hover. Position absolute para no
+          desarmar el layout de la card. stopPropagation para que el
+          click no abra el detalle. */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete() }}
+        title="Eliminar materia"
+        className="absolute top-2 right-2 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity text-zinc-500 hover:text-red-400 hover:bg-red-500/10 z-10"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
       <div className="flex items-start gap-3 mb-4">
         <div
           className="shrink-0 w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
@@ -244,7 +271,7 @@ function SubjectCard({
           {parciales.length} {parciales.length === 1 ? 'parcial' : 'parciales'}
         </div>
       )}
-    </motion.button>
+    </motion.div>
   )
 }
 
@@ -382,6 +409,29 @@ function SubjectDetail({ subject, onBack }: { subject: Project; onBack: () => vo
               }}
             >
               <Pencil className="w-3.5 h-3.5" /> Editar
+            </button>
+            <button
+              onClick={() => {
+                const taskCount = subject.taskIds.filter((id) => {
+                  const t = tasks[id]
+                  return t && !t.archivedAt
+                }).length
+                const detail = taskCount > 0
+                  ? `\nEsto también elimina ${taskCount} clase${taskCount > 1 ? 's' : ''} de esta materia.`
+                  : ''
+                if (confirm(`¿Eliminar la materia "${subject.name}"?${detail}\n\nNo se puede deshacer.`)) {
+                  useTasksStore.getState().deleteProject(subject.id)
+                  onBack()
+                }
+              }}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] font-medium text-zinc-400 hover:text-red-300 transition-colors"
+              style={{
+                background: 'rgba(239, 68, 68, 0.06)',
+                border: '1px solid rgba(239, 68, 68, 0.20)',
+              }}
+              title="Eliminar materia"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Eliminar
             </button>
           </div>
         </div>
