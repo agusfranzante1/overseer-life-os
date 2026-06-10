@@ -85,6 +85,11 @@ interface TasksState {
    *  si la cadena ya está completa, no hace nada. Se llama al crear
    *  una recurrente Y al agregar recurrence a una tarea existente. */
   ensureRecurringBuffer: (taskId: string, lookaheadCount?: number) => void
+  /** Borra todas las instancias futuras NO completadas de la cadena
+   *  recurrente del head dado y re-arma con `ensureRecurringBuffer`.
+   *  Lo usamos al CAMBIAR la regla de recurrencia para evitar tasks
+   *  huérfanas con fechas viejas que no encajan con la nueva regla. */
+  rebuildRecurringChain: (taskId: string) => void
   /** Restore an archived task: clear its archivedAt + completedAt and reset
    *  its status to the first non-done status of its project. */
   restoreFromArchive: (id: string) => void
@@ -342,7 +347,7 @@ export const useTasksStore = create<TasksState>()(
         // agrega recurrence después desde TaskDetail), `updateTask`
         // dispara el buffer cuando detecta la patch.
         if (task.recurrence && task.dueDate) {
-          get().ensureRecurringBuffer(id, 6)
+          get().ensureRecurringBuffer(id, 14)
         }
 
         // GCal sync fire-and-forget — no bloqueamos la respuesta del store.
@@ -400,43 +405,59 @@ export const useTasksStore = create<TasksState>()(
             `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
           const weekEndYmd = fmtYmd(weekEnd)
 
-          // Identificación de "siguiente instancia ya creada" — matcheamos
-          // por mismo projectId + title + dueDate esperada. La cadena se
-          // marca con recurrenceSpawnedNext: true cuando ya existe la sig.
-          const findNextExisting = (currentTaskId: string, currentDue: string): { nextId: string; nextDue: string } | null => {
-            const cur = tasks[currentTaskId]
-            if (!cur?.recurrenceSpawnedNext) return null
-            const expectedDue = nextRecurrenceDueDate(currentDue, head.recurrence!)
-            if (!expectedDue) return null
-            const next = Object.values(tasks).find((t) =>
-              t.id !== currentTaskId
+          // GUARD anti-duplicados: dado un dueDate target, devuelve true
+          // si ya existe una task de la "misma serie" (mismo projectId +
+          // title + recurrence definida) con ese dueDate. Esto evita que
+          // múltiples llamadas a ensureRecurringBuffer (por re-render,
+          // por toggle de chip de día, etc.) generen tasks con fechas
+          // repetidas.
+          const dupeExists = (targetDue: string) =>
+            Object.values(tasks).some((t) =>
+              t.id !== taskId
               && t.projectId === head.projectId
               && t.title === head.title
-              && t.dueDate === expectedDue
-              && !t.archivedAt,
+              && t.dueDate === targetDue
+              && !t.archivedAt
+              && !!t.recurrence,
             )
-            return next ? { nextId: next.id, nextDue: expectedDue } : null
-          }
 
           // Avanzar al final de la cadena ya existente — desde acá vamos
-          // a spawnear hacia adelante hasta el corte semanal.
-          let prevId = taskId
+          // a spawnear hacia adelante hasta el corte semanal. Walk by
+          // dueDate: buscamos el sucesor con dueDate más cercano > prev,
+          // dentro de la ventana semanal. Esto es más robusto que walk
+          // por recurrence porque no depende de que el flag spawnedNext
+          // esté coherente.
           let prevDue = head.dueDate
           for (let safety = 0; safety < lookaheadCount; safety++) {
-            const hop = findNextExisting(prevId, prevDue)
-            if (!hop) break
-            prevId = hop.nextId
-            prevDue = hop.nextDue
+            const candidates = Object.values(tasks).filter((t) =>
+              t.id !== taskId
+              && t.projectId === head.projectId
+              && t.title === head.title
+              && !t.archivedAt
+              && !!t.recurrence
+              && !!t.dueDate
+              && t.dueDate > prevDue
+              && t.dueDate <= weekEndYmd,
+            ).sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
+            if (candidates.length === 0) break
+            prevDue = candidates[0].dueDate!
           }
 
-          // Spawn loop — para hasta que la próxima caiga fuera de la
-          // semana del head, o hasta el lookaheadCount como tope de
-          // seguridad anti-loop. Sin esto un bug en recurrence podría
-          // generar instancias infinitas.
+          // Spawn loop — desde la última fecha conocida, generamos las
+          // siguientes hasta llegar fuera de la semana del head. Skip si
+          // la fecha ya existe (anti-dup).
           for (let i = 0; i < lookaheadCount; i++) {
             const next = nextRecurrenceDueDate(prevDue, head.recurrence!)
             if (!next) break                         // serie terminó (until)
             if (next > weekEndYmd) break             // ya nos pasamos del Domingo de la semana del head
+            if (next <= head.dueDate) {              // safety: jamás retroceder
+              prevDue = next
+              continue
+            }
+            if (dupeExists(next)) {                  // anti-duplicado idempotente
+              prevDue = next
+              continue
+            }
             const newId = genId()
             const proj = projects[head.projectId]
             const todoStatus = proj?.statuses[0]?.label ?? 'To Do'
@@ -457,7 +478,6 @@ export const useTasksStore = create<TasksState>()(
               gcalEventId: undefined,
               gcalCalendarId: undefined,
             }
-            tasks[prevId] = { ...tasks[prevId], recurrenceSpawnedNext: true }
             if (proj) {
               projects = {
                 ...projects,
@@ -467,11 +487,57 @@ export const useTasksStore = create<TasksState>()(
                 },
               }
             }
-            prevId = newId
             prevDue = next
           }
           return { tasks, projects }
         })
+      },
+
+      /** Borra todas las instancias FUTURAS (no completadas) de la cadena
+       *  recurrente del head dado, y dispara `ensureRecurringBuffer` para
+       *  re-armarla con la nueva regla. Lo usamos en `updateTask` cuando
+       *  el user cambia el kind o los días de la recurrencia — sin esto
+       *  cambiar de [1,3,5] a [1,3] dejaba el Vie viejo huérfano y
+       *  generaba "fechas raras" al opener la tarea.
+       *  No toca tareas completadas (parte del histórico) ni tareas en
+       *  otras semanas no spawneadas por este buffer. */
+      rebuildRecurringChain: (taskId: string) => {
+        set((s) => {
+          const head = s.tasks[taskId]
+          if (!head) return s
+          // Identificamos "futuras de la cadena": mismas projectId +
+          // title + recurrence definida + dueDate estrictamente > head +
+          // no completadas + no archivadas.
+          const toDelete = Object.values(s.tasks).filter((t) =>
+            t.id !== taskId
+            && t.projectId === head.projectId
+            && t.title === head.title
+            && !!t.recurrence
+            && !!t.dueDate
+            && !!head.dueDate
+            && t.dueDate > head.dueDate
+            && !t.completedAt
+            && !t.archivedAt,
+          ).map((t) => t.id)
+          if (toDelete.length === 0) return s
+          const tasks = { ...s.tasks }
+          const projects = { ...s.projects }
+          for (const id of toDelete) {
+            const t = tasks[id]
+            delete tasks[id]
+            const proj = projects[t.projectId]
+            if (proj) {
+              projects[t.projectId] = {
+                ...proj,
+                taskIds: proj.taskIds.filter((x) => x !== id),
+              }
+            }
+          }
+          return { tasks, projects }
+        })
+        // Después del nuke, re-buffereamos para llenar la semana fresca
+        // con la nueva regla.
+        get().ensureRecurringBuffer(taskId, 14)
       },
 
       updateTask: (id, patch) => {
@@ -540,12 +606,14 @@ export const useTasksStore = create<TasksState>()(
             },
           }
         })
-        // Si la patch acaba de agregar/cambiar recurrence, disparamos
-        // el buffer para llenar la semana de una. El flag fue seteado
-        // dentro del set() arriba; lo leemos y limpiamos ahora.
+        // Si la patch acaba de agregar/cambiar recurrence, NUKEAMOS las
+        // instancias futuras de la cadena vieja y re-armamos con la nueva
+        // regla. Esto previene "fechas repetidas o raras" que aparecían
+        // antes cuando solo agregábamos al buffer sobre una cadena que
+        // ya tenía instancias con la regla anterior.
         if (nextTask && (nextTask as Task & { __triggerBuffer?: boolean }).__triggerBuffer) {
           delete (nextTask as Task & { __triggerBuffer?: boolean }).__triggerBuffer
-          get().ensureRecurringBuffer(id, 6)
+          get().rebuildRecurringChain(id)
         }
 
         // Sync fire-and-forget — el patch que devuelve syncTaskToGcal
@@ -648,70 +716,20 @@ export const useTasksStore = create<TasksState>()(
           }
           let updatedProjects = s.projects
 
-          // ── Recurrencia: si la tarea tiene regla y dueDate, spawn la
-          // siguiente instancia con el próximo dueDate calculado. La
-          // instancia completada queda histórica como cualquier otra
-          // (auto-archive eventual). Si la siguiente fecha cae más allá
-          // del `until`, no se crea nada. Si `recurrenceSpawnedNext` ya
-          // está en true → la siguiente ya fue spawneada por
-          // `ensureRecurringSpawns` (overdue auto-spawn) y no creamos otra.
-          // (postSpawnedId vive en el scope de completeTask — lo seteamos
-          // si spawneamos para que el post-set fill la semana de la nueva.)
-
-          if (task.recurrence && task.dueDate && !task.recurrenceSpawnedNext) {
-            const nextDueDate = nextRecurrenceDueDate(task.dueDate, task.recurrence)
-            if (nextDueDate) {
-              const newId = genId()
-              const todoStatus = proj?.statuses[0]?.label ?? 'To Do'
-              // Subtareas se "resetean": copiamos las plantillas (título,
-              // priority, parentId) pero sin completedAt/archivedAt para
-              // que el usuario las empiece de cero la próxima ocurrencia.
-              const freshSubs: Subtask[] = task.subtasks
-                .filter((sub) => !sub.archivedAt)
-                .map((sub) => ({
-                  ...sub,
-                  id: genId(),
-                  completed: false,
-                  completedAt: undefined,
-                  status: todoStatus,
-                }))
-              updatedTasks[newId] = {
-                ...task,
-                id: newId,
-                dueDate: nextDueDate,
-                status: todoStatus,
-                completedAt: undefined,
-                archivedAt: undefined,
-                createdAt: now,
-                updatedAt: now,
-                postponedCount: 0,
-                subtasks: freshSubs,
-                recurrenceSpawnedNext: false,  // la nueva instancia arranca limpia
-              }
-              if (proj) {
-                updatedProjects = {
-                  ...s.projects,
-                  [proj.id]: {
-                    ...proj,
-                    taskIds: [...proj.taskIds, newId],
-                  },
-                }
-              }
-              // Marcamos la actual como "ya spawneada" para que ensureRecurringSpawns
-              // no cree otra copia si esta misma sigue overdue después.
-              updatedTasks[id] = { ...updatedTasks[id], recurrenceSpawnedNext: true }
-              postSpawnedId = newId
-            }
-          }
+          // NO spawn aquí. Completar una recurrente NO crea nada nuevo.
+          // - La siguiente instancia de la SEMANA EN CURSO ya existe
+          //   (la creó el buffer cuando se creó la tarea o se cambió la
+          //   recurrencia).
+          // - La PRÓXIMA SEMANA se arma sola cuando el user abre la app
+          //   en una fecha posterior al final de la cadena actual —
+          //   `ensureRecurringSpawns` detecta que el chain end quedó
+          //   "viejo" y crea la próxima semana en bloque.
 
           return { tasks: updatedTasks, projects: updatedProjects }
         })
 
-        // Post-set: si spawneamos una nueva instancia recurrente,
-        // llenamos su semana entera de una. ensureRecurringBuffer recorta
-        // automáticamente al fin de semana de la dueDate del head, así
-        // que llamarla con la nueva task crea solo las que faltan para
-        // esa semana — para weekly = 0 más; para daily = hasta 6 más.
+        // postSpawnedId nunca se asigna ahora — el bloque condicional fue
+        // removido. La variable queda solo por compatibilidad de signature.
         if (postSpawnedId) {
           get().ensureRecurringBuffer(postSpawnedId, 14)
         }
@@ -843,14 +861,24 @@ export const useTasksStore = create<TasksState>()(
         let archived = 0
         const nowIso = new Date().toISOString()
 
-        // Política: las tareas completadas se quedan visibles hasta que
-        // termine la semana que las contiene (lunes a domingo). Recién el
-        // lunes siguiente se archivan. Esto permite ver el "qué hice esta
-        // semana" en el calendario hasta el cierre semanal del SPI.
-        // Returns YYYY-MM-DD del domingo de la semana de dateKey.
+        // Política HÍBRIDA basada en visibilidad en el calendario:
+        //
+        // - Las tareas con dueDate + dueTime (que aparecen como BLOQUE
+        //   en el calendario) se mantienen visibles hasta el DOMINGO de
+        //   la semana en que se completaron. Así el snapshot del calendario
+        //   del SPI semanal queda completo cuando hacés el cierre.
+        // - Las tareas SIN dueDate o sin dueTime (las "puro to-do", que
+        //   nunca aparecieron en el calendario) se archivan al DÍA
+        //   SIGUIENTE del completion. Mantenerlas toda la semana solo
+        //   ensucia el task manager sin aportar al SPI.
+        //
+        // Mismo criterio para subtareas: timed → end-of-week, untimed →
+        // next-day.
+        //
+        // El "domingo de la semana" se calcula respetando la timezone
+        // del user. Usamos noon para evitar bordes raros con DST.
         const endOfWeekKey = (dateKey: string): string => {
           const [y, m, d] = dateKey.split('-').map(Number)
-          // Usamos noon para evitar bordes raros con DST.
           const date = new Date(y, m - 1, d, 12, 0, 0)
           const dow = date.getDay()  // 0=Dom, 1=Lun, ..., 6=Sáb
           const daysUntilSunday = dow === 0 ? 0 : 7 - dow
@@ -867,28 +895,33 @@ export const useTasksStore = create<TasksState>()(
             const proj = s.projects[t.projectId]
             if (!proj) continue
 
-            // ── Subtasks: archive any subtask whose completion week has
-            // ended (domingo pasado). El archived queda en el array de la
-            // task madre para que se pueda recuperar; la UI lo oculta.
+            // ── Subtasks: archive con regla híbrida.
             const updatedSubs = (t.subtasks ?? []).map((st) => {
               if (st.archivedAt) return st
               if (!st.completed || !st.completedAt) return st
               const stKey = dateKeyInTz(new Date(st.completedAt), timezone)
-              if (endOfWeekKey(stKey) >= todayKey) return st  // todavía dentro de la semana
+              // Subtask con dueDate + dueTime → aparece en el calendario
+              // → espera al fin de semana.
+              const subIsTimed = !!st.dueDate && !!st.dueTime
+              const ready = subIsTimed
+                ? endOfWeekKey(stKey) < todayKey
+                : stKey < todayKey
+              if (!ready) return st
               archived++
               return { ...st, archivedAt: nowIso }
             })
             const subsChanged = updatedSubs.some((st, i) => st !== t.subtasks?.[i])
 
-            // ── Parent task: archivar cuando la semana de la completion ya
-            // terminó. Antes era "completedKey < todayKey" (1 día). Ahora
-            // es "endOfWeekKey(completedKey) < todayKey" (queda toda la
-            // semana visible).
+            // ── Parent task: misma regla híbrida.
             if (!t.archivedAt) {
               const statusDef = proj.statuses.find((st) => st.label === t.status)
               if (statusDef?.countsAsDone && t.completedAt) {
                 const completedKey = dateKeyInTz(new Date(t.completedAt), timezone)
-                if (endOfWeekKey(completedKey) < todayKey) {
+                const taskIsTimed = !!t.dueDate && !!t.dueTime
+                const ready = taskIsTimed
+                  ? endOfWeekKey(completedKey) < todayKey
+                  : completedKey < todayKey
+                if (ready) {
                   tasks[t.id] = { ...t, subtasks: updatedSubs, archivedAt: nowIso }
                   archived++
                   continue
@@ -903,34 +936,50 @@ export const useTasksStore = create<TasksState>()(
       },
 
       ensureRecurringSpawns: (todayKey) => {
+        // Esta acción corre al ABRIR la app y se ocupa del "rollover
+        // semanal": si el final de la cadena recurrente quedó en una
+        // semana ANTERIOR a la actual (porque el user no abrió la app
+        // por unos días o cerró la semana entera), arma la semana que
+        // está viviendo el user ahora.
+        //
+        // No usamos el flag `recurrenceSpawnedNext` para decidir — nos
+        // basamos en la dueDate más nueva de cada serie. Una "serie" es
+        // matcheada por projectId + title + recurrence definida.
         let spawned = 0
         const nowIso = new Date().toISOString()
-        // Recopilamos los ids spawneados para hacer post-fill semanal
-        // (igual que completeTask): la nueva instancia puede ser parte
-        // de una semana que también querés ver entera.
         const spawnedIds: string[] = []
         set((s) => {
           const tasks = { ...s.tasks }
           let projects = s.projects
+          // 1) Agrupar tasks recurrentes por serie (mismo project + title).
+          const byKey = new Map<string, Task[]>()
           for (const t of Object.values(s.tasks)) {
             if (!t.recurrence) continue
             if (!t.dueDate) continue
             if (t.archivedAt) continue
-            if (t.recurrenceSpawnedNext) continue
-            // Solo nos importa si está OVERDUE — sino la siguiente
-            // todavía no debe existir.
-            if (t.dueDate >= todayKey) continue
-            const nextDueDate = nextRecurrenceDueDate(t.dueDate, t.recurrence)
-            if (!nextDueDate) {
-              // Fin de la serie (until alcanzado) — marcamos como
-              // spawneada para no reintentar cada apertura.
-              tasks[t.id] = { ...tasks[t.id], recurrenceSpawnedNext: true }
-              continue
-            }
+            const key = `${t.projectId}::${t.title}`
+            if (!byKey.has(key)) byKey.set(key, [])
+            byKey.get(key)!.push(t)
+          }
+          // 2) Para cada serie, encontrar la dueDate más nueva. Si esa
+          // dueDate < hoy (es decir, el final de la cadena quedó en una
+          // semana o día anterior), spawnear la siguiente instancia y
+          // dejar que el post-fill arme su semana entera.
+          for (const arr of byKey.values()) {
+            const sorted = arr.sort((a, b) => (b.dueDate ?? '').localeCompare(a.dueDate ?? ''))
+            const tail = sorted[0]                 // dueDate más nueva
+            if (!tail.dueDate || tail.dueDate >= todayKey) continue
+            const nextDueDate = nextRecurrenceDueDate(tail.dueDate, tail.recurrence!)
+            if (!nextDueDate) continue            // serie terminó (until)
+            // Si ya existe una task con esa fecha en la serie, skip
+            // (idempotente — múltiples llamadas no duplican).
+            const dupe = arr.some((t) => t.dueDate === nextDueDate)
+            if (dupe) continue
+
             const newId = genId()
-            const proj = s.projects[t.projectId]
+            const proj = s.projects[tail.projectId]
             const todoStatus = proj?.statuses[0]?.label ?? 'To Do'
-            const freshSubs: Subtask[] = (t.subtasks ?? [])
+            const freshSubs: Subtask[] = (tail.subtasks ?? [])
               .filter((sub) => !sub.archivedAt)
               .map((sub) => ({
                 ...sub,
@@ -940,7 +989,7 @@ export const useTasksStore = create<TasksState>()(
                 status: todoStatus,
               }))
             tasks[newId] = {
-              ...t,
+              ...tail,
               id: newId,
               dueDate: nextDueDate,
               status: todoStatus,
@@ -952,9 +1001,6 @@ export const useTasksStore = create<TasksState>()(
               subtasks: freshSubs,
               recurrenceSpawnedNext: false,
             }
-            // Marcamos la actual como ya spawneada — la próxima
-            // ejecución la salta aunque siga overdue.
-            tasks[t.id] = { ...tasks[t.id], recurrenceSpawnedNext: true }
             if (proj) {
               projects = {
                 ...projects,
@@ -969,8 +1015,9 @@ export const useTasksStore = create<TasksState>()(
           }
           return { tasks, projects }
         })
-        // Post-set: fillea la semana de cada spawned (idempotente — si
-        // ya cubría la semana no hace nada).
+        // Post-set: el buffer arma el resto de la semana de cada spawned.
+        // ensureRecurringBuffer es idempotente y respeta el dueño semanal
+        // del head: si la serie es weekly + 1 día, no agrega nada más.
         for (const newId of spawnedIds) {
           get().ensureRecurringBuffer(newId, 14)
         }

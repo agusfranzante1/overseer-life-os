@@ -82,6 +82,11 @@ export interface GEvent {
   /** Color del proyecto al que pertenece la task — para colorear el
    *  bloque sin tener que mirar el calendar.bg. */
   projectColor?: string
+  /** Color de la PRIORIDAD de la task (urgent rojo, high naranja,
+   *  medium amarillo, low gris). En el calendario lo usamos para el
+   *  FONDO del bloque — la urgencia se ve de un vistazo. El borde
+   *  izquierdo conserva el projectColor. */
+  taskPriorityColor?: string
 }
 
 // Standard Google Calendar event color palette (matches the colors users see in calendar.google.com)

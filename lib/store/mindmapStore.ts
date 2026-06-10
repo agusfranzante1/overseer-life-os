@@ -52,6 +52,14 @@ export interface MindMapEdge {
    *  ignora el bend — su ruteo en L se calcula del medio del eje
    *  dominante y no tiene sentido pisarlo con un waypoint libre. */
   bend?: { x: number; y: number }
+  /** Anchor opcional de salida en el nodo "from". Punto en COORDENADAS DE
+   *  CONTENT (mundo) donde la flecha sale del nodo. Si no está definido,
+   *  el endpoint se calcula desde el centro del nodo hacia el target.
+   *  Cuando está, se snappea al borde del nodo más cercano a este punto.
+   *  Sirve para mover manualmente el punto de conexión. */
+  fromAnchor?: { x: number; y: number }
+  /** Anchor opcional de llegada en el nodo "to" — mismo concepto. */
+  toAnchor?: { x: number; y: number }
 }
 
 export interface MindMap {
@@ -103,6 +111,10 @@ interface MindMapState {
    *  el usuario arrastra el círculo-breakpoint, su nueva posición se
    *  persiste acá. Pasar `undefined` resetea al midpoint calculado. */
   setEdgeBend: (mapId: string, edgeId: string, bend: { x: number; y: number } | undefined) => void
+  /** Mueve el anchor de la salida ('from') o la llegada ('to') de una
+   *  edge a un punto específico (COORDENADAS DE CONTENT). Pasar undefined
+   *  lo limpia y vuelve al cálculo por borde-centro. */
+  setEdgeAnchor: (mapId: string, edgeId: string, side: 'from' | 'to', anchor: { x: number; y: number } | undefined) => void
   /** Change the visual shape of a node (rect / circle). */
   setNodeShape: (mapId: string, nodeId: string, shape: MindMapNodeShape) => void
   /** Change the text size of a node, in pixels. Pass `undefined` to reset
@@ -245,6 +257,20 @@ export const useMindMapStore = create<MindMapState>()(
             const next = { ...e }
             if (bend === undefined) delete next.bend
             else next.bend = bend
+            return next
+          }),
+        })),
+      })),
+
+      setEdgeAnchor: (mapId, edgeId, side, anchor) => set((s) => ({
+        maps: s.maps.map((m) => m.id !== mapId ? m : touch({
+          ...m,
+          edges: m.edges.map((e) => {
+            if (e.id !== edgeId) return e
+            const next = { ...e }
+            const key = side === 'from' ? 'fromAnchor' : 'toAnchor'
+            if (anchor === undefined) delete next[key]
+            else next[key] = anchor
             return next
           }),
         })),

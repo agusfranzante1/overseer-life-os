@@ -19,7 +19,7 @@ interface Props {
 const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
 export function TaskDetail({ task, project, onClose }: Props) {
-  const { updateTask, addSubtask, toggleSubtask, deleteSubtask, updateSubtask, moveTask, projects, tasks, convertTaskToSubtask, duplicateTask } = useTasksStore()
+  const { updateTask, addSubtask, toggleSubtask, deleteSubtask, updateSubtask, moveTask, projects, tasks, convertTaskToSubtask, duplicateTask, deleteTask } = useTasksStore()
   const { t, tStatus } = useTranslation()
   // Read the task LIVE from the store so edits reflect immediately.
   const liveTask = useTasksStore((s) => (task ? s.tasks[task.id] : undefined))
@@ -174,6 +174,22 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 title="Duplicar tarea con todas sus subtareas (plantilla de proceso)"
               >
                 <Copy className="w-5 h-5" />
+              </button>
+              {/* Eliminar — la única forma de borrar una tarea era ir al
+                  task manager. Lo agregamos acá para poder eliminar
+                  también desde calendario y desde cualquier otro lugar
+                  que abra el detalle. Confirm antes de actuar. */}
+              <button
+                onClick={() => {
+                  if (confirm(`¿Eliminar "${effective.title}" y todas sus subtareas?`)) {
+                    deleteTask(effective.id)
+                    onClose()
+                  }
+                }}
+                className="text-zinc-500 hover:text-red-400 transition-colors shrink-0 mt-1"
+                title="Eliminar tarea"
+              >
+                <Trash2 className="w-5 h-5" />
               </button>
               <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0 mt-1">
                 <X className="w-5 h-5" />
@@ -385,31 +401,31 @@ export function TaskDetail({ task, project, onClose }: Props) {
                   className="bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 w-28 disabled:opacity-40"
                 />
               </div>
-              {/* Botón "Reprogramada" — mueve dueDate a HOY y guarda la
-                  fecha original en rescheduledFrom para que la UI muestre
-                  un badge "TARDÍA" y genere urgencia visual sobre tareas
-                  arrastradas. Solo aparece cuando la dueDate actual NO
-                  es hoy (ya sea pasada o futura): si ya está en hoy y
-                  no hay rescheduledFrom no tiene sentido el botón. */}
+              {/* Botón "Reprogramada" — SOLO aparece para tareas VENCIDAS
+                  (dueDate ya pasó). Mueve la fecha a HOY y guarda la
+                  original en rescheduledFrom para mostrar badge "TARDÍA".
+                  No tiene sentido en tareas futuras: si todavía no llegó
+                  el día simplemente cambiá la fecha desde el input.
+                  Si el user ya marcó tardía y la dueDate quedó en hoy,
+                  igual mostramos el badge para poder revertir.  */}
               {effective.dueDate && (() => {
                 const [y, m, d] = effective.dueDate.split('-').map(Number)
                 const due = new Date(y, m - 1, d); due.setHours(0, 0, 0, 0)
                 const today = new Date(); today.setHours(0, 0, 0, 0)
-                const isAlreadyToday = due.getTime() === today.getTime()
                 const isOverdue = due.getTime() < today.getTime()
                 const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-                if (isAlreadyToday && !effective.rescheduledFrom) return null
+                // Mostrar SOLO si la tarea está vencida O si ya tiene
+                // marca de tardía (para poder removerla).
+                if (!isOverdue && !effective.rescheduledFrom) return null
                 return (
                   <div className="mt-2 flex items-center gap-2 flex-wrap">
-                    {!isAlreadyToday && (
+                    {isOverdue && (
                       <button
                         onClick={() => updateTask(effective.id, {
                           rescheduledFrom: effective.rescheduledFrom ?? effective.dueDate,
                           dueDate: todayYmd,
                         })}
-                        title={isOverdue
-                          ? 'No la hiciste el día que correspondía — la movemos a HOY y queda marcada como tardía'
-                          : 'Adelantar la tarea a hoy y marcarla como reprogramada'}
+                        title="No la hiciste el día que correspondía — la movemos a HOY y queda marcada como tardía"
                         className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors bg-amber-500/10 border border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
                       >
                         ⏱ Reprogramar para HOY
@@ -775,8 +791,7 @@ function RecurrencePicker({
             <p className="text-[10px] text-zinc-600 mt-2 italic leading-relaxed">
               Te creamos solo las instancias de la semana en curso (<span className="text-zinc-400">{recurrenceLabel(recurrence)}</span>) —
               1 si es semanal, hasta 5 si es Lun-Vie, hasta 7 si es diaria, según los días que caen.
-              Al completar la última de la semana se llena la semana siguiente, y si te olvidás de marcar alguna
-              también aparece sola apenas pase su fecha.
+              Completar una NO crea otra. La semana siguiente se arma sola cuando abrís la app después del domingo.
             </p>
           )}
         </>

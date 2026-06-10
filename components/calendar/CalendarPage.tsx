@@ -6,6 +6,8 @@ import { useTasksStore } from '@/lib/store/tasksStore'
 import { TaskDetail } from '@/components/tasks/TaskDetail'
 import { SubtaskDetailModal } from '@/components/tasks/SubtaskDetailModal'
 import { expandRecurrenceInRange } from '@/lib/utils/taskRecurrence'
+import { effectivePriority } from '@/lib/utils/taskPriority'
+import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { useGoogleCalendarStore, resolveEventColor, contrastText, type GEvent, type GCalendar } from '@/lib/store/googleCalendarStore'
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
@@ -147,9 +149,12 @@ export function CalendarPage() {
       if (t.archivedAt) continue
       const project = projects[t.projectId]
       // Color del status de la TASK madre — lookup en las statuses
-      // del proyecto. El bloque del calendario lo usa para pintar el
-      // FONDO; el borde-izquierdo mantiene el projectColor.
+      // del proyecto. (Lo dejamos para tooltips/legacy.)
       const taskStatusColor = project?.statuses.find((s) => s.label === t.status)?.color
+      // Color de la PRIORIDAD efectiva (sube a high si tiene subtask
+      // urgente abierta). Este es el que el calendario usa para pintar
+      // el FONDO del bloque.
+      const taskPriorityColor = PRIORITY_COLORS[effectivePriority(t)] ?? PRIORITY_COLORS.low
       // ── Bloque de la tarea madre
       if (t.dueDate && t.dueTime) {
         const [y, m, d] = t.dueDate.split('-').map(Number)
@@ -169,6 +174,7 @@ export function CalendarPage() {
           linkedTaskId: t.id,
           projectColor: project?.color,
           taskStatusColor,
+          taskPriorityColor,
           isCompleted: !!t.completedAt,
         }
         if (!map.has(t.dueDate)) map.set(t.dueDate, [])
@@ -185,6 +191,10 @@ export function CalendarPage() {
         const end = new Date(start.getTime() + duration * 60_000)
         // Subtasks tienen su propio status — mismo lookup.
         const subStatusColor = project?.statuses.find((s) => s.label === sub.status)?.color
+        // Prioridad de la subtask (fallback a la prioridad efectiva de
+        // la madre si no tiene una propia explícita).
+        const subPriority = sub.priority ?? effectivePriority(t)
+        const subPriorityColor = PRIORITY_COLORS[subPriority] ?? PRIORITY_COLORS.low
         const ev: GEvent = {
           id: `subtask:${sub.id}`,
           calendarId: '__overseer_tasks__',
@@ -198,6 +208,7 @@ export function CalendarPage() {
           linkedSubtaskId: sub.id,
           projectColor: project?.color,
           taskStatusColor: subStatusColor,
+          taskPriorityColor: subPriorityColor,
           isCompleted: !!sub.completedAt,
         }
         if (!map.has(sub.dueDate)) map.set(sub.dueDate, [])
@@ -227,9 +238,9 @@ export function CalendarPage() {
       // hasta que el auto-purge las archive al cierre semanal.
       if (t.archivedAt) continue
       const project = projects[t.projectId]
-      // Color del status — usado para el fondo del bloque del calendario,
-      // mientras el borde-izquierdo mantiene el projectColor.
+      // Status color (legacy) + priority color para el FONDO del bloque.
       const taskStatusColor = project?.statuses.find((s) => s.label === t.status)?.color
+      const taskPriorityColor = PRIORITY_COLORS[effectivePriority(t)] ?? PRIORITY_COLORS.low
       // ── Tarea madre con dueTime
       if (t.dueDate && t.dueTime) {
         // Marcamos el GCal event como "ya cubierto por la task" para
@@ -254,6 +265,7 @@ export function CalendarPage() {
           linkedTaskId: t.id,
           projectColor: project?.color,
           taskStatusColor,
+          taskPriorityColor,
           isCompleted: !!t.completedAt,
         })
       }
@@ -269,6 +281,8 @@ export function CalendarPage() {
         const duration = sub.durationMinutes ?? 30
         const end = new Date(start.getTime() + duration * 60_000)
         const subStatusColor = project?.statuses.find((s) => s.label === sub.status)?.color
+        const subPriority = sub.priority ?? effectivePriority(t)
+        const subPriorityColor = PRIORITY_COLORS[subPriority] ?? PRIORITY_COLORS.low
         syntheticEvents.push({
           id: `subtask:${sub.id}`,
           calendarId: '__overseer_tasks__',
@@ -282,6 +296,7 @@ export function CalendarPage() {
           linkedSubtaskId: sub.id,
           projectColor: project?.color,
           taskStatusColor: subStatusColor,
+          taskPriorityColor: subPriorityColor,
           isCompleted: !!sub.completedAt,
         })
       }
@@ -690,19 +705,34 @@ export function CalendarPage() {
               </div>
             )}
 
-            {/* Tasks */}
+            {/* Tasks — click abre el TaskDetail (que tiene botón eliminar
+                + edición). X al pasar el mouse para borrar directo. */}
             {selectedDayTasks.length > 0 && (
               <div className="space-y-1.5">
                 <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Tareas</p>
                 {selectedDayTasks.map((task) => {
                   const proj = projects[task.projectId]
                   return (
-                    <div key={task.id} className="flex items-start gap-2 p-2 rounded-lg bg-zinc-800/50">
+                    <div key={task.id} className="group flex items-start gap-2 p-2 rounded-lg bg-zinc-800/50 hover:bg-zinc-800/80 cursor-pointer transition-colors"
+                      onClick={() => setSelectedTask(task)}
+                    >
                       <div className="w-2 h-2 rounded-full mt-1 shrink-0" style={{ backgroundColor: proj?.color ?? '#6366f1' }} />
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="text-xs text-zinc-200 truncate">{task.title}</p>
                         {proj && <p className="text-[10px] text-zinc-500">{proj.name}</p>}
                       </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (confirm(`¿Eliminar "${task.title}"?`)) {
+                            useTasksStore.getState().deleteTask(task.id)
+                          }
+                        }}
+                        className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all shrink-0 p-1"
+                        title="Eliminar tarea"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
                     </div>
                   )
                 })}
@@ -1879,19 +1909,21 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                         isBeingDragged ? 'opacity-90 shadow-2xl scale-[1.02] z-30' : 'hover:brightness-110'
                       }`}
                       style={(() => {
-                        // Para tasks: FONDO = color del status, BORDE-IZQ = color del proyecto.
-                        // Así de un vistazo ves a qué proyecto pertenece (borde)
-                        // y en qué estado está la tarea (fondo). Fallback al
-                        // projectColor si el status no tiene color asignado.
+                        // Para tasks: FONDO = color de la PRIORIDAD (urgent
+                        // rojo, high naranja, medium amarillo, low gris).
+                        // BORDE-IZQ = color del proyecto. Así de un vistazo
+                        // ves a qué proyecto pertenece (borde) y qué tan
+                        // urgente es (fondo). Fallback al projectColor si
+                        // no hay priority color.
                         const projectColor = ev.projectColor ?? '#6366f1'
-                        const statusColor = ev.taskStatusColor ?? projectColor
+                        const priorityColor = ev.taskPriorityColor ?? projectColor
                         return {
                           top: visualTop, height: visualHeight,
                           transform: isBeingDragged && dragState.mode === 'move' && dragState.dayShift !== 0
                             ? `translateX(calc(${dragState.dayShift} * 100%))`
                             : undefined,
                           background: ev.isTask
-                            ? `linear-gradient(90deg, ${statusColor}55, ${statusColor}22)`
+                            ? `linear-gradient(90deg, ${priorityColor}55, ${priorityColor}22)`
                             : `linear-gradient(180deg, ${color}, ${color}dd)`,
                           borderLeft: `3px solid ${ev.isTask ? projectColor : color}`,
                           color: ev.isTask ? '#ffffff' : fg,

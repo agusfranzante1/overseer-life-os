@@ -45,6 +45,7 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
   const removeEdge = useMindMapStore((s) => s.removeEdge)
   const setEdgeShape = useMindMapStore((s) => s.setEdgeShape)
   const setEdgeBend = useMindMapStore((s) => s.setEdgeBend)
+  const setEdgeAnchor = useMindMapStore((s) => s.setEdgeAnchor)
   const setNodeShape = useMindMapStore((s) => s.setNodeShape)
   const setNodeFontSize = useMindMapStore((s) => s.setNodeFontSize)
   const duplicateNode = useMindMapStore((s) => s.duplicateNode)
@@ -469,6 +470,39 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
     el.addEventListener('pointercancel', onUp)
   }
 
+  /** Drag de un handle de extremo (anchor "from" o "to"). El user
+   *  arrastra y el endpoint se snappea al borde más cercano del nodo,
+   *  permitiendo elegir manualmente dónde sale/llega la flecha al nodo
+   *  (útil para evitar que dos flechas se superpongan). */
+  const startEdgeAnchorDrag = (e: React.PointerEvent, edgeId: string, side: 'from' | 'to') => {
+    e.stopPropagation()
+    e.preventDefault()
+    setSelection({ kind: 'edge', id: edgeId })
+    const pointerId = e.pointerId
+    const el = e.currentTarget as SVGElement
+    try { el.setPointerCapture(pointerId) } catch { /* noop */ }
+
+    const apply = (ev: PointerEvent) => {
+      const p = screenToContent(ev.clientX, ev.clientY)
+      if (p) setEdgeAnchor(mapId, edgeId, side, p)
+    }
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      apply(ev)
+    }
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+      el.removeEventListener('pointercancel', onUp)
+      try { el.releasePointerCapture(pointerId) } catch { /* noop */ }
+      apply(ev)
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+    el.addEventListener('pointercancel', onUp)
+  }
+
   // ── Robust pointer-capture node drag with movement threshold ──
   // Click vs drag distinguished by 4px hysteresis.
   /** Drag the bottom-right resize handle of a node. Updates width/height
@@ -559,6 +593,23 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
       if (n) startPositions.set(id, { x: n.x, y: n.y })
     }
 
+    // Snapshot de bends y anchors de las edges TOCADAS por la movida —
+    // sin esto al mover un nodo las flechas con bend/anchor quedaban
+    // ancladas en su posición vieja, dando la sensación de que "no
+    // siguen". Trasladamos por el mismo delta del drag.
+    const movingSet = new Set(movingIds)
+    const startBends = new Map<string, { x: number; y: number }>()
+    const startFromAnchors = new Map<string, { x: number; y: number }>()
+    const startToAnchors = new Map<string, { x: number; y: number }>()
+    for (const edge of map?.edges ?? []) {
+      const touchesFrom = movingSet.has(edge.fromNodeId)
+      const touchesTo = movingSet.has(edge.toNodeId)
+      if (!touchesFrom && !touchesTo) continue
+      if (edge.bend) startBends.set(edge.id, { ...edge.bend })
+      if (edge.fromAnchor && touchesFrom) startFromAnchors.set(edge.id, { ...edge.fromAnchor })
+      if (edge.toAnchor && touchesTo) startToAnchors.set(edge.id, { ...edge.toAnchor })
+    }
+
     const startClientX = e.clientX
     const startClientY = e.clientY
     const pointerId = e.pointerId
@@ -581,6 +632,18 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
       // se mueven juntos manteniendo su disposición relativa.
       for (const [id, start] of startPositions) {
         updateNode(mapId, id, { x: start.x + cdx, y: start.y + cdy })
+      }
+      // Aplicar el mismo delta a bend + anchors de las edges tocadas —
+      // así las flechas con waypoint custom siguen al nodo en vez de
+      // quedarse fijas. Idempotente; el snapshot está fijo.
+      for (const [edgeId, b] of startBends) {
+        setEdgeBend(mapId, edgeId, { x: b.x + cdx, y: b.y + cdy })
+      }
+      for (const [edgeId, a] of startFromAnchors) {
+        setEdgeAnchor(mapId, edgeId, 'from', { x: a.x + cdx, y: a.y + cdy })
+      }
+      for (const [edgeId, a] of startToAnchors) {
+        setEdgeAnchor(mapId, edgeId, 'to', { x: a.x + cdx, y: a.y + cdy })
       }
     }
     const onUp = (ev: PointerEvent) => {
@@ -764,7 +827,7 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
               // Si la edge tiene bend custom, lo usamos para todo: el
               // anclaje de los endpoints (apuntan hacia el bend), el
               // path, y la posición del círculo-handle.
-              const { start, end } = computeEdgeEndpoints(fromNode, toNode, edge.bend)
+              const { start, end } = computeEdgeEndpoints(fromNode, toNode, edge.bend, edge.fromAnchor, edge.toAnchor)
               const path = buildEdgePath(start, end, shape, edge.bend)
               const breakpoints = isSelected ? computeEdgeBreakpoints(start, end, shape, edge.bend) : []
               // Solo el primer breakpoint es draggable como "bend" en
@@ -793,6 +856,42 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
                     markerEnd={isSelected ? 'url(#mm-arrowhead-active)' : 'url(#mm-arrowhead)'}
                     className="pointer-events-none"
                   />
+                  {/* Endpoint handles — solo cuando la edge está seleccionada.
+                      Arrastrar mueve el punto de conexión en el nodo a un
+                      lugar específico (anchor custom). Doble-click resetea
+                      al auto-cálculo. */}
+                  {isSelected && (
+                    <>
+                      <circle
+                        cx={start.x} cy={start.y}
+                        r={5}
+                        fill="#34d399" stroke="#0a0a0b" strokeWidth={1.5}
+                        className="pointer-events-auto cursor-move"
+                        style={{ touchAction: 'none' }}
+                        onPointerDown={(e) => startEdgeAnchorDrag(e, edge.id, 'from')}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation()
+                          setEdgeAnchor(mapId, edge.id, 'from', undefined)
+                        }}
+                      >
+                        <title>Arrastrá para mover el punto de salida · doble-click para auto</title>
+                      </circle>
+                      <circle
+                        cx={end.x} cy={end.y}
+                        r={5}
+                        fill="#34d399" stroke="#0a0a0b" strokeWidth={1.5}
+                        className="pointer-events-auto cursor-move"
+                        style={{ touchAction: 'none' }}
+                        onPointerDown={(e) => startEdgeAnchorDrag(e, edge.id, 'to')}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation()
+                          setEdgeAnchor(mapId, edge.id, 'to', undefined)
+                        }}
+                      >
+                        <title>Arrastrá para mover el punto de llegada · doble-click para auto</title>
+                      </circle>
+                    </>
+                  )}
                   {/* Break-point markers — el primero es draggable cuando
                       el shape soporta bend. Cursor "move" + radio mayor
                       como affordance visual. Doble-click resetea el bend

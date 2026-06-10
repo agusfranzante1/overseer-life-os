@@ -148,7 +148,13 @@ type Row = Record<string, unknown>
  *  (probablemente local quedó vacío/inconsistente respecto a remote)
  *  y NO ejecutamos el delete. Lanzamos error visible + console.error
  *  con el detalle para que el user vea qué pasó. */
-const DELETE_SURPLUS_ABORT_THRESHOLD = 10
+// El "guardavidas" antes abortaba el delete si afectaba >= 10 filas. Lo
+// removimos a pedido del user — su workflow ahora pasa por snapshots
+// manuales (botón "Guardar ahora" en /tasks), así que tiene su propio
+// safety net controlado. Sin esto los restores fallaban con error de
+// "demasiadas filas".  Lo dejo configurable en Infinity para que el
+// código que lo usa siga compilando, pero efectivamente NUNCA bloquea.
+const DELETE_SURPLUS_ABORT_THRESHOLD = Number.POSITIVE_INFINITY
 
 /** Custom error que el push handler atrapa para abortar el flujo entero
  *  (sin marcar como synced) y mostrarle al user el banner. */

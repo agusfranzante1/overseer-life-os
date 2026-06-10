@@ -452,8 +452,8 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                 <button
                   data-interactive
                   onClick={(e) => { e.stopPropagation(); setEditingTitle(true) }}
-                  title="Click para renombrar"
-                  className={`text-sm font-medium text-left flex-1 px-1.5 py-0.5 -ml-1.5 rounded hover:bg-white/[0.05]/60 transition-colors min-w-0 truncate ${
+                  title={`Click para renombrar · ${task.title}`}
+                  className={`text-sm font-medium text-left flex-1 px-1.5 py-0.5 -ml-1.5 rounded hover:bg-white/[0.05]/60 transition-colors min-w-0 break-words leading-snug line-clamp-3 ${
                     isDone ? 'line-through text-zinc-500' : 'text-zinc-200'
                   }`}
                 >
@@ -1160,47 +1160,61 @@ function InlineSubtask({
         </button>
       )}
 
-      {/* Hidden date input + visible chip / "+ fecha" button */}
-      <input
-        ref={dateInputRef}
-        type="date"
-        value={subtask.dueDate ?? ''}
-        onChange={(e) => onDueDateChange(e.target.value || undefined)}
-        onClick={(e) => e.stopPropagation()}
-        className="sr-only"
-        tabIndex={-1}
-      />
-      {/* Date chip — hidden on mobile (<sm) to keep the title row legible
-          on narrow screens. The date is still editable from the subtask
-          detail modal (...) and from desktop. */}
+      {/* Date chip + input invisible solapado encima — el browser ancla
+          el popover del calendario nativo a la POSICIÓN del input, así
+          que si está `sr-only` (off-screen) el popover aparece flotando
+          lejos. Lo posicionamos absoluto encima del chip con opacity:0
+          para que el popover salga PEGADO al chip. */}
       {subtask.dueDate ? (
-        <button
-          data-interactive
-          onClick={(e) => { e.stopPropagation(); openDatePicker() }}
-          title={`Vence: ${dueDateFull} — click para cambiar`}
-          className="hidden sm:flex shrink-0 items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border transition-all hover:bg-white/[0.05]"
-          style={{ color: dueStateColor, borderColor: `${dueStateColor}40` }}
-        >
-          <Calendar className="w-2.5 h-2.5" />
-          {dueDateChip}
-          <span
-            role="button"
-            onClick={(e) => { e.stopPropagation(); onDueDateChange(undefined) }}
-            title="Quitar fecha"
-            className="text-zinc-600 hover:text-red-400 -mr-0.5"
+        <div className="relative hidden sm:inline-block shrink-0">
+          <button
+            data-interactive
+            onClick={(e) => { e.stopPropagation(); openDatePicker() }}
+            title={`Vence: ${dueDateFull} — click para cambiar`}
+            className="flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border transition-all hover:bg-white/[0.05]"
+            style={{ color: dueStateColor, borderColor: `${dueStateColor}40` }}
           >
-            <X className="w-2 h-2" />
-          </span>
-        </button>
+            <Calendar className="w-2.5 h-2.5" />
+            {dueDateChip}
+            <span
+              role="button"
+              onClick={(e) => { e.stopPropagation(); onDueDateChange(undefined) }}
+              title="Quitar fecha"
+              className="text-zinc-600 hover:text-red-400 -mr-0.5"
+            >
+              <X className="w-2 h-2" />
+            </span>
+          </button>
+          <input
+            ref={dateInputRef}
+            type="date"
+            value={subtask.dueDate ?? ''}
+            onChange={(e) => onDueDateChange(e.target.value || undefined)}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute inset-0 w-full h-full opacity-0 pointer-events-none"
+            tabIndex={-1}
+          />
+        </div>
       ) : (
-        <button
-          data-interactive
-          onClick={(e) => { e.stopPropagation(); openDatePicker() }}
-          title="Agregar fecha de entrega"
-          className="hidden sm:inline-flex shrink-0 text-zinc-700 hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-all p-0.5"
-        >
-          <Calendar className="w-3 h-3" />
-        </button>
+        <div className="relative hidden sm:inline-block shrink-0">
+          <button
+            data-interactive
+            onClick={(e) => { e.stopPropagation(); openDatePicker() }}
+            title="Agregar fecha de entrega"
+            className="text-zinc-700 hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-all p-0.5"
+          >
+            <Calendar className="w-3 h-3" />
+          </button>
+          <input
+            ref={dateInputRef}
+            type="date"
+            value={subtask.dueDate ?? ''}
+            onChange={(e) => onDueDateChange(e.target.value || undefined)}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute inset-0 w-full h-full opacity-0 pointer-events-none"
+            tabIndex={-1}
+          />
+        </div>
       )}
 
       {/* Action buttons (on hover).

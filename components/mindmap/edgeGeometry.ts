@@ -19,17 +19,65 @@ export type Pt = { x: number; y: number }
  *  la intersección de borde. Así la flecha sale apuntando hacia el
  *  bend, no hacia el otro nodo — lo que da una salida natural cuando
  *  el usuario tira el waypoint a un costado. */
-export function computeEdgeEndpoints(from: MindMapNode, to: MindMapNode, bend?: Pt) {
+export function computeEdgeEndpoints(
+  from: MindMapNode,
+  to: MindMapNode,
+  bend?: Pt,
+  fromAnchor?: Pt,
+  toAnchor?: Pt,
+) {
   const fromCx = from.x + from.width / 2
   const fromCy = from.y + from.height / 2
   const toCx = to.x + to.width / 2
   const toCy = to.y + to.height / 2
-  const startTarget = bend ?? { x: toCx, y: toCy }
-  const endTarget = bend ?? { x: fromCx, y: fromCy }
-  return {
-    start: intersectNodeBorder(fromCx, fromCy, startTarget.x, startTarget.y, from),
-    end:   intersectNodeBorder(toCx, toCy, endTarget.x, endTarget.y, to),
+  // Si hay anchor custom para el extremo "from": clamping al borde del
+  // nodo from para que el endpoint quede pegado al borde y no flotando.
+  // Igual para "to". Si no hay anchor, calculamos por intersección desde
+  // el centro hacia el bend (o hacia el otro nodo si no hay bend).
+  const start = fromAnchor
+    ? clampToNodeBorder(fromAnchor, from)
+    : (() => {
+        const startTarget = bend ?? { x: toCx, y: toCy }
+        return intersectNodeBorder(fromCx, fromCy, startTarget.x, startTarget.y, from)
+      })()
+  const end = toAnchor
+    ? clampToNodeBorder(toAnchor, to)
+    : (() => {
+        const endTarget = bend ?? { x: fromCx, y: fromCy }
+        return intersectNodeBorder(toCx, toCy, endTarget.x, endTarget.y, to)
+      })()
+  return { start, end }
+}
+
+/** Dado un punto cualquiera (típicamente cerca del nodo) y un nodo,
+ *  devuelve el punto más cercano en el borde del nodo. Sirve para
+ *  snappear el anchor draggeado por el user al perímetro del nodo. */
+function clampToNodeBorder(pt: Pt, node: MindMapNode): Pt {
+  if (node.shape === 'circle') {
+    const cx = node.x + node.width / 2
+    const cy = node.y + node.height / 2
+    const dx = pt.x - cx
+    const dy = pt.y - cy
+    if (dx === 0 && dy === 0) return { x: cx + node.width / 2, y: cy }
+    return intersectEllipse(cx, cy, pt.x, pt.y, node)
   }
+  // Rect: clamp al rectángulo, luego proyectamos al borde más cercano.
+  const x0 = node.x
+  const y0 = node.y
+  const x1 = node.x + node.width
+  const y1 = node.y + node.height
+  const cx = Math.max(x0, Math.min(x1, pt.x))
+  const cy = Math.max(y0, Math.min(y1, pt.y))
+  // Distance to each edge — pick the closest.
+  const dLeft = cx - x0
+  const dRight = x1 - cx
+  const dTop = cy - y0
+  const dBottom = y1 - cy
+  const minD = Math.min(dLeft, dRight, dTop, dBottom)
+  if (minD === dLeft) return { x: x0, y: cy }
+  if (minD === dRight) return { x: x1, y: cy }
+  if (minD === dTop) return { x: cx, y: y0 }
+  return { x: cx, y: y1 }
 }
 
 /** Endpoint for an IN-PROGRESS edge (one end is a node, the other is the

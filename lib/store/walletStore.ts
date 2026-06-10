@@ -180,29 +180,51 @@ export const useWalletStore = create<WalletState>()(
       removeWallet: (id) => set(s => {
         const wallet = s.wallets.find(w => w.id === id)
         if (!wallet) return s
-        const related = s.transactions.filter(t => t.walletId === id || t.toWalletId === id)
-        const remaining = s.transactions.filter(t => t.walletId !== id && t.toWalletId !== id)
+        // GUARDA: solo permitimos borrar si TODAS las monedas tienen
+        // saldo 0. Si tenés plata adentro, hay que moverla antes con
+        // una transferencia — sin esto el delete descuadra los totales
+        // globales y el user pierde dinero.
+        const nonZero = wallet.currencyCodes.filter((code) => {
+          const bal = getWalletBalance(id, code, s.transactions)
+          return Math.abs(bal) > 0.005
+        })
+        if (nonZero.length > 0) {
+          const labels = nonZero.join(', ')
+          alert(`No se puede eliminar "${wallet.name}" — tiene saldo en ${labels}. Transferí o gastá el saldo primero (debe quedar en 0 en todas las monedas).`)
+          return s
+        }
+        // OK: solo borramos la BILLETERA. Las transacciones quedan en
+        // el historial (mismo walletId), no se descuentan. Si después
+        // hace restore, la billetera vuelve y sus números se recomponen
+        // a partir de las transacciones que nunca se borraron.
         const trashEntry: DeletedWallet = {
           id: wallet.id,
           wallet,
-          transactions: related,
+          transactions: [],   // VACÍO — los registros siguen vivos en s.transactions
           deletedAt: Date.now(),
         }
         return {
           wallets: s.wallets.filter(w => w.id !== id),
-          transactions: remaining,
-          // Newest first; cap at 50 to keep storage bounded
+          // transactions NO se tocan
           deletedWallets: [trashEntry, ...s.deletedWallets].slice(0, 50),
         }
       }),
       restoreWallet: (id) => set(s => {
         const entry = s.deletedWallets.find(d => d.id === id)
         if (!entry) return s
-        // If a wallet was recreated with same id (unlikely) skip; else restore.
+        // Las transacciones nunca se eliminaron al borrar (mantenemos
+        // el historial siempre), así que solo restauramos la entidad
+        // wallet. `entry.transactions` puede estar vacío (nuevo flujo)
+        // o tener data (snapshots viejos creados antes del cambio); en
+        // ambos casos hacemos un merge tolerante por id para no duplicar.
         const walletExists = s.wallets.some(w => w.id === id)
+        const existingTxIds = new Set(s.transactions.map((t) => t.id))
+        const oldTxsToRestore = (entry.transactions ?? []).filter((t) => !existingTxIds.has(t.id))
         return {
           wallets: walletExists ? s.wallets : [...s.wallets, entry.wallet],
-          transactions: [...entry.transactions, ...s.transactions],
+          transactions: oldTxsToRestore.length > 0
+            ? [...oldTxsToRestore, ...s.transactions]
+            : s.transactions,
           deletedWallets: s.deletedWallets.filter(d => d.id !== id),
         }
       }),
