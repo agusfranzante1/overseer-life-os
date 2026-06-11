@@ -401,49 +401,51 @@ export function TaskDetail({ task, project, onClose }: Props) {
                   className="bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:border-indigo-500 w-28 disabled:opacity-40"
                 />
               </div>
-              {/* Botón "Reprogramada" — aparece para tareas VENCIDAS:
-                  - Fecha pasada (días) → vencida clásica
-                  - Fecha hoy + hora pasada → vencida por horario (ej.
-                    eran las 4pm y son las 5pm)
-                  Mueve la fecha a HOY (si era de otro día) y guarda la
-                  original en rescheduledFrom para mostrar badge "TARDÍA".
-                  Para tareas futuras no aparece — simplemente cambiá la
-                  fecha desde el input. */}
+              {/* Botón "TRAER A HOY" — explícito y MANUAL. Solo aparece
+                  cuando la tarea tiene fecha. Editar dueDate/dueTime ya
+                  NO marca tardía automáticamente; el user puede reagendar
+                  tranquilo. Este botón es la ÚNICA forma de flaggear
+                  como tardía.
+                    - Si la fecha era OTRO día (vencida clásica): mueve
+                      dueDate a hoy + marca tardía con la fecha original.
+                    - Si la fecha era HOY pero pasó el horario: ajusta
+                      el dueTime a la hora actual + marca tardía.
+                    - Si la tarea ya está en hoy y a futuro: igual
+                      permite marcar como tardía (caso "ya empecé y se
+                      me pasó por horas, lo cuento como tardía"). */}
               {effective.dueDate && (() => {
                 const [y, m, d] = effective.dueDate.split('-').map(Number)
                 const due = new Date(y, m - 1, d); due.setHours(0, 0, 0, 0)
                 const today = new Date(); today.setHours(0, 0, 0, 0)
                 const isDateOverdue = due.getTime() < today.getTime()
-                // Hora-overdue: misma fecha que hoy + dueTime ya pasó.
-                const isTimeOverdue = (() => {
-                  if (isDateOverdue) return false
-                  if (due.getTime() !== today.getTime()) return false
-                  if (!effective.dueTime) return false
-                  const [hh, mi] = effective.dueTime.split(':').map(Number)
-                  const dueMoment = new Date(y, m - 1, d, hh ?? 0, mi ?? 0, 0)
-                  return dueMoment.getTime() < new Date().getTime()
-                })()
-                const isOverdue = isDateOverdue || isTimeOverdue
+                const now = new Date()
                 const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-                if (!isOverdue && !effective.rescheduledFrom) return null
+                const nowHm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
                 return (
                   <div className="mt-2 flex items-center gap-2 flex-wrap">
-                    {isOverdue && (
+                    {!effective.rescheduledFrom && (
                       <button
-                        onClick={() => updateTask(effective.id, {
-                          rescheduledFrom: effective.rescheduledFrom ?? effective.dueDate,
-                          dueDate: todayYmd,
-                          // Si está vencida solo por horario, dejamos la
-                          // dueTime sin tocar (queda hoy ya pasada y el
-                          // user la mueve a la hora que quiera con el
-                          // input de tiempo).
-                        })}
+                        onClick={() => {
+                          // Captura la fecha (y hora si la había) original
+                          // como referencia de cuándo era.
+                          const original = effective.dueTime
+                            ? `${effective.dueDate} ${effective.dueTime}`
+                            : effective.dueDate
+                          updateTask(effective.id, {
+                            rescheduledFrom: original,
+                            dueDate: todayYmd,
+                            // Solo arrastramos a "ahora" la dueTime si la
+                            // tarea ya tenía horario — si no tenía, no
+                            // ponemos uno (sigue siendo to-do del día).
+                            ...(effective.dueTime ? { dueTime: nowHm } : {}),
+                          })
+                        }}
                         title={isDateOverdue
-                          ? 'No la hiciste el día que correspondía — la movemos a HOY y queda marcada como tardía'
-                          : 'Se te pasó el horario — la dejamos para HOY y queda marcada como tardía'}
+                          ? 'No la hiciste el día que correspondía — la traemos a HOY y queda marcada como tardía'
+                          : 'Marcar manualmente como tardía y traer a la hora actual'}
                         className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors bg-amber-500/10 border border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
                       >
-                        ⏱ Marcar como TARDÍA
+                        ⏱ Traer a HOY (marcar TARDÍA)
                       </button>
                     )}
                     {effective.rescheduledFrom && (
