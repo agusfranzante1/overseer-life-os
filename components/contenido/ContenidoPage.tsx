@@ -22,15 +22,46 @@ const ALL_NETWORKS: ContentNetwork[] = [
   'newsletter', 'website', 'podcast', 'other',
 ]
 
+// Helpers para persistir UI state en localStorage. La selección de perfil
+// activo ya se persiste via Zustand persist (overseer-content); estos
+// guardan la PREFERENCIA visual (tab abierta, mes, filtro de red, filtro
+// de perfil) que es ortogonal al perfil del que estás editando.
+const LS_TAB = 'overseer-contenido-tab'
+const LS_MONTH = 'overseer-contenido-month'
+const LS_NETWORK_FILTER = 'overseer-contenido-network-filter'
+const LS_PROFILE_FILTER = 'overseer-contenido-profile-filter'
+
+function readLS<T extends string>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') return fallback
+  try { return (window.localStorage.getItem(key) as T | null) ?? fallback } catch { return fallback }
+}
+function writeLS(key: string, value: string) {
+  if (typeof window === 'undefined') return
+  try { window.localStorage.setItem(key, value) } catch { /* noop */ }
+}
+
 export function ContenidoPage() {
-  const [tab, setTab] = useState<Tab>('estrategia')
+  const [tab, setTabState] = useState<Tab>(() => readLS<Tab>(LS_TAB, 'estrategia'))
+  const setTab = (t: Tab) => { setTabState(t); writeLS(LS_TAB, t) }
   const [editingItem, setEditingItem] = useState<ContentItem | null>(null)
   const [creatingForDay, setCreatingForDay] = useState<string | null>(null)
-  const [networkFilter, setNetworkFilter] = useState<ContentNetwork | 'all'>('all')
-  const [currentMonth, setCurrentMonth] = useState(() => {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  const [networkFilter, setNetworkFilterState] = useState<ContentNetwork | 'all'>(() => readLS<ContentNetwork | 'all'>(LS_NETWORK_FILTER, 'all'))
+  const setNetworkFilter = (n: ContentNetwork | 'all') => { setNetworkFilterState(n); writeLS(LS_NETWORK_FILTER, n) }
+  // profileFilter: cuál perfil mirar en Calendario/Pipeline. Independiente
+  // del `currentProfileId` (que define qué perfil EDITAS en ADN/Mes).
+  //   'all'      → todos los perfiles mezclados (lo que el user pidió)
+  //   <id>       → solo ese perfil
+  //   'current'  → seguir el currentProfileId del store (default histórico)
+  const [profileFilter, setProfileFilterState] = useState<string>(() => readLS(LS_PROFILE_FILTER, 'current'))
+  const setProfileFilter = (p: string) => { setProfileFilterState(p); writeLS(LS_PROFILE_FILTER, p) }
+  const [currentMonth, setCurrentMonthState] = useState(() => {
+    const fallback = (() => {
+      const d = new Date()
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    })()
+    return readLS(LS_MONTH, fallback)
   })
+  const setCurrentMonth = (m: string) => { setCurrentMonthState(m); writeLS(LS_MONTH, m) }
 
   return (
     <motion.div
@@ -43,7 +74,11 @@ export function ContenidoPage() {
         currentMonth={currentMonth} setCurrentMonth={setCurrentMonth}
         networkFilter={networkFilter} setNetworkFilter={setNetworkFilter}
       />
-      <ProfileBar />
+      <ProfileBar
+        showAllToggle={tab === 'calendario' || tab === 'pipeline'}
+        profileFilter={profileFilter}
+        setProfileFilter={setProfileFilter}
+      />
 
       <AnimatePresence mode="wait">
         {tab === 'estrategia' && (
@@ -61,6 +96,7 @@ export function ContenidoPage() {
             <CalendarioTab
               monthYmd={currentMonth}
               networkFilter={networkFilter}
+              profileFilter={profileFilter}
               onEditItem={setEditingItem}
               onCreateForDay={setCreatingForDay}
             />
@@ -68,7 +104,7 @@ export function ContenidoPage() {
         )}
         {tab === 'pipeline' && (
           <motion.div key="t4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <PipelineTab networkFilter={networkFilter} onEditItem={setEditingItem} />
+            <PipelineTab networkFilter={networkFilter} profileFilter={profileFilter} onEditItem={setEditingItem} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -200,7 +236,13 @@ function Header({
 // ───────────────────────────────────────────────────────────────────
 // Profile bar — chips de perfiles + crear/editar
 // ───────────────────────────────────────────────────────────────────
-function ProfileBar() {
+function ProfileBar({
+  showAllToggle, profileFilter, setProfileFilter,
+}: {
+  showAllToggle?: boolean
+  profileFilter?: string
+  setProfileFilter?: (p: string) => void
+} = {}) {
   const profiles = useContentStore((s) => s.profiles)
   const currentProfileId = useContentStore((s) => s.currentProfileId)
   const setCurrentProfile = useContentStore((s) => s.setCurrentProfile)
@@ -210,15 +252,48 @@ function ProfileBar() {
   const [editing, setEditing] = useState<ContentProfile | null>(null)
   const [creating, setCreating] = useState(false)
 
+  // Sin showAllToggle (ADN/Mes): el chip "activo" sigue al currentProfileId
+  // y al click cambia el perfil activo. Con showAllToggle (Calendario/Pipeline):
+  // los chips reflejan profileFilter — 'all' = todos, '<id>' = ese solo.
+  // Cambiar el chip cambia el FILTRO (no el perfil activo del store).
+  const handleChipClick = (profileId: string) => {
+    if (showAllToggle && setProfileFilter) {
+      setProfileFilter(profileId)
+    } else {
+      setCurrentProfile(profileId)
+    }
+  }
+  const isActive = (profileId: string) => {
+    if (showAllToggle && profileFilter !== undefined) {
+      // 'current' significa "seguir el perfil activo del store"
+      if (profileFilter === 'current') return profileId === currentProfileId
+      return profileFilter === profileId
+    }
+    return profileId === currentProfileId
+  }
+
   return (
     <div className="flex items-center gap-2 flex-wrap p-2 rounded-xl bg-white/[0.02] border border-white/[0.06]">
       <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-600 mr-1">Perfil:</span>
+      {showAllToggle && setProfileFilter && (
+        <button
+          onClick={() => setProfileFilter('all')}
+          className="px-3 py-1 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1.5"
+          style={{
+            background: profileFilter === 'all' ? 'rgba(255,255,255,0.08)' : 'transparent',
+            borderColor: profileFilter === 'all' ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.08)',
+            color: profileFilter === 'all' ? '#fff' : '#a1a1aa',
+          }}
+        >
+          🌐 Todos
+        </button>
+      )}
       {profiles.map((p) => {
-        const active = p.id === currentProfileId
+        const active = isActive(p.id)
         return (
           <div key={p.id} className="flex items-center group">
             <button
-              onClick={() => setCurrentProfile(p.id)}
+              onClick={() => handleChipClick(p.id)}
               className="px-3 py-1 rounded-l-lg text-xs font-semibold border transition-colors flex items-center gap-1.5"
               style={{
                 background: active ? `${p.color}25` : 'transparent',
@@ -228,7 +303,7 @@ function ProfileBar() {
             >
               <span>{p.icon ?? '·'}</span>{p.name}
             </button>
-            {active && (
+            {p.id === currentProfileId && (
               <button
                 onClick={() => setEditing(p)}
                 className="px-1.5 py-1 rounded-r-lg border-y border-r text-xs hover:bg-white/[0.05]"
@@ -728,13 +803,23 @@ function GenerarPromptCard({ monthYmd }: { monthYmd: string }) {
 // TAB 3: Calendario mensual — full width, filtrable por red
 // ───────────────────────────────────────────────────────────────────
 function CalendarioTab({
-  monthYmd, networkFilter, onEditItem, onCreateForDay,
+  monthYmd, networkFilter, profileFilter, onEditItem, onCreateForDay,
 }: { monthYmd: string; networkFilter: ContentNetwork | 'all'
+     profileFilter: string
      onEditItem: (i: ContentItem) => void; onCreateForDay: (d: string) => void }) {
   const items = useContentStore((s) => s.items)
+  const profiles = useContentStore((s) => s.profiles)
   const currentProfileId = useContentStore((s) => s.currentProfileId)
-  const profile = useContentStore((s) => s.profiles.find((p) => p.id === s.currentProfileId))
-  const pillars = profile?.brandDNA.pillars ?? []
+  const profileById = useMemo(() => new Map(profiles.map((p) => [p.id, p])), [profiles])
+  // showAllProfiles = filter to 'all'; viewProfileId = single profile filter.
+  const showAllProfiles = profileFilter === 'all'
+  const viewProfileId = profileFilter === 'current' ? currentProfileId : profileFilter === 'all' ? null : profileFilter
+  // Cuando ves "todos", los pilares del perfil activo son los que se
+  // usan para los chips de pillar — pero como cada item carga su
+  // propio profileId, buscamos los pillars dinámicamente por item via
+  // pillarByItem (item.profileId → pillar.id → pillar).
+  const activeProfile = profiles.find((p) => p.id === currentProfileId)
+  const fallbackPillars = activeProfile?.brandDNA.pillars ?? []
 
   const days = useMemo(() => {
     const [y, m] = monthYmd.split('-').map(Number)
@@ -755,16 +840,23 @@ function CalendarioTab({
   const itemsByDay = useMemo(() => {
     const map = new Map<string, ContentItem[]>()
     for (const it of items) {
-      if (it.profileId !== currentProfileId) continue
+      if (!showAllProfiles && viewProfileId && it.profileId !== viewProfileId) continue
       if (networkFilter !== 'all' && it.network !== networkFilter) continue
       if (!it.scheduledYmd.startsWith(monthYmd)) continue
       if (!map.has(it.scheduledYmd)) map.set(it.scheduledYmd, [])
       map.get(it.scheduledYmd)!.push(it)
     }
     return map
-  }, [items, monthYmd, currentProfileId, networkFilter])
+  }, [items, monthYmd, showAllProfiles, viewProfileId, networkFilter])
 
-  const pillarById = new Map(pillars.map((p) => [p.id, p]))
+  // Buscador de pillar respeta el perfil REAL del item — así cuando
+  // estás en "todos", los chips se pintan con el color correcto sin
+  // que importe el perfil activo.
+  const pillarByItem = (it: ContentItem) => {
+    const ownProfile = profileById.get(it.profileId)
+    const ownPillars = ownProfile?.brandDNA.pillars ?? fallbackPillars
+    return ownPillars.find((p) => p.id === it.pillarId)
+  }
   const today = new Date()
   const todayYmd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 
@@ -806,21 +898,31 @@ function CalendarioTab({
                   </div>
                   <div className="space-y-1">
                     {cellItems.map((it) => {
-                      const pillar = pillarById.get(it.pillarId)
+                      const pillar = pillarByItem(it)
                       const color = pillar?.color ?? '#71717a'
                       const stage = STAGE_LABELS[it.stage]
                       const netMeta = NETWORK_META[it.network]
+                      const ownerProfile = profileById.get(it.profileId)
                       return (
                         <button
                           key={it.id}
                           onClick={() => onEditItem(it)}
-                          className="w-full text-left rounded px-1.5 py-1 transition-all hover:brightness-125"
+                          title={ownerProfile ? `${ownerProfile.name} · ${it.title}` : it.title}
+                          className="w-full text-left rounded px-1.5 py-1 transition-all hover:brightness-125 relative"
                           style={{
                             background: `${color}15`,
                             borderLeft: `2px solid ${color}`,
+                            // Borde superior con el color del perfil — visible
+                            // cuando estás en "Todos" para distinguir de un vistazo.
+                            ...(showAllProfiles && ownerProfile
+                              ? { borderTop: `2px solid ${ownerProfile.color}` }
+                              : {}),
                           }}
                         >
                           <div className="flex items-center gap-1 mb-0.5">
+                            {showAllProfiles && ownerProfile && (
+                              <span className="text-[10px] shrink-0" title={ownerProfile.name}>{ownerProfile.icon ?? '·'}</span>
+                            )}
                             <span className="text-[10px]" style={{ color: netMeta.color }}>{netMeta.icon}</span>
                             <div className="text-[10px] font-semibold text-zinc-200 truncate flex-1 min-w-0">
                               {it.title || '(sin título)'}
@@ -849,19 +951,27 @@ function CalendarioTab({
 // TAB 4: Pipeline (kanban por etapa)
 // ───────────────────────────────────────────────────────────────────
 function PipelineTab({
-  networkFilter, onEditItem,
-}: { networkFilter: ContentNetwork | 'all'; onEditItem: (i: ContentItem) => void }) {
+  networkFilter, profileFilter, onEditItem,
+}: { networkFilter: ContentNetwork | 'all'; profileFilter: string; onEditItem: (i: ContentItem) => void }) {
   const items = useContentStore((s) => s.items)
+  const profiles = useContentStore((s) => s.profiles)
   const currentProfileId = useContentStore((s) => s.currentProfileId)
-  const profile = useContentStore((s) => s.profiles.find((p) => p.id === s.currentProfileId))
-  const pillars = profile?.brandDNA.pillars ?? []
+  const profileById = useMemo(() => new Map(profiles.map((p) => [p.id, p])), [profiles])
+  const showAllProfiles = profileFilter === 'all'
+  const viewProfileId = profileFilter === 'current' ? currentProfileId : profileFilter === 'all' ? null : profileFilter
+  const activeProfile = profiles.find((p) => p.id === currentProfileId)
+  const fallbackPillars = activeProfile?.brandDNA.pillars ?? []
   const setItemStage = useContentStore((s) => s.setItemStage)
   const [dragId, setDragId] = useState<string | null>(null)
   const stages: ContentStageId[] = ['idea', 'script', 'recording', 'editing', 'scheduled', 'published']
-  const pillarById = new Map(pillars.map((p) => [p.id, p]))
+  const pillarByItem = (it: ContentItem) => {
+    const ownProfile = profileById.get(it.profileId)
+    const ownPillars = ownProfile?.brandDNA.pillars ?? fallbackPillars
+    return ownPillars.find((p) => p.id === it.pillarId)
+  }
 
   const filteredItems = items.filter((it) =>
-    it.profileId === currentProfileId
+    (showAllProfiles || (viewProfileId && it.profileId === viewProfileId))
     && (networkFilter === 'all' || it.network === networkFilter)
   )
 
@@ -895,9 +1005,10 @@ function PipelineTab({
                   <p className="text-[10px] text-zinc-700 text-center py-4 italic">vacío</p>
                 ) : (
                   stageItems.map((it) => {
-                    const pillar = pillarById.get(it.pillarId)
+                    const pillar = pillarByItem(it)
                     const color = pillar?.color ?? '#71717a'
                     const netMeta = NETWORK_META[it.network]
+                    const ownerProfile = profileById.get(it.profileId)
                     return (
                       <div
                         key={it.id}
@@ -905,14 +1016,27 @@ function PipelineTab({
                         onDragStart={() => setDragId(it.id)}
                         onDragEnd={() => setDragId(null)}
                         onClick={() => onEditItem(it)}
+                        title={ownerProfile ? `${ownerProfile.name} · ${it.title}` : it.title}
                         className="rounded-lg p-2.5 cursor-pointer transition-all hover:brightness-125"
                         style={{
                           background: `${color}10`,
                           borderLeft: `3px solid ${color}`,
                           opacity: dragId === it.id ? 0.4 : 1,
+                          ...(showAllProfiles && ownerProfile
+                            ? { borderTop: `2px solid ${ownerProfile.color}` }
+                            : {}),
                         }}
                       >
                         <div className="flex items-center gap-1.5 mb-1">
+                          {showAllProfiles && ownerProfile && (
+                            <span
+                              className="text-[10px] font-semibold px-1 py-0.5 rounded shrink-0"
+                              style={{ background: `${ownerProfile.color}25`, color: ownerProfile.color }}
+                              title={ownerProfile.name}
+                            >
+                              {ownerProfile.icon ?? '·'} {ownerProfile.name}
+                            </span>
+                          )}
                           <span className="text-xs" style={{ color: netMeta.color }}>{netMeta.icon}</span>
                           <div className="text-xs font-semibold text-zinc-200 line-clamp-2 flex-1 min-w-0">
                             {it.title || '(sin título)'}
