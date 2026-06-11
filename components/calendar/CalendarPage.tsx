@@ -26,7 +26,7 @@ type ViewMode = 'month' | 'week'
 
 export function CalendarPage() {
   const { t, tArray } = useTranslation()
-  const { tasks, projects, updateTask, updateSubtask, completeTask, toggleSubtask } = useTasksStore()
+  const { tasks, projects, addTask, updateTask, updateSubtask, completeTask, toggleSubtask } = useTasksStore()
   // Selección de task para abrir el detalle al click en un bloque sintético.
   const [selectedTask, setSelectedTask] = useState<import('@/types').Task | null>(null)
   // Selección de subtarea (taskId + subtaskId) — abre el SubtaskDetailModal
@@ -839,7 +839,35 @@ export function CalendarPage() {
             date={showEventModal.date}
             startHour={showEventModal.startHour}
             calendars={gcal.calendars}
+            projects={projects}
             onClose={() => setShowEventModal(null)}
+            onSaveTask={(data) => {
+              const proj = projects[data.projectId]
+              if (!proj) return
+              // Status inicial = el primero del proyecto. Defaults de
+              // prioridad/importancia bajos para no inflar el sort de
+              // tareas con cada captura rápida desde el calendario.
+              const firstStatus = proj.statuses[0]?.label ?? 'To Do'
+              setShowEventModal(null)
+              setBanner({ kind: 'loading', text: `Creando tarea "${data.title}"…` })
+              try {
+                addTask({
+                  projectId: data.projectId,
+                  title: data.title,
+                  description: data.description,
+                  status: firstStatus,
+                  priority: 'low',
+                  importance: 'low',
+                  subtasks: [],
+                  dueDate: data.dueDate,
+                  dueTime: data.dueTime,
+                  durationMinutes: data.durationMinutes,
+                })
+                setBanner({ kind: 'success', text: `Tarea creada en ${proj.name} ✓` })
+              } catch (e) {
+                setBanner({ kind: 'error', text: e instanceof Error ? e.message : 'No se pudo crear la tarea' })
+              }
+            }}
             onSave={(data) => {
               const isCreate = showEventModal.mode === 'create'
               if (isCreate) {
@@ -1075,10 +1103,24 @@ interface EventModalProps {
   date?: Date
   startHour?: number
   calendars: GCalendar[]
+  /** Proyectos del task manager — usados para el selector cuando el user
+   *  activa el toggle "Tarea" (solo en modo create). */
+  projects: Record<string, import('@/types').Project>
   onClose: () => void
   /** Fire-and-forget: parent closes the modal + shows a banner. The modal
    *  itself doesn't need to await this. */
   onSave: (data: Omit<GEvent, 'id'> & { recurrence?: string[]; timeZone?: string }) => void
+  /** Llamado cuando el user guarda con el toggle "Tarea" activado.
+   *  En vez de crear un evento en GCal, crea una task en el task manager
+   *  con el proyecto + fecha + hora seleccionados. */
+  onSaveTask?: (data: {
+    projectId: string
+    title: string
+    description?: string
+    dueDate: string
+    dueTime?: string
+    durationMinutes?: number
+  }) => void
   onDelete: () => void
 }
 
@@ -1113,13 +1155,21 @@ function buildRecurrenceRule(mode: RecurrenceMode, customDays?: number[]): strin
   }
 }
 
-function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, onDelete }: EventModalProps) {
+function EventModal({ mode, event, date, startHour, calendars, projects, onClose, onSave, onSaveTask, onDelete }: EventModalProps) {
   const { t } = useTranslation()
   const writable = calendars.filter((c) => c.accessRole === 'owner' || c.accessRole === 'writer')
   const defaultCal = event?.calendarId
     ?? writable.find((c) => c.primary)?.id
     ?? writable[0]?.id
     ?? ''
+
+  // Toggle "Tarea" — solo aplica al crear. Por defecto: OFF (lo normal es
+  // crear un evento que va a GCal). Cuando se enciende, el modal cambia el
+  // selector de calendario por uno de proyecto del task manager y al
+  // guardar dispara `onSaveTask` en lugar de `onSave`.
+  const [isTask, setIsTask] = useState(false)
+  const visibleProjects = Object.values(projects).filter((p) => !p.archived)
+  const [projectId, setProjectId] = useState(visibleProjects[0]?.id ?? '')
 
   const baseDate = event ? parseISO(event.start) : (date ?? new Date())
   const baseDateStr = format(baseDate, 'yyyy-MM-dd')
@@ -1146,7 +1196,40 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
   })
 
   const handleSave = () => {
-    if (!summary.trim() || !calendarId) return
+    if (!summary.trim()) return
+    // Rama TAREA — crear directo en el task manager, sin tocar GCal.
+    // Calculamos la duración en minutos a partir del rango start→end del
+    // formulario; para all-day no mandamos dueTime ni duración (queda como
+    // "to-do del día"). El selector de proyecto reemplaza al de calendario.
+    if (isTask) {
+      if (!projectId || !onSaveTask) return
+      if (allDay) {
+        onSaveTask({
+          projectId,
+          title: summary.trim(),
+          description: description.trim() || undefined,
+          dueDate: startDate,
+        })
+        return
+      }
+      const [sy, sm, sd] = startDate.split('-').map(Number)
+      const [shh, smm] = startTime.split(':').map(Number)
+      const [ey, em, ed] = endDate.split('-').map(Number)
+      const [ehh, emm] = endTime.split(':').map(Number)
+      const startDt = new Date(sy, sm - 1, sd, shh, smm, 0)
+      const endDt = new Date(ey, em - 1, ed, ehh, emm, 0)
+      const durationMinutes = Math.max(5, Math.round((endDt.getTime() - startDt.getTime()) / 60_000))
+      onSaveTask({
+        projectId,
+        title: summary.trim(),
+        description: description.trim() || undefined,
+        dueDate: startDate,
+        dueTime: startTime,
+        durationMinutes,
+      })
+      return
+    }
+    if (!calendarId) return
     try {
       // BUG FIX: previously we sent "YYYY-MM-DDTHH:mm:00" with no timezone
       // offset. Google Calendar interprets such strings in the calendar's
@@ -1227,7 +1310,7 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
       >
         <div className="flex items-center justify-between p-4 border-b border-white/[0.08]">
           <h3 className="text-sm font-bold text-white">
-            {mode === 'create' ? 'Nuevo evento' : 'Editar evento'}
+            {mode === 'create' ? (isTask ? 'Nueva tarea' : 'Nuevo evento') : 'Editar evento'}
           </h3>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200">
             <X className="w-4 h-4" />
@@ -1235,16 +1318,56 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
         </div>
 
         <div className="p-4 space-y-3">
-          <div>
-            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Calendario</label>
-            <select value={calendarId} onChange={(e) => setCalendarId(e.target.value)}
-              disabled={mode === 'edit'}
-              className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 disabled:opacity-60">
-              {writable.map((c) => (
-                <option key={c.id} value={c.id}>{c.summaryOverride || c.summary}{c.primary ? ' (primary)' : ''}</option>
-              ))}
-            </select>
-          </div>
+          {/* Toggle Evento / Tarea — solo en modo CREATE. Lo normal es
+              crear un evento que se sube a GCal; activar "Tarea" cambia el
+              destino al task manager con un proyecto seleccionable. */}
+          {mode === 'create' && onSaveTask && visibleProjects.length > 0 && (
+            <div className="flex items-center bg-white/[0.04] border border-white/[0.08] rounded-xl p-1">
+              <button
+                onClick={() => setIsTask(false)}
+                className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  !isTask
+                    ? 'bg-white/[0.10] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
+                    : 'text-zinc-500 hover:text-zinc-200'
+                }`}
+              >
+                Evento
+              </button>
+              <button
+                onClick={() => setIsTask(true)}
+                className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                  isTask
+                    ? 'bg-white/[0.10] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
+                    : 'text-zinc-500 hover:text-zinc-200'
+                }`}
+              >
+                <span>📋</span> Tarea
+              </button>
+            </div>
+          )}
+
+          {isTask ? (
+            <div>
+              <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Proyecto</label>
+              <select value={projectId} onChange={(e) => setProjectId(e.target.value)}
+                className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                {visibleProjects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Calendario</label>
+              <select value={calendarId} onChange={(e) => setCalendarId(e.target.value)}
+                disabled={mode === 'edit'}
+                className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 disabled:opacity-60">
+                {writable.map((c) => (
+                  <option key={c.id} value={c.id}>{c.summaryOverride || c.summary}{c.primary ? ' (primary)' : ''}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Título</label>
@@ -1291,9 +1414,9 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
             </div>
           </div>
 
-          {/* Recurrencia — solo editable al crear. En edit mostramos un
-              hint si el evento ya es parte de una serie. */}
-          {mode === 'create' ? (
+          {/* Recurrencia — solo editable al crear EVENTO. En modo tarea
+              la recurrencia se gestiona desde TaskDetail (shape distinto). */}
+          {isTask ? null : mode === 'create' ? (
             <div>
               <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">{t('calendar.repeat')}</label>
               <select value={recurrence} onChange={(e) => setRecurrence(e.target.value as RecurrenceMode)}
@@ -1342,11 +1465,13 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
             </div>
           ) : null}
 
-          <div>
-            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Ubicación (opcional)</label>
-            <input value={location} onChange={(e) => setLocation(e.target.value)}
-              className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
-          </div>
+          {!isTask && (
+            <div>
+              <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Ubicación (opcional)</label>
+              <input value={location} onChange={(e) => setLocation(e.target.value)}
+                className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+            </div>
+          )}
 
           <div>
             <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Descripción (opcional)</label>
@@ -1373,7 +1498,7 @@ function EventModal({ mode, event, date, startHour, calendars, onClose, onSave, 
             className="ml-auto px-4 py-2 rounded-lg bg-zinc-800 hover:bg-white/[0.08] text-zinc-300 text-sm font-semibold transition-colors">
             Cancelar
           </button>
-          <button onClick={handleSave} disabled={!summary.trim() || !calendarId}
+          <button onClick={handleSave} disabled={!summary.trim() || (isTask ? !projectId : !calendarId)}
             className="px-4 py-2 rounded-lg bg-indigo-500/15 border border-indigo-500/30 hover:bg-indigo-500/25 disabled:opacity-40 disabled:cursor-not-allowed text-indigo-400 text-sm font-bold transition-colors">
             Guardar
           </button>
