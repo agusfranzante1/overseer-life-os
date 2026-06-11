@@ -23,6 +23,9 @@ interface TasksState {
   // Project actions
   addProject: (p: { name: string; description?: string; color?: string }) => string
   updateProject: (id: string, patch: Partial<Project>) => void
+  /** Mueve un proyecto en el orden manual del sidebar. delta = -1 sube,
+   *  +1 baja. Si se llega a los bordes, no hace nada. */
+  reorderProject: (id: string, delta: -1 | 1) => void
   deleteProject: (id: string) => void
   /** Finds an existing system project by its systemProjectKey (e.g. 'spi'),
    *  or creates one if it doesn't exist. Returns the project id. Idempotent
@@ -168,6 +171,33 @@ export const useTasksStore = create<TasksState>()(
         set((s) => ({
           projects: { ...s.projects, [id]: { ...s.projects[id], ...patch } },
         })),
+
+      reorderProject: (id, delta) =>
+        set((s) => {
+          // Trabajamos solo sobre proyectos NO archivados, que es lo que
+          // efectivamente se ve en el sidebar. El orden actual es por el
+          // campo `order` si está, sino por createdAt como fallback.
+          const visible = Object.values(s.projects)
+            .filter((p) => !p.archived)
+            .sort((a, b) => {
+              if (a.order !== undefined && b.order !== undefined) return a.order - b.order
+              if (a.order !== undefined) return -1
+              if (b.order !== undefined) return 1
+              return a.createdAt.localeCompare(b.createdAt)
+            })
+          const idx = visible.findIndex((p) => p.id === id)
+          if (idx === -1) return s
+          const newIdx = idx + delta
+          if (newIdx < 0 || newIdx >= visible.length) return s
+          // Swap y reasignamos orden 0..N-1 a TODOS para evitar drift.
+          const reordered = [...visible]
+          ;[reordered[idx], reordered[newIdx]] = [reordered[newIdx], reordered[idx]]
+          const projects = { ...s.projects }
+          reordered.forEach((p, i) => {
+            projects[p.id] = { ...projects[p.id], order: i }
+          })
+          return { projects }
+        }),
 
       ensureSystemProject: ({ systemProjectKey, name, color, icon }) => {
         const projects = Object.values(get().projects)

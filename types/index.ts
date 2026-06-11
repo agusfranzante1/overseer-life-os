@@ -159,6 +159,11 @@ export interface Project {
   taskIds: string[]
   createdAt: string
   archived: boolean
+  /** Orden manual del proyecto en el sidebar del task manager. Más bajo =
+   *  más arriba en la lista. Si está undefined, fallback al orden de
+   *  inserción (createdAt). El user lo cambia con flechas ↑/↓ en el
+   *  sidebar — persistido en localStorage via tasksStore. */
+  order?: number
   /** Marks projects owned by another system (e.g. SPI) that should NOT be
    *  user-deletable from the task manager. They can still be renamed/recolored
    *  and the user can add tasks manually, but the delete button is disabled

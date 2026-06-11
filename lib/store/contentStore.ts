@@ -390,7 +390,18 @@ export function buildAIContentPrompt(
 
   const pillarLines = brandDNA.pillars
     .sort((a, b) => a.order - b.order)
-    .map((p) => `- **${p.label}**: ${p.description}`)
+    .map((p) => {
+      const base = `- **${p.label}**: ${p.description}`
+      // Si el pilar tiene knowledge map, lo agregamos como sub-bullets
+      // para que la IA tenga el detalle de qué se cubre adentro.
+      if (p.knowledgeMap && p.knowledgeMap.trim()) {
+        const lines = p.knowledgeMap.split('\n').map((l) => l.trim()).filter(Boolean)
+        if (lines.length > 0) {
+          return `${base}\n  Mapa de conocimiento:\n${lines.map((l) => `  · ${l.replace(/^[-*•·]\s*/, '')}`).join('\n')}`
+        }
+      }
+      return base
+    })
     .join('\n')
 
   const recentNotes = publishedItems

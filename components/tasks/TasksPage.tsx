@@ -10,7 +10,7 @@ import { TaskCard } from './TaskCard'
 import { TaskDetail } from './TaskDetail'
 import { BreakdownModal } from './BreakdownModal'
 import {
-  Plus, FolderOpen, X, ChevronDown, ChevronRight, ChevronLeft, Filter, Wand2, LayoutList, Columns3,
+  Plus, FolderOpen, X, ChevronDown, ChevronRight, ChevronLeft, ChevronUp, Filter, Wand2, LayoutList, Columns3,
   Pencil, Trash2, MoreHorizontal, ArrowUpDown, RotateCcw, Check, Menu,
 } from 'lucide-react'
 import { PROJECT_COLORS } from '@/lib/utils/constants'
@@ -651,10 +651,17 @@ export function TasksPage() {
   // parentProjectId (materias bajo "Estudios", piezas bajo "Contenido",
   // etc) para no mezclarlos con los proyectos regulares. Esos viven en
   // sus páginas especializadas (/estudio, /contenido) o dentro del
-  // container abierto.
+  // container abierto. Ordenados por `order` (manual) si está, sino
+  // por createdAt (orden de inserción).
   const projectList = Object.values(projects)
     .filter((p) => !p.archived)
     .filter((p) => !p.parentProjectId)
+    .sort((a, b) => {
+      if (a.order !== undefined && b.order !== undefined) return a.order - b.order
+      if (a.order !== undefined) return -1
+      if (b.order !== undefined) return 1
+      return a.createdAt.localeCompare(b.createdAt)
+    })
   const inArchiveView = selectedProjectId === ARCHIVE_SENTINEL
   const activeProject = selectedProjectId && !inArchiveView ? projects[selectedProjectId] : null
 
@@ -916,6 +923,9 @@ export function TasksPage() {
           ).length
           const isActive = selectedProjectId === proj.id
 
+          const idx = projectList.findIndex((p) => p.id === proj.id)
+          const isFirst = idx === 0
+          const isLast = idx === projectList.length - 1
           return (
             <div key={proj.id} className="mb-1">
               <div className="flex items-center group">
@@ -929,6 +939,27 @@ export function TasksPage() {
                   <span className="flex-1 text-left truncate">{proj.name}</span>
                   <span className="text-xs text-zinc-600">{doneCount}/{taskCount}</span>
                 </button>
+                {/* Flechitas para reordenar — solo al hover. Si llega a un
+                    borde, queda disabled. Estado persiste vía `proj.order`
+                    en el store. */}
+                <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-opacity shrink-0 ml-1">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); tasksStoreApi.reorderProject(proj.id, -1) }}
+                    disabled={isFirst}
+                    className="text-zinc-600 hover:text-zinc-300 disabled:opacity-25 disabled:cursor-not-allowed p-0.5 leading-none"
+                    title="Subir"
+                  >
+                    <ChevronUp className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); tasksStoreApi.reorderProject(proj.id, 1) }}
+                    disabled={isLast}
+                    className="text-zinc-600 hover:text-zinc-300 disabled:opacity-25 disabled:cursor-not-allowed p-0.5 leading-none"
+                    title="Bajar"
+                  >
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
             </div>
           )

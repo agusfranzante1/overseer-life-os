@@ -129,11 +129,17 @@ export interface ContentPillar {
   id: string
   /** Ej. "Estrategia", "Creatividad", "Propósito Digital". */
   label: string
-  /** Para qué sirve este pilar. */
+  /** Para qué sirve este pilar — una línea corta. */
   description: string
   /** Color para diferenciarlo visualmente. */
   color: string
   order: number
+  /** "Mapa de conocimiento" del pilar — texto libre donde el user lista
+   *  qué temas, ideas, sub-pilares, marcos, conceptos cubre en este
+   *  pilar. Es el intermedio entre el ADN macro y las piezas concretas
+   *  del pipeline. Notion-style hoja en blanco. Sirve como referencia
+   *  rápida cuando armás campañas o generás el prompt para IA. */
+  knowledgeMap?: string
 }
 
 // ───────────────────────────────────────────────────────────────────

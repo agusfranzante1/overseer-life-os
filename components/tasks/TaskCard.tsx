@@ -577,9 +577,12 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
               ABSOLUTOS arriba a la derecha de la card. Antes con `shrink-0
               opacity-0` igual ocupaban su ancho en el layout, dejándole
               al título solo 70px en Kanban. Ahora flotan encima sin
-              comerse espacio. Aparecen al hover, fondo sutil para que
-              se distingan del título cuando lo tapan parcialmente. */}
-          <div className="absolute top-3 right-3 flex items-center gap-0.5 shrink-0 opacity-0 group-hover/card:opacity-100 transition-opacity bg-zinc-900/80 backdrop-blur-sm rounded-md px-1">
+              comerse espacio. El offset `right-9` (36px) deja libre el
+              espacio del chevron de expand/collapse (que sigue en el
+              flow del flex row) para que no se choquen visualmente. */}
+          <div className={`absolute top-3 flex items-center gap-0.5 shrink-0 opacity-0 group-hover/card:opacity-100 transition-opacity bg-zinc-900/85 backdrop-blur-sm rounded-md px-1 ${
+            visibleSubtasks.length > 0 ? 'right-9' : 'right-3'
+          }`}>
             {/* "+" rápido para agregar subtask1 sin abrir el modal de
                 detalle. Si la card está colapsada, la expandimos. El
                 flag `shouldFocusSubtaskInput` triggera el useEffect que

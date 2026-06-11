@@ -1,8 +1,8 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useLayoutEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Sparkles, Target, Calendar as CalendarIcon, ChevronLeft, ChevronRight,
+  Sparkles, Target, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown,
   Plus, Trash2, X, BookOpen, Layers, Zap, Pencil,
 } from 'lucide-react'
 import { useContentStore, buildAIContentPrompt } from '@/lib/store/contentStore'
@@ -523,6 +523,14 @@ function PillarsSection() {
                 rows={2}
                 className="w-full bg-transparent text-xs text-zinc-400 focus:outline-none resize-none"
                 placeholder="Para qué sirve este pilar..."
+              />
+              {/* Mapa de conocimiento — colapsable, autogrow. Acá listás
+                  los temas, ideas, sub-pilares, marcos que abordás en
+                  este pilar. Notion-style. */}
+              <KnowledgeMapField
+                color={p.color}
+                value={p.knowledgeMap ?? ''}
+                onChange={(v) => updatePillar(p.id, { knowledgeMap: v })}
               />
             </div>
             <button
@@ -1358,6 +1366,60 @@ function FormField({ label, hint, children }: { label: string; hint?: string; ch
       <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 block mb-1">{label}</label>
       {children}
       {hint && <p className="text-[10px] text-zinc-600 mt-1 italic">{hint}</p>}
+    </div>
+  )
+}
+
+/** Mapa de conocimiento por pilar — sección colapsable con textarea
+ *  autogrow. Es el intermedio entre el ADN macro y las piezas concretas.
+ *  El user lista temas, ideas, sub-pilares, marcos, conceptos que
+ *  efectivamente toca dentro del pilar. Notion-style hoja en blanco.
+ *
+ *  Por qué colapsable y no siempre visible: cuando el user no escribió
+ *  nada, mostrar el área en blanco ensucia. Toggle minimalista que se
+ *  expande cuando hay contenido o cuando el user lo abre.  */
+function KnowledgeMapField({
+  color, value, onChange,
+}: { color: string; value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(() => value.trim().length > 0)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+
+  // Auto-grow: cada vez que cambia el valor, ajustamos altura al
+  // scrollHeight para que el textarea crezca con el contenido.
+  useLayoutEffect(() => {
+    if (!open || !taRef.current) return
+    taRef.current.style.height = 'auto'
+    taRef.current.style.height = `${taRef.current.scrollHeight}px`
+  }, [value, open])
+
+  const lineCount = value.split('\n').filter((l) => l.trim()).length
+
+  return (
+    <div className="mt-2 border-t border-white/[0.05] pt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider hover:opacity-80 transition-opacity"
+        style={{ color }}
+      >
+        {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        Mapa de conocimiento
+        {!open && lineCount > 0 && (
+          <span className="text-zinc-600 normal-case font-sans tracking-normal">· {lineCount} líneas</span>
+        )}
+      </button>
+      {open && (
+        <div className="mt-1.5">
+          <textarea
+            ref={taRef}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={`Temas, ideas, sub-pilares, marcos, conceptos que tocás en este pilar.\n\nUna línea por idea — la lista crece con vos.\n\nEjemplos:\n- frameworks que usás\n- preguntas recurrentes\n- mini-tesis que defendés`}
+            className="w-full bg-black/30 border border-white/[0.06] rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-700 focus:outline-none focus:border-violet-500/40 resize-none overflow-hidden leading-relaxed"
+            style={{ minHeight: '60px' }}
+          />
+        </div>
+      )}
     </div>
   )
 }
