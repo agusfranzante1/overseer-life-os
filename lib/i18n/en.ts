@@ -404,6 +404,7 @@ export const en: Record<string, any> = {
       compras: 'Shopping',
       gastos: 'Monthly Spend',
       dieta: 'Diet',
+      alimentos: 'Foods',
     },
     stages: 'Diet stages',
     shopping: 'Shopping list',

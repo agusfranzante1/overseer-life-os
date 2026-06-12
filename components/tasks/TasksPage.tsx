@@ -441,6 +441,17 @@ function sortTasks(
   // final, las viejas arriba. Usa createdAt ascendente (más viejas primero).
   const ageTiebreak = (a: Task, b: Task) => a.createdAt.localeCompare(b.createdAt)
 
+  // Dentro del mismo bucket de prioridad: tarea CON dueDate pesa más que
+  // tarea sin nada. Entre dos con fecha, la más próxima primero (hoy >
+  // mañana > la semana que viene). Esto evita el caso donde una tarea con
+  // "vence hoy" queda por debajo de dos tareas sin urgencia ni fecha.
+  const dueDateTiebreak = (a: Task, b: Task): number => {
+    if (!a.dueDate && !b.dueDate) return 0
+    if (!a.dueDate) return 1   // a sin fecha → abajo
+    if (!b.dueDate) return -1  // b sin fecha → abajo
+    return a.dueDate.localeCompare(b.dueDate)
+  }
+
   // Mode-specific comparator (sin la regla "completadas arriba" que se
   // aplica como override después).
   const byMode = (a: Task, b: Task): number => {
@@ -448,11 +459,15 @@ function sortTasks(
       case 'priority': {
         const pdiff = (PRIORITY_RANK[effectivePriority(a)] ?? 9) - (PRIORITY_RANK[effectivePriority(b)] ?? 9)
         if (pdiff !== 0) return pdiff
+        const dd = dueDateTiebreak(a, b)
+        if (dd !== 0) return dd
         return ageTiebreak(a, b)
       }
       case 'priorityAsc': {
         const pdiff = (PRIORITY_RANK[effectivePriority(b)] ?? 9) - (PRIORITY_RANK[effectivePriority(a)] ?? 9)
         if (pdiff !== 0) return pdiff
+        const dd = dueDateTiebreak(a, b)
+        if (dd !== 0) return dd
         return ageTiebreak(a, b)
       }
       case 'status': {

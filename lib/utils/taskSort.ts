@@ -53,15 +53,28 @@ export function sortSubtasks(
   // ascendiente refleja orden de inserción (oldest → newest).
   const ageTiebreak = (a: Subtask, b: Subtask) => a.order - b.order
 
+  // Dentro del mismo bucket de prioridad: con dueDate pesa más que sin.
+  // Espejo de la regla en sortTasks (TasksPage.tsx).
+  const dueDateTiebreak = (a: Subtask, b: Subtask): number => {
+    if (!a.dueDate && !b.dueDate) return 0
+    if (!a.dueDate) return 1
+    if (!b.dueDate) return -1
+    return a.dueDate.localeCompare(b.dueDate)
+  }
+
   const secondary = (a: Subtask, b: Subtask): number => {
     switch (mode) {
       case 'priority': {
         const d = (PRIORITY_RANK[a.priority ?? 'low'] ?? 9) - (PRIORITY_RANK[b.priority ?? 'low'] ?? 9)
-        return d !== 0 ? d : ageTiebreak(a, b)
+        if (d !== 0) return d
+        const dd = dueDateTiebreak(a, b)
+        return dd !== 0 ? dd : ageTiebreak(a, b)
       }
       case 'priorityAsc': {
         const d = (PRIORITY_RANK[b.priority ?? 'low'] ?? 9) - (PRIORITY_RANK[a.priority ?? 'low'] ?? 9)
-        return d !== 0 ? d : ageTiebreak(a, b)
+        if (d !== 0) return d
+        const dd = dueDateTiebreak(a, b)
+        return dd !== 0 ? dd : ageTiebreak(a, b)
       }
       case 'status': {
         if (statusOrder) {

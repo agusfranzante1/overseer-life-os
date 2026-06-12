@@ -403,6 +403,7 @@ export const es: Translations = {
       compras: 'Compras',
       gastos: 'Gastos Mensuales',
       dieta: 'Dieta',
+      alimentos: 'Alimentos',
     },
     stages: 'Etapas dietarias',
     shopping: 'Lista de compras',

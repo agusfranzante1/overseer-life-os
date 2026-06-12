@@ -1,18 +1,22 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Utensils, ShoppingCart, Wallet, Plus, Trash2, ExternalLink, Settings,
-  StickyNote, ChevronDown, ChevronRight,
+  StickyNote, ChevronDown, ChevronRight, BookOpen, Link2, Link2Off, Search,
 } from 'lucide-react'
 import {
   useFoodStore, sumMealMacros, sumStageMacros, categoryTotal,
+  computeMacrosFromFood, parseLegacyQty,
   type Meal, type MealItem, type ShoppingCategory, type ShoppingItem,
-  type FixedCost, type Stage,
+  type FixedCost, type Stage, type FoodEntry, type FoodUnit,
 } from '@/lib/store/foodStore'
 import { useTranslation } from '@/hooks/useTranslation'
 
-type Tab = 'compras' | 'gastos' | 'dieta'
+type Tab = 'compras' | 'gastos' | 'dieta' | 'alimentos'
+
+const UNIT_LABEL: Record<FoodUnit, string> = { gr: 'gr', u: 'u', ml: 'ml' }
+const UNIT_REF_LABEL: Record<FoodUnit, string> = { gr: 'por 100 gr', u: 'por 1 u', ml: 'por 100 ml' }
 
 function fmtMoney(n: number, ars = true): string {
   if (!Number.isFinite(n)) return '—'
@@ -42,8 +46,12 @@ export function FoodPage() {
           <p className="text-sm text-zinc-500 mt-0.5">{t('food.subtitle')}</p>
         </div>
         <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
-          {(['compras','gastos','dieta'] as Tab[]).map((tabId) => {
-            const Icon = tabId === 'dieta' ? Utensils : tabId === 'compras' ? ShoppingCart : Wallet
+          {(['compras','gastos','dieta','alimentos'] as Tab[]).map((tabId) => {
+            const Icon =
+              tabId === 'dieta' ? Utensils :
+              tabId === 'compras' ? ShoppingCart :
+              tabId === 'alimentos' ? BookOpen :
+              Wallet
             return (
               <button key={tabId} onClick={() => setTab(tabId)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
@@ -59,6 +67,7 @@ export function FoodPage() {
       {tab === 'dieta' && <DietaTab />}
       {tab === 'compras' && <ComprasTab />}
       {tab === 'gastos' && <GastosTab />}
+      {tab === 'alimentos' && <AlimentosTab />}
     </motion.div>
   )
 }
@@ -305,6 +314,11 @@ interface MealBlockProps {
 }
 function MealBlock({ stage, meal, onUpdate, onDelete, onAddItem, onUpdateItem, onRemoveItem }: MealBlockProps) {
   const totals = sumMealMacros(meal)
+  const setItemQuantity = useFoodStore((s) => s.setItemQuantity)
+  const linkItemToFood = useFoodStore((s) => s.linkItemToFood)
+  const addItemFromFood = useFoodStore((s) => s.addItemFromFood)
+  const foods = useFoodStore((s) => s.foods)
+
   return (
     <>
       {/* Meal header */}
@@ -316,7 +330,7 @@ function MealBlock({ stage, meal, onUpdate, onDelete, onAddItem, onUpdateItem, o
             <input value={meal.timeLabel} onChange={(e) => onUpdate({ timeLabel: e.target.value })}
               placeholder="hora"
               className="bg-transparent text-[10px] font-mono text-zinc-500 focus:outline-none focus:bg-zinc-800 rounded px-1 py-0.5 w-24" />
-            <button onClick={onAddItem} title="Agregar alimento"
+            <button onClick={onAddItem} title="Agregar item libre"
               className="text-zinc-500 hover:text-emerald-400 transition-colors opacity-50 hover:opacity-100">
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -330,38 +344,23 @@ function MealBlock({ stage, meal, onUpdate, onDelete, onAddItem, onUpdateItem, o
 
       {/* Items */}
       {meal.items.map((it) => (
-        <tr key={it.id} className="group hover:bg-zinc-800/30 border-b border-zinc-900">
-          <td className="px-1 py-1">
-            <input value={it.qty} onChange={(e) => onUpdateItem(it.id, { qty: e.target.value })}
-              className="w-full bg-transparent text-xs text-zinc-400 focus:outline-none focus:bg-zinc-800 rounded px-1 py-0.5" />
-          </td>
-          <td className="px-1 py-1">
-            <input value={it.name} onChange={(e) => onUpdateItem(it.id, { name: e.target.value })}
-              className="w-full bg-transparent text-xs text-zinc-200 focus:outline-none focus:bg-zinc-800 rounded px-1 py-0.5" />
-          </td>
-          {(['calories','protein','carbs','fats'] as const).map((k) => (
-            <td key={k} className="px-1 py-1">
-              <input type="number" step="any" value={it[k]}
-                onChange={(e) => onUpdateItem(it.id, { [k]: parseFloat(e.target.value) || 0 })}
-                className="w-full bg-transparent text-xs text-zinc-300 tabular-nums text-right focus:outline-none focus:bg-zinc-800 rounded px-1 py-0.5" />
-            </td>
-          ))}
-          <td className="px-1 py-1 text-right">
-            <button onClick={() => onRemoveItem(it.id)}
-              className="text-zinc-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100">
-              <Trash2 className="w-3 h-3" />
-            </button>
-          </td>
-        </tr>
+        <MealItemRow key={it.id} item={it} foods={foods}
+          onUpdateItem={(p) => onUpdateItem(it.id, p)}
+          onRemove={() => onRemoveItem(it.id)}
+          onChangeQty={(v) => setItemQuantity(stage.id, meal.id, it.id, v)}
+          onLink={(fid) => linkItemToFood(stage.id, meal.id, it.id, fid)}
+        />
       ))}
 
-      {/* Add-item row — always visible */}
+      {/* Add-from-library row */}
       <tr className="border-b border-zinc-800/60 bg-zinc-950/30">
         <td colSpan={7} className="px-2 py-1.5">
-          <button onClick={onAddItem}
-            className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-semibold text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 border border-dashed border-zinc-800 hover:border-emerald-500/40 transition-all">
-            <Plus className="w-3 h-3" /> Agregar alimento a <span className="text-zinc-400 group-hover:text-emerald-300">{meal.name || 'esta comida'}</span>
-          </button>
+          <AddFromLibrary
+            foods={foods}
+            onPick={(foodId, qtyValue) => addItemFromFood(stage.id, meal.id, foodId, qtyValue)}
+            onAddFree={onAddItem}
+            mealName={meal.name}
+          />
         </td>
       </tr>
 
@@ -375,6 +374,224 @@ function MealBlock({ stage, meal, onUpdate, onDelete, onAddItem, onUpdateItem, o
         <td></td>
       </tr>
     </>
+  )
+}
+
+// ─── Meal Item Row ────────────────────────────────────────────────────────────
+
+interface MealItemRowProps {
+  item: MealItem
+  foods: FoodEntry[]
+  onUpdateItem: (p: Partial<MealItem>) => void
+  onRemove: () => void
+  onChangeQty: (qtyValue: number) => void
+  onLink: (foodId: string | null) => void
+}
+function MealItemRow({ item, foods, onUpdateItem, onRemove, onChangeQty, onLink }: MealItemRowProps) {
+  const linked = !!item.foodId
+  const linkedFood = linked ? foods.find((f) => f.id === item.foodId) : undefined
+
+  // Derivar qty efectiva: si tiene qtyValue lo uso, sino parseo el qty string legacy
+  const effective = useMemo(() => {
+    if (typeof item.qtyValue === 'number') {
+      return { value: item.qtyValue, unit: (item.qtyUnit ?? 'gr') as FoodUnit }
+    }
+    const parsed = parseLegacyQty(item.qty)
+    if (parsed) return { value: parsed.qtyValue, unit: parsed.qtyUnit }
+    return { value: 0, unit: 'gr' as FoodUnit }
+  }, [item.qty, item.qtyValue, item.qtyUnit])
+
+  return (
+    <tr className="group hover:bg-zinc-800/30 border-b border-zinc-900">
+      {/* Cantidad: número + unidad */}
+      <td className="px-1 py-1">
+        <div className="flex items-center gap-0.5">
+          <input
+            type="number" step="any" min={0}
+            value={effective.value || ''}
+            onChange={(e) => onChangeQty(parseFloat(e.target.value) || 0)}
+            className="w-12 bg-transparent text-xs text-zinc-300 tabular-nums text-right focus:outline-none focus:bg-zinc-800 rounded px-1 py-0.5"
+          />
+          <select
+            value={effective.unit}
+            disabled={linked}
+            onChange={(e) => {
+              const unit = e.target.value as FoodUnit
+              onUpdateItem({ qtyValue: effective.value, qtyUnit: unit, qty: `${effective.value}${unit}` })
+            }}
+            className="bg-transparent text-[10px] font-mono text-zinc-500 focus:outline-none focus:bg-zinc-800 rounded px-0.5 disabled:opacity-60"
+          >
+            <option value="gr" className="bg-zinc-900">gr</option>
+            <option value="u" className="bg-zinc-900">u</option>
+            <option value="ml" className="bg-zinc-900">ml</option>
+          </select>
+        </div>
+      </td>
+
+      {/* Nombre / link */}
+      <td className="px-1 py-1">
+        <div className="flex items-center gap-1">
+          {linked ? (
+            <button
+              onClick={() => onLink(null)}
+              title={`Linkeado a ${linkedFood?.name ?? 'alimento'} — clic para desvincular`}
+              className="text-emerald-400 hover:text-amber-400 transition-colors flex-shrink-0"
+            >
+              <Link2 className="w-3 h-3" />
+            </button>
+          ) : (
+            <Link2Off className="w-3 h-3 text-zinc-700 flex-shrink-0" />
+          )}
+          <input
+            value={item.name}
+            onChange={(e) => onUpdateItem({ name: e.target.value })}
+            disabled={linked}
+            className={`w-full bg-transparent text-xs focus:outline-none focus:bg-zinc-800 rounded px-1 py-0.5 ${
+              linked ? 'text-emerald-300' : 'text-zinc-200'
+            }`}
+          />
+        </div>
+      </td>
+
+      {/* Macros: editables solo si NO está linkeado */}
+      {(['calories','protein','carbs','fats'] as const).map((k) => (
+        <td key={k} className="px-1 py-1">
+          <input
+            type="number" step="any"
+            value={item[k]}
+            disabled={linked}
+            onChange={(e) => onUpdateItem({ [k]: parseFloat(e.target.value) || 0 })}
+            className={`w-full bg-transparent text-xs tabular-nums text-right focus:outline-none focus:bg-zinc-800 rounded px-1 py-0.5 ${
+              linked ? 'text-emerald-300/80' : 'text-zinc-300'
+            }`}
+          />
+        </td>
+      ))}
+
+      <td className="px-1 py-1 text-right">
+        <button onClick={onRemove}
+          className="text-zinc-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100">
+          <Trash2 className="w-3 h-3" />
+        </button>
+      </td>
+    </tr>
+  )
+}
+
+// ─── Add From Library ─────────────────────────────────────────────────────────
+
+interface AddFromLibraryProps {
+  foods: FoodEntry[]
+  onPick: (foodId: string, qtyValue: number) => void
+  onAddFree: () => void
+  mealName: string
+}
+function AddFromLibrary({ foods, onPick, onAddFree, mealName }: AddFromLibraryProps) {
+  const [query, setQuery] = useState('')
+  const [qty, setQty] = useState<number | ''>('')
+  const [showList, setShowList] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return foods.slice(0, 8)
+    return foods.filter((f) => f.name.toLowerCase().includes(q)).slice(0, 8)
+  }, [foods, query])
+
+  const exact = useMemo(
+    () => foods.find((f) => f.name.toLowerCase() === query.trim().toLowerCase()),
+    [foods, query]
+  )
+
+  const defaultQty = exact ? (exact.unit === 'u' ? 1 : 100) : 100
+  const effectiveQty = qty === '' ? defaultQty : qty
+
+  function commit(food?: FoodEntry) {
+    const f = food ?? exact
+    if (!f) return
+    onPick(f.id, effectiveQty)
+    setQuery('')
+    setQty('')
+    setShowList(false)
+    inputRef.current?.focus()
+  }
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {/* Search */}
+      <div className="relative flex-1 min-w-[180px]">
+        <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-600 pointer-events-none" />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setShowList(true) }}
+          onFocus={() => setShowList(true)}
+          onBlur={() => setTimeout(() => setShowList(false), 150)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commit() }
+            if (e.key === 'Escape') { setShowList(false) }
+          }}
+          placeholder={`Buscar alimento para ${mealName || 'esta comida'}…`}
+          className="w-full bg-zinc-900 border border-zinc-800 rounded-md pl-7 pr-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/60"
+        />
+
+        <AnimatePresence>
+          {showList && matches.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              className="absolute z-20 top-full mt-1 left-0 right-0 bg-zinc-900 border border-zinc-700 rounded-lg shadow-lg overflow-hidden max-h-60 overflow-y-auto"
+            >
+              {matches.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); commit(f) }}
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 text-xs hover:bg-emerald-500/10 hover:text-emerald-300 text-zinc-300"
+                >
+                  <span className="truncate">{f.name}</span>
+                  <span className="text-[10px] font-mono text-zinc-500 ml-2 flex-shrink-0">
+                    {f.calories}cal · {UNIT_REF_LABEL[f.unit]}
+                  </span>
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Qty */}
+      <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-md px-1.5 py-1">
+        <input
+          type="number" step="any" min={0}
+          value={qty}
+          onChange={(e) => setQty(e.target.value === '' ? '' : parseFloat(e.target.value))}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit() } }}
+          placeholder={defaultQty.toString()}
+          className="w-14 bg-transparent text-xs text-zinc-200 tabular-nums text-right focus:outline-none"
+        />
+        <span className="text-[10px] font-mono text-zinc-500">
+          {exact ? UNIT_LABEL[exact.unit] : 'gr'}
+        </span>
+      </div>
+
+      <button
+        onClick={() => commit()}
+        disabled={!exact}
+        className="text-xs px-2.5 py-1.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 text-emerald-400 font-semibold flex items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed"
+      >
+        <Plus className="w-3 h-3" /> Agregar
+      </button>
+
+      <button
+        onClick={onAddFree}
+        title="Agregar item libre (sin biblioteca)"
+        className="text-xs px-2 py-1.5 rounded-md text-zinc-500 hover:text-zinc-200 border border-dashed border-zinc-800 hover:border-zinc-600"
+      >
+        item libre
+      </button>
+    </div>
   )
 }
 
@@ -639,5 +856,153 @@ function FixedCostGroup({ title, total, items, onAdd, onUpdate, onRemove }: Fixe
         </tbody>
       </table>
     </div>
+  )
+}
+
+// ─── ALIMENTOS TAB ────────────────────────────────────────────────────────────
+
+function AlimentosTab() {
+  const foods = useFoodStore((s) => s.foods)
+  const addFood = useFoodStore((s) => s.addFood)
+  const updateFood = useFoodStore((s) => s.updateFood)
+  const removeFood = useFoodStore((s) => s.removeFood)
+
+  const [query, setQuery] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState<string>('')
+
+  const categories = useMemo(() => {
+    const set = new Set<string>()
+    foods.forEach((f) => { if (f.category) set.add(f.category) })
+    return Array.from(set).sort()
+  }, [foods])
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return foods.filter((f) => {
+      if (categoryFilter && f.category !== categoryFilter) return false
+      if (q && !f.name.toLowerCase().includes(q)) return false
+      return true
+    })
+  }, [foods, query, categoryFilter])
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Biblioteca de alimentos</p>
+            <p className="text-lg font-bold text-white">{foods.length} <span className="text-xs font-normal text-zinc-500">alimentos cargados</span></p>
+            <p className="text-[11px] text-zinc-500 mt-0.5">Macros por 100 gr/ml o por 1 unidad. Se usan para autocompletar la dieta.</p>
+          </div>
+          <button
+            onClick={() => addFood({ name: 'Nuevo alimento' })}
+            className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 text-emerald-400 font-semibold flex items-center gap-1"
+          >
+            <Plus className="w-3 h-3" /> Alimento
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 mt-3 flex-wrap">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-600 pointer-events-none" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar…"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-md pl-7 pr-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/60"
+            />
+          </div>
+          {categories.length > 0 && (
+            <div className="flex items-center gap-1 flex-wrap">
+              <button
+                onClick={() => setCategoryFilter('')}
+                className={`text-[10px] uppercase tracking-wider px-2 py-1 rounded-md ${
+                  !categoryFilter ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'text-zinc-500 hover:text-zinc-200 border border-zinc-800'
+                }`}
+              >Todos</button>
+              {categories.map((c) => (
+                <button key={c}
+                  onClick={() => setCategoryFilter(c === categoryFilter ? '' : c)}
+                  className={`text-[10px] uppercase tracking-wider px-2 py-1 rounded-md ${
+                    categoryFilter === c ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'text-zinc-500 hover:text-zinc-200 border border-zinc-800'
+                  }`}
+                >{c}</button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-zinc-950/60">
+              <tr className="text-left text-[10px] uppercase text-zinc-500 font-mono tracking-wider">
+                <th className="px-3 py-2 font-semibold">Alimento</th>
+                <th className="px-2 py-2 font-semibold w-24">Categoría</th>
+                <th className="px-2 py-2 font-semibold w-28">Referencia</th>
+                <th className="px-2 py-2 font-semibold text-right w-16">Cal</th>
+                <th className="px-2 py-2 font-semibold text-right w-16">Prot</th>
+                <th className="px-2 py-2 font-semibold text-right w-16">Carb</th>
+                <th className="px-2 py-2 font-semibold text-right w-16">Grasa</th>
+                <th className="px-1 py-2 w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 && (
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-xs text-zinc-600">
+                  {query || categoryFilter ? 'Sin resultados.' : 'No hay alimentos. Agregá uno.'}
+                </td></tr>
+              )}
+              {filtered.map((f) => (
+                <FoodRow key={f.id} food={f}
+                  onUpdate={(p) => updateFood(f.id, p)}
+                  onRemove={() => {
+                    if (confirm(`¿Eliminar "${f.name}" de la biblioteca?`)) removeFood(f.id)
+                  }}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FoodRow({ food, onUpdate, onRemove }: { food: FoodEntry; onUpdate: (p: Partial<FoodEntry>) => void; onRemove: () => void }) {
+  return (
+    <tr className="border-b border-zinc-900 hover:bg-zinc-800/20 group">
+      <td className="px-3 py-1">
+        <input value={food.name} onChange={(e) => onUpdate({ name: e.target.value })}
+          className="w-full bg-transparent text-xs text-zinc-200 focus:outline-none focus:bg-zinc-800 rounded px-1 py-0.5" />
+      </td>
+      <td className="px-2 py-1">
+        <input value={food.category ?? ''} onChange={(e) => onUpdate({ category: e.target.value || undefined })}
+          placeholder="—"
+          className="w-full bg-transparent text-[11px] text-zinc-400 focus:outline-none focus:bg-zinc-800 rounded px-1 py-0.5" />
+      </td>
+      <td className="px-2 py-1">
+        <select value={food.unit} onChange={(e) => onUpdate({ unit: e.target.value as FoodUnit })}
+          className="w-full bg-transparent text-[11px] font-mono text-zinc-400 focus:outline-none focus:bg-zinc-800 rounded px-1 py-0.5">
+          <option value="gr" className="bg-zinc-900">por 100 gr</option>
+          <option value="u"  className="bg-zinc-900">por 1 u</option>
+          <option value="ml" className="bg-zinc-900">por 100 ml</option>
+        </select>
+      </td>
+      {(['calories','protein','carbs','fats'] as const).map((k) => (
+        <td key={k} className="px-1 py-1">
+          <input type="number" step="any" value={food[k]}
+            onChange={(e) => onUpdate({ [k]: parseFloat(e.target.value) || 0 })}
+            className="w-full bg-transparent text-xs text-zinc-300 tabular-nums text-right focus:outline-none focus:bg-zinc-800 rounded px-1 py-0.5" />
+        </td>
+      ))}
+      <td className="px-1 py-1 text-right">
+        <button onClick={onRemove}
+          className="text-zinc-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100">
+          <Trash2 className="w-3 h-3" />
+        </button>
+      </td>
+    </tr>
   )
 }
