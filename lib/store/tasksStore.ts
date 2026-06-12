@@ -622,7 +622,7 @@ export const useTasksStore = create<TasksState>()(
         })
         // Después del nuke, re-buffereamos para llenar la semana fresca
         // con la nueva regla.
-        get().ensureRecurringBuffer(taskId, 14)
+        get().ensureRecurringBuffer(taskId, 14, 2)
       },
 
       updateTask: (id, patch) => {
@@ -1165,11 +1165,15 @@ export const useTasksStore = create<TasksState>()(
           }
           return { tasks, projects }
         })
-        // Post-set: el buffer arma el resto de la semana de cada spawned.
-        // ensureRecurringBuffer es idempotente y respeta el dueño semanal
-        // del head: si la serie es weekly + 1 día, no agrega nada más.
+        // Post-set: el buffer arma el resto de la semana actual + la
+        // próxima de cada spawned. ensureRecurringBuffer es idempotente y
+        // respeta el dueño semanal del head: si la serie es weekly + 1
+        // día, no agrega nada más fuera de los días marcados.
+        //
+        // weeksAhead=2 unifica el comportamiento con addTask/updateTask:
+        // cualquier recurrente activa siempre tiene 2 semanas precargadas.
         for (const newId of spawnedIds) {
-          get().ensureRecurringBuffer(newId, 14)
+          get().ensureRecurringBuffer(newId, 14, 2)
         }
         return spawned
       },

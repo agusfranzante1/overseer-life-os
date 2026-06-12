@@ -538,14 +538,19 @@ export function TasksPage() {
   // Backfill one-shot del buffer recurrente: las tareas recurrentes
   // creadas antes de esta versión solo tienen 1 instancia visible. Al
   // entrar a /tasks llamamos ensureRecurringBuffer para cada tarea
-  // recurrente activa, así la semana queda visible al toque. Idempotente:
-  // si ya tiene 6 instancias chained no hace nada. Corre 1 vez por mount.
+  // recurrente activa, así la semana actual + la próxima quedan
+  // visibles al toque. Idempotente: si ya están las fechas no duplica.
+  // Corre 1 vez por mount.
+  //
+  // weeksAhead=2 — match con addTask/updateTask para que toda recurrente
+  // activa siempre tenga "esta semana + próxima" precargadas, sin importar
+  // por qué camino se renovó la cadena.
   useEffect(() => {
     const heads = Object.values(tasksStoreApi.tasks).filter(
       (t) => t.recurrence && t.dueDate && !t.archivedAt && !t.completedAt,
     )
     for (const t of heads) {
-      tasksStoreApi.ensureRecurringBuffer(t.id, 6)
+      tasksStoreApi.ensureRecurringBuffer(t.id, 14, 2)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

@@ -3,7 +3,7 @@ import { useState, useMemo, useRef, useLayoutEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Sparkles, Target, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown,
-  Plus, Trash2, X, BookOpen, Layers, Zap, Pencil,
+  Plus, Trash2, X, BookOpen, Layers, Zap, Pencil, Send, Check,
 } from 'lucide-react'
 import { useContentStore, buildAIContentPrompt } from '@/lib/store/contentStore'
 import {
@@ -529,6 +529,7 @@ function PillarsSection() {
                   este pilar. Notion-style. */}
               <KnowledgeMapField
                 color={p.color}
+                pillarId={p.id}
                 value={p.knowledgeMap ?? ''}
                 onChange={(v) => updatePillar(p.id, { knowledgeMap: v })}
               />
@@ -1379,10 +1380,21 @@ function FormField({ label, hint, children }: { label: string; hint?: string; ch
  *  nada, mostrar el área en blanco ensucia. Toggle minimalista que se
  *  expande cuando hay contenido o cuando el user lo abre.  */
 function KnowledgeMapField({
-  color, value, onChange,
-}: { color: string; value: string; onChange: (v: string) => void }) {
+  color, pillarId, value, onChange,
+}: { color: string; pillarId: string; value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(() => value.trim().length > 0)
   const taRef = useRef<HTMLTextAreaElement>(null)
+
+  // Para mandar ideas al pipeline: necesitamos el profile activo (los
+  // items se asocian al perfil + pilar) y la lista actual de items para
+  // poder marcar como "ya enviadas" las líneas que ya tienen una pieza
+  // creada con el mismo título dentro del pilar (cualquier stage, así
+  // si la moviste a 'script' o 'editing' sigue contando como mandada).
+  const currentProfileId = useContentStore((s) => s.currentProfileId)
+  const items = useContentStore((s) => s.items)
+  const addItem = useContentStore((s) => s.addItem)
+  const profile = useContentStore((s) => s.profiles.find((p) => p.id === s.currentProfileId))
+  const defaultNetwork: ContentNetwork = profile?.networks?.[0] ?? 'instagram'
 
   // Auto-grow: cada vez que cambia el valor, ajustamos altura al
   // scrollHeight para que el textarea crezca con el contenido.
@@ -1392,24 +1404,92 @@ function KnowledgeMapField({
     taRef.current.style.height = `${taRef.current.scrollHeight}px`
   }, [value, open])
 
-  const lineCount = value.split('\n').filter((l) => l.trim()).length
+  // Líneas no vacías, normalizadas: quita bullets sueltos ("- ", "• ", "* ")
+  // del principio para que la idea quede limpia en el pipeline.
+  const lines = useMemo(() => {
+    return value
+      .split('\n')
+      .map((l) => l.replace(/^\s*(?:[-*•]\s+)?/, '').trim())
+      .filter((l) => l.length > 0)
+  }, [value])
+
+  // Set de títulos ya enviados al pipeline (matched por profile + pilar +
+  // título normalizado en minúsculas). Cualquier stage cuenta.
+  const sentTitles = useMemo(() => {
+    const set = new Set<string>()
+    for (const it of items) {
+      if (it.profileId !== currentProfileId) continue
+      if (it.pillarId !== pillarId) continue
+      if (!it.title) continue
+      set.add(it.title.trim().toLowerCase())
+    }
+    return set
+  }, [items, currentProfileId, pillarId])
+
+  const todayYmd = useMemo(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }, [])
+
+  function sendLine(line: string) {
+    if (sentTitles.has(line.toLowerCase())) return
+    addItem({
+      profileId: currentProfileId,
+      network: defaultNetwork,
+      pillarId,
+      scheduledYmd: todayYmd,
+      format: 'reel',
+      angle: 'Educativo',
+      momentType: 'talk',
+      hook: '',
+      title: line,
+      script: '',
+      hashtags: '',
+      stage: 'idea',
+    })
+  }
+
+  function sendAllPending() {
+    for (const l of lines) {
+      if (!sentTitles.has(l.toLowerCase())) sendLine(l)
+    }
+  }
+
+  const pendingCount = lines.filter((l) => !sentTitles.has(l.toLowerCase())).length
 
   return (
     <div className="mt-2 border-t border-white/[0.05] pt-2">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider hover:opacity-80 transition-opacity"
-        style={{ color }}
-      >
-        {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-        Mapa de conocimiento
-        {!open && lineCount > 0 && (
-          <span className="text-zinc-600 normal-case font-sans tracking-normal">· {lineCount} líneas</span>
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider hover:opacity-80 transition-opacity"
+          style={{ color }}
+        >
+          {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+          Mapa de conocimiento
+          {!open && lines.length > 0 && (
+            <span className="text-zinc-600 normal-case font-sans tracking-normal">
+              · {lines.length} {lines.length === 1 ? 'idea' : 'ideas'}
+              {pendingCount > 0 && (
+                <span className="text-violet-400/80"> · {pendingCount} sin enviar</span>
+              )}
+            </span>
+          )}
+        </button>
+        {open && pendingCount > 0 && (
+          <button
+            type="button"
+            onClick={sendAllPending}
+            title={`Mandar las ${pendingCount} ideas pendientes al Pipeline`}
+            className="flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded text-violet-300 hover:text-white hover:bg-violet-500/20 border border-violet-500/30 transition-colors"
+          >
+            <Send className="w-2.5 h-2.5" /> Mandar {pendingCount}
+          </button>
         )}
-      </button>
+      </div>
       {open && (
-        <div className="mt-1.5">
+        <div className="mt-1.5 space-y-2">
           <textarea
             ref={taRef}
             value={value}
@@ -1418,6 +1498,44 @@ function KnowledgeMapField({
             className="w-full bg-black/30 border border-white/[0.06] rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-700 focus:outline-none focus:border-violet-500/40 resize-none overflow-hidden leading-relaxed"
             style={{ minHeight: '60px' }}
           />
+
+          {lines.length > 0 && (
+            <div className="space-y-0.5">
+              <p className="text-[9px] font-mono uppercase tracking-wider text-zinc-600 px-1">
+                Mandar al Pipeline
+              </p>
+              {lines.map((line, idx) => {
+                const sent = sentTitles.has(line.toLowerCase())
+                return (
+                  <div
+                    key={`${idx}-${line}`}
+                    className="group flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-white/[0.03] transition-colors"
+                  >
+                    <span className={`flex-1 min-w-0 truncate text-xs ${sent ? 'text-zinc-600 line-through' : 'text-zinc-400'}`}>
+                      {line}
+                    </span>
+                    {sent ? (
+                      <span
+                        title="Ya está en el pipeline"
+                        className="flex-shrink-0 flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider text-emerald-500/60"
+                      >
+                        <Check className="w-2.5 h-2.5" /> en pipeline
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => sendLine(line)}
+                        title="Mandar al Pipeline como idea"
+                        className="flex-shrink-0 flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded text-zinc-500 hover:text-violet-200 hover:bg-violet-500/15 opacity-0 group-hover:opacity-100 transition-all"
+                      >
+                        <Send className="w-2.5 h-2.5" /> Pipeline
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
