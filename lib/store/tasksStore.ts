@@ -86,8 +86,12 @@ interface TasksState {
   /** Llena el buffer de instancias recurrentes para la TASK ID dada
    *  hasta tener `lookaheadCount` instancias chained. Idempotente —
    *  si la cadena ya está completa, no hace nada. Se llama al crear
-   *  una recurrente Y al agregar recurrence a una tarea existente. */
-  ensureRecurringBuffer: (taskId: string, lookaheadCount?: number) => void
+   *  una recurrente Y al agregar recurrence a una tarea existente.
+   *  `weeksAhead` controla hasta dónde se llena: 1 = semana del head
+   *  (default); 2 = semana del head + la siguiente. addTask usa 2 para
+   *  que el user vea las dos semanas de una sin esperar al trigger
+   *  nocturno. */
+  ensureRecurringBuffer: (taskId: string, lookaheadCount?: number, weeksAhead?: number) => void
   /** Migración one-shot: backfill el campo `recurringHeadId` para datos
    *  pre-existentes (cuando el modelo de "madre persistente" no existía).
    *  Para cada serie matched por projectId + título normalizado,
@@ -97,6 +101,17 @@ interface TasksState {
    *  motherId`. Idempotente: si todas las tasks ya tienen el field,
    *  no toca nada. */
   migrateRecurringHeads: () => void
+  /** Une dos series recurrentes en una sola. Reasigna todas las tasks
+   *  cuyo `recurringHeadId === sourceHeadId` (incluyendo la madre source)
+   *  para que apunten a `targetHeadId`. La source mother queda como una
+   *  hija más de la target — pierde su rol de cabeza.
+   *
+   *  Útil para arreglar series partidas por renames legacy (antes de que
+   *  existiera el modelo de madre persistente) o por bugs históricos.
+   *  No toca títulos/dueTime de ninguna instancia — solo reasigna el
+   *  parentesco. Si después el user quiere unificar también el título,
+   *  edita la madre target y la propagación se ocupa. */
+  mergeRecurringSeries: (sourceHeadId: string, targetHeadId: string) => number
   /** Borra todas las instancias futuras NO completadas de la cadena
    *  recurrente del head dado y re-arma con `ensureRecurringBuffer`.
    *  Lo usamos al CAMBIAR la regla de recurrencia para evitar tasks
@@ -390,12 +405,14 @@ export const useTasksStore = create<TasksState>()(
           },
         }))
         // Buffer recurrente: si la task viene con recurrence + dueDate,
-        // disparamos el helper que spawnea las próximas 6 instancias.
-        // Si NO viene con recurrence al crear (el caso común: el user
-        // agrega recurrence después desde TaskDetail), `updateTask`
-        // dispara el buffer cuando detecta la patch.
+        // disparamos el helper que spawnea las instancias.
+        // `weeksAhead = 2` → llena la semana del head + la siguiente,
+        // alineado con la expectativa "ver dos semanas al toque" sin
+        // esperar al trigger del viernes-noche. Sin esto, crear una
+        // recurrente un martes generaba solo esta semana y la próxima
+        // recién aparecía cuando AppShell corría su efecto.
         if (task.recurrence && task.dueDate) {
-          get().ensureRecurringBuffer(id, 14)
+          get().ensureRecurringBuffer(id, 14, 2)
         }
 
         // GCal sync fire-and-forget — no bloqueamos la respuesta del store.
@@ -425,7 +442,7 @@ export const useTasksStore = create<TasksState>()(
        *  como BACKFILL al montar TasksPage. Sin esto el user agregaba
        *  recurrence a una tarea ya creada y no veía nada de la semana
        *  hasta completarla. */
-      ensureRecurringBuffer: (taskId, lookaheadCount = 14) => {
+      ensureRecurringBuffer: (taskId, lookaheadCount = 14, weeksAhead = 1) => {
         const nowIso = new Date().toISOString()
         set((s) => {
           const head = s.tasks[taskId]
@@ -454,7 +471,10 @@ export const useTasksStore = create<TasksState>()(
           const dayOfWeek = headDate.getDay()                  // 0..6 (Dom=0)
           const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1
           const weekStart = new Date(headDate); weekStart.setDate(headDate.getDate() - daysToMonday)
-          const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6)
+          // weekEnd cubre `weeksAhead` semanas — 1 = solo la semana del
+          // head (default), 2 = head + siguiente. Llamamos con 2 desde
+          // addTask para que el user vea ambas semanas al crear.
+          const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + (7 * Math.max(1, weeksAhead)) - 1)
           const fmtYmd = (d: Date) =>
             `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
           const weekEndYmd = fmtYmd(weekEnd)
@@ -716,7 +736,12 @@ export const useTasksStore = create<TasksState>()(
         // ya tenía instancias con la regla anterior.
         if (nextTask && (nextTask as Task & { __triggerBuffer?: boolean }).__triggerBuffer) {
           delete (nextTask as Task & { __triggerBuffer?: boolean }).__triggerBuffer
+          // rebuildRecurringChain nukea futuras y re-buffera. Lo hace
+          // con weeksAhead=1 internamente; para que el user vea 2
+          // semanas al agregar recurrencia desde TaskDetail, hacemos un
+          // segundo pass con weeksAhead=2 después. Idempotente.
           get().rebuildRecurringChain(id)
+          get().ensureRecurringBuffer(id, 14, 2)
         }
 
         // Sync fire-and-forget — el patch que devuelve syncTaskToGcal
@@ -1624,6 +1649,26 @@ export const useTasksStore = create<TasksState>()(
             },
           }
         }),
+
+      mergeRecurringSeries: (sourceHeadId, targetHeadId) => {
+        if (sourceHeadId === targetHeadId) return 0
+        let reassigned = 0
+        set((s) => {
+          const target = s.tasks[targetHeadId]
+          if (!target) return s
+          const tasks = { ...s.tasks }
+          for (const t of Object.values(s.tasks)) {
+            // Reasignamos tanto las hijas como la propia madre source.
+            // La identifico por recurringHeadId === sourceHeadId (incluye
+            // self-reference, por eso barre la madre también).
+            if (t.recurringHeadId !== sourceHeadId) continue
+            tasks[t.id] = { ...t, recurringHeadId: targetHeadId, updatedAt: new Date().toISOString() }
+            reassigned++
+          }
+          return { tasks }
+        })
+        return reassigned
+      },
 
       migrateRecurringHeads: () =>
         set((s) => {

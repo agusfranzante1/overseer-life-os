@@ -1513,18 +1513,24 @@ function RecurringView({
   const rebuildRecurringChain = useTasksStore((s) => s.rebuildRecurringChain)
   const deleteTask = useTasksStore((s) => s.deleteTask)
   const deleteSubtask = useTasksStore((s) => s.deleteSubtask)
+  const mergeRecurringSeries = useTasksStore((s) => s.mergeRecurringSeries)
+
+  // Picker para "unificar serie": guarda el headId source y el user elige
+  // la target en un mini-modal. La unificación reasigna recurringHeadId.
+  const [mergeSource, setMergeSource] = useState<null | { headId: string; title: string }>(null)
 
   const series: SeriesEntry[] = useMemo(() => {
-    // ── 1) Series de TAREAS top-level. Group por recurringHeadId
-    //    (modelo nuevo). Datos pre-migración: fallback a projectId +
-    //    título normalizado. La madre es la task cuyo id === recurringHeadId,
-    //    o sino la instancia con dueDate más vieja del grupo.
+    // ── 1) Series de TAREAS top-level.
+    //    Permisivo a propósito: incluimos archivadas también — una madre
+    //    archivada antes de que el modelo de "madre persistente" existiera
+    //    (o archivada a mano por el user) sigue siendo el ancla de su
+    //    serie. La vista la muestra con un badge "ARCHIVADA" para que el
+    //    user sepa pero pueda actuar sobre la serie igual.
     const tasksById = new Map<string, Task>()
     for (const t of tasks) tasksById.set(t.id, t)
     const taskMap = new Map<string, Task[]>()
     for (const t of tasks) {
       if (!t.recurrence) continue
-      if (t.archivedAt) continue
       const key = t.recurringHeadId
         ? `head::${t.recurringHeadId}`
         : `legacy::${t.projectId}::${normalizeTitle(t.title)}`
@@ -1533,8 +1539,8 @@ function RecurringView({
     }
     const taskSeries: SeriesEntry[] = Array.from(taskMap.entries()).map(([key, items]) => {
       // La MADRE explícita (recurringHeadId === id). Si no está en el
-      // grupo (puede haber sido archivada manualmente o sin migrar), la
-      // madre efectiva es la instancia con dueDate más vieja.
+      // grupo (puede haber sido archivada o sin migrar), la madre efectiva
+      // es la instancia con dueDate más vieja.
       const sorted = [...items].sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
       const explicitMotherId = key.startsWith('head::') ? key.slice('head::'.length) : null
       const explicitMother = explicitMotherId
@@ -1547,12 +1553,13 @@ function RecurringView({
 
     // ── 2) Series de SUBTASKS. Las hermanas viven dentro de la misma
     //    task madre — key: parentTaskId + título normalizado.
+    //    Permisivo: incluimos subtasks recurrentes incluso si su task
+    //    padre o ellas mismas están archivadas. Una subtask recurrente
+    //    cuyo padre quedó archivado igual querés poder gestionarla.
     const subMap = new Map<string, { parent: Task; subs: import('@/types').Subtask[] }>()
     for (const t of tasks) {
-      if (t.archivedAt) continue
       for (const sub of t.subtasks ?? []) {
         if (!sub.recurrence) continue
-        if (sub.archivedAt) continue
         const key = `subtask::${t.id}::${normalizeTitle(sub.title)}`
         if (!subMap.has(key)) subMap.set(key, { parent: t, subs: [] })
         subMap.get(key)!.subs.push(sub)
@@ -1695,6 +1702,11 @@ function RecurringView({
                       <Repeat className="w-2.5 h-2.5 inline-block mr-1 -mt-0.5" />
                       {recDesc}
                     </span>
+                    {head.archivedAt && (
+                      <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-300" title="La madre está archivada — la serie sigue persistiendo acá. Borrá la serie con 'Borrar todo' para limpiarla.">
+                        archivada
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 text-[11px] text-zinc-500 flex-wrap">
                     <span style={{ color: proj?.color ?? '#6366f1' }}>{proj?.name ?? 'Sin proyecto'}</span>
@@ -1722,9 +1734,27 @@ function RecurringView({
                         <span className="text-amber-400/70">hasta {head.recurrence.until}</span>
                       </>
                     )}
+                    {/* ID corto del head — necesario para diferenciar
+                        cuando dos series tienen títulos casi iguales. */}
+                    <span className="text-zinc-700">·</span>
+                    <span className="font-mono text-zinc-600" title={`Head ID: ${head.id}`}>
+                      #{head.id.slice(0, 6)}
+                    </span>
                   </div>
                 </button>
                 <div className="flex flex-col gap-1 shrink-0">
+                  {/* "Unificar" solo aplica a series de TAREAS top-level
+                      (las de subtask viven dentro de una madre task,
+                      el merge entre ellas requiere otro modelo). */}
+                  {entry.kind === 'task' && (
+                    <button
+                      onClick={() => setMergeSource({ headId: entry.head.id, title: entry.head.title })}
+                      title="Unir esta serie con otra (útil cuando una serie se partió en dos por un rename)"
+                      className="text-[10px] font-semibold px-2 py-1 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/20 transition-colors"
+                    >
+                      Unificar
+                    </button>
+                  )}
                   <button
                     onClick={() => handleStopRecurrence(entry)}
                     title="Borrar la recurrencia (mantiene el HEAD, elimina las futuras instancias)"
@@ -1744,6 +1774,74 @@ function RecurringView({
             )
           })}
         </div>
+      )}
+
+      {/* Picker para unificar series — el user eligió cuál source y
+          tiene que elegir la target. Reasignamos todos los recurringHeadId
+          de la source para que apunten a la target. La source mother
+          pasa a ser una hija más. Después de unificar, si el user quiere
+          el mismo título en todas, edita la madre target. */}
+      {mergeSource && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          onClick={() => setMergeSource(null)}
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+        >
+          <motion.div
+            initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-zinc-900/95 border border-white/[0.10] rounded-2xl shadow-2xl p-5"
+          >
+            <h3 className="text-sm font-bold text-white mb-1">
+              Unificar &quot;{mergeSource.title}&quot; con otra serie
+            </h3>
+            <p className="text-xs text-zinc-500 mb-4">
+              Las tareas de esta serie van a pasar a depender de la madre que elijas. Sirve para arreglar series partidas por renames legacy.
+            </p>
+            <div className="space-y-1.5 max-h-72 overflow-y-auto">
+              {series
+                .filter((e) => e.kind === 'task' && e.head.id !== mergeSource.headId)
+                .map((e) => {
+                  if (e.kind !== 'task') return null
+                  const proj = projects[e.head.projectId]
+                  return (
+                    <button
+                      key={e.key}
+                      onClick={() => {
+                        const n = mergeRecurringSeries(mergeSource.headId, e.head.id)
+                        setMergeSource(null)
+                        if (n > 0) {
+                          // Feedback minimal — el row del view se re-renderea
+                          // solo porque el store cambió.
+                          console.log(`[recurrentes] ${n} task(s) reasignadas a ${e.head.title}`)
+                        }
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.08] hover:border-indigo-500/40 hover:bg-indigo-500/10 transition-colors text-left"
+                      style={{ borderLeft: `3px solid ${proj?.color ?? '#6366f1'}` }}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-zinc-100 truncate">{e.head.title}</p>
+                        <p className="text-[10px] text-zinc-500">
+                          {proj?.name ?? 'Sin proyecto'} · {1 + e.future.length} instancia{e.future.length !== 0 ? 's' : ''} · #{e.head.id.slice(0, 6)}
+                        </p>
+                      </div>
+                    </button>
+                  )
+                })}
+              {series.filter((e) => e.kind === 'task' && e.head.id !== mergeSource.headId).length === 0 && (
+                <p className="text-xs text-zinc-500 text-center py-4">
+                  No hay otras series para unificar.
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => setMergeSource(null)}
+              className="w-full mt-3 px-3 py-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              Cancelar
+            </button>
+          </motion.div>
+        </motion.div>
       )}
     </motion.div>
   )
