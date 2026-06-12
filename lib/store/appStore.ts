@@ -67,6 +67,15 @@ export interface AppState {
   timezone: string
   /** Toggle for auto-deleting tasks the day after they're completed. */
   autoPurgeCompletedTasks: boolean
+  /** Día y hora local en que se materializan las recurrentes de la
+   *  PRÓXIMA semana, para que estén visibles al hacer el SPI del sábado.
+   *  Por default: viernes 22:00. Cuando pasa este momento (o si ya es
+   *  sábado/domingo), `ensureRecurringSpawns` usa el lunes siguiente
+   *  como "fecha efectiva" y dispara el spawn anticipado.
+   *  - hour: 0..23
+   *  - dayOfWeek: 0=Dom, 1=Lun ... 5=Vie, 6=Sáb. Default 5 (viernes). */
+  recurringSpawnAdvanceHour: number
+  recurringSpawnAdvanceDayOfWeek: number
 
   /** Per-channel notification preferences. Each value is a boolean; if
    *  `undefined` we treat it as enabled (opt-out model — sane defaults).
@@ -125,6 +134,7 @@ export interface AppState {
   updateDayType: (id: string, patch: Partial<Omit<DayTypeConfig, 'id'>>) => void
   setTimezone: (tz: string) => void
   setAutoPurgeCompletedTasks: (v: boolean) => void
+  setRecurringSpawnAdvance: (dayOfWeek: number, hour: number) => void
   setActiveSection: (s: AppState['activeSection']) => void
   updateMetric: <K extends keyof MetricEntry>(key: K, value: MetricEntry[K]) => void
   setChatOpen: (v: boolean) => void
@@ -159,6 +169,8 @@ export const useAppStore = create<AppState>()(
       dayTypes: DEFAULT_DAY_TYPES,
       timezone: detectTimezone(),
       autoPurgeCompletedTasks: true,
+      recurringSpawnAdvanceHour: 22,
+      recurringSpawnAdvanceDayOfWeek: 5,
       notificationPrefs: {
         spiNewSession: true,
         taskDueSoon: true,
@@ -221,6 +233,11 @@ export const useAppStore = create<AppState>()(
         debouncedSyncSettings()
       },
       setAutoPurgeCompletedTasks: (v) => set({ autoPurgeCompletedTasks: v }),
+      setRecurringSpawnAdvance: (dayOfWeek, hour) =>
+        set({
+          recurringSpawnAdvanceDayOfWeek: ((dayOfWeek % 7) + 7) % 7,
+          recurringSpawnAdvanceHour: Math.max(0, Math.min(23, Math.floor(hour))),
+        }),
       setGcalTasksSync: (patch) => set((s) => ({
         gcalTasksSync: { ...s.gcalTasksSync, ...patch },
       })),

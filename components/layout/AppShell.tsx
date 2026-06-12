@@ -12,15 +12,83 @@ import { ChatBox } from '@/components/chat/ChatBox'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useSupabaseSync } from '@/lib/supabase/sync'
 import { initMultitabSync } from '@/lib/utils/initMultitabSync'
-import { todayKeyInTz } from '@/lib/utils/dateInTz'
+import { todayKeyInTz, dateKeyInTz } from '@/lib/utils/dateInTz'
 
 const AUTH_PATHS = ['/login', '/signup']
+
+/** Calcula la fecha "efectiva" para el spawn anticipado de recurrentes.
+ *
+ *  Si NO pasó el cutoff (default vie 22:00) y todavía no es fin de semana:
+ *  devuelve la fecha de hoy → comportamiento histórico.
+ *
+ *  Si YA pasó el cutoff (o ya es sábado/domingo): devuelve la fecha del
+ *  lunes SIGUIENTE → el `ensureRecurringSpawns` ve "tail.dueDate < lunes"
+ *  para series cuyo tail terminó esta semana, y dispara el spawn de la
+ *  próxima semana. La buffer fill después arma el resto de esa semana.
+ *
+ *  Usa la timezone del user para todas las comparaciones para evitar
+ *  rollover prematuro/tardío en regiones con offset alto. */
+function computeEffectiveSpawnKey(
+  now: Date,
+  timezone: string,
+  advanceDow: number,
+  advanceHour: number,
+): string {
+  // Day-of-week en la TZ del user. Intl no expone "weekday" como number
+  // directo — derivamos del Date pero ajustado a la TZ. Truco simple:
+  // formateamos a YYYY-MM-DD en la TZ y reconstruimos un Date local con
+  // esos componentes; `getDay()` de ese Date es la dow local en la TZ.
+  const ymdInTz = dateKeyInTz(now, timezone)
+  const [y, m, d] = ymdInTz.split('-').map(Number)
+  const localToday = new Date(y, m - 1, d)
+  const dow = localToday.getDay() // 0..6, 0=Dom
+
+  // Hora local en la TZ del user — el Intl con 'numeric' devuelve el
+  // hour-of-day en esa TZ. Si falla, fallback al hour local del browser.
+  let hourInTz = now.getHours()
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone, hour12: false, hour: '2-digit',
+    }).format(now)
+    const parsed = parseInt(fmt, 10)
+    if (Number.isFinite(parsed)) hourInTz = parsed
+  } catch { /* fallback ya seteado */ }
+
+  // ¿Estamos en o después del cutoff?
+  //   - Mismo día (advanceDow): hour >= advanceHour
+  //   - Después del cutoff (sáb/dom si advanceDow=vie)
+  const isAtOrPastCutoff = (
+    (dow === advanceDow && hourInTz >= advanceHour)
+    || isDowAfter(dow, advanceDow)
+  )
+  if (!isAtOrPastCutoff) return ymdInTz
+
+  // Avanzamos hasta el próximo lunes (incluyendo "hoy si hoy es lunes",
+  // aunque ese caso no llega acá porque advanceDow=vie por default).
+  const daysToMonday = ((1 - dow) + 7) % 7 || 7
+  const nextMon = new Date(localToday)
+  nextMon.setDate(localToday.getDate() + daysToMonday)
+  const yy = nextMon.getFullYear()
+  const mm = String(nextMon.getMonth() + 1).padStart(2, '0')
+  const dd = String(nextMon.getDate()).padStart(2, '0')
+  return `${yy}-${mm}-${dd}`
+}
+
+/** ¿`d` cae DESPUÉS de `anchor` en la semana (Lun→Dom)? Tratamos Lun como
+ *  el inicio. Usado para detectar "ya pasamos el viernes-cutoff". */
+function isDowAfter(d: number, anchor: number): boolean {
+  // Normalizar a 1..7 con Lun=1, Dom=7
+  const norm = (x: number) => (x === 0 ? 7 : x)
+  return norm(d) > norm(anchor)
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed)
   const timezone = useAppStore((s) => s.timezone)
   const autoPurgeCompletedTasks = useAppStore((s) => s.autoPurgeCompletedTasks)
+  const spawnAdvanceHour = useAppStore((s) => s.recurringSpawnAdvanceHour)
+  const spawnAdvanceDow = useAppStore((s) => s.recurringSpawnAdvanceDayOfWeek)
   const archiveCompletedBefore = useTasksStore((s) => s.archiveCompletedBefore)
   const ensureRecurringSpawns = useTasksStore((s) => s.ensureRecurringSpawns)
   const ensureWaitingStatusInAllProjects = useTasksStore((s) => s.ensureWaitingStatusInAllProjects)
@@ -63,11 +131,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const runPurge = () => {
       const todayKey = todayKeyInTz(timezone)
       archiveCompletedBefore(todayKey, timezone)
-      // Mismo trigger: aseguramos que las recurrentes OVERDUE tengan
-      // su próxima instancia creada. Idempotente vía recurrenceSpawnedNext.
-      // Si el user olvida marcar como hecha una tarea recurrente, igual
-      // la siguiente aparece en su nueva fecha — no se rompe la cadena.
-      ensureRecurringSpawns(todayKey)
+      // Spawn ANTICIPADO de recurrentes de la próxima semana:
+      // Si ya pasó el cutoff configurado (default viernes 22:00) — o el
+      // fin de semana ya empezó — usamos el LUNES SIGUIENTE como "fecha
+      // efectiva". Así el spawn de la serie ocurre antes y el sábado, al
+      // hacer SPI, las tareas de la próxima semana ya están materializadas
+      // y se pueden editar/reorganizar antes del cierre. Si todavía no
+      // pasó el cutoff, usamos hoy (comportamiento histórico).
+      const effectiveTodayKey = computeEffectiveSpawnKey(
+        new Date(), timezone, spawnAdvanceDow, spawnAdvanceHour,
+      )
+      ensureRecurringSpawns(effectiveTodayKey)
     }
 
     // Trigger #1 — immediately on mount.
@@ -121,7 +195,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if (midnightTimer) clearTimeout(midnightTimer)
       clearInterval(safetyInterval)
     }
-  }, [timezone, autoPurgeCompletedTasks, archiveCompletedBefore, ensureRecurringSpawns])
+  }, [timezone, autoPurgeCompletedTasks, archiveCompletedBefore, ensureRecurringSpawns, spawnAdvanceDow, spawnAdvanceHour])
 
   // Process recurring wallet expenses (suscripciones / pagos recurrentes).
   // Same pattern as task auto-purge: run on mount + 10s delayed (post-Supabase

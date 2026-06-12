@@ -11,7 +11,7 @@ import { TaskDetail } from './TaskDetail'
 import { BreakdownModal } from './BreakdownModal'
 import {
   Plus, FolderOpen, X, ChevronDown, ChevronRight, ChevronLeft, ChevronUp, Filter, Wand2, LayoutList, Columns3,
-  Pencil, Trash2, MoreHorizontal, ArrowUpDown, RotateCcw, Check, Menu,
+  Pencil, Trash2, MoreHorizontal, ArrowUpDown, RotateCcw, Check, Menu, Repeat,
 } from 'lucide-react'
 import { PROJECT_COLORS } from '@/lib/utils/constants'
 import { effectivePriority } from '@/lib/utils/taskPriority'
@@ -511,6 +511,7 @@ function sortTasks(
 // Sentinel — when selectedProjectId equals this, we're in the archive view
 // instead of looking at a real project. Picked an unlikely-to-collide string.
 const ARCHIVE_SENTINEL = '__archive__'
+const RECURRING_SENTINEL = '__recurring__'
 
 export function TasksPage() {
   const tasksStoreApi = useTasksStore()
@@ -599,6 +600,7 @@ export function TasksPage() {
   // switches between projects (or to/from the All-Projects view).
   const filterStorageKey = (() => {
     if (selectedProjectId === ARCHIVE_SENTINEL) return null  // archive view: no filters
+    if (selectedProjectId === RECURRING_SENTINEL) return null  // recurring view: no filters
     return selectedProjectId
       ? `overseer-tasks-filters:project:${selectedProjectId}`
       : 'overseer-tasks-filters:all'
@@ -663,7 +665,8 @@ export function TasksPage() {
       return a.createdAt.localeCompare(b.createdAt)
     })
   const inArchiveView = selectedProjectId === ARCHIVE_SENTINEL
-  const activeProject = selectedProjectId && !inArchiveView ? projects[selectedProjectId] : null
+  const inRecurringView = selectedProjectId === RECURRING_SENTINEL
+  const activeProject = selectedProjectId && !inArchiveView && !inRecurringView ? projects[selectedProjectId] : null
 
   // Active (non-archived) tasks. Archive view uses its own filtered list.
   const getProjectTasks = (projectId: string) => {
@@ -825,9 +828,19 @@ export function TasksPage() {
                 </span>
               </button>
             ))}
-            {/* Archive (papelera) — collapsed icon. Wrapper carries the
-                divider so the button itself stays a clean centered square. */}
-            <div className="mt-2 pt-2 border-t border-white/[0.08] w-full flex justify-center">
+            {/* Recurrentes + Papelera — entries colapsadas debajo del
+                divisor. Recurrentes muestra todas las series con su head;
+                el user edita o borra recurrencia desde ahí. */}
+            <div className="mt-2 pt-2 border-t border-white/[0.08] w-full flex flex-col items-center gap-1.5">
+              <button
+                onClick={() => setSelectedProject(RECURRING_SENTINEL)}
+                title="Recurrentes"
+                className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+                  inRecurringView ? 'bg-zinc-800 text-indigo-400' : 'text-zinc-500 hover:text-indigo-400 hover:bg-white/[0.03] active:bg-zinc-800'
+                }`}
+              >
+                <Repeat className="w-3.5 h-3.5" />
+              </button>
               <button
                 onClick={() => setSelectedProject(ARCHIVE_SENTINEL)}
                 title={`Papelera (${archivedTasks.length})`}
@@ -969,8 +982,19 @@ export function TasksPage() {
           <p className="text-xs text-zinc-600 text-center py-4">{t('tasks.noProjects')}</p>
         )}
 
-        {/* Archive (papelera) — expanded entry, separated by a divider */}
-        <div className="mt-3 pt-3 border-t border-white/[0.08]">
+        {/* Recurrentes — entry para ver/editar todas las series. */}
+        <div className="mt-3 pt-3 border-t border-white/[0.08] space-y-1">
+          <button
+            onClick={() => handleSelectProject(RECURRING_SENTINEL)}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+              inRecurringView
+                ? 'bg-indigo-500/10 text-indigo-300'
+                : 'text-zinc-400 hover:bg-white/[0.05] active:bg-zinc-700 hover:text-indigo-300'
+            }`}
+          >
+            <Repeat className="w-3.5 h-3.5 shrink-0" />
+            <span className="flex-1 text-left truncate">Recurrentes</span>
+          </button>
           <button
             onClick={() => handleSelectProject(ARCHIVE_SENTINEL)}
             className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
@@ -988,9 +1012,16 @@ export function TasksPage() {
       </>
       )}
 
-      {/* Main: Tasks (or Archive view) */}
+      {/* Main: Tasks (or Archive / Recurring view) */}
       <div className="flex-1 overflow-y-auto p-6">
-        {inArchiveView ? (
+        {inRecurringView ? (
+          <RecurringView
+            tasks={Object.values(tasks)}
+            projects={projects}
+            onOpenTask={(t) => setSelectedTask(t)}
+            onClose={() => setSelectedProject(null)}
+          />
+        ) : inArchiveView ? (
           <ArchiveView
             archivedTasks={archivedTasks}
             projects={projects}
@@ -1416,6 +1447,200 @@ export function TasksPage() {
 }
 
 // ─── Kanban for a single project ─────────────────────────────────────────────
+
+// ─── Recurring View (todas las series recurrentes) ───────────────────────────
+
+/** Describe una regla de recurrencia en lenguaje humano corto. */
+function describeRecurrence(r: import('@/types').TaskRecurrence): string {
+  switch (r.kind) {
+    case 'daily':    return 'Todos los días'
+    case 'weekdays': return 'Lun → Vie'
+    case 'weekly': {
+      if (!r.daysOfWeek || r.daysOfWeek.length === 0) return 'Semanal'
+      const labels = ['D', 'L', 'M', 'X', 'J', 'V', 'S']
+      const sorted = [...r.daysOfWeek].sort((a, b) => a - b)
+      return `Semanal · ${sorted.map((d) => labels[d] ?? '?').join(' ')}`
+    }
+    case 'monthly':  return 'Mensual'
+    default:         return 'Recurrente'
+  }
+}
+
+/** Vista "todas las tareas recurrentes" — una fila por serie (matched por
+ *  projectId + title). Mostramos la HEAD (instancia con dueDate más vieja
+ *  no archivada) y las acciones para editar el head o borrar la
+ *  recurrencia entera. La head es la que "manda" — borrar su recurrencia
+ *  + nukear las futuras instancias detiene la cadena. */
+function RecurringView({
+  tasks, projects, onOpenTask, onClose,
+}: {
+  tasks: Task[]
+  projects: Record<string, Project>
+  onOpenTask: (t: Task) => void
+  onClose: () => void
+}) {
+  const updateTask = useTasksStore((s) => s.updateTask)
+  const rebuildRecurringChain = useTasksStore((s) => s.rebuildRecurringChain)
+  const deleteTask = useTasksStore((s) => s.deleteTask)
+
+  // Agrupar por serie. Una "serie" es projectId + title cuando hay
+  // recurrence definida y no está archivada. Para cada grupo, la HEAD es
+  // la instancia con dueDate más vieja (la que "manda"). El resto son
+  // futuras (incluyendo las ya completadas que viven dentro del rango
+  // semanal todavía).
+  const series = useMemo(() => {
+    const map = new Map<string, Task[]>()
+    for (const t of tasks) {
+      if (!t.recurrence) continue
+      if (t.archivedAt) continue
+      const key = `${t.projectId}::${t.title}`
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(t)
+    }
+    return Array.from(map.entries()).map(([key, items]) => {
+      const sorted = [...items].sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
+      const head = sorted[0]
+      const future = sorted.slice(1)
+      return { key, head, future }
+    }).sort((a, b) => {
+      const pa = projects[a.head.projectId]?.name ?? ''
+      const pb = projects[b.head.projectId]?.name ?? ''
+      if (pa !== pb) return pa.localeCompare(pb)
+      return a.head.title.localeCompare(b.head.title)
+    })
+  }, [tasks, projects])
+
+  const handleStopRecurrence = (headId: string, title: string, futureCount: number) => {
+    const msg = futureCount > 0
+      ? `¿Eliminar la recurrencia de "${title}"?\n\nVan a desaparecer ${futureCount} instancia${futureCount > 1 ? 's' : ''} futura${futureCount > 1 ? 's' : ''} todavía no completada${futureCount > 1 ? 's' : ''}. La tarea HEAD se mantiene (sin recurrencia) y las completadas pasadas siguen en el historial.`
+      : `¿Eliminar la recurrencia de "${title}"?\n\nLa tarea HEAD se mantiene pero ya no se va a repetir.`
+    if (!confirm(msg)) return
+    // Orden importa:
+    // 1) Limpiar recurrence del head PRIMERO — si lo dejamos para
+    //    después, el post-set ensureRecurringBuffer dentro de
+    //    rebuildRecurringChain re-genera la cadena que recién borramos
+    //    (porque el head todavía tiene recurrence al momento del
+    //    ensureBuffer). Con recurrence ya limpia, ensureBuffer no-opea.
+    // 2) Nukear las instancias futuras — su filtro mira la recurrence
+    //    de CADA hija (no del head), así que sigue encontrándolas igual.
+    updateTask(headId, { recurrence: undefined })
+    rebuildRecurringChain(headId)
+  }
+
+  const handleDeleteSeriesCompletely = (headId: string, title: string, futureCount: number) => {
+    if (!confirm(`¿Eliminar la serie "${title}" COMPLETA (head + ${futureCount} futura${futureCount !== 1 ? 's' : ''})? No se puede deshacer salvo restaurando desde la papelera.`)) return
+    // 1) Clear recurrence — sin esto el ensureBuffer del paso 2 re-fila
+    //    las instancias que estamos por borrar.
+    // 2) Nuke chain — borra las futuras vía rebuildRecurringChain (las
+    //    futuras todavía tienen su recurrence intacta así que el filtro
+    //    las encuentra).
+    // 3) Soft-delete head a la papelera.
+    updateTask(headId, { recurrence: undefined })
+    rebuildRecurringChain(headId)
+    deleteTask(headId)
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+      className="max-w-3xl mx-auto"
+    >
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center">
+            <Repeat className="w-5 h-5 text-indigo-300" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-white">Tareas recurrentes</h2>
+            <p className="text-xs text-zinc-500">
+              {series.length} serie{series.length !== 1 ? 's' : ''} activa{series.length !== 1 ? 's' : ''}
+              {' · '}
+              <span className="text-zinc-400">la head manda — borrar su recurrencia detiene la cadena</span>
+            </p>
+          </div>
+        </div>
+        <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {series.length === 0 ? (
+        <div className="bg-white/[0.03] border border-dashed border-white/[0.10] rounded-2xl p-10 text-center">
+          <Repeat className="w-8 h-8 text-zinc-600 mx-auto mb-3" />
+          <p className="text-sm text-zinc-400">No hay tareas recurrentes todavía.</p>
+          <p className="text-[11px] text-zinc-600 mt-1">
+            Creá una tarea con fecha, abrí el detalle y elegí una recurrencia (Diaria, Semanal, etc.) — va a aparecer acá.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {series.map(({ key, head, future }) => {
+            const proj = projects[head.projectId]
+            const recDesc = head.recurrence ? describeRecurrence(head.recurrence) : ''
+            return (
+              <div
+                key={key}
+                className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-3 flex items-start gap-3 hover:border-white/[0.16] transition-colors"
+                style={{ borderLeft: `3px solid ${proj?.color ?? '#6366f1'}` }}
+              >
+                <button
+                  onClick={() => onOpenTask(head)}
+                  className="flex-1 min-w-0 text-left"
+                  title="Editar la HEAD (cambios al título, hora, etc. se aplican solo a la head — las futuras instancias ya están materializadas con sus propios valores)"
+                >
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="text-sm font-medium text-zinc-100 truncate">{head.title}</span>
+                    <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-300">
+                      <Repeat className="w-2.5 h-2.5 inline-block mr-1 -mt-0.5" />
+                      {recDesc}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px] text-zinc-500 flex-wrap">
+                    <span style={{ color: proj?.color ?? '#6366f1' }}>{proj?.name ?? 'Sin proyecto'}</span>
+                    {head.dueDate && (
+                      <>
+                        <span className="text-zinc-700">·</span>
+                        <span>head: {head.dueDate}{head.dueTime ? ` ${head.dueTime}` : ''}</span>
+                      </>
+                    )}
+                    {future.length > 0 && (
+                      <>
+                        <span className="text-zinc-700">·</span>
+                        <span className="text-zinc-400">{future.length} próxima{future.length !== 1 ? 's' : ''}</span>
+                      </>
+                    )}
+                    {head.recurrence?.until && (
+                      <>
+                        <span className="text-zinc-700">·</span>
+                        <span className="text-amber-400/70">hasta {head.recurrence.until}</span>
+                      </>
+                    )}
+                  </div>
+                </button>
+                <div className="flex flex-col gap-1 shrink-0">
+                  <button
+                    onClick={() => handleStopRecurrence(head.id, head.title, future.length)}
+                    title="Borrar la recurrencia (mantiene la head, elimina las futuras instancias)"
+                    className="text-[10px] font-semibold px-2 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 transition-colors"
+                  >
+                    Detener recurrencia
+                  </button>
+                  <button
+                    onClick={() => handleDeleteSeriesCompletely(head.id, head.title, future.length)}
+                    title="Borrar la serie completa (head + futuras). Las completadas pasadas siguen en el historial."
+                    className="text-[10px] font-semibold px-2 py-1 rounded bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-colors"
+                  >
+                    Borrar todo
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </motion.div>
+  )
+}
 
 // ─── Archive View (papelera de completadas) ──────────────────────────────────
 

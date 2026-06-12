@@ -229,6 +229,10 @@ export interface CalendarSnapshotBlock {
   /** True si la task/subtask estaba completada al momento del cierre.
    *  Para fuente 'gcal' siempre false. */
   isCompleted: boolean
+  /** True si el bloque es "all-day" (sin hora). En la vista del snapshot
+   *  se renderiza en una franja arriba de la grilla horaria, igual que en
+   *  el calendario real. Para timed blocks queda undefined/false. */
+  isAllDay?: boolean
 }
 
 /** Snapshot del calendario semanal — se captura cuando se cierra el

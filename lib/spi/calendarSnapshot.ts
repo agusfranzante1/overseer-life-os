@@ -57,46 +57,74 @@ export function buildCalendarSnapshot(spiWeekStartDate: string): CalendarWeekSna
     if (t.archivedAt) continue
     const projColor = projects[t.projectId]?.color ?? '#6366f1'
 
-    // Tarea madre
-    if (t.dueDate && t.dueTime && weekKeys.has(t.dueDate)) {
-      const [y, m, d] = t.dueDate.split('-').map(Number)
-      const [hh, mn] = t.dueTime.split(':').map(Number)
-      const start = new Date(y, m - 1, d, hh, mn, 0)
-      const duration = t.durationMinutes ?? 60
-      const end = new Date(start.getTime() + duration * 60_000)
+    // Tarea madre — TIMED (con dueTime) o ALL-DAY (solo dueDate).
+    if (t.dueDate && weekKeys.has(t.dueDate)) {
       const isDone = !!t.completedAt
-      blocks.push({
-        id: `task:${t.id}`,
-        summary: t.title,
-        start: start.toISOString(),
-        end: end.toISOString(),
-        color: projColor,
-        source: 'task',
-        isCompleted: isDone,
-      })
+      if (t.dueTime) {
+        const [y, m, d] = t.dueDate.split('-').map(Number)
+        const [hh, mn] = t.dueTime.split(':').map(Number)
+        const start = new Date(y, m - 1, d, hh, mn, 0)
+        const duration = t.durationMinutes ?? 60
+        const end = new Date(start.getTime() + duration * 60_000)
+        blocks.push({
+          id: `task:${t.id}`,
+          summary: t.title,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          color: projColor,
+          source: 'task',
+          isCompleted: isDone,
+        })
+      } else {
+        // All-day: usamos dueDate como key tanto en start como en end.
+        // El renderer lo mete en la franja superior, no en la grilla horaria.
+        blocks.push({
+          id: `task:${t.id}`,
+          summary: t.title,
+          start: t.dueDate,
+          end: t.dueDate,
+          color: projColor,
+          source: 'task',
+          isCompleted: isDone,
+          isAllDay: true,
+        })
+      }
       tasksTotal++
       if (isDone) tasksDone++
     }
 
-    // Subtareas
+    // Subtareas — mismo split timed vs all-day.
     for (const sub of t.subtasks ?? []) {
       if (sub.archivedAt) continue
-      if (!sub.dueDate || !sub.dueTime || !weekKeys.has(sub.dueDate)) continue
-      const [y, m, d] = sub.dueDate.split('-').map(Number)
-      const [hh, mn] = sub.dueTime.split(':').map(Number)
-      const start = new Date(y, m - 1, d, hh, mn, 0)
-      const duration = sub.durationMinutes ?? 30
-      const end = new Date(start.getTime() + duration * 60_000)
+      if (!sub.dueDate || !weekKeys.has(sub.dueDate)) continue
       const isDone = !!sub.completedAt
-      blocks.push({
-        id: `subtask:${sub.id}`,
-        summary: sub.title,
-        start: start.toISOString(),
-        end: end.toISOString(),
-        color: projColor,
-        source: 'subtask',
-        isCompleted: isDone,
-      })
+      if (sub.dueTime) {
+        const [y, m, d] = sub.dueDate.split('-').map(Number)
+        const [hh, mn] = sub.dueTime.split(':').map(Number)
+        const start = new Date(y, m - 1, d, hh, mn, 0)
+        const duration = sub.durationMinutes ?? 30
+        const end = new Date(start.getTime() + duration * 60_000)
+        blocks.push({
+          id: `subtask:${sub.id}`,
+          summary: sub.title,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          color: projColor,
+          source: 'subtask',
+          isCompleted: isDone,
+        })
+      } else {
+        blocks.push({
+          id: `subtask:${sub.id}`,
+          summary: sub.title,
+          start: sub.dueDate,
+          end: sub.dueDate,
+          color: projColor,
+          source: 'subtask',
+          isCompleted: isDone,
+          isAllDay: true,
+        })
+      }
       tasksTotal++
       if (isDone) tasksDone++
     }
@@ -111,7 +139,6 @@ export function buildCalendarSnapshot(spiWeekStartDate: string): CalendarWeekSna
     if (c.backgroundColor) calColors.set(c.id, c.backgroundColor)
   }
   for (const ev of events) {
-    if (ev.allDay) continue
     const dateKey = ev.start.slice(0, 10)
     if (!weekKeys.has(dateKey)) continue
     blocks.push({
@@ -122,6 +149,7 @@ export function buildCalendarSnapshot(spiWeekStartDate: string): CalendarWeekSna
       color: calColors.get(ev.calendarId) ?? '#4285f4',
       source: 'gcal',
       isCompleted: false,
+      isAllDay: !!ev.allDay,
     })
   }
 

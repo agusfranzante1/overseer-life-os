@@ -41,23 +41,28 @@ export function CalendarSnapshotView({ snapshot, onClose }: Props) {
     })
   }, [snapshot.weekStartDate, weekdays])
 
-  // Agrupar bloques por día.
-  const blocksByDay = useMemo(() => {
-    const map = new Map<string, typeof snapshot.blocks>()
+  // Agrupar bloques por día — separados timed vs all-day. Los all-day
+  // van en una franja arriba (igual que el calendario real); los timed en
+  // la grilla horaria.
+  const { timedByDay, allDayByDay } = useMemo(() => {
+    const timed = new Map<string, typeof snapshot.blocks>()
+    const allDay = new Map<string, typeof snapshot.blocks>()
     for (const b of snapshot.blocks) {
       const key = b.start.slice(0, 10)
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(b)
+      const target = b.isAllDay ? allDay : timed
+      if (!target.has(key)) target.set(key, [])
+      target.get(key)!.push(b)
     }
-    return map
+    return { timedByDay: timed, allDayByDay: allDay }
   }, [snapshot.blocks])
 
-  // Rango de horas mostradas — del min al max + 1, sin pasar de [6, 23].
-  // Si no hay bloques, default a 8..22.
+  // Rango de horas mostradas — del min al max + 1 mirando SOLO bloques
+  // timed (los all-day no aportan hora). Default a 8..22 si no hay.
   const { hourStart, hourEnd } = useMemo(() => {
-    if (snapshot.blocks.length === 0) return { hourStart: 8, hourEnd: 22 }
+    const timedBlocks = snapshot.blocks.filter((b) => !b.isAllDay)
+    if (timedBlocks.length === 0) return { hourStart: 8, hourEnd: 22 }
     let mn = 23, mx = 0
-    for (const b of snapshot.blocks) {
+    for (const b of timedBlocks) {
       const sh = new Date(b.start).getHours()
       const eh = new Date(b.end).getHours()
       if (sh < mn) mn = sh
@@ -65,6 +70,8 @@ export function CalendarSnapshotView({ snapshot, onClose }: Props) {
     }
     return { hourStart: Math.max(0, mn - 1), hourEnd: Math.min(24, mx + 1) }
   }, [snapshot.blocks])
+
+  const hasAnyAllDay = allDayByDay.size > 0
 
   const hours = Array.from({ length: hourEnd - hourStart }, (_, i) => hourStart + i)
   const gridHeight = hours.length * HOUR_PX
@@ -111,6 +118,43 @@ export function CalendarSnapshotView({ snapshot, onClose }: Props) {
                 </div>
               ))}
 
+              {/* Franja ALL-DAY — sólo si hay algo. Misma idea que la
+                  strip del WeekView real: chips compactos por día. */}
+              {hasAnyAllDay && (
+                <>
+                  <div className="text-right pr-1.5 text-[9px] text-zinc-600 font-mono pt-1.5">all-day</div>
+                  {days.map((d) => {
+                    const allDay = allDayByDay.get(d.dateKey) ?? []
+                    return (
+                      <div key={`ad-${d.dateKey}`} className="border-l border-white/[0.05] px-0.5 py-1 space-y-0.5">
+                        {allDay.map((b) => {
+                          const isTask = b.source !== 'gcal'
+                          return (
+                            <div
+                              key={b.id}
+                              title={b.summary}
+                              className="rounded px-1 py-0.5 text-[10px] font-medium overflow-hidden leading-tight truncate"
+                              style={{
+                                background: isTask ? `${b.color}55` : b.color,
+                                border: isTask ? `1px dashed ${b.color}` : undefined,
+                                color: '#fff',
+                                opacity: b.isCompleted ? 0.5 : 1,
+                                textDecoration: b.isCompleted ? 'line-through' : undefined,
+                              }}
+                            >
+                              <span className="inline-flex items-center gap-1">
+                                {b.isCompleted && <Check className="w-2.5 h-2.5 shrink-0" strokeWidth={3} />}
+                                <span className="truncate">{b.summary}</span>
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })}
+                </>
+              )}
+
               {/* Hours column */}
               <div className="border-r border-white/[0.05]" style={{ height: gridHeight }}>
                 {hours.map((h) => (
@@ -122,7 +166,7 @@ export function CalendarSnapshotView({ snapshot, onClose }: Props) {
 
               {/* Day columns */}
               {days.map((d) => {
-                const dayBlocks = blocksByDay.get(d.dateKey) ?? []
+                const dayBlocks = timedByDay.get(d.dateKey) ?? []
                 return (
                   <div key={d.dateKey} className="relative border-l border-white/[0.05]" style={{ height: gridHeight }}>
                     {/* Hour cell dividers */}
