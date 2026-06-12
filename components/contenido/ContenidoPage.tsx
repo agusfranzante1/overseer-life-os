@@ -160,7 +160,7 @@ function Header({
     <div className="space-y-3">
       <div className="flex items-baseline justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Calendario de contenido</h1>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Content Strategy</h1>
           <p className="text-xs text-zinc-500 mt-0.5">
             Perfil → ADN → Pilares → Campaña → Foco semanal → Pieza diaria. Cada post es una célula visible de tu pensamiento estratégico.
           </p>

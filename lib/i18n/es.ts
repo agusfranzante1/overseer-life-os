@@ -15,7 +15,7 @@ export const es: Translations = {
     habits: 'Hábitos',
     kpis: 'KPIs',
     estudio: 'Estudio',
-    contenido: 'Contenido',
+    contenido: 'Content Strategy',
     gym: 'Gimnasio',
     food: 'Alimentación',
     settings: 'Configuración',

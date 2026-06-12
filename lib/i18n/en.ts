@@ -14,7 +14,7 @@ export const en: Record<string, any> = {
     habits: 'Habits',
     kpis: 'KPIs',
     estudio: 'Study',
-    contenido: 'Content',
+    contenido: 'Content Strategy',
     gym: 'Gym',
     food: 'Food & Diet',
     settings: 'Settings',
