@@ -263,12 +263,24 @@ async function pushTasks() {
     updated_at: t.updatedAt,
   }))
 
+  // Set de todos los subtask ids locales — usado abajo para sanitizar
+  // parent_id. Si un subtask tiene parentId apuntando a un id que ya no
+  // existe (huérfana, típicamente porque deleteSubtask viejo no limpiaba
+  // las hijas al borrar la madre, o porque un convertTaskToSubtask viejo
+  // dejó referencias colgando), Postgres rechazaba el upsert con FK
+  // violation `subtasks_parent_id_fkey`. La UI ya las trata como
+  // top-level (filtra por !parentId), así que mandarlas con parent_id
+  // null restaura la consistencia con lo que el user ve.
+  const allLocalSubtaskIds = new Set<string>(
+    Object.values(tasks).flatMap((t) => t.subtasks.map((s) => s.id))
+  )
+
   const subtaskRows = Object.values(tasks).flatMap((t) =>
     t.subtasks.map((s) => ({
       id: s.id,
       user_id: state.userId!,
       task_id: t.id,
-      parent_id: s.parentId ?? null,
+      parent_id: s.parentId && allLocalSubtaskIds.has(s.parentId) ? s.parentId : null,
       title: s.title,
       completed: s.completed,
       status: s.status,

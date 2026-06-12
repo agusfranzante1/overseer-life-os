@@ -1269,13 +1269,21 @@ function WeeklyGoalsByArea({
 
   if (principalKeys.length === 0) {
     return (
-      <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">
-        <p className="text-xs text-amber-200/80">
-          No marcaste áreas principales en el plan anual.
-        </p>
-        <p className="text-[10px] text-zinc-500 mt-1">
-          Andá a Proyección → Anual, marcá las áreas que vas a trabajar este año, y van a aparecer acá con sus sub-metas mensuales.
-        </p>
+      <div className="space-y-3">
+        <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">
+          <p className="text-xs text-amber-200/80">
+            No marcaste áreas principales en el plan anual.
+          </p>
+          <p className="text-[10px] text-zinc-500 mt-1">
+            Andá a Proyección → Anual, marcá las áreas que vas a trabajar este año, y van a aparecer acá con sus sub-metas mensuales.
+          </p>
+        </div>
+        {/* KPIs generales — disponibles aunque no haya áreas principales,
+            así el user puede tracking transversal igual. */}
+        <GeneralKpiChips
+          selectedKpiIds={session.selectedKpiIds ?? []}
+          onSelectedChange={onSetKpis}
+        />
       </div>
     )
   }
@@ -1381,6 +1389,15 @@ function WeeklyGoalsByArea({
           </div>
         )
       })}
+      {/* KPIs generales — no atados a ninguna área principal del año.
+          Sirven para tracking transversal (ej. Deep Thinking Time) que el
+          user quiere recordar agendar cada semana aunque no corresponda a
+          un área. Se renderizan SIEMPRE, aunque no haya ninguno creado —
+          el empty state explica el caso de uso. */}
+      <GeneralKpiChips
+        selectedKpiIds={session.selectedKpiIds ?? []}
+        onSelectedChange={onSetKpis}
+      />
     </div>
   )
 }
@@ -1464,6 +1481,101 @@ function AreaKpiChips({
           onCreate={(input) => {
             const id = addKpi(input)
             // Lo activamos en la semana actual ya que recién lo creó.
+            onSelectedChange([...selectedKpiIds, id])
+            setShowCreate(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+/** Chips de KPIs GENERALES — los que no están atados a ninguna área de
+ *  la rueda. Sirven para tracking transversal tipo "Deep Thinking Time",
+ *  "Revisar SPI", "Limpieza inbox" — cosas que querés recordar agendar
+ *  semana a semana pero que no son de un área específica.
+ *
+ *  Filtra `!d.areaKey` (undefined o ''). El "+ KPI general" crea uno
+ *  nuevo con areaKey omitido y group='General'. */
+function GeneralKpiChips({
+  selectedKpiIds, onSelectedChange,
+}: {
+  selectedKpiIds: string[]
+  onSelectedChange: (next: string[]) => void
+}) {
+  const definitions = useKpisStore((s) => s.definitions)
+  const generalKpis = useMemo(
+    () => definitions.filter((d) => !d.archivedAt && !d.areaKey),
+    [definitions]
+  )
+  const addKpi = useKpisStore((s) => s.addKpi)
+  const [showCreate, setShowCreate] = useState(false)
+
+  const toggle = (id: string) => {
+    if (selectedKpiIds.includes(id)) onSelectedChange(selectedKpiIds.filter((x) => x !== id))
+    else onSelectedChange([...selectedKpiIds, id])
+  }
+
+  return (
+    <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-lg p-3">
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className="text-indigo-400">🧭</span>
+        <span className="text-xs font-semibold text-indigo-200">General</span>
+        <span className="text-[10px] text-zinc-500 italic">
+          — KPIs transversales, no atados a ningún área
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="text-[9px] font-mono uppercase tracking-wider text-indigo-300/60 mr-1 self-center">
+          KPIs a trackear:
+        </span>
+        {generalKpis.map((kpi) => {
+          const active = selectedKpiIds.includes(kpi.id)
+          return (
+            <button
+              key={kpi.id}
+              onClick={() => toggle(kpi.id)}
+              title={active ? 'Click para sacarlo de esta semana' : 'Click para activarlo esta semana'}
+              className={`px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors flex items-center gap-1 ${
+                active
+                  ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-200'
+                  : 'bg-white/[0.03] border-white/[0.08] text-zinc-500 hover:border-white/[0.12] hover:text-zinc-300'
+              }`}
+            >
+              <span>{kpi.icon}</span>
+              <span>{kpi.name}</span>
+              {kpi.target !== undefined && (
+                <span className="text-zinc-600 ml-0.5">/{kpi.target}{kpi.kind === 'percent' ? '%' : ''}</span>
+              )}
+            </button>
+          )
+        })}
+        <button
+          onClick={() => setShowCreate(true)}
+          className="px-2 py-0.5 rounded-full text-[10px] font-medium border border-dashed border-indigo-500/40 text-indigo-300/80 hover:border-indigo-500 hover:bg-indigo-500/10 hover:text-indigo-200 transition-colors flex items-center gap-1"
+        >
+          + KPI general
+        </button>
+      </div>
+      {generalKpis.length === 0 && (
+        <p className="text-[10px] text-zinc-600 italic mt-1.5">
+          Ej.: &quot;Deep Thinking Time&quot; — sentarte a pensar y desgranar qué está
+          pasando, no parte de un área pero clave para no perder el norte.
+        </p>
+      )}
+
+      {showCreate && (
+        <QuickKpiModal
+          areaKey=""
+          areaLabel="General"
+          onClose={() => setShowCreate(false)}
+          onCreate={(input) => {
+            // Stripamos areaKey para que sea estrictamente "sin área".
+            // El modal manda areaKey: '' por defecto; el filter de la
+            // library trata '' como falsy igual que undefined, pero
+            // queremos consistencia con KpisPage que normaliza a undefined.
+            const { areaKey: _drop, ...rest } = input
+            const id = addKpi({ ...rest, group: 'General' })
             onSelectedChange([...selectedKpiIds, id])
             setShowCreate(false)
           }}

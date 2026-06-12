@@ -495,6 +495,21 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                 bgColor={(project.statuses.find((s) => s.label === task.status)?.color ?? '#6b7280') + '20'}
                 fgColor={project.statuses.find((s) => s.label === task.status)?.color ?? '#6b7280'}
               />
+              {/* Banderita "EVENTO EN CALENDARIO" — explica por qué una tarea
+                  completada NO se archivó al día siguiente. El auto-purge
+                  mantiene las tareas con dueDate + dueTime hasta el domingo
+                  para que el snapshot del calendario en el SPI semanal quede
+                  completo. Sin este flag, el user se confunde y piensa que
+                  el archive está roto. */}
+              {isDone && task.dueDate && task.dueTime && (
+                <span
+                  title="Esta tarea aparece como bloque en el calendario. Se va a archivar el domingo (cierre de semana) para que el snapshot del SPI quede completo."
+                  className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-300/90 flex items-center gap-1 shrink-0"
+                >
+                  <Calendar className="w-2.5 h-2.5" />
+                  En calendario
+                </span>
+              )}
               {/* Priority badge — hidden once the task is done so the user
                   doesn't see "Urgente" + "Done" at the same time (visually
                   confusing while waiting for the auto-archive). The data
@@ -1176,6 +1191,19 @@ function InlineSubtask({
         >
           {tStatus(currentStatusObj.label)}
         </button>
+      )}
+      {/* Banderita "En calendario" para subtareas completadas con dueTime.
+          Misma regla híbrida que aplica el auto-purge: las subtasks timed
+          sobreviven hasta el domingo para que el snapshot del SPI quede
+          completo. */}
+      {subtask.completed && subtask.dueDate && subtask.dueTime && (
+        <span
+          title="Esta subtarea aparece como bloque en el calendario. Se va a archivar el domingo (cierre de semana) para que el snapshot del SPI quede completo."
+          className="shrink-0 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-300/90 flex items-center gap-1"
+        >
+          <Calendar className="w-2.5 h-2.5" />
+          En calendario
+        </span>
       )}
 
       {/* Date chip + input invisible solapado encima — el browser ancla

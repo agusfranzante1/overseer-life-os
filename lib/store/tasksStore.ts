@@ -1517,16 +1517,25 @@ export const useTasksStore = create<TasksState>()(
         }),
 
       deleteSubtask: (taskId, subtaskId) =>
-        set((s) => ({
-          tasks: {
-            ...s.tasks,
-            [taskId]: {
-              ...s.tasks[taskId],
-              subtasks: s.tasks[taskId].subtasks.filter((st) => st.id !== subtaskId),
-              updatedAt: new Date().toISOString(),
+        set((s) => {
+          const t = s.tasks[taskId]
+          if (!t) return s
+          // Al borrar una subtask que tenía hijas (otras subtasks con
+          // parentId === subtaskId), promovemos a esas hijas a top-level
+          // limpiando su parentId. Sin esto quedaban huérfanas con un
+          // parentId apuntando a nada — la UI las ocultaba (filtra por
+          // !parentId) y al sync el upsert fallaba con FK violation
+          // `subtasks_parent_id_fkey`.
+          const next = t.subtasks
+            .filter((st) => st.id !== subtaskId)
+            .map((st) => (st.parentId === subtaskId ? { ...st, parentId: undefined } : st))
+          return {
+            tasks: {
+              ...s.tasks,
+              [taskId]: { ...t, subtasks: next, updatedAt: new Date().toISOString() },
             },
-          },
-        })),
+          }
+        }),
     }),
     { name: 'overseer-tasks' }
   )
