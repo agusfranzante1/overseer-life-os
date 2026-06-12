@@ -971,7 +971,10 @@ function PipelineTab({
   const activeProfile = profiles.find((p) => p.id === currentProfileId)
   const fallbackPillars = activeProfile?.brandDNA.pillars ?? []
   const setItemStage = useContentStore((s) => s.setItemStage)
+  const addItem = useContentStore((s) => s.addItem)
   const [dragId, setDragId] = useState<string | null>(null)
+  // Para el quick-add: qué columna tiene el input abierto.
+  const [addingStage, setAddingStage] = useState<ContentStageId | null>(null)
   const stages: ContentStageId[] = ['idea', 'script', 'recording', 'editing', 'scheduled', 'published']
   const pillarByItem = (it: ContentItem) => {
     const ownProfile = profileById.get(it.profileId)
@@ -983,6 +986,40 @@ function PipelineTab({
     (showAllProfiles || (viewProfileId && it.profileId === viewProfileId))
     && (networkFilter === 'all' || it.network === networkFilter)
   )
+
+  // Defaults para el quick-add: si el filtro de red está fijado, lo
+  // respetamos; si no, usamos la primera red del perfil. Profile: el
+  // perfil del filtro si está fijado, sino el actual (cuando es 'all'
+  // caemos al actual también — no podemos crear sin uno).
+  const targetProfileId = showAllProfiles ? currentProfileId : (viewProfileId ?? currentProfileId)
+  const targetProfile = profileById.get(targetProfileId) ?? activeProfile
+  const targetNetwork: ContentNetwork = networkFilter !== 'all'
+    ? networkFilter
+    : (targetProfile?.networks?.[0] ?? 'instagram')
+  const targetPillarId = targetProfile?.brandDNA.pillars[0]?.id ?? ''
+  const todayYmd = useMemo(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }, [])
+
+  function quickAdd(stage: ContentStageId, title: string) {
+    const t = title.trim()
+    if (!t) return
+    addItem({
+      profileId: targetProfileId,
+      network: targetNetwork,
+      pillarId: targetPillarId,
+      scheduledYmd: todayYmd,
+      format: 'reel',
+      angle: 'Educativo',
+      momentType: 'talk',
+      hook: '',
+      title: t,
+      script: '',
+      hashtags: '',
+      stage,
+    })
+  }
 
   return (
     <div className="overflow-x-auto pb-3">
@@ -1007,8 +1044,31 @@ function PipelineTab({
                     {stageMeta.label}
                   </h3>
                 </div>
-                <span className="text-[10px] font-mono text-zinc-600">{stageItems.length}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-mono text-zinc-600">{stageItems.length}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAddingStage((cur) => cur === stage ? null : stage)}
+                    title={`Agregar pieza en ${stageMeta.label}`}
+                    className="w-5 h-5 flex items-center justify-center rounded transition-colors"
+                    style={{
+                      color: addingStage === stage ? '#fff' : stageMeta.color,
+                      background: addingStage === stage ? `${stageMeta.color}40` : `${stageMeta.color}15`,
+                    }}
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
+
+              {addingStage === stage && (
+                <QuickAddRow
+                  stageColor={stageMeta.color}
+                  onSubmit={(title) => { quickAdd(stage, title) }}
+                  onClose={() => setAddingStage(null)}
+                />
+              )}
+
               <div className="space-y-2">
                 {stageItems.length === 0 ? (
                   <p className="text-[10px] text-zinc-700 text-center py-4 italic">vacío</p>
@@ -1064,6 +1124,66 @@ function PipelineTab({
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+// Input inline para crear una pieza rápido en una columna del pipeline.
+// Enter → guarda, Esc o blur vacío → cierra. Shift+Enter o "Otra" mantiene
+// el input abierto para cargar varias seguidas.
+function QuickAddRow({
+  stageColor, onSubmit, onClose,
+}: { stageColor: string; onSubmit: (title: string) => void; onClose: () => void }) {
+  const [value, setValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useLayoutEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  function commit(keepOpen: boolean) {
+    const t = value.trim()
+    if (!t) {
+      if (!keepOpen) onClose()
+      return
+    }
+    onSubmit(t)
+    setValue('')
+    if (!keepOpen) onClose()
+    else inputRef.current?.focus()
+  }
+
+  return (
+    <div
+      className="mb-2 rounded-lg p-2 border"
+      style={{ background: `${stageColor}10`, borderColor: `${stageColor}40` }}
+    >
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => { if (!value.trim()) onClose() }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); commit(e.shiftKey) }
+          if (e.key === 'Escape') { e.preventDefault(); onClose() }
+        }}
+        placeholder="Título de la idea…"
+        className="w-full bg-transparent text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none"
+      />
+      <div className="flex items-center justify-between mt-1.5">
+        <p className="text-[9px] font-mono text-zinc-600">
+          Enter · Shift+Enter para otra · Esc para cerrar
+        </p>
+        <button
+          type="button"
+          onMouseDown={(e) => { e.preventDefault(); commit(false) }}
+          disabled={!value.trim()}
+          className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded disabled:opacity-30"
+          style={{ color: stageColor, background: `${stageColor}25` }}
+        >
+          + Agregar
+        </button>
       </div>
     </div>
   )
