@@ -1466,11 +1466,40 @@ function describeRecurrence(r: import('@/types').TaskRecurrence): string {
   }
 }
 
-/** Vista "todas las tareas recurrentes" — una fila por serie (matched por
- *  projectId + title). Mostramos la HEAD (instancia con dueDate más vieja
- *  no archivada) y las acciones para editar el head o borrar la
- *  recurrencia entera. La head es la que "manda" — borrar su recurrencia
- *  + nukear las futuras instancias detiene la cadena. */
+/** Normaliza un título para matching de series: trim, lowercase, sin
+ *  acentos. Sin esto, "Deep Thinking" y "deep thinking" se mostraban
+ *  como dos series separadas porque el grouping era strict-equal. */
+function normalizeTitle(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+}
+
+type SeriesEntry =
+  | {
+      kind: 'task'
+      key: string
+      head: Task
+      future: Task[]
+    }
+  | {
+      kind: 'subtask'
+      key: string
+      parentTask: Task
+      head: import('@/types').Subtask
+      future: import('@/types').Subtask[]
+    }
+
+/** Vista "todas las tareas recurrentes" — una fila por serie. Cubre
+ *  series de TAREAS TOP-LEVEL (matched por projectId + título normalizado)
+ *  Y series de SUBTAREAS (matched por parentTaskId + título normalizado),
+ *  porque las subtareas tienen su propio sistema de recurrence con spawn
+ *  de hermanas dentro de la misma madre.
+ *
+ *  HEAD = instancia con `dueDate` más vieja no archivada. Es "la que
+ *  manda" — borrar su recurrencia + nukear futuras detiene la cadena. */
 function RecurringView({
   tasks, projects, onOpenTask, onClose,
 }: {
@@ -1480,64 +1509,118 @@ function RecurringView({
   onClose: () => void
 }) {
   const updateTask = useTasksStore((s) => s.updateTask)
+  const updateSubtask = useTasksStore((s) => s.updateSubtask)
   const rebuildRecurringChain = useTasksStore((s) => s.rebuildRecurringChain)
   const deleteTask = useTasksStore((s) => s.deleteTask)
+  const deleteSubtask = useTasksStore((s) => s.deleteSubtask)
 
-  // Agrupar por serie. Una "serie" es projectId + title cuando hay
-  // recurrence definida y no está archivada. Para cada grupo, la HEAD es
-  // la instancia con dueDate más vieja (la que "manda"). El resto son
-  // futuras (incluyendo las ya completadas que viven dentro del rango
-  // semanal todavía).
-  const series = useMemo(() => {
-    const map = new Map<string, Task[]>()
+  const series: SeriesEntry[] = useMemo(() => {
+    // ── 1) Series de TAREAS top-level. Group por recurringHeadId
+    //    (modelo nuevo). Datos pre-migración: fallback a projectId +
+    //    título normalizado. La madre es la task cuyo id === recurringHeadId,
+    //    o sino la instancia con dueDate más vieja del grupo.
+    const tasksById = new Map<string, Task>()
+    for (const t of tasks) tasksById.set(t.id, t)
+    const taskMap = new Map<string, Task[]>()
     for (const t of tasks) {
       if (!t.recurrence) continue
       if (t.archivedAt) continue
-      const key = `${t.projectId}::${t.title}`
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(t)
+      const key = t.recurringHeadId
+        ? `head::${t.recurringHeadId}`
+        : `legacy::${t.projectId}::${normalizeTitle(t.title)}`
+      if (!taskMap.has(key)) taskMap.set(key, [])
+      taskMap.get(key)!.push(t)
     }
-    return Array.from(map.entries()).map(([key, items]) => {
+    const taskSeries: SeriesEntry[] = Array.from(taskMap.entries()).map(([key, items]) => {
+      // La MADRE explícita (recurringHeadId === id). Si no está en el
+      // grupo (puede haber sido archivada manualmente o sin migrar), la
+      // madre efectiva es la instancia con dueDate más vieja.
       const sorted = [...items].sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
-      const head = sorted[0]
-      const future = sorted.slice(1)
-      return { key, head, future }
-    }).sort((a, b) => {
-      const pa = projects[a.head.projectId]?.name ?? ''
-      const pb = projects[b.head.projectId]?.name ?? ''
+      const explicitMotherId = key.startsWith('head::') ? key.slice('head::'.length) : null
+      const explicitMother = explicitMotherId
+        ? sorted.find((t) => t.id === explicitMotherId) ?? tasksById.get(explicitMotherId)
+        : null
+      const head = explicitMother ?? sorted[0]
+      const future = sorted.filter((t) => t.id !== head.id)
+      return { kind: 'task' as const, key, head, future }
+    })
+
+    // ── 2) Series de SUBTASKS. Las hermanas viven dentro de la misma
+    //    task madre — key: parentTaskId + título normalizado.
+    const subMap = new Map<string, { parent: Task; subs: import('@/types').Subtask[] }>()
+    for (const t of tasks) {
+      if (t.archivedAt) continue
+      for (const sub of t.subtasks ?? []) {
+        if (!sub.recurrence) continue
+        if (sub.archivedAt) continue
+        const key = `subtask::${t.id}::${normalizeTitle(sub.title)}`
+        if (!subMap.has(key)) subMap.set(key, { parent: t, subs: [] })
+        subMap.get(key)!.subs.push(sub)
+      }
+    }
+    const subSeries: SeriesEntry[] = Array.from(subMap.entries()).map(([key, { parent, subs }]) => {
+      const sorted = [...subs].sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
+      return { kind: 'subtask' as const, key, parentTask: parent, head: sorted[0], future: sorted.slice(1) }
+    })
+
+    // ── 3) Ordenar todo por proyecto → título.
+    const all = [...taskSeries, ...subSeries]
+    return all.sort((a, b) => {
+      const projA = a.kind === 'task' ? projects[a.head.projectId] : projects[a.parentTask.projectId]
+      const projB = b.kind === 'task' ? projects[b.head.projectId] : projects[b.parentTask.projectId]
+      const pa = projA?.name ?? ''
+      const pb = projB?.name ?? ''
       if (pa !== pb) return pa.localeCompare(pb)
-      return a.head.title.localeCompare(b.head.title)
+      const ta = a.head.title
+      const tb = b.head.title
+      return ta.localeCompare(tb)
     })
   }, [tasks, projects])
 
-  const handleStopRecurrence = (headId: string, title: string, futureCount: number) => {
+  const handleStopRecurrence = (entry: SeriesEntry) => {
+    const title = entry.head.title
+    const futureCount = entry.future.length
     const msg = futureCount > 0
-      ? `¿Eliminar la recurrencia de "${title}"?\n\nVan a desaparecer ${futureCount} instancia${futureCount > 1 ? 's' : ''} futura${futureCount > 1 ? 's' : ''} todavía no completada${futureCount > 1 ? 's' : ''}. La tarea HEAD se mantiene (sin recurrencia) y las completadas pasadas siguen en el historial.`
-      : `¿Eliminar la recurrencia de "${title}"?\n\nLa tarea HEAD se mantiene pero ya no se va a repetir.`
+      ? `¿Eliminar la recurrencia de "${title}"?\n\nVan a desaparecer ${futureCount} instancia${futureCount > 1 ? 's' : ''} futura${futureCount > 1 ? 's' : ''} todavía no completada${futureCount > 1 ? 's' : ''}. El HEAD se mantiene (sin recurrencia) y las completadas pasadas siguen en el historial.`
+      : `¿Eliminar la recurrencia de "${title}"?\n\nEl HEAD se mantiene pero ya no se va a repetir.`
     if (!confirm(msg)) return
-    // Orden importa:
-    // 1) Limpiar recurrence del head PRIMERO — si lo dejamos para
-    //    después, el post-set ensureRecurringBuffer dentro de
-    //    rebuildRecurringChain re-genera la cadena que recién borramos
-    //    (porque el head todavía tiene recurrence al momento del
-    //    ensureBuffer). Con recurrence ya limpia, ensureBuffer no-opea.
-    // 2) Nukear las instancias futuras — su filtro mira la recurrence
-    //    de CADA hija (no del head), así que sigue encontrándolas igual.
-    updateTask(headId, { recurrence: undefined })
-    rebuildRecurringChain(headId)
+    if (entry.kind === 'task') {
+      // Orden importa: limpiar recurrence ANTES de rebuildRecurringChain
+      // — el post-set ensureBuffer dentro de rebuild re-genera la cadena
+      // si la head todavía tiene recurrence. Con recurrence ya limpia,
+      // no-opea. El filtro de futuras mira recurrence de CADA hija así
+      // que las sigue encontrando igual.
+      updateTask(entry.head.id, { recurrence: undefined })
+      rebuildRecurringChain(entry.head.id)
+    } else {
+      // Subtarea: borramos recurrence del head + las hermanas futuras no
+      // completadas. No hay equivalent a rebuildRecurringChain para
+      // subtareas — las borramos a mano con deleteSubtask.
+      updateSubtask(entry.parentTask.id, entry.head.id, { recurrence: undefined })
+      for (const sub of entry.future) {
+        if (sub.completedAt) continue  // no tocar las completadas pasadas
+        deleteSubtask(entry.parentTask.id, sub.id)
+      }
+    }
   }
 
-  const handleDeleteSeriesCompletely = (headId: string, title: string, futureCount: number) => {
+  const handleDeleteSeriesCompletely = (entry: SeriesEntry) => {
+    const title = entry.head.title
+    const futureCount = entry.future.length
     if (!confirm(`¿Eliminar la serie "${title}" COMPLETA (head + ${futureCount} futura${futureCount !== 1 ? 's' : ''})? No se puede deshacer salvo restaurando desde la papelera.`)) return
-    // 1) Clear recurrence — sin esto el ensureBuffer del paso 2 re-fila
-    //    las instancias que estamos por borrar.
-    // 2) Nuke chain — borra las futuras vía rebuildRecurringChain (las
-    //    futuras todavía tienen su recurrence intacta así que el filtro
-    //    las encuentra).
-    // 3) Soft-delete head a la papelera.
-    updateTask(headId, { recurrence: undefined })
-    rebuildRecurringChain(headId)
-    deleteTask(headId)
+    if (entry.kind === 'task') {
+      updateTask(entry.head.id, { recurrence: undefined })
+      rebuildRecurringChain(entry.head.id)
+      deleteTask(entry.head.id)
+    } else {
+      // Subtarea: borrar la madre y todas las futuras hermanas (incluso
+      // las completadas no archivadas — el user pidió borrar TODO).
+      updateSubtask(entry.parentTask.id, entry.head.id, { recurrence: undefined })
+      for (const sub of entry.future) {
+        deleteSubtask(entry.parentTask.id, sub.id)
+      }
+      deleteSubtask(entry.parentTask.id, entry.head.id)
+    }
   }
 
   return (
@@ -1574,21 +1657,39 @@ function RecurringView({
         </div>
       ) : (
         <div className="space-y-2">
-          {series.map(({ key, head, future }) => {
-            const proj = projects[head.projectId]
+          {series.map((entry) => {
+            const head = entry.head
+            const proj = entry.kind === 'task'
+              ? projects[entry.head.projectId]
+              : projects[entry.parentTask.projectId]
             const recDesc = head.recurrence ? describeRecurrence(head.recurrence) : ''
+            const futureCount = entry.future.length
             return (
               <div
-                key={key}
+                key={entry.key}
                 className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-3 flex items-start gap-3 hover:border-white/[0.16] transition-colors"
                 style={{ borderLeft: `3px solid ${proj?.color ?? '#6366f1'}` }}
               >
                 <button
-                  onClick={() => onOpenTask(head)}
+                  onClick={() => {
+                    // Task → abrir TaskDetail del head.
+                    // Subtask → abrir TaskDetail de la madre (no hay
+                    // modal exclusivo de subtask accesible desde acá; el
+                    // user expande las subtasks dentro del detail).
+                    if (entry.kind === 'task') onOpenTask(entry.head)
+                    else onOpenTask(entry.parentTask)
+                  }}
                   className="flex-1 min-w-0 text-left"
-                  title="Editar la HEAD (cambios al título, hora, etc. se aplican solo a la head — las futuras instancias ya están materializadas con sus propios valores)"
+                  title={entry.kind === 'task'
+                    ? 'Editar el HEAD (cambios al título/hora/etc. solo aplican a la head — las futuras ya están materializadas)'
+                    : 'Abre la tarea madre — desde el detalle podés editar la subtarea recurrente HEAD'}
                 >
                   <div className="flex items-center gap-2 flex-wrap mb-1">
+                    {entry.kind === 'subtask' && (
+                      <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-700/40 border border-white/[0.08] text-zinc-400">
+                        subtarea
+                      </span>
+                    )}
                     <span className="text-sm font-medium text-zinc-100 truncate">{head.title}</span>
                     <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-300">
                       <Repeat className="w-2.5 h-2.5 inline-block mr-1 -mt-0.5" />
@@ -1597,16 +1698,22 @@ function RecurringView({
                   </div>
                   <div className="flex items-center gap-2 text-[11px] text-zinc-500 flex-wrap">
                     <span style={{ color: proj?.color ?? '#6366f1' }}>{proj?.name ?? 'Sin proyecto'}</span>
+                    {entry.kind === 'subtask' && (
+                      <>
+                        <span className="text-zinc-700">·</span>
+                        <span className="text-zinc-400 italic">en &quot;{entry.parentTask.title}&quot;</span>
+                      </>
+                    )}
                     {head.dueDate && (
                       <>
                         <span className="text-zinc-700">·</span>
                         <span>head: {head.dueDate}{head.dueTime ? ` ${head.dueTime}` : ''}</span>
                       </>
                     )}
-                    {future.length > 0 && (
+                    {futureCount > 0 && (
                       <>
                         <span className="text-zinc-700">·</span>
-                        <span className="text-zinc-400">{future.length} próxima{future.length !== 1 ? 's' : ''}</span>
+                        <span className="text-zinc-400">{futureCount} próxima{futureCount !== 1 ? 's' : ''}</span>
                       </>
                     )}
                     {head.recurrence?.until && (
@@ -1619,14 +1726,14 @@ function RecurringView({
                 </button>
                 <div className="flex flex-col gap-1 shrink-0">
                   <button
-                    onClick={() => handleStopRecurrence(head.id, head.title, future.length)}
-                    title="Borrar la recurrencia (mantiene la head, elimina las futuras instancias)"
+                    onClick={() => handleStopRecurrence(entry)}
+                    title="Borrar la recurrencia (mantiene el HEAD, elimina las futuras instancias)"
                     className="text-[10px] font-semibold px-2 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 transition-colors"
                   >
                     Detener recurrencia
                   </button>
                   <button
-                    onClick={() => handleDeleteSeriesCompletely(head.id, head.title, future.length)}
+                    onClick={() => handleDeleteSeriesCompletely(entry)}
                     title="Borrar la serie completa (head + futuras). Las completadas pasadas siguen en el historial."
                     className="text-[10px] font-semibold px-2 py-1 rounded bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-colors"
                   >

@@ -91,6 +91,57 @@ export function TaskDetail({ task, project, onClose }: Props) {
   // (this task disappears as a top-level entity, becomes a subtask).
   const [showMergeMenu, setShowMergeMenu] = useState(false)
 
+  // ── Scope prompt para edits sobre INSTANCIA HIJA recurrente ──
+  // Si el user edita campos propagables (title, dueTime, durationMinutes,
+  // description) en una HIJA, al cerrar el modal le preguntamos:
+  // "solo esta instancia" o "toda la serie". Si elige "toda la serie",
+  // el patch va a la madre y la lógica de updateTask propaga al resto.
+  //
+  // Patrón inspirado en GCal — la pregunta solo aparece si hubo cambios.
+  type PropFields = 'title' | 'dueTime' | 'durationMinutes' | 'description'
+  const isRecurringChild = !!(effective && effective.recurringHeadId && effective.recurringHeadId !== effective.id)
+  // Snapshot ORIGINAL — capturamos los valores al abrir el modal y al
+  // cambiar de tarea. Sirven de baseline para detectar diff al cerrar.
+  const originalSnapshotRef = useRef<Record<PropFields, unknown>>({
+    title: effective?.title,
+    dueTime: effective?.dueTime,
+    durationMinutes: effective?.durationMinutes,
+    description: effective?.description,
+  })
+  useEffect(() => {
+    originalSnapshotRef.current = {
+      title: effective?.title,
+      dueTime: effective?.dueTime,
+      durationMinutes: effective?.durationMinutes,
+      description: effective?.description,
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task?.id])
+
+  const [scopePrompt, setScopePrompt] = useState<null | {
+    motherId: string
+    patch: Partial<Task>
+  }>(null)
+
+  /** Cierra el modal con el flujo correcto: si la task editada es una
+   *  hija recurrente y hubo cambios en campos propagables, mostramos el
+   *  scope prompt antes de cerrar. */
+  const requestClose = () => {
+    if (!effective) { onClose(); return }
+    if (!isRecurringChild) { onClose(); return }
+    const motherId = effective.recurringHeadId
+    if (!motherId) { onClose(); return }
+    // Diff vs snapshot original.
+    const orig = originalSnapshotRef.current
+    const patch: Partial<Task> = {}
+    if (effective.title !== orig.title) patch.title = effective.title
+    if (effective.dueTime !== orig.dueTime) patch.dueTime = effective.dueTime
+    if (effective.durationMinutes !== orig.durationMinutes) patch.durationMinutes = effective.durationMinutes
+    if ((effective.description ?? undefined) !== (orig.description ?? undefined)) patch.description = effective.description
+    if (Object.keys(patch).length === 0) { onClose(); return }
+    setScopePrompt({ motherId, patch })
+  }
+
   if (!effective || !project) return null
 
   // Aliases used below so the JSX reads naturally.
@@ -112,7 +163,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 flex justify-end"
-        onClick={onClose}
+        onClick={requestClose}
       >
         <motion.div
           initial={{ x: '100%' }}
@@ -191,10 +242,26 @@ export function TaskDetail({ task, project, onClose }: Props) {
               >
                 <Trash2 className="w-5 h-5" />
               </button>
-              <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0 mt-1">
+              <button onClick={requestClose} className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0 mt-1">
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Banner "instancia recurrente" — solo cuando es una hija
+                (recurringHeadId apunta a otra task). Avisa al user que
+                los cambios pueden aplicarse a "solo esta" o "toda la
+                serie" cuando cierre el modal. */}
+            {isRecurringChild && (
+              <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-indigo-500/8 border border-indigo-500/25 text-[11px] text-indigo-200/90">
+                <Repeat className="w-3.5 h-3.5 mt-0.5 shrink-0 text-indigo-300" />
+                <div>
+                  <p className="font-semibold">Instancia de una serie recurrente</p>
+                  <p className="text-[10px] text-indigo-300/70 mt-0.5">
+                    Al cerrar te vamos a preguntar si los cambios (título, hora, duración, descripción) aplican a esta sola o a toda la serie.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Project — click to move task to another project */}
             <div className="relative">
@@ -615,6 +682,67 @@ export function TaskDetail({ task, project, onClose }: Props) {
           )
         })()}
       </motion.div>
+
+      {/* Scope prompt — pregunta "solo esta instancia" o "toda la serie"
+          al cerrar el modal cuando estabas editando una HIJA recurrente
+          y hubo cambios en campos propagables. Mismo patrón que el move/
+          delete-scope de eventos GCal en CalendarPage. */}
+      {scopePrompt && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          onClick={() => setScopePrompt(null)}
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+        >
+          <motion.div
+            initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm bg-zinc-900/95 border border-white/[0.10] rounded-2xl shadow-2xl p-5"
+          >
+            <h3 className="text-sm font-bold text-white mb-1">
+              Cambios en una instancia recurrente
+            </h3>
+            <p className="text-xs text-zinc-500 mb-4">
+              Editaste {Object.keys(scopePrompt.patch).length} campo{Object.keys(scopePrompt.patch).length > 1 ? 's' : ''} de esta instancia. ¿Aplicar solo a esta o a toda la serie?
+            </p>
+            <div className="space-y-2">
+              <button
+                onClick={() => {
+                  // "Solo esta" — los cambios ya están aplicados a la
+                  // hija (live edit). No hacemos nada más.
+                  setScopePrompt(null)
+                  onClose()
+                }}
+                className="w-full text-left px-3 py-2.5 bg-zinc-800 hover:bg-white/[0.08] rounded-lg text-sm text-zinc-200 transition-colors"
+              >
+                📌 Solo esta instancia
+                <p className="text-[10px] text-zinc-500 mt-0.5">Los cambios quedan locales a esta tarea. Las hermanas y la madre no se tocan.</p>
+              </button>
+              <button
+                onClick={() => {
+                  // "Toda la serie" — re-aplicamos el patch a la MADRE.
+                  // El updateTask propaga a hijas con dueDate >= today
+                  // (incluyendo esta misma, que ya tiene los valores
+                  // nuevos — la propagación es no-op sobre ella).
+                  const { motherId, patch } = scopePrompt
+                  updateTask(motherId, patch)
+                  setScopePrompt(null)
+                  onClose()
+                }}
+                className="w-full text-left px-3 py-2.5 bg-indigo-500/15 border border-indigo-500/40 hover:bg-indigo-500/25 rounded-lg text-sm text-indigo-300 transition-colors"
+              >
+                🔁 Toda la serie
+                <p className="text-[10px] text-indigo-400/70 mt-0.5">Los cambios van a la madre y se propagan a las hijas próximas (dueDate ≥ hoy). Las pasadas no se tocan.</p>
+              </button>
+              <button
+                onClick={() => setScopePrompt(null)}
+                className="w-full px-3 py-2 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                Seguir editando
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
     </AnimatePresence>
   )
 }

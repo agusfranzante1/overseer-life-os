@@ -88,6 +88,15 @@ interface TasksState {
    *  si la cadena ya está completa, no hace nada. Se llama al crear
    *  una recurrente Y al agregar recurrence a una tarea existente. */
   ensureRecurringBuffer: (taskId: string, lookaheadCount?: number) => void
+  /** Migración one-shot: backfill el campo `recurringHeadId` para datos
+   *  pre-existentes (cuando el modelo de "madre persistente" no existía).
+   *  Para cada serie matched por projectId + título normalizado,
+   *  identifica la madre (instancia con dueDate más vieja no archivada)
+   *  y le pone `recurringHeadId === id` (auto-referencia). Las demás
+   *  hijas (con o sin dueDate posterior) reciben `recurringHeadId =
+   *  motherId`. Idempotente: si todas las tasks ya tienen el field,
+   *  no toca nada. */
+  migrateRecurringHeads: () => void
   /** Borra todas las instancias futuras NO completadas de la cadena
    *  recurrente del head dado y re-arma con `ensureRecurringBuffer`.
    *  Lo usamos al CAMBIAR la regla de recurrencia para evitar tasks
@@ -361,6 +370,15 @@ export const useTasksStore = create<TasksState>()(
           ? { ...t, durationMinutes: 60 }
           : t
         const task: Task = { ...withDefaults, id, createdAt: now, updatedAt: now }
+        // Si la task viene con recurrencia Y SIN un recurringHeadId
+        // explícito (caso típico: el user creó una nueva recurrente
+        // desde TaskDetail), esta task ES la madre. La auto-asignamos
+        // para que el spawn use sus campos como template. Si vino con
+        // un recurringHeadId ya seteado (caso de spawn interno desde
+        // ensureRecurringBuffer), respetamos ese valor.
+        if (task.recurrence && !task.recurringHeadId) {
+          task.recurringHeadId = id
+        }
         set((s) => ({
           tasks: { ...s.tasks, [id]: task },
           projects: {
@@ -414,6 +432,12 @@ export const useTasksStore = create<TasksState>()(
           if (!head?.recurrence || !head.dueDate) return s
           const tasks = { ...s.tasks }
           let projects = s.projects
+          // La MADRE de la cadena — fuente de verdad para template
+          // (título, dueTime, durationMinutes, recurrence). Si el head
+          // tiene recurringHeadId la buscamos por ahí; si no, el head
+          // mismo es la madre (compat con datos pre-migración).
+          const mother = (head.recurringHeadId && s.tasks[head.recurringHeadId]) || head
+          const motherId = mother.id
 
           // ─── Ventana semanal Lun→Dom de la dueDate del head ───
           // Si el head es Sábado, la "semana" es esa Lun anterior → Dom
@@ -436,38 +460,42 @@ export const useTasksStore = create<TasksState>()(
           const weekEndYmd = fmtYmd(weekEnd)
 
           // GUARD anti-duplicados: dado un dueDate target, devuelve true
-          // si ya existe una task de la "misma serie" (mismo projectId +
-          // title + recurrence definida) con ese dueDate. Esto evita que
+          // si ya existe una task de la "misma serie" (matched por
+          // recurringHeadId == motherId) con ese dueDate. Esto evita que
           // múltiples llamadas a ensureRecurringBuffer (por re-render,
           // por toggle de chip de día, etc.) generen tasks con fechas
-          // repetidas.
+          // repetidas. Fallback para data pre-migración: match por
+          // projectId + título de la madre.
           const dupeExists = (targetDue: string) =>
             Object.values(tasks).some((t) =>
               t.id !== taskId
-              && t.projectId === head.projectId
-              && t.title === head.title
               && t.dueDate === targetDue
               && !t.archivedAt
-              && !!t.recurrence,
+              && !!t.recurrence
+              && (
+                t.recurringHeadId === motherId
+                || (!t.recurringHeadId && t.projectId === mother.projectId && t.title === mother.title)
+              ),
             )
 
           // Avanzar al final de la cadena ya existente — desde acá vamos
           // a spawnear hacia adelante hasta el corte semanal. Walk by
           // dueDate: buscamos el sucesor con dueDate más cercano > prev,
-          // dentro de la ventana semanal. Esto es más robusto que walk
-          // por recurrence porque no depende de que el flag spawnedNext
-          // esté coherente.
+          // dentro de la ventana semanal. Match por recurringHeadId
+          // (fallback título legacy).
           let prevDue = head.dueDate
           for (let safety = 0; safety < lookaheadCount; safety++) {
             const candidates = Object.values(tasks).filter((t) =>
               t.id !== taskId
-              && t.projectId === head.projectId
-              && t.title === head.title
               && !t.archivedAt
               && !!t.recurrence
               && !!t.dueDate
               && t.dueDate > prevDue
-              && t.dueDate <= weekEndYmd,
+              && t.dueDate <= weekEndYmd
+              && (
+                t.recurringHeadId === motherId
+                || (!t.recurringHeadId && t.projectId === mother.projectId && t.title === mother.title)
+              ),
             ).sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))
             if (candidates.length === 0) break
             prevDue = candidates[0].dueDate!
@@ -489,10 +517,14 @@ export const useTasksStore = create<TasksState>()(
               continue
             }
             const newId = genId()
-            const proj = projects[head.projectId]
+            const proj = projects[mother.projectId]
             const todoStatus = proj?.statuses[0]?.label ?? 'To Do'
+            // SPAWN desde la MADRE — su título, dueTime, durationMinutes,
+            // priority, importance, description, recurrence son la
+            // fuente de verdad. Si una hija fue renombrada localmente, no
+            // contamina los próximos spawns.
             tasks[newId] = {
-              ...head,
+              ...mother,
               id: newId,
               dueDate: next,
               status: todoStatus,
@@ -501,12 +533,13 @@ export const useTasksStore = create<TasksState>()(
               createdAt: nowIso,
               updatedAt: nowIso,
               postponedCount: 0,
-              subtasks: (head.subtasks ?? []).map((sub) => ({
+              subtasks: (mother.subtasks ?? []).map((sub) => ({
                 ...sub, id: genId(), completed: false, completedAt: undefined, status: todoStatus,
               })),
               recurrenceSpawnedNext: false,
               gcalEventId: undefined,
               gcalCalendarId: undefined,
+              recurringHeadId: motherId,
             }
             if (proj) {
               projects = {
@@ -535,20 +568,22 @@ export const useTasksStore = create<TasksState>()(
         set((s) => {
           const head = s.tasks[taskId]
           if (!head) return s
-          // Identificamos "futuras de la cadena": mismas projectId +
-          // title + recurrence definida + dueDate estrictamente > head +
-          // no completadas + no archivadas.
-          const toDelete = Object.values(s.tasks).filter((t) =>
-            t.id !== taskId
-            && t.projectId === head.projectId
-            && t.title === head.title
-            && !!t.recurrence
-            && !!t.dueDate
-            && !!head.dueDate
-            && t.dueDate > head.dueDate
-            && !t.completedAt
-            && !t.archivedAt,
-          ).map((t) => t.id)
+          // Identificamos "futuras de la cadena": preferimos match por
+          // recurringHeadId (modelo nuevo); fallback a projectId + título
+          // para datos pre-migración.
+          const motherId = head.recurringHeadId ?? head.id
+          const toDelete = Object.values(s.tasks).filter((t) => {
+            if (t.id === taskId) return false
+            if (!t.recurrence) return false
+            if (!t.dueDate || !head.dueDate) return false
+            if (t.dueDate <= head.dueDate) return false
+            if (t.completedAt || t.archivedAt) return false
+            // Match preferente por recurringHeadId.
+            if (t.recurringHeadId && t.recurringHeadId === motherId) return true
+            // Fallback legacy.
+            if (!t.recurringHeadId && t.projectId === head.projectId && t.title === head.title) return true
+            return false
+          }).map((t) => t.id)
           if (toDelete.length === 0) return s
           const tasks = { ...s.tasks }
           const projects = { ...s.projects }
@@ -619,6 +654,12 @@ export const useTasksStore = create<TasksState>()(
 
           const merged = { ...prev, ...patch, ...completedAtPatch, ...priorityPatch, ...durationPatch, updatedAt: new Date().toISOString() }
           nextTask = merged
+          // Si el user agregó recurrence a una tarea existente sin
+          // recurringHeadId previo, esta task se vuelve LA MADRE de su
+          // propia serie (auto-referencia).
+          if (merged.recurrence && !merged.recurringHeadId) {
+            merged.recurringHeadId = id
+          }
           // Flag: ¿la patch acaba de AGREGAR recurrence o cambió su kind?
           // Si sí, después del set() vamos a disparar el buffer para que
           // la semana entera se vea instantáneamente. Importante: solo
@@ -636,11 +677,36 @@ export const useTasksStore = create<TasksState>()(
             'completedAt' in completedAtPatch ||
             'durationMinutes' in durationPatch
 
+          // ── Propagación MADRE → HIJAS FUTURAS ────────────────────────
+          // Si la task editada es la madre de una cadena recurrente
+          // (recurringHeadId === id) y la patch toca campos "de template"
+          // — título, dueTime, durationMinutes, description — aplicamos
+          // los mismos cambios a las hijas con `dueDate >= today` (las
+          // futuras o de hoy). Las pasadas mantienen su estado histórico
+          // y las que el user customizó individualmente se sobreescriben
+          // — tradeoff aceptado a cambio de simplicidad. */
+          let tasksMap = { ...s.tasks, [id]: merged }
+          const isMother = merged.recurringHeadId === id
+          const propagatableKeys = ['title', 'dueTime', 'durationMinutes', 'description'] as const
+          const propagatable: Partial<Task> = {}
+          for (const k of propagatableKeys) {
+            if (k in patch) (propagatable as Record<string, unknown>)[k] = patch[k]
+          }
+          if (isMother && Object.keys(propagatable).length > 0) {
+            const todayKey = new Date().toISOString().slice(0, 10)
+            for (const t of Object.values(tasksMap)) {
+              if (t.id === id) continue
+              if (t.recurringHeadId !== id) continue
+              if (t.archivedAt) continue
+              if (!t.dueDate || t.dueDate < todayKey) continue
+              tasksMap = {
+                ...tasksMap,
+                [t.id]: { ...t, ...propagatable, updatedAt: new Date().toISOString() },
+              }
+            }
+          }
           return {
-            tasks: {
-              ...s.tasks,
-              [id]: merged,
-            },
+            tasks: tasksMap,
           }
         })
         // Si la patch acaba de agregar/cambiar recurrence, NUKEAMOS las
@@ -950,7 +1016,13 @@ export const useTasksStore = create<TasksState>()(
             const subsChanged = updatedSubs.some((st, i) => st !== t.subtasks?.[i])
 
             // ── Parent task: misma regla híbrida.
-            if (!t.archivedAt) {
+            // EXCEPCIÓN: las MADRES recurrentes (t.recurringHeadId === t.id)
+            // no se archivan nunca por auto-purge — son el ancla persistente
+            // de la cadena. Aunque el user las complete, quedan visibles en
+            // la vista "Recurrentes" para poder editarlas o detener la
+            // cadena. Solo se eliminan vía "Borrar todo" desde esa vista.
+            const isRecurringMother = t.recurringHeadId === t.id
+            if (!t.archivedAt && !isRecurringMother) {
               const statusDef = proj.statuses.find((st) => st.label === t.status)
               if (statusDef?.countsAsDone && t.completedAt) {
                 const completedKey = dateKeyInTz(new Date(t.completedAt), timezone)
@@ -988,13 +1060,17 @@ export const useTasksStore = create<TasksState>()(
         set((s) => {
           const tasks = { ...s.tasks }
           let projects = s.projects
-          // 1) Agrupar tasks recurrentes por serie (mismo project + title).
+          // 1) Agrupar tasks recurrentes por serie — preferimos
+          //    recurringHeadId; fallback a projectId+título para datos
+          //    pre-migración.
           const byKey = new Map<string, Task[]>()
           for (const t of Object.values(s.tasks)) {
             if (!t.recurrence) continue
             if (!t.dueDate) continue
             if (t.archivedAt) continue
-            const key = `${t.projectId}::${t.title}`
+            const key = t.recurringHeadId
+              ? `head:${t.recurringHeadId}`
+              : `legacy:${t.projectId}::${t.title}`
             if (!byKey.has(key)) byKey.set(key, [])
             byKey.get(key)!.push(t)
           }
@@ -1006,7 +1082,16 @@ export const useTasksStore = create<TasksState>()(
             const sorted = arr.sort((a, b) => (b.dueDate ?? '').localeCompare(a.dueDate ?? ''))
             const tail = sorted[0]                 // dueDate más nueva
             if (!tail.dueDate || tail.dueDate >= todayKey) continue
-            const nextDueDate = nextRecurrenceDueDate(tail.dueDate, tail.recurrence!)
+            // MADRE de la serie — fuente de template. Si tail tiene
+            // recurringHeadId, lookup directo; sino la madre es el item
+            // con dueDate más vieja del grupo (sorted ascendente: el último).
+            const motherFromId = tail.recurringHeadId ? s.tasks[tail.recurringHeadId] : undefined
+            const mother = motherFromId
+              ?? [...arr].sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))[0]
+            const motherId = mother.id
+            // Recurrence rule del SPAWN viene de la madre (no del tail) —
+            // si la madre cambió el kind, los próximos spawns lo respetan.
+            const nextDueDate = nextRecurrenceDueDate(tail.dueDate, mother.recurrence!)
             if (!nextDueDate) continue            // serie terminó (until)
             // Si ya existe una task con esa fecha en la serie, skip
             // (idempotente — múltiples llamadas no duplican).
@@ -1014,9 +1099,9 @@ export const useTasksStore = create<TasksState>()(
             if (dupe) continue
 
             const newId = genId()
-            const proj = s.projects[tail.projectId]
+            const proj = s.projects[mother.projectId]
             const todoStatus = proj?.statuses[0]?.label ?? 'To Do'
-            const freshSubs: Subtask[] = (tail.subtasks ?? [])
+            const freshSubs: Subtask[] = (mother.subtasks ?? [])
               .filter((sub) => !sub.archivedAt)
               .map((sub) => ({
                 ...sub,
@@ -1026,7 +1111,7 @@ export const useTasksStore = create<TasksState>()(
                 status: todoStatus,
               }))
             tasks[newId] = {
-              ...tail,
+              ...mother,
               id: newId,
               dueDate: nextDueDate,
               status: todoStatus,
@@ -1037,6 +1122,9 @@ export const useTasksStore = create<TasksState>()(
               postponedCount: 0,
               subtasks: freshSubs,
               recurrenceSpawnedNext: false,
+              recurringHeadId: motherId,
+              gcalEventId: undefined,
+              gcalCalendarId: undefined,
             }
             if (proj) {
               projects = {
@@ -1535,6 +1623,45 @@ export const useTasksStore = create<TasksState>()(
               [taskId]: { ...t, subtasks: next, updatedAt: new Date().toISOString() },
             },
           }
+        }),
+
+      migrateRecurringHeads: () =>
+        set((s) => {
+          // Datos pre-migración no tenían `recurringHeadId`. Agrupamos por
+          // projectId + título normalizado (mismo critero que usaba el spawn
+          // legacy) y elegimos como MADRE a la instancia con dueDate más
+          // vieja (no archivada). El resto reciben recurringHeadId = motherId.
+          //
+          // Idempotente: si la task ya tiene recurringHeadId seteado, no la
+          // tocamos. Si una serie completa ya está migrada, el loop no hace
+          // ningún cambio. Safe de correr en cada mount.
+          const norm = (t: string) =>
+            t.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+          const groups = new Map<string, Task[]>()
+          for (const t of Object.values(s.tasks)) {
+            if (!t.recurrence) continue
+            if (t.recurringHeadId) continue       // ya migrada
+            if (t.archivedAt) continue
+            const key = `${t.projectId}::${norm(t.title)}`
+            if (!groups.has(key)) groups.set(key, [])
+            groups.get(key)!.push(t)
+          }
+          if (groups.size === 0) return s
+          const tasks = { ...s.tasks }
+          for (const arr of groups.values()) {
+            // Madre = dueDate más vieja. Empate → createdAt.
+            const sorted = [...arr].sort((a, b) => {
+              const da = (a.dueDate ?? '9999-99-99')
+              const db = (b.dueDate ?? '9999-99-99')
+              if (da !== db) return da.localeCompare(db)
+              return (a.createdAt ?? '').localeCompare(b.createdAt ?? '')
+            })
+            const motherId = sorted[0].id
+            for (const t of arr) {
+              tasks[t.id] = { ...t, recurringHeadId: motherId }
+            }
+          }
+          return { tasks }
         }),
     }),
     { name: 'overseer-tasks' }

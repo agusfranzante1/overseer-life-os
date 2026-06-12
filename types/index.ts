@@ -134,6 +134,22 @@ export interface Task {
    *  desde esta task — sea por completion explícita o por overdue auto.
    *  Evita que se cree más de una copia para la misma ocurrencia. */
   recurrenceSpawnedNext?: boolean
+  /** ID de la "tarea madre" de la cadena recurrente. La madre es la
+   *  primera task creada con esta recurrencia — actúa como TEMPLATE
+   *  persistente: spawneamos nuevas instancias usando su título, dueTime,
+   *  recurrence, etc. (no los de la última hija, que pudo ser renombrada
+   *  localmente).
+   *
+   *  Reglas:
+   *  - La madre tiene `recurringHeadId === id` (auto-referencia).
+   *  - Las hijas tienen `recurringHeadId === id_de_la_madre`.
+   *  - El auto-purge nocturno NO archiva la madre, así nunca se pierde
+   *    el ancla aunque el user la complete. Las hijas se archivan normal.
+   *  - Borrar una madre desde la vista "Recurrentes" elimina toda la
+   *    cadena (madre + hijas futuras).
+   *  - Renombrar la madre se propaga a hijas con `dueDate >= today`.
+   *    Las hijas pasadas mantienen su título histórico. */
+  recurringHeadId?: string
   /** Override por-tarea de "cuánto tiempo antes" notificar. Si no está
    *  definido, se usa el valor global de `notificationPrefs.taskDueLeadMinutes`. */
   notifyBeforeMinutes?: number

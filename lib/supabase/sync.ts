@@ -259,6 +259,10 @@ async function pushTasks() {
     // proyectos type='subject'). Requiere migration_subjects_content.sql.
     parcial_id:            t.parcialId            ?? null,
     rescheduled_from:      t.rescheduledFrom      ?? null,
+    // Ancla persistente de la cadena recurrente — la madre tiene
+    // recurringHeadId === id; las hijas apuntan a su id. Requiere
+    // migration_recurring_head_id.sql aplicada.
+    recurring_head_id:     t.recurringHeadId      ?? null,
     created_at: t.createdAt,
     updated_at: t.updatedAt,
   }))
@@ -424,6 +428,7 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
       recurrence:           (t.recurrence            as import('@/types').TaskRecurrence) ?? undefined,
       parcialId:            (t.parcial_id            as string) ?? undefined,
       rescheduledFrom:      (t.rescheduled_from      as string) ?? undefined,
+      recurringHeadId:      (t.recurring_head_id     as string) ?? undefined,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any])),
   })

@@ -91,6 +91,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const spawnAdvanceDow = useAppStore((s) => s.recurringSpawnAdvanceDayOfWeek)
   const archiveCompletedBefore = useTasksStore((s) => s.archiveCompletedBefore)
   const ensureRecurringSpawns = useTasksStore((s) => s.ensureRecurringSpawns)
+  const migrateRecurringHeads = useTasksStore((s) => s.migrateRecurringHeads)
   const ensureWaitingStatusInAllProjects = useTasksStore((s) => s.ensureWaitingStatusInAllProjects)
   const processRecurringExpenses = useWalletStore((s) => s.processRecurringExpenses)
   const sidebarWidth = sidebarCollapsed ? 64 : 220
@@ -104,9 +105,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // caso donde los proyectos vienen de Supabase post-init.
   useEffect(() => {
     ensureWaitingStatusInAllProjects()
-    const late = setTimeout(() => ensureWaitingStatusInAllProjects(), 10_000)
+    migrateRecurringHeads()
+    const late = setTimeout(() => {
+      ensureWaitingStatusInAllProjects()
+      // Re-correr post sync de Supabase: las series viejas pulled del
+      // backend también necesitan el backfill de recurringHeadId.
+      migrateRecurringHeads()
+    }, 10_000)
     return () => clearTimeout(late)
-  }, [ensureWaitingStatusInAllProjects])
+  }, [ensureWaitingStatusInAllProjects, migrateRecurringHeads])
 
   // Auto-purge completed tasks. Three triggers, layered for robustness:
   //   1. On mount (immediately) — covers most refreshes/visits
