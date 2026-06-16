@@ -48,6 +48,17 @@ export function SPIPage() {
 
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
+
+  // Auto-corrección one-shot de los snapshots de calendario congelados que
+  // quedaron con la semana equivocada (bug de offset que apuntaba a la
+  // semana anterior). Corre una vez al montar — el store ya está hidratado
+  // desde localStorage, así que las tareas de cada semana están disponibles.
+  // Idempotente: solo toca las que están mal; las correctas se saltean.
+  const fixCalendarSnapshotWeeks = useSPIStore((s) => s.fixCalendarSnapshotWeeks)
+  useEffect(() => {
+    fixCalendarSnapshotWeeks()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [showHistory, setShowHistory] = useState(false)
   // `showClose` holds the session id about to be closed (null = closed-modal
   // not shown). Was a boolean back when the page only edited one session;

@@ -7,7 +7,7 @@ import { useTasksStore } from './tasksStore'
 import { useKpisStore } from './kpisStore'
 import { computeSessionXP, totalXPFromSessions, levelFromXP, didLevelUp, type SessionXP } from '@/lib/spi/gamification'
 import { buildWeekSnapshot } from '@/lib/spi/weekSnapshot'
-import { buildCalendarSnapshot } from '@/lib/spi/calendarSnapshot'
+import { buildCalendarSnapshot, calendarMondayForSpiWeek } from '@/lib/spi/calendarSnapshot'
 
 function genId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
@@ -135,6 +135,13 @@ interface SPIState {
    *  se habían auto-archivado). Devuelve cuántos bloques quedaron en el
    *  snapshot del calendario. */
   recaptureSnapshots: (sessionId: string) => number
+  /** Migración auto-sanadora: corrige TODOS los `calendarSnapshot`
+   *  congelados que quedaron con la semana equivocada (bug de offset que
+   *  apuntaba a la semana anterior). Para cada sesión cuyo snapshot tiene
+   *  un `weekStartDate` distinto al lunes CORRECTO de su semana, lo
+   *  re-captura con la lógica arreglada. Las que ya están bien se saltean
+   *  (idempotente, no hay drift). Devuelve cuántas corrigió. */
+  fixCalendarSnapshotWeeks: () => number
 
   // ─── Bitácora de Calibración (cross-session DB) ─────────────────
   addBitacoraEntry: (e: Omit<BitacoraEntry, 'id' | 'createdAt' | 'updatedAt'>) => string
@@ -365,6 +372,27 @@ export const useSPIStore = create<SPIState>()(
           ),
         }))
         return calendarSnapshot.blocks.length
+      },
+
+      fixCalendarSnapshotWeeks: () => {
+        let fixed = 0
+        set((s) => {
+          let changed = false
+          const sessions = s.sessions.map((sess) => {
+            if (!sess.calendarSnapshot) return sess
+            const correctMonday = calendarMondayForSpiWeek(sess.weekStartDate)
+            // Ya está bien → no tocar (evita drift al re-leer estado live).
+            if (sess.calendarSnapshot.weekStartDate === correctMonday) return sess
+            // Semana equivocada (congelada con el bug) → re-capturar con la
+            // lógica corregida, leyendo el mejor estado disponible ahora.
+            const fresh = buildCalendarSnapshot(sess.weekStartDate)
+            fixed++
+            changed = true
+            return { ...sess, calendarSnapshot: fresh }
+          })
+          return changed ? { sessions } : s
+        })
+        return fixed
       },
 
       addBitacoraEntry: (e) => {

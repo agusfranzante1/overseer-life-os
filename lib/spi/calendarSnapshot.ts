@@ -18,7 +18,7 @@ import { useGoogleCalendarStore } from '@/lib/store/googleCalendarStore'
  *  por `weekStartDate` (sábado), pero el calendario muestra lunes-a-domingo.
  *  El lunes que arranca la semana del calendario es 2 días después del
  *  sábado de la session (Sáb → Dom → Lun). */
-function calendarMondayForSpiWeek(spiWeekStartDate: string): string {
+export function calendarMondayForSpiWeek(spiWeekStartDate: string): string {
   const [y, m, d] = spiWeekStartDate.split('-').map(Number)
   const sat = new Date(y, m - 1, d, 12, 0, 0)
   // El SPI del sábado PLANIFICA la semana que ARRANCA el lunes siguiente
