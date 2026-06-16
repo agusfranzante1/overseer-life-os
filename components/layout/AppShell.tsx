@@ -8,6 +8,7 @@ import { useTasksStore } from '@/lib/store/tasksStore'
 import { useWalletStore } from '@/lib/store/walletStore'
 import { Sidebar } from './Sidebar'
 import { TitleUpdater } from './TitleUpdater'
+import { ThemeStyleInjector } from './ThemeStyleInjector'
 import { ChatBox } from '@/components/chat/ChatBox'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useSupabaseSync } from '@/lib/supabase/sync'
@@ -85,6 +86,7 @@ function isDowAfter(d: number, anchor: number): boolean {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed)
+  const theme = useAppStore((s) => s.theme)
   const timezone = useAppStore((s) => s.timezone)
   const autoPurgeCompletedTasks = useAppStore((s) => s.autoPurgeCompletedTasks)
   const spawnAdvanceHour = useAppStore((s) => s.recurringSpawnAdvanceHour)
@@ -97,6 +99,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const sidebarWidth = sidebarCollapsed ? 64 : 220
 
   useSupabaseSync()
+
+  // Aplica el modo de color a <html> cuando cambia la preferencia. El
+  // anti-FOUC script (layout.tsx) ya seteó la clase correcta antes del
+  // primer paint leyendo localStorage; este effect la mantiene en sync
+  // cuando el user togglea en runtime (y cubre el caso post-hidratación
+  // donde el store rehidrató una preferencia distinta a la del markup).
+  useEffect(() => {
+    const el = document.documentElement
+    if (theme === 'light') {
+      el.classList.add('theme-light')
+      el.classList.remove('dark')
+    } else {
+      el.classList.add('dark')
+      el.classList.remove('theme-light')
+    }
+  }, [theme])
 
   // Migración one-shot: agrega el status "Waiting" a proyectos viejos
   // que solo tenían los 5 statuses originales. Idempotente — los
@@ -289,10 +307,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('overseer-sync-error', handler)
   }, [])
 
-  if (isAuthPage) return <>{children}</>
+  if (isAuthPage) return <><ThemeStyleInjector />{children}</>
 
   return (
     <div className="flex h-screen bg-zinc-950 overflow-hidden">
+      {/* Inyecta los overrides de color custom (Configuración → Apariencia).
+          Renderiza un <style> global o null si no hay customización. */}
+      <ThemeStyleInjector />
       {/* Updates document.title to "OVERSEER · {section}" on every route
           change so the browser tab shows where the user is. Renders no DOM. */}
       <TitleUpdater />

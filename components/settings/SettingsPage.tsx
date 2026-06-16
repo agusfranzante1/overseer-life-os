@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Settings as SettingsIcon, Bot, Eye, EyeOff, Check, X, Loader2, ExternalLink, AlertCircle, Calendar, Copy, CheckCheck, Link2, Link2Off, Upload, Database, FileJson } from 'lucide-react'
+import { Settings as SettingsIcon, Bot, Eye, EyeOff, Check, X, Loader2, ExternalLink, AlertCircle, Calendar, Copy, CheckCheck, Link2, Link2Off, Upload, Database, FileJson, Palette, Sun, Moon, RotateCcw } from 'lucide-react'
 import { useAppStore } from '@/lib/store/appStore'
 import { useGoogleCalendarStore } from '@/lib/store/googleCalendarStore'
 import { useFoodStore } from '@/lib/store/foodStore'
@@ -578,6 +578,7 @@ export function SettingsPage() {
         )}
       </section>
 
+      <AppearanceSection />
       <PushNotificationsSection />
       <NotificationPrefsSection />
       <GoogleCalendarSection />
@@ -586,6 +587,188 @@ export function SettingsPage() {
       <BackupImportSection />
     </motion.div>
   )
+}
+
+// ─── Apariencia: tema + colores custom ────────────────────────────────────────
+
+// Defaults que muestran los pickers cuando el usuario no customizó nada.
+// Deben matchear globals.css (--app-bg dark/light y --app-accent).
+const DEFAULT_DARK_BG = '#0a0e15'
+const DEFAULT_LIGHT_BG = '#f3f4f6'
+const DEFAULT_ACCENT = '#6366f1'
+
+const ACCENT_PRESETS = [
+  { label: 'Índigo', value: '#6366f1' },
+  { label: 'Violeta', value: '#8b5cf6' },
+  { label: 'Esmeralda', value: '#10b981' },
+  { label: 'Cian', value: '#06b6d4' },
+  { label: 'Ámbar', value: '#f59e0b' },
+  { label: 'Rosa', value: '#ec4899' },
+  { label: 'Rojo', value: '#ef4444' },
+  { label: 'Azul', value: '#3b82f6' },
+]
+
+function AppearanceSection() {
+  const theme = useAppStore((s) => s.theme)
+  const setTheme = useAppStore((s) => s.setTheme)
+  const themeColors = useAppStore((s) => s.themeColors)
+  const setThemeColor = useAppStore((s) => s.setThemeColor)
+  const resetThemeColors = useAppStore((s) => s.resetThemeColors)
+
+  const hasCustom = !!(themeColors.darkBg || themeColors.lightBg || themeColors.accent)
+
+  return (
+    <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Palette className="w-5 h-5 text-indigo-400" />
+          <h2 className="text-sm font-bold text-white">Apariencia</h2>
+        </div>
+        {hasCustom && (
+          <button
+            onClick={resetThemeColors}
+            className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
+          >
+            <RotateCcw className="w-3 h-3" /> Restaurar colores
+          </button>
+        )}
+      </div>
+
+      {/* Tema activo */}
+      <div>
+        <p className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 mb-2">Tema</p>
+        <div className="inline-flex bg-zinc-950 border border-zinc-800 rounded-xl p-1">
+          {(['dark', 'light'] as const).map((mode) => {
+            const active = theme === mode
+            const Icon = mode === 'dark' ? Moon : Sun
+            return (
+              <button
+                key={mode}
+                onClick={() => setTheme(mode)}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  active ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-200'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" /> {mode === 'dark' ? 'Oscuro' : 'Claro'}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Fondos por tema */}
+      <div>
+        <p className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 mb-2">Fondo de la app</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <ColorRow
+            label="Fondo — tema oscuro"
+            value={themeColors.darkBg ?? DEFAULT_DARK_BG}
+            isCustom={!!themeColors.darkBg}
+            onChange={(v) => setThemeColor('darkBg', v)}
+            onReset={() => setThemeColor('darkBg', null)}
+          />
+          <ColorRow
+            label="Fondo — tema claro"
+            value={themeColors.lightBg ?? DEFAULT_LIGHT_BG}
+            isCustom={!!themeColors.lightBg}
+            onChange={(v) => setThemeColor('lightBg', v)}
+            onReset={() => setThemeColor('lightBg', null)}
+          />
+        </div>
+      </div>
+
+      {/* Acento */}
+      <div>
+        <p className="text-[11px] font-mono uppercase tracking-wider text-zinc-500 mb-2">
+          Color de acento <span className="normal-case tracking-normal text-zinc-600">· botones, nav y resaltados</span>
+        </p>
+        <ColorRow
+          label="Acento principal"
+          value={themeColors.accent ?? DEFAULT_ACCENT}
+          isCustom={!!themeColors.accent}
+          onChange={(v) => setThemeColor('accent', v)}
+          onReset={() => setThemeColor('accent', null)}
+        />
+        <div className="flex flex-wrap gap-1.5 mt-3">
+          {ACCENT_PRESETS.map((p) => {
+            const selected = (themeColors.accent ?? DEFAULT_ACCENT).toLowerCase() === p.value.toLowerCase()
+            return (
+              <button
+                key={p.value}
+                onClick={() => setThemeColor('accent', p.value === DEFAULT_ACCENT ? null : p.value)}
+                title={p.label}
+                className={`w-7 h-7 rounded-lg border-2 transition-transform hover:scale-110 ${
+                  selected ? 'border-white' : 'border-transparent'
+                }`}
+                style={{ background: p.value }}
+              />
+            )
+          })}
+        </div>
+        <p className="text-[11px] text-zinc-500 leading-relaxed mt-3">
+          El acento recolorea los botones primarios y el ítem activo del menú (las
+          familias índigo/violeta). El verde de &quot;ok / sincronizado&quot; y los
+          colores propios de cada módulo no se tocan.
+        </p>
+      </div>
+    </section>
+  )
+}
+
+/** Fila de color reutilizable: swatch + input nativo de color + hex
+ *  editable + botón de reset (solo si el valor está customizado). */
+function ColorRow({
+  label, value, isCustom, onChange, onReset,
+}: {
+  label: string
+  value: string
+  isCustom: boolean
+  onChange: (v: string) => void
+  onReset: () => void
+}) {
+  return (
+    <div className="flex items-center gap-3 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5">
+      <label className="relative shrink-0 w-9 h-9 rounded-lg overflow-hidden border border-white/10 cursor-pointer">
+        <span className="absolute inset-0" style={{ background: value }} />
+        <input
+          type="color"
+          value={normalizeHex(value)}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 opacity-0 cursor-pointer"
+        />
+      </label>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-medium text-zinc-200 truncate">{label}</p>
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          spellCheck={false}
+          className="mt-0.5 w-full bg-transparent text-[11px] font-mono text-zinc-500 focus:text-zinc-200 focus:outline-none uppercase"
+        />
+      </div>
+      {isCustom && (
+        <button
+          onClick={onReset}
+          title="Volver al default"
+          className="shrink-0 text-zinc-600 hover:text-zinc-200 transition-colors"
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** El <input type=color> solo acepta #rrggbb. Si el usuario tipeó algo
+ *  raro o un formato corto, devolvemos un fallback válido para no romper
+ *  el picker (el texto libre sigue editable aparte). */
+function normalizeHex(v: string): string {
+  const t = v.trim()
+  if (/^#[0-9a-f]{6}$/i.test(t)) return t
+  if (/^#[0-9a-f]{3}$/i.test(t)) {
+    return '#' + t.slice(1).split('').map((c) => c + c).join('')
+  }
+  return '#000000'
 }
 
 /** Sync de tareas-con-horario a Google Calendar — un toggle que decide

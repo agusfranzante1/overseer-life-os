@@ -173,8 +173,8 @@ function MapCard({
       onMouseLeave={() => setHover(false)}
       className="rounded-2xl border-2 transition-all duration-150 cursor-pointer overflow-hidden"
       style={{
-        background: hover ? '#6366f110' : '#09090b80',
-        borderColor: hover ? '#6366f1AA' : '#27272a',
+        background: hover ? '#6366f110' : 'var(--app-bg)',
+        borderColor: hover ? '#6366f1AA' : 'rgba(var(--glass-tint), 0.12)',
         boxShadow: hover ? '0 12px 32px -10px #6366f150' : 'none',
         transform: hover ? 'translateY(-2px)' : 'none',
       }}

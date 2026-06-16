@@ -9,6 +9,7 @@ import {
   TrendingUp, GripVertical, Check, RotateCcw, Settings2, Cog, LogOut,
   Clock, Search, X as XIcon, Infinity as InfinityIcon, Telescope, FlaskConical,
   Network, ChevronUp, ChevronDown, Target, GraduationCap, Sparkles,
+  Sun, Moon,
 } from 'lucide-react'
 import { listTimezones, formatTzOffset, detectTimezone } from '@/lib/utils/dateInTz'
 import Image from 'next/image'
@@ -53,7 +54,7 @@ export function Sidebar({
   mobileOpen?: boolean
   onMobileClose?: () => void
 } = {}) {
-  const { sidebarCollapsed, toggleSidebar, language, setLanguage, navOrder, setNavOrder } = useAppStore()
+  const { sidebarCollapsed, toggleSidebar, language, setLanguage, navOrder, setNavOrder, theme, toggleTheme } = useAppStore()
   const { t } = useTranslation()
   const pathname = usePathname()
   const router = useRouter()
@@ -221,8 +222,8 @@ export function Sidebar({
         // Mismo color base que el body — el sidebar NO tiene borde ni
         // overlay. Se mezcla con el resto (como en el mockup del user).
         // El padding lateral del main content define la separación
-        // visual, no un divisor.
-        background: '#0a0e15',
+        // visual, no un divisor. Flipea con el tema vía --app-bg.
+        background: 'var(--app-bg)',
       }}
       className={`
         flex flex-col h-screen shrink-0 overflow-hidden
@@ -403,8 +404,10 @@ export function Sidebar({
                     : 'text-zinc-500 hover:text-white'
                 }`}
                 style={active ? {
-                  background: 'linear-gradient(90deg, rgba(99, 102, 241, 0.25), rgba(139, 92, 246, 0.15))',
-                  boxShadow: 'inset 0 0 0 1px rgba(139, 92, 246, 0.25), inset 0 0 24px rgba(99, 102, 241, 0.18)',
+                  // Pill del item activo — derivado de --app-accent para que
+                  // siga el color elegido en Configuración. Default indigo.
+                  background: 'linear-gradient(90deg, color-mix(in srgb, var(--app-accent) 25%, transparent), color-mix(in srgb, var(--app-accent) 14%, transparent))',
+                  boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--app-accent) 28%, transparent), inset 0 0 24px color-mix(in srgb, var(--app-accent) 18%, transparent)',
                 } : undefined}
               >
                 <Icon className="w-4 h-4 shrink-0" />
@@ -432,6 +435,23 @@ export function Sidebar({
       <div className="pt-4 pb-4 px-3 space-y-0.5">
         <SyncNowButton collapsed={!showLabels} />
         <TimezoneButton collapsed={!showLabels} />
+
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.97 }}
+          onClick={toggleTheme}
+          title={!showLabels ? (theme === 'dark' ? 'Modo claro' : 'Modo oscuro') : undefined}
+          className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2 rounded-xl text-[13px] text-zinc-500 hover:text-white transition-colors`}
+        >
+          {theme === 'dark'
+            ? <Sun className="w-4 h-4 shrink-0" />
+            : <Moon className="w-4 h-4 shrink-0" />}
+          {showLabels && (
+            <span className="text-sm font-medium whitespace-nowrap">
+              {theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+            </span>
+          )}
+        </motion.button>
 
         <motion.button
           whileHover={{ scale: 1.02 }}

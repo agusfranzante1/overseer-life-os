@@ -1594,7 +1594,7 @@ function NodeBox({
             // hover al bajar).
             left: node.x + pan.x + node.width / 2 - 8,
             top: node.y + pan.y + node.height - 8,
-            background: '#09090b',
+            background: 'var(--app-bg)',
             borderColor: color,
             color,
             touchAction: 'none',

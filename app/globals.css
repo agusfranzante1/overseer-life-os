@@ -117,6 +117,54 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* ── Theme tokens (NO Tailwind) ──────────────────────────────────────
+   Variables de superficie que NO son utilities de Tailwind: el navy-black
+   del body/sidebar, el tinte de las glass tiles, el scrollbar y el filtro
+   del date picker. Los valores default son los del modo OSCURO. El bloque
+   `html.theme-light` más abajo los flipea + invierte TODA la paleta neutra
+   (zinc + white) de Tailwind v4, que compila a var(--color-*). Así toda la
+   app cambia a claro sin tocar un solo className. */
+:root {
+  --app-bg: #0a0e15;            /* body + sidebar + canvas */
+  --app-fg: #fafafa;            /* texto base del body */
+  --glass-tint: 255, 255, 255;  /* rgb del tinte de .glass-tile (blanco sobre oscuro) */
+  --scrollbar-thumb: #3f3f46;
+  --scrollbar-thumb-hover: #52525b;
+  --date-invert: 0.5;
+  /* Acento de la app (botones/nav). Default indigo-500. Lo pisa el
+     editor de colores de Configuración vía <ThemeStyleInjector>. */
+  --app-accent: #6366f1;
+}
+
+html.theme-light {
+  --app-bg: #f3f4f6;
+  --app-fg: #18181b;
+  --glass-tint: 0, 0, 0;        /* tinte oscuro sobre fondo claro */
+  --scrollbar-thumb: #c7c7d1;
+  --scrollbar-thumb-hover: #a1a1aa;
+  --date-invert: 0;
+
+  /* Texto blanco → tinta oscura (text-white, bg-white/x, border-white/x) */
+  --color-white: #18181b;
+
+  /* Rampa zinc espejada: los tonos oscuros (fondos) se vuelven claros y
+     los claros (texto) se vuelven oscuros. zinc-N ↔ zinc-(1000-N). */
+  --color-zinc-50:  #09090b;
+  --color-zinc-100: #18181b;
+  --color-zinc-200: #27272a;
+  --color-zinc-300: #3f3f46;
+  --color-zinc-400: #52525b;
+  --color-zinc-500: #71717a;
+  --color-zinc-600: #a1a1aa;
+  --color-zinc-700: #d4d4d8;
+  --color-zinc-800: #e4e4e7;
+  --color-zinc-900: #f4f4f5;
+  --color-zinc-950: #fafafa;
+  /* Nota: --color-black NO se invierte a propósito — bg-black/30 y
+     bg-black/60 (columnas del pipeline, backdrops de modales) quedan como
+     velos oscuros translúcidos que siguen funcionando sobre fondo claro. */
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -124,11 +172,11 @@
   }
   body {
     @apply bg-background text-foreground;
-    /* Navy-black del mockup — casi negro con cyan undertone. El !important
-       sigue porque varias páginas tienen <html class="dark"> + tailwind
-       dark defaults que pisaban este valor sin él. */
-    background-color: #0a0e15 !important;
-    color: #fafafa !important;
+    /* Superficie base de la app — flipea con el tema vía --app-bg/--app-fg.
+       El !important sigue porque varias páginas montan <html class="dark">
+       + tailwind dark defaults que pisaban este valor sin él. */
+    background-color: var(--app-bg) !important;
+    color: var(--app-fg) !important;
     font-family: var(--font-sans), Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     /* Inter tabular features para que los números se alineen en grids */
     font-feature-settings: 'cv11', 'ss01', 'cv05';
@@ -154,11 +202,11 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* ── Glass tile utility (mockup style) ───────────────────────────────
@@ -167,28 +215,28 @@
    visual base de TODAS las cards de la app (matchea los mockups
    con tiles oscuros + glow sutil). */
 .glass-tile {
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(var(--glass-tint), 0.025);
+  border: 1px solid rgba(var(--glass-tint), 0.08);
   border-radius: 1.25rem;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 1px 0 rgba(var(--glass-tint), 0.04),
     0 1px 2px rgba(0, 0, 0, 0.2);
 }
 .glass-tile:hover {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(var(--glass-tint), 0.14);
+  background: rgba(var(--glass-tint), 0.04);
 }
 /* Variante con glow de color — pasale --tile-glow al inline style:
    <div className="glass-tile glass-tile-glow" style={{ '--tile-glow': '#10b981' }}> */
 .glass-tile-glow {
   background:
     radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--tile-glow) 18%, transparent), transparent 50%),
-    rgba(255, 255, 255, 0.025);
+    rgba(var(--glass-tint), 0.025);
 }
 
 /* Date input */
 input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(0.5);
+  filter: invert(var(--date-invert));
 }
 
 /* Recharts */

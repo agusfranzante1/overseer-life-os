@@ -68,13 +68,24 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${inter.variable} ${jbMono.variable} dark`}
+      suppressHydrationWarning
     >
-      {/* Navy-black del mockup — casi negro con tinte azul muy sutil.
-          La base es #0a0e15 → #0b0f17. Más oscuro que zinc-950 puro
-          porque tiene un toque cyan en la mezcla. */}
+      <head>
+        {/* Anti-FOUC del tema: corre ANTES del primer paint y setea la
+            clase en <html> según la preferencia persistida (zustand guarda
+            bajo `overseer-app`). Sin esto, la app pinta oscuro y recién
+            tras hidratar flipea a claro → parpadeo. Si no hay preferencia
+            o falla el parse, queda en oscuro (default). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var r=localStorage.getItem('overseer-app');var t='dark';if(r){var p=JSON.parse(r);if(p&&p.state&&p.state.theme){t=p.state.theme;}}var e=document.documentElement;if(t==='light'){e.classList.remove('dark');e.classList.add('theme-light');}else{e.classList.add('dark');e.classList.remove('theme-light');}}catch(_){}})();`,
+          }}
+        />
+      </head>
+      {/* Superficie base — flipea con el tema vía --app-bg (ver globals.css). */}
       <body
         className="h-screen overflow-hidden"
-        style={{ background: '#0a0e15' }}
+        style={{ background: 'var(--app-bg)' }}
         suppressHydrationWarning
       >
         <AppShell>{children}</AppShell>

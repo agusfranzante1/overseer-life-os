@@ -52,8 +52,14 @@ export const DEFAULT_DAY_TYPES: DayTypeConfig[] = [
   { id: 'content',   label: 'Content',    color: '#ec4899', icon: '📷' },
 ]
 
+export type ThemeMode = 'dark' | 'light'
+
 export interface AppState {
   language: Language
+  /** Modo de color de toda la app. 'dark' (default, navy-black) o 'light'
+   *  (claro). La clase se aplica en <html> y flipea la paleta neutra
+   *  (zinc/white) vía CSS variables — ver globals.css y AppShell. */
+  theme: ThemeMode
   sidebarCollapsed: boolean
   dayType: DayType | null
   activeSection: 'dashboard' | 'calendar' | 'tasks'
@@ -125,7 +131,21 @@ export interface AppState {
   setGcalTasksSync: (patch: Partial<AppState['gcalTasksSync']>) => void
   setNotificationPref: (key: keyof AppState['notificationPrefs'], value: boolean | number | string) => void
 
+  /** Colores custom del usuario. `null` = usar el default del tema.
+   *   - darkBg / lightBg: fondo base de cada tema (--app-bg).
+   *   - accent: color de acento de botones/resaltados (--app-accent +
+   *     override de indigo/violet). Se aplica en ambos temas. */
+  themeColors: {
+    darkBg: string | null
+    lightBg: string | null
+    accent: string | null
+  }
+
   setLanguage: (lang: Language) => void
+  setTheme: (theme: ThemeMode) => void
+  toggleTheme: () => void
+  setThemeColor: (key: 'darkBg' | 'lightBg' | 'accent', value: string | null) => void
+  resetThemeColors: () => void
   toggleSidebar: () => void
   setSidebarCollapsed: (v: boolean) => void
   setDayType: (type: DayType | null) => void
@@ -160,6 +180,8 @@ export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
       language: 'en',
+      theme: 'dark',
+      themeColors: { darkBg: null, lightBg: null, accent: null },
       sidebarCollapsed: false,
       dayType: null,
       activeSection: 'dashboard',
@@ -198,6 +220,12 @@ export const useAppStore = create<AppState>()(
       },
 
       setLanguage: (lang) => set({ language: lang }),
+      setTheme: (theme) => set({ theme }),
+      toggleTheme: () => set((s) => ({ theme: s.theme === 'dark' ? 'light' : 'dark' })),
+      setThemeColor: (key, value) => set((s) => ({
+        themeColors: { ...s.themeColors, [key]: value },
+      })),
+      resetThemeColors: () => set({ themeColors: { darkBg: null, lightBg: null, accent: null } }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
       setDayType: (type) => set({ dayType: type }),
@@ -326,10 +354,18 @@ export const useAppStore = create<AppState>()(
           : detectTimezone()
         const autoPurgeCompletedTasks =
           typeof p.autoPurgeCompletedTasks === 'boolean' ? p.autoPurgeCompletedTasks : true
+        const theme: ThemeMode = p.theme === 'light' ? 'light' : 'dark'
+        const themeColors = p.themeColors && typeof p.themeColors === 'object'
+          ? {
+              darkBg: p.themeColors.darkBg ?? null,
+              lightBg: p.themeColors.lightBg ?? null,
+              accent: p.themeColors.accent ?? null,
+            }
+          : { darkBg: null, lightBg: null, accent: null }
         return {
           ...p,
           idealSchedule: sched, scheduleOrder: order, dayTypes,
-          timezone, autoPurgeCompletedTasks,
+          timezone, autoPurgeCompletedTasks, theme, themeColors,
         } as AppState
       },
       version: 5,

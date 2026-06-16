@@ -327,7 +327,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
   // foreign TaskCard is hovering over this card (= valid drop target);
   // soft opacity dip on the source while it's being dragged.
   const dndClass = isDropTarget
-    ? 'ring-2 ring-violet-400 ring-offset-2 ring-offset-[#0a0e15]'
+    ? 'ring-2 ring-violet-400 ring-offset-2 ring-offset-[var(--app-bg)]'
     : ''
   const dndStyle: React.CSSProperties = isDraggingThisCard
     ? { opacity: 0.4 }
