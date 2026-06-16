@@ -204,6 +204,17 @@ html.theme-light :is(
   background-color: #ffffff;
 }
 
+/* ── Superficies bg-black/N en modo claro → tinte CLARO ──────────────
+   Muchas cards/columnas recesadas usan bg-black/20 o /30 (sobre el navy
+   eran un pozo oscuro sutil). En claro, sin invertir, quedaban GRIS MUY
+   OSCURO. Bajamos la opacidad a un velo apenas perceptible para que
+   queden clarito sobre el canvas. Solo las opacidades BAJAS (10/20/30 =
+   superficies). Las altas (40/60/70 = backdrops de modales) NO se tocan:
+   tienen que seguir oscureciendo el fondo. */
+html.theme-light .bg-black\/10 { background-color: rgba(0, 0, 0, 0.015); }
+html.theme-light .bg-black\/20 { background-color: rgba(0, 0, 0, 0.03); }
+html.theme-light .bg-black\/30 { background-color: rgba(0, 0, 0, 0.045); }
+
 /* .glass-tile a superficie blanca en claro (el tinte translúcido queda
    invisible sobre el canvas claro). */
 html.theme-light .glass-tile {
