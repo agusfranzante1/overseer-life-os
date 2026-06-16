@@ -373,7 +373,7 @@ function ChartCard({ title, color, data, dataKey, unit }: ChartCardProps) {
               <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#52525b' }} />
               <YAxis tick={{ fontSize: 9, fill: '#52525b' }} width={28} />
               <Tooltip
-                contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }}
+                contentStyle={{ background: 'var(--surface-popover)', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }}
                 formatter={(v) => [`${v}${unit}`, title] as [string, string]}
               />
               <Line

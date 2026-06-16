@@ -354,7 +354,7 @@ function BodyWeightCard() {
               <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#52525b' }} />
               <YAxis domain={['dataMin - 0.5', 'dataMax + 0.5']} tick={{ fontSize: 9, fill: '#52525b' }} width={32} />
-              <Tooltip contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }} />
+              <Tooltip contentStyle={{ background: 'var(--surface-popover)', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }} />
               {weightGoalKg !== null && (
                 <ReferenceLine y={weightGoalKg} stroke="#10b981" strokeDasharray="4 4" strokeWidth={1.5}
                   label={{ value: 'meta', fill: '#10b981', fontSize: 9, position: 'right' }} />
@@ -1287,7 +1287,7 @@ function ExerciseProgressionCard({ analysis }: { analysis: ReturnType<typeof ana
               <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 8, fill: '#52525b' }} hide={series.length > 8} />
               <YAxis tick={{ fontSize: 8, fill: '#52525b' }} width={26} />
-              <Tooltip contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 10 }}
+              <Tooltip contentStyle={{ background: 'var(--surface-popover)', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 10 }}
                 formatter={(v) => [`${v}kg`, 'e1RM'] as [string, string]} />
               <Line type="monotone" dataKey="e1rm" stroke={trendColor} strokeWidth={2} dot={{ r: 2, fill: trendColor }} />
             </LineChart>

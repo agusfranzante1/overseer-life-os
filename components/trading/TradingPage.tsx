@@ -257,7 +257,7 @@ function ResumenTab({ period }: { period: Period }) {
                 <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
                 <XAxis dataKey="idx" tick={{ fontSize: 9, fill: '#52525b' }} />
                 <YAxis tick={{ fontSize: 9, fill: '#52525b' }} tickFormatter={(v) => fmtCompact(v)} />
-                <Tooltip contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }}
+                <Tooltip contentStyle={{ background: 'var(--surface-popover)', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }}
                   formatter={(v) => [fmtUSD(v as number), 'Equity'] as [string, string]}
                   labelFormatter={(l) => `Trade #${l}`} />
                 <ReferenceLine y={0} stroke="#52525b" strokeDasharray="3 3" />
@@ -733,7 +733,7 @@ function AccountRow({ account, expanded, onToggle, onUpdate, onDelete, onAddPayo
                     <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
                     <XAxis dataKey="idx" tick={{ fontSize: 9, fill: '#52525b' }} />
                     <YAxis tick={{ fontSize: 9, fill: '#52525b' }} width={36} tickFormatter={(v) => fmtCompact(v)} />
-                    <Tooltip contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 10 }}
+                    <Tooltip contentStyle={{ background: 'var(--surface-popover)', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 10 }}
                       formatter={(v) => [fmtUSD(v as number), 'Equity'] as [string, string]} />
                     <ReferenceLine y={0} stroke="#52525b" strokeDasharray="3 3" />
                     <Line type="monotone" dataKey="equity" stroke={stats.totalPnL >= 0 ? '#10b981' : '#ef4444'} strokeWidth={2} dot={{ r: 2 }} />

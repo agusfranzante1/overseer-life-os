@@ -897,7 +897,7 @@ function ThisWeekView() {
       <div
         className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl"
         style={{
-          background: 'rgba(255, 255, 255, 0.025)',
+          background: 'var(--card-bg)',
           border: '1px solid rgba(255, 255, 255, 0.08)',
           boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.04)',
         }}

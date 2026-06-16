@@ -77,7 +77,7 @@ export function GoalTicker() {
 
       {/* Meta pill */}
       <span className="shrink-0 font-mono text-[11px] font-bold tabular-nums px-2 py-0.5 rounded-full"
-        style={{ color: '#B8B6B0', background: 'rgba(255,255,255,0.05)' }}>
+        style={{ color: '#B8B6B0', background: 'var(--surface-fill)' }}>
         {meta}
       </span>
 

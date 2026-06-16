@@ -51,7 +51,7 @@ export function QuickActions() {
           onClick={handlePushTomorrow}
           className="flex items-center gap-2.5 px-5 py-3 rounded-2xl text-sm font-medium transition-all"
           style={{
-            background: 'rgba(255, 255, 255, 0.04)',
+            background: 'var(--card-bg)',
             border: `1px solid ${pushed ? 'rgba(16, 185, 129, 0.5)' : 'rgba(245, 158, 11, 0.35)'}`,
             color: pushed ? '#34d399' : '#fbbf24',
             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',

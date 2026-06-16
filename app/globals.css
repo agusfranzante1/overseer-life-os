@@ -134,35 +134,83 @@
   /* Acento de la app (botones/nav). Default indigo-500. Lo pisa el
      editor de colores de Configuración vía <ThemeStyleInjector>. */
   --app-accent: #6366f1;
+
+  /* Superficies semánticas — usadas por componentes con estilos inline
+     que NO pueden depender de utilities de Tailwind (TaskCard, calendario,
+     popovers). Defaults = modo OSCURO. El bloque html.theme-light los
+     vuelve blancos para que las cards "popeen" sobre el canvas gris. */
+  --card-bg: #12161d;                       /* card translúcida sobre navy */
+  --card-border: rgba(255, 255, 255, 0.06);
+  --card-inset: rgba(255, 255, 255, 0.06);
+  --surface-popover: #18181b;               /* menús, dropdowns, panel de calendario */
+  --surface-fill: rgba(255, 255, 255, 0.06);/* tracks de progreso, chips, fills sutiles */
 }
 
 html.theme-light {
-  --app-bg: #f3f4f6;
+  --app-bg: #eef1f5;            /* canvas gris claro — las cards blancas popean */
   --app-fg: #18181b;
   --glass-tint: 0, 0, 0;        /* tinte oscuro sobre fondo claro */
   --scrollbar-thumb: #c7c7d1;
   --scrollbar-thumb-hover: #a1a1aa;
   --date-invert: 0;
 
-  /* Texto blanco → tinta oscura (text-white, bg-white/x, border-white/x) */
+  /* Texto blanco → tinta oscura (text-white) y bordes white/x → línea
+     oscura sutil (border-white/x). El FONDO de las glass cards NO se
+     resuelve por acá (quedaría un tinte gris muddy) — se fuerza a blanco
+     sólido más abajo. */
   --color-white: #18181b;
 
-  /* Rampa zinc espejada: los tonos oscuros (fondos) se vuelven claros y
-     los claros (texto) se vuelven oscuros. zinc-N ↔ zinc-(1000-N). */
-  --color-zinc-50:  #09090b;
-  --color-zinc-100: #18181b;
+  /* Superficies sólidas en claro: cards y popovers BLANCOS, canvas gris. */
+  --card-bg: #ffffff;
+  --card-border: rgba(0, 0, 0, 0.08);
+  --card-inset: rgba(0, 0, 0, 0.04);
+  --surface-popover: #ffffff;
+  --surface-fill: rgba(0, 0, 0, 0.06);      /* fill sutil visible sobre blanco */
+
+  /* Rampa zinc en claro — NO es un espejo puro: los fondos de card
+     (zinc-900) van a BLANCO y el canvas/wells (zinc-950) a gris, así las
+     cards contrastan en vez de quedar todas grises. El resto baja para
+     bordes claros (700/800) y texto legible (400-600). */
+  --color-zinc-50:  #0c0d10;   /* texto fuerte */
+  --color-zinc-100: #1a1b1f;
   --color-zinc-200: #27272a;
   --color-zinc-300: #3f3f46;
-  --color-zinc-400: #52525b;
-  --color-zinc-500: #71717a;
-  --color-zinc-600: #a1a1aa;
-  --color-zinc-700: #d4d4d8;
-  --color-zinc-800: #e4e4e7;
-  --color-zinc-900: #f4f4f5;
-  --color-zinc-950: #fafafa;
+  --color-zinc-400: #565d68;   /* texto secundario */
+  --color-zinc-500: #6b7280;   /* texto muted */
+  --color-zinc-600: #a1a7b0;
+  --color-zinc-700: #d4d8de;   /* bordes / hover */
+  --color-zinc-800: #e3e6eb;   /* bordes / superficie secundaria / botones */
+  --color-zinc-900: #ffffff;   /* CARDS → blanco */
+  --color-zinc-950: #eef1f5;   /* canvas / wells → gris (= --app-bg) */
   /* Nota: --color-black NO se invierte a propósito — bg-black/30 y
      bg-black/60 (columnas del pipeline, backdrops de modales) quedan como
      velos oscuros translúcidos que siguen funcionando sobre fondo claro. */
+}
+
+/* ── Glass cards en modo claro → superficie blanca sólida ─────────────
+   Las cards "glass" usan bg-white/[0.0x] (un tinte blanco muy bajo sobre
+   el navy). En claro ese tinte daba gris muddy. Acá forzamos las
+   opacidades BAJAS (cards/paneles) a blanco sólido. Las altas (0.08/0.10,
+   que son hover/selected) se dejan como tinte sutil = feedback visible. */
+html.theme-light :is(
+  .bg-white\/\[0\.02\],
+  .bg-white\/\[0\.025\],
+  .bg-white\/\[0\.03\],
+  .bg-white\/\[0\.035\],
+  .bg-white\/\[0\.04\],
+  .bg-white\/\[0\.05\],
+  .bg-white\/\[0\.06\]
+) {
+  background-color: #ffffff;
+}
+
+/* .glass-tile a superficie blanca en claro (el tinte translúcido queda
+   invisible sobre el canvas claro). */
+html.theme-light .glass-tile {
+  background: #ffffff;
+}
+html.theme-light .glass-tile:hover {
+  background: #f6f8fb;
 }
 
 @layer base {

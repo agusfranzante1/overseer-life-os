@@ -219,7 +219,7 @@ function Header({
                 className="px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-colors flex items-center gap-1"
                 style={{
                   background: active ? `${meta.color}20` : 'transparent',
-                  borderColor: active ? meta.color : 'rgba(255,255,255,0.08)',
+                  borderColor: active ? meta.color : 'var(--surface-fill)',
                   color: active ? meta.color : '#71717a',
                 }}
               >
@@ -280,8 +280,8 @@ function ProfileBar({
           onClick={() => setProfileFilter('all')}
           className="px-3 py-1 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1.5"
           style={{
-            background: profileFilter === 'all' ? 'rgba(255,255,255,0.08)' : 'transparent',
-            borderColor: profileFilter === 'all' ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.08)',
+            background: profileFilter === 'all' ? 'var(--surface-fill)' : 'transparent',
+            borderColor: profileFilter === 'all' ? 'rgba(255,255,255,0.30)' : 'var(--surface-fill)',
             color: profileFilter === 'all' ? '#fff' : '#a1a1aa',
           }}
         >
@@ -297,7 +297,7 @@ function ProfileBar({
               className="px-3 py-1 rounded-l-lg text-xs font-semibold border transition-colors flex items-center gap-1.5"
               style={{
                 background: active ? `${p.color}25` : 'transparent',
-                borderColor: active ? p.color : 'rgba(255,255,255,0.08)',
+                borderColor: active ? p.color : 'var(--surface-fill)',
                 color: active ? '#fff' : '#a1a1aa',
               }}
             >

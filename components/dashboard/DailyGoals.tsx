@@ -111,14 +111,14 @@ function GoalRow({ goal, index, goals, onSave, readOnly, dragIdx, dragOver, onRe
             ? 'rgba(107,227,164,0.04)'
             : isQueued
               ? 'rgba(242,192,99,0.08)'
-              : 'rgba(255,255,255,0.035)',
+              : 'var(--card-bg)',
         borderColor: dragHover
           ? 'rgba(255,255,255,0.25)'
           : isDone
             ? 'rgba(107,227,164,0.12)'
             : isQueued
               ? 'rgba(242,192,99,0.25)'
-              : 'rgba(255,255,255,0.06)',
+              : 'var(--surface-fill)',
         boxShadow: isQueued ? 'inset 3px 0 0 0 #F2C063' : undefined,
         opacity: isDone ? 0.5 : 1,
         transform: flashing ? 'scale(1.01)' : 'scale(1)',
@@ -140,7 +140,7 @@ function GoalRow({ goal, index, goals, onSave, readOnly, dragIdx, dragOver, onRe
         className="shrink-0 w-[22px] h-[22px] rounded-[7px] border transition-all flex items-center justify-center"
         style={{
           borderColor: isDone ? '#6BE3A4' : 'rgba(255,255,255,0.18)',
-          background: isDone ? '#6BE3A4' : 'rgba(255,255,255,0.04)',
+          background: isDone ? '#6BE3A4' : 'var(--card-bg)',
           boxShadow: isDone ? '0 0 12px rgba(107,227,164,0.40)' : undefined,
         }}
       >
@@ -206,7 +206,7 @@ function SegmentedBar({ goals }: { goals: Goal[] }) {
   return (
     <div className="flex gap-1 mb-4" style={{ height: 6 }}>
       {goals.map((g, i) => (
-        <div key={i} className="flex-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+        <div key={i} className="flex-1 rounded-full overflow-hidden" style={{ background: 'var(--surface-fill)' }}>
           {g.done && (
             <motion.div
               initial={{ width: 0 }} animate={{ width: '100%' }}
@@ -330,7 +330,7 @@ function GoalCard({ title, subtitle, goals, onSave, streak, showProgress = true,
               color: '#F2C063',
               border: '1px solid rgba(242,192,99,0.32)',
             } : {
-              background: 'rgba(255,255,255,0.04)',
+              background: 'var(--card-bg)',
               color: '#76746E',
               border: '1px solid rgba(255,255,255,0.06)',
             }}

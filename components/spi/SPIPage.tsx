@@ -391,7 +391,7 @@ function WeekCard({
     : null  // not_started → no badge, just the "Empezar" CTA inside
 
   // Color de acento del border-top: fucsia para current, gris para histórico.
-  const accentColor = isCurrent ? '#d946ef' : 'rgba(255,255,255,0.08)'
+  const accentColor = isCurrent ? '#d946ef' : 'var(--surface-fill)'
   return (
     <div
       className="rounded-2xl overflow-hidden transition-all mb-3"
@@ -400,7 +400,7 @@ function WeekCard({
         // la sesión en curso (matchea el lenguaje visual del task card).
         background: isCurrent
           ? `radial-gradient(circle at 0% 0%, rgba(217, 70, 239, 0.10), transparent 50%), rgba(255, 255, 255, 0.025)`
-          : 'rgba(255, 255, 255, 0.02)',
+          : 'var(--card-bg)',
         borderTop: `2px solid ${accentColor}`,
         borderLeft: '1px solid rgba(255, 255, 255, 0.08)',
         borderRight: '1px solid rgba(255, 255, 255, 0.08)',
@@ -418,8 +418,8 @@ function WeekCard({
         <div
           className="shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-xl"
           style={{
-            background: isCurrent ? 'rgba(217, 70, 239, 0.18)' : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${isCurrent ? 'rgba(217,70,239,0.40)' : 'rgba(255,255,255,0.08)'}`,
+            background: isCurrent ? 'rgba(217, 70, 239, 0.18)' : 'var(--card-bg)',
+            border: `1px solid ${isCurrent ? 'rgba(217,70,239,0.40)' : 'var(--surface-fill)'}`,
           }}
         >
           ♾️
@@ -2843,7 +2843,7 @@ function EvolutionChart({ sessions }: { sessions: SPISession[] }) {
             <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#71717a' }} />
             <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: '#71717a' }} width={32} tickFormatter={(v) => `${v}`} />
             <Tooltip
-              contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }}
+              contentStyle={{ background: 'var(--surface-popover)', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }}
               labelStyle={{ color: '#a1a1aa' }}
               formatter={(v, name) => [`${v}${name === 'score' ? '%' : ''}`, name === 'score' ? 'Score' : 'Mood']}
             />
@@ -3369,7 +3369,7 @@ function HabitsCompletionCurve({
             <XAxis dataKey="day" tick={{ fontSize: 9, fill: '#71717a' }} axisLine={false} tickLine={false} />
             <YAxis domain={[0, 100]} ticks={[0, 50, 100]} tick={{ fontSize: 9, fill: '#52525b' }} axisLine={false} tickLine={false} width={28} />
             <Tooltip
-              contentStyle={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 6, fontSize: 11 }}
+              contentStyle={{ background: 'var(--surface-popover)', border: '1px solid #27272a', borderRadius: 6, fontSize: 11 }}
               labelStyle={{ color: '#a1a1aa', fontSize: 10 }}
               formatter={(v) => (v === null || v === undefined ? ['—', '%'] : [`${v}%`, 'completitud'])}
             />
@@ -3429,7 +3429,7 @@ function KpisCompletionChart({ kpis }: { kpis: NonNullable<WeekClosureSnapshot['
             <XAxis dataKey="name" tick={{ fontSize: 9, fill: '#71717a' }} axisLine={false} tickLine={false} interval={0} />
             <YAxis domain={[0, 100]} ticks={[0, 50, 100]} tick={{ fontSize: 9, fill: '#52525b' }} axisLine={false} tickLine={false} width={28} />
             <Tooltip
-              contentStyle={{ background: '#18181b', border: '1px solid #27272a', borderRadius: 6, fontSize: 11 }}
+              contentStyle={{ background: 'var(--surface-popover)', border: '1px solid #27272a', borderRadius: 6, fontSize: 11 }}
               labelStyle={{ color: '#a1a1aa', fontSize: 10 }}
               formatter={(v) => [`${v ?? 0}%`, 'cumplimiento']}
             />

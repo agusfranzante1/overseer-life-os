@@ -1707,7 +1707,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
     <div
       className="border border-white/[0.05] rounded-2xl overflow-hidden flex flex-col h-full min-h-0"
       style={{
-        backgroundColor: '#1f1f1f',
+        backgroundColor: 'var(--surface-popover)',
         fontFamily: 'Roboto, "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
       }}
     >

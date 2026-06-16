@@ -211,7 +211,7 @@ export function HabitsPage() {
                 color: '#34d399',
                 boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
               } : {
-                background: 'rgba(255, 255, 255, 0.04)',
+                background: 'var(--card-bg)',
                 border: '1px solid rgba(255, 255, 255, 0.10)',
                 color: '#d4d4d8',
                 boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
@@ -417,7 +417,7 @@ export function HabitsPage() {
                 // así la página entera no se ve sobrecargada de colores
                 // distintos compitiendo entre sí.
                 style={!isDragging && !isDropTarget ? {
-                  background: 'rgba(255, 255, 255, 0.025)',
+                  background: 'var(--card-bg)',
                   border: '1px solid rgba(255, 255, 255, 0.08)',
                   boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
                 } : undefined}
@@ -438,7 +438,7 @@ export function HabitsPage() {
                   <div
                     className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center text-xl"
                     style={{
-                      background: 'rgba(255, 255, 255, 0.04)',
+                      background: 'var(--card-bg)',
                       border: '1px solid rgba(255, 255, 255, 0.08)',
                     }}
                   >
@@ -538,7 +538,7 @@ export function HabitsPage() {
                           // brillante extra.
                           background: done
                             ? `radial-gradient(circle at 50% 50%, ${habit.color}55, ${habit.color}22)`
-                            : 'rgba(255,255,255,0.025)',
+                            : 'var(--card-bg)',
                           border: done
                             ? `1px solid ${habit.color}99`
                             : isToday
@@ -842,7 +842,7 @@ function GlobalTrendChart({ habits, monthAnchor }: GlobalTrendChartProps) {
             <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#71717a' }} width={32}
               tickFormatter={(v) => `${v}%`} />
             <Tooltip
-              contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }}
+              contentStyle={{ background: 'var(--surface-popover)', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }}
               labelFormatter={(d) => {
                 const item = series.find((s) => s.day === d)
                 return item ? `Día ${d} (${item.dayLetter})` : `Día ${d}`

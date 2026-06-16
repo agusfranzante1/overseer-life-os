@@ -222,7 +222,7 @@ export function KpiScoreboard({
                   title={`Encender "${kpi.name}" para esta semana`}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[11px] text-zinc-300 hover:text-white transition-all"
                   style={{
-                    background: 'rgba(255, 255, 255, 0.03)',
+                    background: 'var(--card-bg)',
                     border: `1px solid ${kpi.color}40`,
                   }}
                 >

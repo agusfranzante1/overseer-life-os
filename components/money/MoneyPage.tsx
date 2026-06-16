@@ -329,7 +329,7 @@ function WalletCard({ wallet, selected, onClick, onRequestDelete }: { wallet: Wa
           radial-gradient(circle at 0% 0%, ${wallet.color}28, transparent 50%),
           rgba(255, 255, 255, 0.03)
         `,
-        borderColor: selected ? `${wallet.color}99` : 'rgba(255, 255, 255, 0.08)',
+        borderColor: selected ? `${wallet.color}99` : 'var(--surface-fill)',
         boxShadow: selected
           ? `inset 0 0 0 1px ${wallet.color}55, 0 0 24px -8px ${wallet.color}77`
           : 'inset 0 1px 0 rgba(255,255,255,0.04)',
@@ -1565,7 +1565,7 @@ export function MoneyPage() {
             onClick={() => setModal({ type: 'transfer' })}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all"
             style={{
-              background: 'rgba(255, 255, 255, 0.04)',
+              background: 'var(--card-bg)',
               border: '1px solid rgba(139, 92, 246, 0.35)',
               color: '#c4b5fd',
               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
@@ -1577,7 +1577,7 @@ export function MoneyPage() {
             onClick={() => setModal({ type: 'addCurrency' })}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-zinc-200 transition-all"
             style={{
-              background: 'rgba(255, 255, 255, 0.04)',
+              background: 'var(--card-bg)',
               border: '1px solid rgba(255, 255, 255, 0.10)',
               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
             }}>
@@ -1653,7 +1653,7 @@ export function MoneyPage() {
           <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
             onClick={() => setModal({ type: 'addWallet' })}
             className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border border-dashed border-white/[0.10] hover:border-emerald-500/50 hover:bg-emerald-500/[0.04] text-zinc-500 hover:text-emerald-400 transition-all min-h-[120px]"
-            style={{ background: 'rgba(255, 255, 255, 0.015)' }}
+            style={{ background: 'var(--card-bg)' }}
           >
             <Plus className="w-6 h-6" />
             <span className="text-xs font-semibold">Nueva</span>

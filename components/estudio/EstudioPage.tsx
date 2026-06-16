@@ -114,7 +114,7 @@ export function EstudioPage() {
             <div
               className="rounded-2xl p-10 text-center"
               style={{
-                background: 'rgba(255, 255, 255, 0.02)',
+                background: 'var(--card-bg)',
                 border: '1px dashed rgba(255, 255, 255, 0.10)',
               }}
             >
@@ -250,7 +250,7 @@ function SubjectCard({
             {stats.pct}%
           </span>
         </div>
-        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255, 255, 255, 0.06)' }}>
+        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--surface-fill)' }}>
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${stats.pct}%` }}
@@ -368,7 +368,7 @@ function SubjectDetail({ subject, onBack }: { subject: Project; onBack: () => vo
               onClick={onBack}
               className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
               style={{
-                background: 'rgba(255, 255, 255, 0.04)',
+                background: 'var(--card-bg)',
                 border: '1px solid rgba(255, 255, 255, 0.10)',
               }}
               title="Volver"
@@ -404,7 +404,7 @@ function SubjectDetail({ subject, onBack }: { subject: Project; onBack: () => vo
               onClick={() => setShowEditMeta(true)}
               className="flex items-center gap-2 px-3 py-2 rounded-xl text-[13px] font-medium text-zinc-300 hover:text-white transition-colors"
               style={{
-                background: 'rgba(255, 255, 255, 0.04)',
+                background: 'var(--card-bg)',
                 border: '1px solid rgba(255, 255, 255, 0.10)',
               }}
             >
@@ -485,7 +485,7 @@ function SubjectDetail({ subject, onBack }: { subject: Project; onBack: () => vo
             <div
               className="rounded-2xl p-4 flex items-center gap-2"
               style={{
-                background: 'rgba(255, 255, 255, 0.03)',
+                background: 'var(--card-bg)',
                 border: '1px solid rgba(255, 255, 255, 0.10)',
               }}
             >
@@ -518,7 +518,7 @@ function SubjectDetail({ subject, onBack }: { subject: Project; onBack: () => vo
               onClick={() => setShowAddParcial(true)}
               className="w-full rounded-2xl py-3 text-[13px] font-medium text-zinc-400 hover:text-white transition-all flex items-center justify-center gap-2"
               style={{
-                background: 'rgba(255, 255, 255, 0.015)',
+                background: 'var(--card-bg)',
                 border: '1px dashed rgba(255, 255, 255, 0.10)',
               }}
             >
@@ -612,7 +612,7 @@ function ParcialBlock({
 
       {/* Mini progress bar */}
       <div className="px-5 pb-3">
-        <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255, 255, 255, 0.06)' }}>
+        <div className="h-1 rounded-full overflow-hidden" style={{ background: 'var(--surface-fill)' }}>
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${stats.pct}%` }}
@@ -644,7 +644,7 @@ function ParcialBlock({
                 onClick={onAddClase}
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] text-zinc-400 hover:text-white transition-all"
                 style={{
-                  background: 'rgba(255, 255, 255, 0.02)',
+                  background: 'var(--card-bg)',
                   border: '1px dashed rgba(255, 255, 255, 0.08)',
                 }}
               >
@@ -677,7 +677,7 @@ function ClaseRow({ task, color, onOpen }: { task: Task; color: string; onOpen: 
     <div
       className="flex items-center gap-3 px-3 py-2 rounded-lg transition-all"
       style={{
-        background: isDone ? 'rgba(16, 185, 129, 0.06)' : 'rgba(255, 255, 255, 0.025)',
+        background: isDone ? 'rgba(16, 185, 129, 0.06)' : 'var(--card-bg)',
         border: '1px solid rgba(255, 255, 255, 0.06)',
         opacity: isDone ? 0.7 : 1,
       }}
@@ -838,7 +838,7 @@ function CreateSubjectModal({ onClose, onCreated }: { onClose: () => void; onCre
                     icon === ic ? 'ring-2 ring-fuchsia-400' : ''
                   }`}
                   style={{
-                    background: icon === ic ? 'rgba(217, 70, 239, 0.18)' : 'rgba(255, 255, 255, 0.04)',
+                    background: icon === ic ? 'rgba(217, 70, 239, 0.18)' : 'var(--card-bg)',
                     border: `1px solid ${icon === ic ? 'rgba(217, 70, 239, 0.40)' : 'rgba(255, 255, 255, 0.10)'}`,
                   }}
                 >
@@ -911,7 +911,7 @@ function CreateSubjectModal({ onClose, onCreated }: { onClose: () => void; onCre
             onClick={onClose}
             className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium text-zinc-300 transition-colors"
             style={{
-              background: 'rgba(255, 255, 255, 0.04)',
+              background: 'var(--card-bg)',
               border: '1px solid rgba(255, 255, 255, 0.10)',
             }}
           >
@@ -1008,7 +1008,7 @@ function EditSubjectMetaModal({ subject, onClose }: { subject: Project; onClose:
                   onClick={() => setIcon(ic)}
                   className={`w-9 h-9 rounded-lg flex items-center justify-center text-lg transition-all ${icon === ic ? 'ring-2 ring-fuchsia-400' : ''}`}
                   style={{
-                    background: icon === ic ? 'rgba(217, 70, 239, 0.18)' : 'rgba(255, 255, 255, 0.04)',
+                    background: icon === ic ? 'rgba(217, 70, 239, 0.18)' : 'var(--card-bg)',
                     border: `1px solid ${icon === ic ? 'rgba(217, 70, 239, 0.40)' : 'rgba(255, 255, 255, 0.10)'}`,
                   }}
                 >
@@ -1059,7 +1059,7 @@ function EditSubjectMetaModal({ subject, onClose }: { subject: Project; onClose:
             onClick={onClose}
             className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium text-zinc-300"
             style={{
-              background: 'rgba(255, 255, 255, 0.04)',
+              background: 'var(--card-bg)',
               border: '1px solid rgba(255, 255, 255, 0.10)',
             }}
           >

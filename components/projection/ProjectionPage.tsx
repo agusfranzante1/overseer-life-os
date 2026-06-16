@@ -1624,7 +1624,7 @@ function WheelOfLifeChart({ values }: { values: Record<string, string> }) {
               dot={{ r: 3, fill: '#818cf8' }}
             />
             <RechartsTooltip
-              contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }}
+              contentStyle={{ background: 'var(--surface-popover)', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }}
               formatter={(v) => [`${v ?? 0}/100`, 'Puntuación'] as [string, string]}
             />
           </RadarChart>

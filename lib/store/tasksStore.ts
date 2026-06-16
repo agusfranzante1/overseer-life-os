@@ -87,11 +87,19 @@ interface TasksState {
    *  hasta tener `lookaheadCount` instancias chained. Idempotente —
    *  si la cadena ya está completa, no hace nada. Se llama al crear
    *  una recurrente Y al agregar recurrence a una tarea existente.
-   *  `weeksAhead` controla hasta dónde se llena: 1 = semana del head
-   *  (default); 2 = semana del head + la siguiente. addTask usa 2 para
+   *  `weeksAhead` controla hasta dónde se llena: 1 = semana del ancla
+   *  (default); 2 = semana del ancla + la siguiente. addTask usa 2 para
    *  que el user vea las dos semanas de una sin esperar al trigger
-   *  nocturno. */
-  ensureRecurringBuffer: (taskId: string, lookaheadCount?: number, weeksAhead?: number) => void
+   *  nocturno.
+   *
+   *  `anchorKey` (YYYY-MM-DD) fija la semana-ANCLA de la ventana. Si se
+   *  omite, el ancla es la `dueDate` del head (caso CREACIÓN: el user
+   *  eligió una fecha de inicio futura y queremos llenar desde ahí). El
+   *  MANTENIMIENTO (backfill al abrir, rollover) debe pasar SIEMPRE el
+   *  día de hoy como ancla — si no, cada instancia futura ancla su propia
+   *  ventana y el horizonte "se persigue a sí mismo", generando semanas
+   *  de más sin tope (el bug de las 4 semanas). */
+  ensureRecurringBuffer: (taskId: string, lookaheadCount?: number, weeksAhead?: number, anchorKey?: string) => void
   /** Migración one-shot: backfill el campo `recurringHeadId` para datos
    *  pre-existentes (cuando el modelo de "madre persistente" no existía).
    *  Para cada serie matched por projectId + título normalizado,
@@ -442,7 +450,7 @@ export const useTasksStore = create<TasksState>()(
        *  como BACKFILL al montar TasksPage. Sin esto el user agregaba
        *  recurrence a una tarea ya creada y no veía nada de la semana
        *  hasta completarla. */
-      ensureRecurringBuffer: (taskId, lookaheadCount = 14, weeksAhead = 1) => {
+      ensureRecurringBuffer: (taskId, lookaheadCount = 14, weeksAhead = 1, anchorKey) => {
         const nowIso = new Date().toISOString()
         set((s) => {
           const head = s.tasks[taskId]
@@ -456,16 +464,19 @@ export const useTasksStore = create<TasksState>()(
           const mother = (head.recurringHeadId && s.tasks[head.recurringHeadId]) || head
           const motherId = mother.id
 
-          // ─── Ventana semanal Lun→Dom de la dueDate del head ───
-          // Si el head es Sábado, la "semana" es esa Lun anterior → Dom
-          // siguiente. Si el head es Lunes, esa misma semana. Spawneamos
-          // solo instancias cuyo dueDate cae dentro de esta ventana.
-          //
-          // Por qué la semana del head y no la de hoy: el user crea sus
-          // recurrentes el Sábado/Domingo para la semana que ARRANCA;
-          // la dueDate apunta al Lunes (o al día que elija). La ventana
-          // que importa es la del head, no la de "ahora".
-          const [hy, hm, hd] = head.dueDate.split('-').map(Number)
+          // ─── Ventana semanal Lun→Dom anclada ───
+          // El ANCLA define qué semana arranca la ventana:
+          //   - CREACIÓN (sin anchorKey): la dueDate del head. El user
+          //     creó la recurrente para una semana puntual (ej. el Lunes
+          //     que viene); la ventana es la de ESA fecha.
+          //   - MANTENIMIENTO (anchorKey = hoy): la semana actual. Esto es
+          //     CLAVE: si ancláramos en la dueDate de cada instancia, la
+          //     instancia más futura extendería su propia ventana +N
+          //     semanas y el horizonte crecería sin tope en cada apertura
+          //     (bug de las 4 semanas). Anclando en hoy, todas las llamadas
+          //     producen la MISMA ventana acotada e idempotente.
+          const anchorDateStr = anchorKey || head.dueDate
+          const [hy, hm, hd] = anchorDateStr.split('-').map(Number)
           const headDate = new Date(hy, hm - 1, hd); headDate.setHours(0, 0, 0, 0)
           // Lun=1 … Dom=0. Queremos arrancar la semana en Lun.
           const dayOfWeek = headDate.getDay()                  // 0..6 (Dom=0)
@@ -477,6 +488,7 @@ export const useTasksStore = create<TasksState>()(
           const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + (7 * Math.max(1, weeksAhead)) - 1)
           const fmtYmd = (d: Date) =>
             `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+          const weekStartYmd = fmtYmd(weekStart)
           const weekEndYmd = fmtYmd(weekEnd)
 
           // GUARD anti-duplicados: dado un dueDate target, devuelve true
@@ -527,8 +539,12 @@ export const useTasksStore = create<TasksState>()(
           for (let i = 0; i < lookaheadCount; i++) {
             const next = nextRecurrenceDueDate(prevDue, head.recurrence!)
             if (!next) break                         // serie terminó (until)
-            if (next > weekEndYmd) break             // ya nos pasamos del Domingo de la semana del head
-            if (next <= head.dueDate) {              // safety: jamás retroceder
+            if (next > weekEndYmd) break             // ya nos pasamos del Domingo del fin de ventana
+            if (next < weekStartYmd) {               // antes de la ventana (ancla) — no spawnear pasado
+              prevDue = next
+              continue
+            }
+            if (next <= head.dueDate) {              // safety: jamás retroceder respecto del head
               prevDue = next
               continue
             }
@@ -1165,15 +1181,19 @@ export const useTasksStore = create<TasksState>()(
           }
           return { tasks, projects }
         })
-        // Post-set: el buffer arma el resto de la semana actual + la
-        // próxima de cada spawned. ensureRecurringBuffer es idempotente y
-        // respeta el dueño semanal del head: si la serie es weekly + 1
-        // día, no agrega nada más fuera de los días marcados.
-        //
-        // weeksAhead=2 unifica el comportamiento con addTask/updateTask:
-        // cualquier recurrente activa siempre tiene 2 semanas precargadas.
+        // Post-set: el buffer arma el resto de la semana + la siguiente,
+        // anclado en el HOY REAL (no en `todayKey`, que puede ser el lunes
+        // que viene por el spawn anticipado del SPI). Así:
+        //   - la DECISIÓN de spawnear la semana próxima usa `todayKey`
+        //     efectivo (adelanta el sábado para el SPI), PERO
+        //   - el HORIZONTE del buffer queda fijo en [semana actual, +1] = 2
+        //     semanas desde hoy real, sin importar el adelanto.
+        // Esto evita tanto el crecimiento sin tope (bug 4 semanas) como una
+        // 3ra semana transitoria los fines de semana.
+        const now = new Date()
+        const realTodayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
         for (const newId of spawnedIds) {
-          get().ensureRecurringBuffer(newId, 14, 2)
+          get().ensureRecurringBuffer(newId, 14, 2, realTodayKey)
         }
         return spawned
       },

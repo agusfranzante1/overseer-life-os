@@ -312,14 +312,14 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
   // El color comunica la urgencia. Low y done quedan limpias para que
   // el ojo se vaya naturalmente a urgent/high/medium primero.
   const accentColor = isDone
-    ? 'rgba(255, 255, 255, 0.06)'
+    ? 'var(--surface-fill)'
     : isUrgent
       ? '#ef4444'        // rojo
       : isHighPriority || isOverdue
         ? '#f97316'      // naranja
         : effPriority === 'medium'
           ? '#eab308'    // amarillo
-          : 'rgba(255, 255, 255, 0.06)'  // low → neutro
+          : 'var(--surface-fill)'  // low → neutro
   // Hay tinte de color (glow + border 2px) solo si NO es low/done.
   const hasPriorityAccent = !isDone && (isUrgent || isHighPriority || isOverdue || effPriority === 'medium')
 
@@ -353,12 +353,12 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
         // Tareas normales (medium/low) quedan limpias, sin tinte azul
         // ni gris fuerte — solo el glass base.
         background: hasPriorityAccent
-          ? `linear-gradient(180deg, ${accentColor}1a 0%, transparent 25%), rgba(255, 255, 255, 0.025)`
-          : 'rgba(255, 255, 255, 0.025)',
+          ? `linear-gradient(180deg, ${accentColor}1a 0%, transparent 25%), var(--card-bg)`
+          : 'var(--card-bg)',
         borderTop: hasPriorityAccent
           ? `2px solid ${accentColor}`
-          : '1px solid rgba(255, 255, 255, 0.06)',
-        boxShadow: `inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0,0,0,0.3)`,
+          : '1px solid var(--card-border)',
+        boxShadow: `inset 0 0 0 1px var(--card-inset), 0 1px 2px rgba(0,0,0,0.3)`,
         opacity: isDone ? 0.55 : 1,
       }}
       className={`rounded-2xl transition-all overflow-hidden ${dndClass}`}
@@ -933,7 +933,7 @@ function InlineSelectBadge({ value, options, onChange, bgColor, fgColor, renderL
             left: pos.left,
             minWidth: pos.minWidth,
             zIndex: 9999,
-            background: '#11151c',
+            background: 'var(--surface-popover)',
             boxShadow: '0 10px 32px -8px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.04), 0 0 24px -8px rgba(99,102,241,0.35)',
           }}
           className="rounded-lg overflow-hidden border border-white/[0.14]"

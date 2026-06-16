@@ -569,7 +569,7 @@ function DistributionPanel({
                 ))}
               </Pie>
               <RechartsTooltip
-                contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }}
+                contentStyle={{ background: 'var(--surface-popover)', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 11 }}
                 formatter={(v, name) => [`${v ?? 0}%`, name] as [string, string]}
               />
             </PieChart>

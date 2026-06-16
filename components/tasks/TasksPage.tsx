@@ -542,15 +542,19 @@ export function TasksPage() {
   // visibles al toque. Idempotente: si ya están las fechas no duplica.
   // Corre 1 vez por mount.
   //
-  // weeksAhead=2 — match con addTask/updateTask para que toda recurrente
-  // activa siempre tenga "esta semana + próxima" precargadas, sin importar
-  // por qué camino se renovó la cadena.
+  // CLAVE: pasamos `todayKey` como ANCLA. Sin esto, cada instancia futura
+  // anclaba su propia ventana de 2 semanas y el horizonte crecía sin tope
+  // en cada apertura (bug de las 4 semanas). Anclando en hoy, el buffer
+  // queda fijo en "esta semana + la próxima" sin importar cuántas
+  // instancias ya existan.
   useEffect(() => {
+    const now = new Date()
+    const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
     const heads = Object.values(tasksStoreApi.tasks).filter(
       (t) => t.recurrence && t.dueDate && !t.archivedAt && !t.completedAt,
     )
     for (const t of heads) {
-      tasksStoreApi.ensureRecurringBuffer(t.id, 14, 2)
+      tasksStoreApi.ensureRecurringBuffer(t.id, 14, 2, todayKey)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -2303,7 +2307,7 @@ function SnapshotControls() {
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpenList(false)} />
           <div className="absolute right-0 top-full mt-2 z-50 w-80 max-h-96 overflow-y-auto rounded-xl border border-white/[0.12] shadow-2xl"
-            style={{ background: '#11151c', boxShadow: '0 10px 32px -8px rgba(0,0,0,0.75)' }}
+            style={{ background: 'var(--surface-popover)', boxShadow: '0 10px 32px -8px rgba(0,0,0,0.75)' }}
           >
             <div className="p-3 border-b border-white/[0.08] flex items-center justify-between">
               <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Snapshots</span>
