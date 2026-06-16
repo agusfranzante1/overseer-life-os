@@ -1534,8 +1534,7 @@ function RecurringView({
 }) {
   const updateTask = useTasksStore((s) => s.updateTask)
   const updateSubtask = useTasksStore((s) => s.updateSubtask)
-  const rebuildRecurringChain = useTasksStore((s) => s.rebuildRecurringChain)
-  const deleteTask = useTasksStore((s) => s.deleteTask)
+  const removeRecurringSeries = useTasksStore((s) => s.removeRecurringSeries)
   const deleteSubtask = useTasksStore((s) => s.deleteSubtask)
   const mergeRecurringSeries = useTasksStore((s) => s.mergeRecurringSeries)
 
@@ -1616,13 +1615,12 @@ function RecurringView({
       : `¿Eliminar la recurrencia de "${title}"?\n\nEl HEAD se mantiene pero ya no se va a repetir.`
     if (!confirm(msg)) return
     if (entry.kind === 'task') {
-      // Orden importa: limpiar recurrence ANTES de rebuildRecurringChain
-      // — el post-set ensureBuffer dentro de rebuild re-genera la cadena
-      // si la head todavía tiene recurrence. Con recurrence ya limpia,
-      // no-opea. El filtro de futuras mira recurrence de CADA hija así
-      // que las sigue encontrando igual.
-      updateTask(entry.head.id, { recurrence: undefined })
-      rebuildRecurringChain(entry.head.id)
+      // removeRecurringSeries saca recurrence de TODA la serie (así nada
+      // re-spawnea) y borra las futuras no completadas, manteniendo el
+      // head como tarea suelta. Reemplaza al combo updateTask +
+      // rebuildRecurringChain, que dejaba instancias con recurrence vivas
+      // y el rollover/buffer las regeneraba.
+      removeRecurringSeries(entry.head.id, true)
     } else {
       // Subtarea: borramos recurrence del head + las hermanas futuras no
       // completadas. No hay equivalent a rebuildRecurringChain para
@@ -1638,11 +1636,11 @@ function RecurringView({
   const handleDeleteSeriesCompletely = (entry: SeriesEntry) => {
     const title = entry.head.title
     const futureCount = entry.future.length
-    if (!confirm(`¿Eliminar la serie "${title}" COMPLETA (head + ${futureCount} futura${futureCount !== 1 ? 's' : ''})? No se puede deshacer salvo restaurando desde la papelera.`)) return
+    if (!confirm(`¿Eliminar la serie "${title}" COMPLETA (head + ${futureCount} futura${futureCount !== 1 ? 's' : ''})? Las completadas pasadas quedan en el historial. Esta acción no se puede deshacer.`)) return
     if (entry.kind === 'task') {
-      updateTask(entry.head.id, { recurrence: undefined })
-      rebuildRecurringChain(entry.head.id)
-      deleteTask(entry.head.id)
+      // keepHead=false → se borra también el head. Saca recurrence de toda
+      // la serie para que el rollover/buffer no la regeneren.
+      removeRecurringSeries(entry.head.id, false)
     } else {
       // Subtarea: borrar la madre y todas las futuras hermanas (incluso
       // las completadas no archivadas — el user pidió borrar TODO).

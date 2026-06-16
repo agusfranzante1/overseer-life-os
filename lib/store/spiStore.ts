@@ -128,6 +128,13 @@ interface SPIState {
     newLevel: number
     previousLevel: number
   }
+  /** Re-genera los snapshots (calendario + hábitos/KPIs) de una sesión ya
+   *  cerrada, leyendo el estado live ACTUAL de los stores. Sirve para
+   *  recuperar/refrescar el snapshot de una semana cuando se cerró antes
+   *  de tiempo o con datos incompletos (p. ej. tareas completadas que ya
+   *  se habían auto-archivado). Devuelve cuántos bloques quedaron en el
+   *  snapshot del calendario. */
+  recaptureSnapshots: (sessionId: string) => number
 
   // ─── Bitácora de Calibración (cross-session DB) ─────────────────
   addBitacoraEntry: (e: Omit<BitacoraEntry, 'id' | 'createdAt' | 'updatedAt'>) => string
@@ -343,6 +350,21 @@ export const useSPIStore = create<SPIState>()(
 
         const pushed = updatedTasks.filter((t) => t.linkedTaskId && !session.tasks.find((o) => o.id === t.id)?.linkedTaskId).length
         return { pushedTasks: pushed, xp, leveledUp, newLevel, previousLevel }
+      },
+
+      recaptureSnapshots: (sessionId) => {
+        const session = get().sessions.find((s) => s.id === sessionId)
+        if (!session) return 0
+        const calendarSnapshot = buildCalendarSnapshot(session.weekStartDate)
+        const weekSnapshot = buildWeekSnapshot(session.weekStartDate, session)
+        set((s) => ({
+          sessions: s.sessions.map((sess) =>
+            sess.id === sessionId
+              ? { ...sess, calendarSnapshot, weekSnapshot, updatedAt: new Date().toISOString() }
+              : sess,
+          ),
+        }))
+        return calendarSnapshot.blocks.length
       },
 
       addBitacoraEntry: (e) => {

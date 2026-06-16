@@ -21,12 +21,15 @@ import { useGoogleCalendarStore } from '@/lib/store/googleCalendarStore'
 function calendarMondayForSpiWeek(spiWeekStartDate: string): string {
   const [y, m, d] = spiWeekStartDate.split('-').map(Number)
   const sat = new Date(y, m - 1, d, 12, 0, 0)
-  // El lunes de la "semana del calendario" que CONTIENE este sábado.
-  // Sábado → retroceder 5 días → lunes de la misma semana lun-dom.
-  const dow = sat.getDay()  // 6=Sáb
-  const daysBack = dow === 0 ? 6 : dow - 1
+  // El SPI del sábado PLANIFICA la semana que ARRANCA el lunes siguiente
+  // (Sáb → Dom → Lun = +2 días), NO la semana que ya terminó. Por eso
+  // tomamos el PRÓXIMO lunes estricto a partir del sábado ancla.
+  //   Sáb (dow=6) → +2 → lunes
+  //   (robusto ante anclas no-sábado: igual cae en el lunes siguiente)
+  const dow = sat.getDay()
+  const daysToNextMonday = ((1 - dow) + 7) % 7 || 7
   const mon = new Date(sat)
-  mon.setDate(sat.getDate() - daysBack)
+  mon.setDate(sat.getDate() + daysToNextMonday)
   const yy = mon.getFullYear()
   const mm = String(mon.getMonth() + 1).padStart(2, '0')
   const dd = String(mon.getDate()).padStart(2, '0')
@@ -54,7 +57,13 @@ export function buildCalendarSnapshot(spiWeekStartDate: string): CalendarWeekSna
   // ─── 1) Tareas y subtareas con dueTime ─────────────────────────────
   const { tasks, projects } = useTasksStore.getState()
   for (const t of Object.values(tasks)) {
-    if (t.archivedAt) continue
+    // IMPORTANTE: NO saltear las archivadas COMPLETADAS. Las tareas que
+    // completás se auto-archivan al día siguiente (auto-purge), así que
+    // para el sábado, cuando cerrás el SPI, casi todo lo que hiciste en la
+    // semana YA está archivado. Si las salteábamos, el snapshot perdía
+    // "todo lo que hiciste". Solo salteamos las archivadas SIN completar
+    // (esas son papelera real: tareas que tiraste sin hacer).
+    if (t.archivedAt && !t.completedAt) continue
     const projColor = projects[t.projectId]?.color ?? '#6366f1'
 
     // Tarea madre — TIMED (con dueTime) o ALL-DAY (solo dueDate).
@@ -95,7 +104,9 @@ export function buildCalendarSnapshot(spiWeekStartDate: string): CalendarWeekSna
 
     // Subtareas — mismo split timed vs all-day.
     for (const sub of t.subtasks ?? []) {
-      if (sub.archivedAt) continue
+      // Misma regla que las madres: las subtareas completadas-y-archivadas
+      // SÍ entran (son trabajo hecho), solo salteamos archivadas sin completar.
+      if (sub.archivedAt && !sub.completedAt) continue
       if (!sub.dueDate || !weekKeys.has(sub.dueDate)) continue
       const isDone = !!sub.completedAt
       if (sub.dueTime) {

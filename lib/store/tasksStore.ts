@@ -125,6 +125,22 @@ interface TasksState {
    *  Lo usamos al CAMBIAR la regla de recurrencia para evitar tasks
    *  huérfanas con fechas viejas que no encajan con la nueva regla. */
   rebuildRecurringChain: (taskId: string) => void
+  /** Corta una serie recurrente entera de forma definitiva, de modo que
+   *  NINGUNA instancia pueda re-spawnearse después.
+   *
+   *  A diferencia de `rebuildRecurringChain` (que solo borra `dueDate >
+   *  head` y deja la recurrence puesta en las demás → re-spawn), esta
+   *  opera sobre TODA la serie (match por recurringHeadId, con fallback a
+   *  projectId+título) y:
+   *    - Saca `recurrence` de CADA instancia (incluidas las completadas y
+   *      las archivadas) — así ni el rollover ni el buffer la regeneran.
+   *    - Borra (hard) todas las instancias NO completadas, salvo el head
+   *      si `keepHead` (queda como tarea suelta, sin recurrencia).
+   *    - Conserva las completadas como histórico (sin recurrence).
+   *
+   *  `keepHead=true`  → "Detener recurrencia" (mantené el head suelto).
+   *  `keepHead=false` → "Borrar todo" (se va también el head). */
+  removeRecurringSeries: (headId: string, keepHead: boolean) => void
   /** Restore an archived task: clear its archivedAt + completedAt and reset
    *  its status to the first non-done status of its project. */
   restoreFromArchive: (id: string) => void
@@ -639,6 +655,68 @@ export const useTasksStore = create<TasksState>()(
         // Después del nuke, re-buffereamos para llenar la semana fresca
         // con la nueva regla.
         get().ensureRecurringBuffer(taskId, 14, 2)
+      },
+
+      removeRecurringSeries: (headId, keepHead) => {
+        set((s) => {
+          const head = s.tasks[headId]
+          if (!head) return s
+          const motherId = head.recurringHeadId ?? head.id
+          // Normalización de título igual que la vista de recurrentes, para
+          // poder cazar instancias aunque el `recurringHeadId` se haya
+          // fragmentado (madre borrada → spawns re-anclados a otro head).
+          const normTitle = (str: string) =>
+            str.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+          const headTitleN = normTitle(head.title)
+          // Pertenece a la serie LÓGICA. Incluye 3 caminos:
+          //   1. el head mismo,
+          //   2. match exacto por recurringHeadId (modelo nuevo intacto),
+          //   3. CUALQUIER recurrente con mismo proyecto + título normalizado
+          //      (sin importar recurringHeadId) — esto caza los fragmentos
+          //      cuya madre se borró y quedaron re-anclados a otro head. Sin
+          //      esto, "borrar todo" mataba un fragmento y los demás
+          //      sobrevivían con recurrence y re-spawneaban (bug "queda de a 1").
+          const inSeries = (t: Task) =>
+            t.id === headId
+            || (t.recurringHeadId != null && t.recurringHeadId === motherId)
+            || (!!t.recurrence && t.projectId === head.projectId && normTitle(t.title) === headTitleN)
+
+          const nowIso = new Date().toISOString()
+          const tasks = { ...s.tasks }
+          let projects = s.projects
+          const removeFromProject = (t: Task) => {
+            const proj = projects[t.projectId]
+            if (proj) {
+              projects = {
+                ...projects,
+                [t.projectId]: { ...proj, taskIds: proj.taskIds.filter((x) => x !== t.id) },
+              }
+            }
+          }
+
+          for (const t of Object.values(s.tasks)) {
+            if (!inSeries(t)) continue
+            const isHead = t.id === headId
+            const isHistory = !!t.completedAt || !!t.archivedAt
+
+            if (isHead && keepHead) {
+              // Head queda como tarea suelta: sin recurrencia, sin rol de madre.
+              tasks[t.id] = { ...t, recurrence: undefined, recurringHeadId: undefined, updatedAt: nowIso }
+              continue
+            }
+            if (isHistory) {
+              // Completadas/archivadas → se conservan como histórico, pero
+              // SIN recurrence para que no re-siembren la serie.
+              tasks[t.id] = { ...t, recurrence: undefined, updatedAt: nowIso }
+              continue
+            }
+            // No completada (y no es el head que mantenemos) → fuera de verdad.
+            delete tasks[t.id]
+            removeFromProject(t)
+          }
+
+          return { tasks, projects }
+        })
       },
 
       updateTask: (id, patch) => {

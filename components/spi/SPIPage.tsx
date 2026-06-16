@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Infinity as InfinityIcon, Plus, ChevronDown, ChevronRight, Flame, Trophy,
   Check, Calendar, Star, Trash2, Sparkles, History, X, ArrowRight, Zap, TrendingUp,
-  Settings2, FlaskConical, Copy, CalendarDays,
+  Settings2, FlaskConical, Copy, CalendarDays, RotateCcw,
 } from 'lucide-react'
 import { CalendarSnapshotView } from './CalendarSnapshotView'
 import { buildCalendarSnapshot } from '@/lib/spi/calendarSnapshot'
@@ -3501,15 +3501,43 @@ function CalendarSnapshotButton({ session }: { session: SPISession }) {
     return session.calendarSnapshot ?? buildCalendarSnapshot(session.weekStartDate)
   }, [open, session.calendarSnapshot, session.weekStartDate, isStillCurrentWeek])
 
+  // Re-capturar: re-genera el snapshot congelado de una sesión cerrada
+  // leyendo el estado live actual. Útil para recuperar una semana cuyo
+  // snapshot quedó incompleto (p. ej. tareas completadas que ya se habían
+  // auto-archivado al momento del cierre). Solo tiene sentido en sesiones
+  // cerradas con snapshot frozen (las "still current" ya se rebuildean
+  // live solas).
+  const recaptureSnapshots = useSPIStore((s) => s.recaptureSnapshots)
+  const [recaptured, setRecaptured] = useState(false)
+  const canRecapture = !!session.closedAt && !isStillCurrentWeek
+
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        title="Ver el calendario de esta semana — bloques timeados con qué planeaste y qué completaste."
-        className="px-2.5 py-1.5 bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.12] hover:text-zinc-200 text-zinc-400 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
-      >
-        <CalendarDays className="w-3.5 h-3.5" /> Calendario
-      </button>
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={() => setOpen(true)}
+          title="Ver el calendario de esta semana — bloques timeados con qué planeaste y qué completaste."
+          className="px-2.5 py-1.5 bg-white/[0.03] border border-white/[0.08] hover:border-white/[0.12] hover:text-zinc-200 text-zinc-400 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
+        >
+          <CalendarDays className="w-3.5 h-3.5" /> Calendario
+        </button>
+        {canRecapture && (
+          <button
+            onClick={() => {
+              const n = recaptureSnapshots(session.id)
+              setRecaptured(true)
+              setTimeout(() => setRecaptured(false), 2500)
+              if (n === 0) {
+                alert('Se re-capturó, pero no se encontraron tareas/eventos de esa semana en el sistema. Si borraste las tareas, revisá la papelera de Tareas y restaurálas antes de re-capturar.')
+              }
+            }}
+            title="Re-generar el snapshot de esta semana con los datos actuales (recupera tareas completadas que se habían archivado)."
+            className="px-2.5 py-1.5 bg-white/[0.03] border border-white/[0.08] hover:border-amber-500/40 hover:text-amber-300 text-zinc-400 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5"
+          >
+            <RotateCcw className="w-3.5 h-3.5" /> {recaptured ? 'Re-capturado ✓' : 'Re-capturar'}
+          </button>
+        )}
+      </div>
       {open && snapshot && (
         <CalendarSnapshotView snapshot={snapshot} onClose={() => setOpen(false)} />
       )}
