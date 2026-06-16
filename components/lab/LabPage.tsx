@@ -346,7 +346,7 @@ function CategoryCard({
             {category.emoji}
           </span>
           <span className="text-[10px] font-mono flex items-center gap-2"
-            style={{ color: hover ? category.color : '#71717a' }}>
+            style={{ color: hover ? category.color : 'var(--color-zinc-500)' }}>
             {isCustom && (
               <span className="px-1.5 py-0.5 rounded border bg-violet-500/10 border-violet-500/30 text-violet-300 text-[9px] uppercase tracking-wider">custom</span>
             )}
@@ -354,7 +354,7 @@ function CategoryCard({
           </span>
         </div>
         <h3 className="text-base font-bold mb-1 transition-colors"
-          style={{ color: hover ? category.color : '#f4f4f5' }}>
+          style={{ color: hover ? category.color : 'var(--color-zinc-100)' }}>
           {category.title}
         </h3>
         <p className="text-[11px] text-zinc-300 italic leading-relaxed">{category.tagline}</p>
@@ -369,7 +369,7 @@ function CategoryCard({
         {exs.length > 3 && (
           <button onClick={onClick}
             className="text-[10px] px-2 py-1 rounded transition-colors flex items-center gap-0.5"
-            style={{ color: hover ? category.color : '#71717a' }}>
+            style={{ color: hover ? category.color : 'var(--color-zinc-500)' }}>
             +{exs.length - 3} más <ChevronRight className="w-2.5 h-2.5" />
           </button>
         )}
@@ -392,9 +392,9 @@ function QuickStartChip({
       title={`Iniciar: ${ex.title}`}
       className="text-[10px] px-2 py-1 rounded-md border transition-all duration-150 flex items-center gap-1 font-medium"
       style={{
-        background: chipHover ? accent + '30' : 'rgba(24, 24, 27, 0.6)',
-        borderColor: chipHover ? accent + 'AA' : '#3f3f46',
-        color: chipHover ? '#ffffff' : '#a1a1aa',
+        background: chipHover ? accent + '30' : 'var(--surface-fill)',
+        borderColor: chipHover ? accent + 'AA' : 'var(--color-zinc-700)',
+        color: chipHover ? 'var(--color-zinc-100)' : 'var(--color-zinc-400)',
         transform: chipHover ? 'translateY(-1px)' : 'translateY(0)',
       }}
     >
@@ -618,7 +618,7 @@ function BeliefRow({
 
   return (
     <div className="rounded-lg border bg-zinc-900/60 p-2.5"
-      style={{ borderColor: isResolved ? '#10b98140' : '#27272a' }}>
+      style={{ borderColor: isResolved ? '#10b98140' : 'var(--color-zinc-800)' }}>
       <div className="flex items-start gap-2">
         {/* Status dot */}
         <span className="mt-1.5 w-2 h-2 rounded-full shrink-0"
@@ -873,8 +873,8 @@ function ExerciseRow({
   return (
     <div className="relative rounded-xl overflow-hidden border-2 transition-all duration-150"
       style={{
-        background: hover || expanded ? accent + '12' : 'rgba(9, 9, 11, 0.4)',
-        borderColor: hover || expanded ? accent + '70' : '#27272a',
+        background: hover || expanded ? accent + '12' : 'var(--card-bg)',
+        borderColor: hover || expanded ? accent + '70' : 'var(--color-zinc-800)',
         boxShadow: hover ? `0 4px 16px -4px ${accent}40` : 'none',
       }}
       onMouseEnter={() => setHover(true)}
@@ -966,8 +966,8 @@ function SessionRow({ session, onOpen }: { session: LabSession; onOpen: () => vo
       onMouseLeave={() => setHover(false)}
       className="w-full text-left rounded-xl border-2 p-3 flex items-center gap-3 transition-all duration-150 group"
       style={{
-        background: hover ? accent + '1A' : isClosed ? accent + '08' : isArchived ? 'rgba(24,24,27,0.4)' : 'rgba(9,9,11,0.4)',
-        borderColor: hover ? accent + 'AA' : isClosed ? accent + '30' : isArchived ? '#27272a' : accent + '40',
+        background: hover ? accent + '1A' : isClosed ? accent + '08' : isArchived ? 'var(--surface-fill)' : 'var(--card-bg)',
+        borderColor: hover ? accent + 'AA' : isClosed ? accent + '30' : isArchived ? 'var(--color-zinc-800)' : accent + '40',
         opacity: isArchived && !hover ? 0.6 : 1,
         boxShadow: hover ? `0 4px 16px -4px ${accent}50` : 'none',
         transform: hover ? 'translateX(2px)' : 'translateX(0)',
@@ -979,7 +979,7 @@ function SessionRow({ session, onOpen }: { session: LabSession; onOpen: () => vo
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-semibold truncate transition-colors"
-            style={{ color: hover ? '#ffffff' : '#f4f4f5' }}>
+            style={{ color: hover ? 'var(--color-white)' : 'var(--color-zinc-100)' }}>
             {session.title}
           </p>
           {cat && (
@@ -996,7 +996,7 @@ function SessionRow({ session, onOpen }: { session: LabSession; onOpen: () => vo
       </div>
       <ChevronRight className="w-4 h-4 transition-all"
         style={{
-          color: hover ? accent : '#52525b',
+          color: hover ? accent : 'var(--color-zinc-600)',
           transform: hover ? 'translateX(3px)' : 'translateX(0)',
         }}
       />
