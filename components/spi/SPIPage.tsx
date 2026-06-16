@@ -2056,7 +2056,7 @@ function TasksBlock({
   const linkedCount = sessionTasks.filter((t) => !!t.linkedTaskId).length
 
   return (
-    <div className="bg-gradient-to-br from-fuchsia-950/20 to-zinc-950/40 border border-fuchsia-500/20 rounded-2xl p-5">
+    <div className="bg-gradient-to-br from-fuchsia-500/10 to-violet-500/[0.06] border border-fuchsia-500/20 rounded-2xl p-5">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-zinc-200 flex items-center gap-2">
           ⚒️ Tareas de la semana
@@ -2950,7 +2950,7 @@ function ProjectionContext({
   const nothingExists = !yearPlan && !quarterPlan && !monthPlan
 
   return (
-    <div className="bg-gradient-to-br from-blue-950/30 to-indigo-950/20 border border-blue-500/20 rounded-2xl p-4 space-y-3">
+    <div className="bg-gradient-to-br from-blue-500/10 to-indigo-500/[0.06] border border-blue-500/20 rounded-2xl p-4 space-y-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[10px] font-mono uppercase tracking-wider text-blue-300/80">
           📐 Contexto desde Proyección

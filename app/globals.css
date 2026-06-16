@@ -215,6 +215,33 @@ html.theme-light .bg-black\/10 { background-color: rgba(0, 0, 0, 0.015); }
 html.theme-light .bg-black\/20 { background-color: rgba(0, 0, 0, 0.03); }
 html.theme-light .bg-black\/30 { background-color: rgba(0, 0, 0, 0.045); }
 
+/* ── Texto de acento claro (-200/-300) → más oscuro en modo claro ─────
+   Los shades 200/300 de los colores de acento (text-blue-300, text-amber-200,
+   etc.) fueron pensados para texto CLARO sobre fondo oscuro. En claro
+   quedaban lavados / ilegibles sobre las cards blancas. Acá bajamos esos
+   shades a ~600/700 (legibles sobre claro) manteniendo la identidad de
+   color. Override de la VARIABLE → caza también las variantes con opacidad
+   (text-fuchsia-300/80). Seguro: bg-/border- de estos shades casi no se
+   usan (relevado). NO tocamos -400 (sí se usa como fondo/borde). */
+html.theme-light {
+  --color-indigo-300: #4f46e5;  --color-indigo-200: #4338ca;
+  --color-emerald-300: #059669; --color-emerald-200: #047857;
+  --color-fuchsia-300: #c026d3; --color-fuchsia-200: #a21caf;
+  --color-amber-300: #b45309;   --color-amber-200: #92400e;
+  --color-red-300: #dc2626;     --color-red-200: #b91c1c;
+  --color-blue-300: #2563eb;    --color-blue-200: #1d4ed8;
+  --color-violet-300: #7c3aed;  --color-violet-200: #6d28d9;
+  --color-purple-300: #9333ea;  --color-purple-200: #7e22ce;
+  --color-yellow-300: #a16207;  --color-yellow-200: #854d0e;
+  --color-rose-300: #e11d48;    --color-rose-200: #be123c;
+  --color-pink-300: #db2777;    --color-pink-200: #be185d;
+  --color-orange-300: #ea580c;  --color-orange-200: #c2410c;
+  --color-cyan-300: #0891b2;    --color-cyan-200: #0e7490;
+  --color-sky-300: #0284c7;     --color-sky-200: #0369a1;
+  --color-teal-300: #0d9488;    --color-teal-200: #0f766e;
+  --color-green-300: #16a34a;   --color-green-200: #15803d;
+}
+
 /* .glass-tile a superficie blanca en claro (el tinte translúcido queda
    invisible sobre el canvas claro). */
 html.theme-light .glass-tile {
