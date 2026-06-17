@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Sparkles, Target, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown,
   Plus, Trash2, X, BookOpen, Layers, Zap, Pencil, Send, Check,
+  Image as ImageIcon, Upload, Loader2,
 } from 'lucide-react'
 import { useContentStore, buildAIContentPrompt } from '@/lib/store/contentStore'
 import {
@@ -13,9 +14,11 @@ import {
 import type {
   ContentItem, ContentFormat, ContentMomentType, ContentStageId,
   ContentProfile, PostCycleAction, ContentNetwork,
+  VisualStyleCategory, VisualStyleImage,
 } from '@/types/content'
+import { uploadVisualImage, deleteVisualImage } from '@/lib/content/visualUpload'
 
-type Tab = 'estrategia' | 'mes' | 'calendario' | 'pipeline'
+type Tab = 'estrategia' | 'mes' | 'calendario' | 'pipeline' | 'estilo'
 
 const ALL_NETWORKS: ContentNetwork[] = [
   'instagram', 'tiktok', 'youtube', 'linkedin', 'x',
@@ -109,6 +112,11 @@ export function ContenidoPage() {
             <PipelineTab networkFilter={networkFilter} profileFilter={profileFilter} onEditItem={setEditingItem} />
           </motion.div>
         )}
+        {tab === 'estilo' && (
+          <motion.div key="t5" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <EstiloVisualTab />
+          </motion.div>
+        )}
       </AnimatePresence>
 
       <AnimatePresence>
@@ -140,6 +148,7 @@ function Header({
     { key: 'mes',         label: 'Mes en curso',   icon: <BookOpen className="w-3.5 h-3.5" /> },
     { key: 'calendario',  label: 'Calendario',     icon: <CalendarIcon className="w-3.5 h-3.5" /> },
     { key: 'pipeline',    label: 'Pipeline',       icon: <Layers className="w-3.5 h-3.5" /> },
+    { key: 'estilo',      label: 'Estilo visual',  icon: <ImageIcon className="w-3.5 h-3.5" /> },
   ]
   const shiftMonth = (delta: number) => {
     const [y, m] = currentMonth.split('-').map(Number)
@@ -1654,6 +1663,182 @@ function KnowledgeMapField({
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────
+// ESTILO VISUAL — mood board por perfil (categorías + imágenes)
+// ───────────────────────────────────────────────────────────────────
+function EstiloVisualTab() {
+  const profile = useContentStore((s) => s.profiles.find((p) => p.id === s.currentProfileId))
+  const addVisualCategory = useContentStore((s) => s.addVisualCategory)
+  const [newCat, setNewCat] = useState('')
+  const [lightbox, setLightbox] = useState<VisualStyleImage | null>(null)
+
+  if (!profile) return null
+  const categories = profile.visualStyle ?? []
+
+  const submitCat = () => {
+    const n = newCat.trim()
+    if (!n) return
+    addVisualCategory(profile.id, n)
+    setNewCat('')
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <p className="text-xs text-zinc-500 max-w-xl">
+          Referencias visuales de <span className="text-zinc-300">{profile.name}</span>. Creá categorías
+          (ej. <em>Estilo videos</em>, <em>Estilo portadas</em>) y subí imágenes para armar el mood board.
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            value={newCat}
+            onChange={(e) => setNewCat(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') submitCat() }}
+            placeholder="Nueva categoría…"
+            className="bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-violet-500"
+          />
+          <button onClick={submitCat}
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-violet-400/40 text-violet-200 bg-violet-500/15 hover:bg-violet-500/25 transition-colors flex items-center gap-1.5">
+            <Plus className="w-3.5 h-3.5" /> Categoría
+          </button>
+        </div>
+      </div>
+
+      {categories.length === 0 ? (
+        <div className="rounded-2xl p-10 text-center border border-dashed border-white/[0.10] bg-white/[0.02]">
+          <ImageIcon className="w-10 h-10 text-violet-400/60 mx-auto mb-3" />
+          <p className="text-sm font-semibold text-zinc-200 mb-1">Sin estilo visual todavía</p>
+          <p className="text-xs text-zinc-500 max-w-md mx-auto">
+            Creá tu primera categoría (ej. &quot;Estilo portadas&quot;) y empezá a subir imágenes de referencia.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {categories.map((cat) => (
+            <VisualCategoryBlock key={cat.id} profileId={profile.id} category={cat} onOpenImage={setLightbox} />
+          ))}
+        </div>
+      )}
+
+      <AnimatePresence>
+        {lightbox && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={() => setLightbox(null)}
+            className="fixed inset-0 z-[60] bg-black/85 backdrop-blur-sm flex items-center justify-center p-6"
+          >
+            <button onClick={() => setLightbox(null)} className="absolute top-4 right-4 text-zinc-300 hover:text-white"><X className="w-6 h-6" /></button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={lightbox.url} alt={lightbox.caption ?? 'referencia'} className="max-w-full max-h-[88vh] object-contain rounded-lg shadow-2xl" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function VisualCategoryBlock({
+  profileId, category, onOpenImage,
+}: {
+  profileId: string
+  category: VisualStyleCategory
+  onOpenImage: (img: VisualStyleImage) => void
+}) {
+  const renameVisualCategory = useContentStore((s) => s.renameVisualCategory)
+  const removeVisualCategory = useContentStore((s) => s.removeVisualCategory)
+  const addVisualImage = useContentStore((s) => s.addVisualImage)
+  const removeVisualImage = useContentStore((s) => s.removeVisualImage)
+  const [renaming, setRenaming] = useState(false)
+  const [name, setName] = useState(category.name)
+  const [uploading, setUploading] = useState(0)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const onFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    const arr = Array.from(files).filter((f) => f.type.startsWith('image/'))
+    if (arr.length === 0) return
+    setUploading((c) => c + arr.length)
+    await Promise.allSettled(arr.map(async (f) => {
+      try {
+        const img = await uploadVisualImage(f, profileId, category.id)
+        addVisualImage(profileId, category.id, img)
+      } catch {
+        /* el helper ya dispara el toast de error */
+      } finally {
+        setUploading((c) => Math.max(0, c - 1))
+      }
+    }))
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const onDeleteImage = (img: VisualStyleImage) => {
+    removeVisualImage(profileId, category.id, img.id) // optimista en UI
+    void deleteVisualImage(img.path)                   // best-effort en la nube
+  }
+
+  const saveName = () => { renameVisualCategory(profileId, category.id, name); setRenaming(false) }
+
+  return (
+    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        {renaming ? (
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') { setName(category.name); setRenaming(false) } }}
+            onBlur={saveName}
+            className="bg-zinc-800 border border-white/[0.12] rounded-lg px-2 py-1 text-sm text-zinc-100 focus:outline-none focus:border-violet-500" />
+        ) : (
+          <button onClick={() => { setName(category.name); setRenaming(true) }} className="text-sm font-semibold text-white hover:text-violet-200 transition-colors">
+            {category.name}
+          </button>
+        )}
+        <span className="text-[11px] text-zinc-500">{category.images.length} {category.images.length === 1 ? 'imagen' : 'imágenes'}</span>
+        {uploading > 0 && (
+          <span className="text-[11px] text-violet-300 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> subiendo {uploading}…</span>
+        )}
+        <div className="ml-auto flex items-center gap-1">
+          <button onClick={() => fileRef.current?.click()}
+            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-violet-400/40 text-violet-200 bg-violet-500/15 hover:bg-violet-500/25 transition-colors flex items-center gap-1.5">
+            <Upload className="w-3 h-3" /> Subir
+          </button>
+          <button onClick={() => { if (confirm(`¿Eliminar la categoría "${category.name}" y sus ${category.images.length} imágenes?`)) { for (const img of category.images) void deleteVisualImage(img.path); removeVisualCategory(profileId, category.id) } }}
+            className="p-1.5 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors" title="Eliminar categoría">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
+          onChange={(e) => onFiles(e.target.files)} />
+      </div>
+
+      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+        {category.images.map((img) => (
+          <div key={img.id} className="relative group aspect-square rounded-lg overflow-hidden border border-white/[0.08] bg-zinc-900">
+            <button onClick={() => onOpenImage(img)} className="w-full h-full">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={img.url} alt={img.caption ?? 'referencia'} loading="lazy" className="w-full h-full object-cover transition-transform group-hover:scale-105" />
+            </button>
+            <button onClick={() => onDeleteImage(img)}
+              className="absolute top-1 right-1 p-1 rounded-md bg-black/60 text-zinc-300 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all" title="Eliminar">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+        {/* Placeholders de carga */}
+        {Array.from({ length: uploading }).map((_, i) => (
+          <div key={`up-${i}`} className="aspect-square rounded-lg border border-dashed border-violet-400/30 bg-violet-500/5 flex items-center justify-center">
+            <Loader2 className="w-5 h-5 text-violet-400/70 animate-spin" />
+          </div>
+        ))}
+        {/* Tile de subir */}
+        <button onClick={() => fileRef.current?.click()}
+          className="aspect-square rounded-lg border border-dashed border-white/[0.12] text-zinc-500 hover:text-violet-300 hover:border-violet-400/40 transition-colors flex flex-col items-center justify-center gap-1">
+          <Upload className="w-5 h-5" />
+          <span className="text-[10px]">Subir</span>
+        </button>
+      </div>
     </div>
   )
 }

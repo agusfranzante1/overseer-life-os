@@ -48,10 +48,14 @@ export function sortSubtasks(
     ? new Map(project.statuses.map((s) => [s.label, s.order]))
     : null
 
-  // Tiebreaker para "recién agregadas al final": el campo `order` lo
-  // setea addSubtask a `subtasks.length` cuando se crea, así que
-  // ascendiente refleja orden de inserción (oldest → newest).
-  const ageTiebreak = (a: Subtask, b: Subtask) => a.order - b.order
+  // Tiebreaker dentro del mismo bucket — MISMO criterio que las madres:
+  // 1º agrupa por NOMBRE igual/similar (collation numérica: "X 2" antes que
+  //    "X 10") para que subtareas con el mismo nombre queden PEGADAS.
+  // 2º si el nombre empata, por `order` (inserción: el campo lo setea
+  //    addSubtask a `subtasks.length`, ascendente = oldest → newest).
+  const ageTiebreak = (a: Subtask, b: Subtask) =>
+    a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })
+    || (a.order - b.order)
 
   // Dentro del mismo bucket de prioridad: con dueDate pesa más que sin.
   // Espejo de la regla en sortTasks (TasksPage.tsx).

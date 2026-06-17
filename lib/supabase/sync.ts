@@ -16,6 +16,7 @@ import { useAppStore } from '@/lib/store/appStore'
 import { useMindMapStore } from '@/lib/store/mindmapStore'
 import { useKpisStore } from '@/lib/store/kpisStore'
 import { useStudyStore } from '@/lib/store/studyStore'
+import { useContentStore } from '@/lib/store/contentStore'
 import {
   startPulling, endPulling,
   markModifiedIfNotPulling, markSynced, hasUnsyncedChanges,
@@ -43,6 +44,7 @@ interface SyncState {
   mindmapInit: boolean
   kpisInit: boolean
   studyInit: boolean
+  contentInit: boolean
 }
 
 const state: SyncState = {
@@ -63,6 +65,7 @@ const state: SyncState = {
   mindmapInit: false,
   kpisInit: false,
   studyInit: false,
+  contentInit: false,
 }
 
 // ─── Push timers (debounced per domain) ───────────────────────────────────────
@@ -82,6 +85,7 @@ let appPrefsPushTimer: ReturnType<typeof setTimeout> | null = null
 let mindmapPushTimer: ReturnType<typeof setTimeout> | null = null
 let kpisPushTimer: ReturnType<typeof setTimeout> | null = null
 let studyPushTimer: ReturnType<typeof setTimeout> | null = null
+let contentPushTimer: ReturnType<typeof setTimeout> | null = null
 
 // Registro de push debounceados que están en cola. Lo usa
 // flushAllPendingPushes() para forzar TODO a salir antes de que el
@@ -2384,6 +2388,137 @@ async function pullStudy(): Promise<boolean> {
   }
 }
 
+// ─── CONTENIDO (Content Strategy: perfiles + campañas + items) ────────────────
+//
+// Perfiles NO tienen updatedAt → en conflicto gana remote, y usamos
+// push-first-si-unsynced (como trading/habits) para que una edición local de
+// perfil/estilo visual se suba ANTES y sea la canónica. Items y campañas SÍ
+// tienen updatedAt → su merge es LWW. Tombstones para los borrados.
+
+type ContentProfileT = import('@/types/content').ContentProfile
+type ContentCampaignT = import('@/types/content').ContentCampaign
+type ContentItemT = import('@/types/content').ContentItem
+
+/** ¿El perfil tiene contenido real del user? Sirve para dropear el perfil
+ *  "Personal" vacío que cada device siembra al arrancar, así no contamina el
+ *  cloud ni aparece duplicado al sincronizar. */
+function profileHasContent(p: ContentProfileT, items: ContentItemT[], campaigns: ContentCampaignT[]): boolean {
+  if (items.some((it) => it.profileId === p.id)) return true
+  if (campaigns.some((c) => c.profileId === p.id)) return true
+  if ((p.visualStyle ?? []).some((cat) => (cat.images?.length ?? 0) > 0)) return true
+  const dna = (p.brandDNA ?? {}) as unknown as Record<string, unknown>
+  for (const v of Object.values(dna)) {
+    if (typeof v === 'string' && v.trim() !== '') return true
+  }
+  return false
+}
+
+async function pushContent() {
+  if (!state.userId) return
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { profiles, campaigns, items } = useContentStore.getState()
+
+  const profileRows = profiles.map((p) => ({
+    id: p.id, user_id: uid, created_at: p.createdAt, updated_at: new Date().toISOString(), payload: p,
+  }))
+  const campaignRows = campaigns.map((c) => ({
+    id: c.id, user_id: uid, profile_id: c.profileId, created_at: c.createdAt, updated_at: c.updatedAt, payload: c,
+  }))
+  const itemRows = items.map((i) => ({
+    id: i.id, user_id: uid, profile_id: i.profileId, created_at: i.createdAt, updated_at: i.updatedAt, payload: i,
+  }))
+
+  if (profileRows.length > 0) {
+    const r = await sb.from('content_profiles').upsert(profileRows)
+    if (r.error) { reportSyncError(`content_profiles upsert failed: ${r.error.message}. ¿Falta correr migration_content_sync.sql?`); throw r.error }
+  }
+  if (campaignRows.length > 0) {
+    const r = await sb.from('content_campaigns').upsert(campaignRows)
+    if (r.error) { reportSyncError(`content_campaigns upsert failed: ${r.error.message}`); throw r.error }
+  }
+  if (itemRows.length > 0) {
+    const r = await sb.from('content_items').upsert(itemRows)
+    if (r.error) { reportSyncError(`content_items upsert failed: ${r.error.message}`); throw r.error }
+  }
+
+  await syncDeletes(sb, uid, 'content_items', itemRows.map((r) => r.id), 'content:items')
+  await syncDeletes(sb, uid, 'content_campaigns', campaignRows.map((r) => r.id), 'content:campaigns')
+  await syncDeletes(sb, uid, 'content_profiles', profileRows.map((r) => r.id), 'content:profiles')
+  markSynced('content')
+}
+
+async function pullContent(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('content')
+  try {
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const [profRes, campRes, itemRes] = await Promise.all([
+    sb.from('content_profiles').select('*').eq('user_id', uid),
+    sb.from('content_campaigns').select('*').eq('user_id', uid),
+    sb.from('content_items').select('*').eq('user_id', uid),
+  ])
+  const anyErr = profRes.error ?? campRes.error ?? itemRes.error
+  if (anyErr) { console.error('Content pull failed (run migration_content_sync.sql?):', anyErr); return false }
+
+  const hasData = [profRes, campRes, itemRes].some((r) => (r.data?.length ?? 0) > 0)
+  if (!hasData) { markSynced('content'); return false }
+
+  const remoteProfiles: ContentProfileT[] = (profRes.data ?? []).map((r: Row) => {
+    const p = ((r as Row).payload ?? {}) as ContentProfileT
+    return { ...p, id: p.id ?? (r as Row).id as string, visualStyle: Array.isArray(p.visualStyle) ? p.visualStyle : (p.visualStyle ?? undefined) }
+  })
+  const remoteCampaigns: ContentCampaignT[] = (campRes.data ?? []).map((r: Row) => ({ ...(((r as Row).payload ?? {}) as ContentCampaignT) }))
+  const remoteItems: ContentItemT[] = (itemRes.data ?? []).map((r: Row) => ({ ...(((r as Row).payload ?? {}) as ContentItemT) }))
+
+  const tombs = await fetchTombstones(sb, uid, ['content_profiles', 'content_campaigns', 'content_items'])
+  const local = useContentStore.getState()
+
+  const mergedCampaigns = mergeById<ContentCampaignT>({
+    local: local.campaigns, remote: remoteCampaigns, baseline: getBaseline('content:campaigns'),
+    getId: (x) => x.id, getUpdatedAt: (x) => x.updatedAt, tombstones: tombs.get('content_campaigns'),
+  })
+  const mergedItems = mergeById<ContentItemT>({
+    local: local.items, remote: remoteItems, baseline: getBaseline('content:items'),
+    getId: (x) => x.id, getUpdatedAt: (x) => x.updatedAt, tombstones: tombs.get('content_items'),
+  })
+  let mergedProfiles = mergeById<ContentProfileT>({
+    local: local.profiles, remote: remoteProfiles, baseline: getBaseline('content:profiles'),
+    getId: (x) => x.id, tombstones: tombs.get('content_profiles'),
+  })
+
+  // Dedup del perfil-seed: si vino al menos un perfil remoto, dropeamos los
+  // perfiles SOLO-locales que estén vacíos (el "Personal" sembrado por cada
+  // device). Nunca dropea un perfil con contenido real.
+  if (remoteProfiles.length > 0) {
+    const remoteIds = new Set(remoteProfiles.map((p) => p.id))
+    mergedProfiles = mergedProfiles.filter((p) =>
+      remoteIds.has(p.id) || profileHasContent(p, mergedItems, mergedCampaigns),
+    )
+  }
+  // Siempre tiene que quedar al menos un perfil.
+  if (mergedProfiles.length === 0) mergedProfiles = remoteProfiles.length > 0 ? remoteProfiles : local.profiles
+
+  // currentProfileId puede apuntar a un perfil dropeado/borrado → reapuntar.
+  const ids = new Set(mergedProfiles.map((p) => p.id))
+  const currentProfileId = ids.has(local.currentProfileId) ? local.currentProfileId : (mergedProfiles[0]?.id ?? local.currentProfileId)
+
+  useContentStore.setState({
+    profiles: mergedProfiles, campaigns: mergedCampaigns, items: mergedItems, currentProfileId,
+  })
+
+  setBaseline('content:profiles', remoteProfiles.map((p) => p.id))
+  setBaseline('content:campaigns', remoteCampaigns.map((c) => c.id))
+  setBaseline('content:items', remoteItems.map((i) => i.id))
+  markSynced('content')
+  return true
+  } finally {
+    endPulling('content')
+  }
+}
+
 // ─── Scheduled pushes ─────────────────────────────────────────────────────────
 
 function scheduleTasks()      { schedule(tasksPushTimer,     pushTasks,     (t) => { tasksPushTimer = t }) }
@@ -2401,6 +2536,7 @@ function scheduleAppPrefs()   { schedule(appPrefsPushTimer,   pushAppPrefs,   (t
 function scheduleMindMaps()   { schedule(mindmapPushTimer,    pushMindMaps,   (t) => { mindmapPushTimer = t }) }
 function scheduleKpis()       { schedule(kpisPushTimer,       pushKpis,       (t) => { kpisPushTimer = t }) }
 function scheduleStudy()      { schedule(studyPushTimer,      pushStudy,      (t) => { studyPushTimer = t }) }
+function scheduleContent()    { schedule(contentPushTimer,    pushContent,    (t) => { contentPushTimer = t }) }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
@@ -2614,6 +2750,23 @@ async function initAllDomains() {
     await pullStudy()
     if (hasLocal) await pushStudy().catch((e) => console.error('Study post-pull push failed', e))
   }
+
+  // ─── Contenido (Content Strategy) ─────────────────────────────────────
+  // Push-first-si-unsynced (perfiles sin updatedAt → protege ediciones locales
+  // de perfil/estilo visual). Seed inicial: si no había nada remoto y el
+  // baseline está vacío, subimos lo local para sembrar el cloud.
+  if (!state.contentInit) {
+    state.contentInit = true
+    const { profiles, items, campaigns } = useContentStore.getState()
+    const hasLocal = profiles.length > 0 || items.length > 0 || campaigns.length > 0
+    if (hasLocal && hasUnsyncedChanges('content')) {
+      await pushContent().catch((e) => console.error('Content initial push failed', e))
+    }
+    const pulled = await pullContent()
+    if (hasLocal && !pulled && getBaseline('content:profiles').size === 0) {
+      await pushContent().catch((e) => console.error('Content seed push failed', e))
+    }
+  }
 }
 
 /** Mount once at the app root. Wires all domains for sync. */
@@ -2664,6 +2817,7 @@ export function useSupabaseSync() {
       useMindMapStore.subscribe(() => { markModifiedIfNotPulling('mindmaps'); if (state.userId) scheduleMindMaps() })
       useKpisStore.subscribe(() => { markModifiedIfNotPulling('kpis'); if (state.userId) scheduleKpis() })
       useStudyStore.subscribe(() => { markModifiedIfNotPulling('study'); if (state.userId) scheduleStudy() })
+      useContentStore.subscribe(() => { markModifiedIfNotPulling('content'); if (state.userId) scheduleContent() })
     }
 
     // Auth state changes — when the user signs in *after* mount (e.g. from
@@ -2797,6 +2951,7 @@ export async function forceSyncAll(): Promise<void> {
   state.mindmapInit = false
   state.kpisInit = false
   state.studyInit = false
+  state.contentInit = false
   await initAllDomains()
 }
 
@@ -2858,3 +3013,5 @@ export async function forceSyncKpis()     { await pushKpis() }
 export async function forcePullKpis()     { return pullKpis() }
 export async function forceSyncStudy()    { await pushStudy() }
 export async function forcePullStudy()    { return pullStudy() }
+export async function forceSyncContent()  { await pushContent() }
+export async function forcePullContent()  { return pullContent() }

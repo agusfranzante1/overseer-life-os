@@ -88,6 +88,33 @@ export interface ContentProfile {
   /** Redes que usa este perfil. Sirve para filtrar el calendario y
    *  sugerir formatos al crear items. */
   networks: ContentNetwork[]
+  /** Estilo visual / mood board del perfil — categorías de imágenes de
+   *  referencia ("Estilo videos", "Estilo portadas", …). Opcional para
+   *  back-compat con perfiles creados antes de la feature. */
+  visualStyle?: VisualStyleCategory[]
+  createdAt: string
+}
+
+/** Una imagen de referencia dentro de una categoría de estilo visual. El
+ *  archivo vive en Supabase Storage (bucket `content-visual`); acá solo
+ *  guardamos la URL pública (para `<img src>`) y el `path` (para borrar el
+ *  objeto). Ver `lib/content/visualUpload.ts`. */
+export interface VisualStyleImage {
+  id: string
+  /** URL pública para mostrar la imagen. */
+  url: string
+  /** Path dentro del bucket — necesario para borrar el archivo. */
+  path: string
+  /** Nota/etiqueta opcional de la referencia. */
+  caption?: string
+  createdAt: string
+}
+
+/** Categoría de estilo visual (ej. "Estilo videos", "Estilo portadas"). */
+export interface VisualStyleCategory {
+  id: string
+  name: string
+  images: VisualStyleImage[]
   createdAt: string
 }
 

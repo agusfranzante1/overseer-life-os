@@ -223,32 +223,19 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
   // si el user elige "urgente arriba", las subtask1 ordenan por urgencia,
   // y dentro de cada subtask1 sus subtask2 también ordenan por urgencia.
   const subtaskTree = useMemo(() => {
+    // Orden ÚNICO via sortSubtasks (prioridad → fecha → nombre → orden), el
+    // MISMO criterio que las madres. NO reordenamos por "tener hijos": una
+    // subtask1 de prioridad media con una subtask2 hija sin prioridad debe
+    // quedar ARRIBA de una subtask1 de prioridad baja sin hijos. Tener una
+    // hija no baja la prioridad de la madre.
     const sorted = sortSubtasks(visibleSubtasks, subtaskSortMode, project)
-    const rawRoots = sorted.filter((s) => !s.parentId)
+    const roots = sorted.filter((s) => !s.parentId)
     const childrenByParent = new Map<string, Subtask[]>()
     for (const s of sorted) {
       if (s.parentId) {
         if (!childrenByParent.has(s.parentId)) childrenByParent.set(s.parentId, [])
         childrenByParent.get(s.parentId)!.push(s)
       }
-    }
-    // Sort secundario sobre roots: SIN hijos primero, CON hijos abajo.
-    // Mantiene el orden interno (sortMode) dentro de cada grupo via
-    // stable sort. Idea: separar visualmente las "tareas planas" de
-    // las "mini-proyectos" — replica el patrón de top-level donde los
-    // grupos con sub-trabajo viven más abajo. Mismo criterio para
-    // children (subtask2) por consistencia, aunque hoy subtask2 no
-    // tiene hijos: si en el futuro se permite, ya queda listo.
-    const hasKids = (id: string) => (childrenByParent.get(id)?.length ?? 0) > 0
-    const roots = [...rawRoots].sort((a, b) => {
-      const ah = hasKids(a.id) ? 1 : 0
-      const bh = hasKids(b.id) ? 1 : 0
-      return ah - bh
-    })
-    // Y dentro de cada parent, las subtask2 sin hijos primero (no aplica
-    // hoy, pero `hasKids` retorna false → sort estable, ningún reorder).
-    for (const [pid, kids] of childrenByParent.entries()) {
-      childrenByParent.set(pid, [...kids].sort((a, b) => (hasKids(a.id) ? 1 : 0) - (hasKids(b.id) ? 1 : 0)))
     }
     return { roots, childrenByParent }
   }, [visibleSubtasks, subtaskSortMode, project])

@@ -23,6 +23,8 @@ import type {
   ContentProfile,
   ContentStageId,
   ContentNetwork,
+  VisualStyleCategory,
+  VisualStyleImage,
 } from '@/types/content'
 import { EMPTY_BRAND_DNA, DEFAULT_PILLARS } from '@/types/content'
 
@@ -48,6 +50,14 @@ interface Actions {
   addProfile: (p: { name: string; color: string; icon?: string; networks?: ContentNetwork[] }) => string
   updateProfile: (id: string, patch: Partial<ContentProfile>) => void
   removeProfile: (id: string) => void
+
+  // Estilo visual (mood board por perfil)
+  addVisualCategory: (profileId: string, name: string) => string
+  renameVisualCategory: (profileId: string, categoryId: string, name: string) => void
+  removeVisualCategory: (profileId: string, categoryId: string) => void
+  addVisualImage: (profileId: string, categoryId: string, image: VisualStyleImage) => void
+  removeVisualImage: (profileId: string, categoryId: string, imageId: string) => void
+  updateVisualImageCaption: (profileId: string, categoryId: string, imageId: string, caption: string) => void
 
   // Brand DNA — del perfil activo (helper)
   updateActiveBrandDNA: (patch: Partial<ContentBrandDNA>) => void
@@ -134,6 +144,64 @@ export const useContentStore = create<State & Actions>()(
               campaigns: s.campaigns.filter((c) => c.profileId !== id),
             }
           }),
+
+        // ── Estilo visual ──────────────────────────────────────────────────
+        // Helper: aplica `fn` a UN perfil. visualStyle arranca [] si no existe.
+        addVisualCategory: (profileId, name) => {
+          const id = genId('vcat')
+          const cat: VisualStyleCategory = { id, name: name.trim() || 'Categoría', images: [], createdAt: new Date().toISOString() }
+          set((s) => ({
+            profiles: s.profiles.map((p) =>
+              p.id === profileId ? { ...p, visualStyle: [...(p.visualStyle ?? []), cat] } : p,
+            ),
+          }))
+          return id
+        },
+        renameVisualCategory: (profileId, categoryId, name) =>
+          set((s) => ({
+            profiles: s.profiles.map((p) =>
+              p.id !== profileId ? p : {
+                ...p,
+                visualStyle: (p.visualStyle ?? []).map((c) => c.id === categoryId ? { ...c, name: name.trim() || c.name } : c),
+              },
+            ),
+          })),
+        removeVisualCategory: (profileId, categoryId) =>
+          set((s) => ({
+            profiles: s.profiles.map((p) =>
+              p.id !== profileId ? p : { ...p, visualStyle: (p.visualStyle ?? []).filter((c) => c.id !== categoryId) },
+            ),
+          })),
+        addVisualImage: (profileId, categoryId, image) =>
+          set((s) => ({
+            profiles: s.profiles.map((p) =>
+              p.id !== profileId ? p : {
+                ...p,
+                visualStyle: (p.visualStyle ?? []).map((c) => c.id === categoryId ? { ...c, images: [...c.images, image] } : c),
+              },
+            ),
+          })),
+        removeVisualImage: (profileId, categoryId, imageId) =>
+          set((s) => ({
+            profiles: s.profiles.map((p) =>
+              p.id !== profileId ? p : {
+                ...p,
+                visualStyle: (p.visualStyle ?? []).map((c) => c.id !== categoryId ? c : { ...c, images: c.images.filter((img) => img.id !== imageId) }),
+              },
+            ),
+          })),
+        updateVisualImageCaption: (profileId, categoryId, imageId, caption) =>
+          set((s) => ({
+            profiles: s.profiles.map((p) =>
+              p.id !== profileId ? p : {
+                ...p,
+                visualStyle: (p.visualStyle ?? []).map((c) => c.id !== categoryId ? c : {
+                  ...c,
+                  images: c.images.map((img) => img.id === imageId ? { ...img, caption: caption.trim() || undefined } : img),
+                }),
+              },
+            ),
+          })),
 
         updateActiveBrandDNA: (patch) =>
           set((s) => ({

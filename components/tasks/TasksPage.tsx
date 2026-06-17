@@ -456,9 +456,14 @@ function sortTasks(
   const arr = [...tasks]
 
   // Tiebreaker dentro del mismo bucket (misma prioridad, mismo status, etc).
-  // Por convención del usuario: las tareas RECIÉN AGREGADAS se quedan al
-  // final, las viejas arriba. Usa createdAt ascendente (más viejas primero).
-  const ageTiebreak = (a: Task, b: Task) => a.createdAt.localeCompare(b.createdAt)
+  // 1º agrupa por NOMBRE igual/similar (collation numérica: "X 2" antes que
+  //    "X 10") para que las tareas con el mismo nombre queden PEGADAS.
+  // 2º si el nombre también empata, las RECIÉN AGREGADAS al final, las viejas
+  //    arriba (createdAt ascendente). El nombre desempata "aparte" de la
+  //    prioridad/fecha: solo agrupa DENTRO del mismo bucket.
+  const ageTiebreak = (a: Task, b: Task) =>
+    a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })
+    || a.createdAt.localeCompare(b.createdAt)
 
   // Dentro del mismo bucket de prioridad: tarea CON dueDate pesa más que
   // tarea sin nada. Entre dos con fecha, la más próxima primero (hoy >
