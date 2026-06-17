@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Settings as SettingsIcon, Bot, Eye, EyeOff, Check, X, Loader2, ExternalLink, AlertCircle, Calendar, Copy, CheckCheck, Link2, Link2Off, Upload, Database, FileJson, Palette, Sun, Moon, RotateCcw } from 'lucide-react'
+import { Settings as SettingsIcon, Bot, Eye, EyeOff, Check, X, Loader2, ExternalLink, AlertCircle, Calendar, Copy, CheckCheck, Link2, Link2Off, Upload, Database, FileJson, Palette, Sun, Moon, RotateCcw, CloudDownload, AlertTriangle } from 'lucide-react'
 import { useAppStore } from '@/lib/store/appStore'
 import { useGoogleCalendarStore } from '@/lib/store/googleCalendarStore'
 import { useFoodStore } from '@/lib/store/foodStore'
@@ -17,7 +17,7 @@ import { useProjectionStore } from '@/lib/store/projectionStore'
 import {
   forceSyncFood, forceSyncTasks, forceSyncHabits, forceSyncGymBasics,
   forceSyncWallet, forceSyncTrading, forceSyncHealth, forceSyncChat,
-  forceSyncSPI, forceSyncProjection,
+  forceSyncSPI, forceSyncProjection, resyncTasksFromCloud,
 } from '@/lib/supabase/sync'
 
 const ANTHROPIC_MODELS = [
@@ -584,6 +584,7 @@ export function SettingsPage() {
       <GoogleCalendarSection />
       <GCalTasksSyncSection />
       <HealthWebhookSection />
+      <DeviceResyncSection />
       <BackupImportSection />
     </motion.div>
   )
@@ -1535,6 +1536,92 @@ function EmailNotificationsSection() {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// ─── DEVICE RESYNC — descartar tareas locales y adoptar el cloud ──────────────
+//
+// Para limpiar de una vez una divergencia vieja: si este dispositivo tiene
+// tareas que ya borraste/cambiaste en otro device (de ANTES del sistema de
+// tombstones), este botón descarta lo local y baja exactamente lo que hay en la
+// nube. Útil sobre todo en el celular tras el fix de sync multi-device.
+function DeviceResyncSection() {
+  const [phase, setPhase] = useState<'idle' | 'confirm' | 'running' | 'done' | 'error'>('idle')
+  const [result, setResult] = useState<{ projects: number; tasks: number } | null>(null)
+  const [errorMsg, setErrorMsg] = useState('')
+
+  const run = async () => {
+    setPhase('running')
+    try {
+      const r = await resyncTasksFromCloud()
+      setResult(r)
+      setPhase('done')
+      // Recargar para que toda la UI re-renderice desde el estado adoptado.
+      setTimeout(() => window.location.reload(), 1800)
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : 'Error al re-sincronizar')
+      setPhase('error')
+    }
+  }
+
+  return (
+    <section className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <CloudDownload className="w-4 h-4 text-indigo-400" />
+        <h2 className="text-sm font-bold text-white">Re-sincronizar tareas desde la nube</h2>
+      </div>
+      <p className="text-xs text-zinc-400 leading-relaxed">
+        Descarta las tareas guardadas <strong className="text-zinc-200">en este dispositivo</strong> y
+        adopta exactamente lo que hay en la nube. Usalo una vez en el celular si te
+        aparecen tareas viejas que ya habías borrado o cambiado en la PC. No sube nada
+        antes de bajar, así que es imposible que pise o reviva lo del cloud.
+      </p>
+      <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 flex items-start gap-2">
+        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+        <p className="text-[11px] text-amber-300/90 leading-relaxed">
+          Si tenés tareas creadas <strong>solo en este dispositivo</strong> y todavía sin
+          sincronizar, se van a perder. Asegurate de que lo último importante ya esté en la nube.
+        </p>
+      </div>
+
+      {phase === 'done' ? (
+        <div className="flex items-center gap-2 text-sm text-emerald-400">
+          <Check className="w-4 h-4" />
+          Listo — {result?.tasks ?? 0} tareas / {result?.projects ?? 0} proyectos del cloud. Recargando…
+        </div>
+      ) : phase === 'error' ? (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm text-red-400">
+            <AlertCircle className="w-4 h-4" /> {errorMsg}
+          </div>
+          <button onClick={() => setPhase('idle')}
+            className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition-colors">
+            Reintentar
+          </button>
+        </div>
+      ) : phase === 'confirm' ? (
+        <div className="flex items-center gap-2">
+          <button onClick={run}
+            className="px-3 py-2 bg-red-500/15 border border-red-500/40 hover:bg-red-500/25 text-red-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5">
+            <CloudDownload className="w-3.5 h-3.5" /> Sí, descartar local y bajar el cloud
+          </button>
+          <button onClick={() => setPhase('idle')}
+            className="px-3 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs font-semibold transition-colors">
+            Cancelar
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setPhase('confirm')}
+          disabled={phase === 'running'}
+          className="px-3 py-2 bg-indigo-500/15 border border-indigo-500/40 hover:bg-indigo-500/25 disabled:opacity-40 text-indigo-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
+        >
+          {phase === 'running'
+            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Bajando del cloud…</>
+            : <><CloudDownload className="w-3.5 h-3.5" /> Adoptar tareas de la nube</>}
+        </button>
+      )}
+    </section>
+  )
+}
+
 // BACKUP IMPORT — restore selected keys from an overseer-backup-*.json
 // ─────────────────────────────────────────────────────────────────────
 

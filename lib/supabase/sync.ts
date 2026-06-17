@@ -203,6 +203,21 @@ function deletedSince(baseline: Set<string>, localIds: string[]): string[] {
   return [...baseline].filter((id) => !localSet.has(id))
 }
 
+/** Cierre del lado PUSH para una tabla de colección: borra de remoto lo que el
+ *  user quitó (baseline ∩ ¬local), registra esos borrados como tombstones para
+ *  que se propaguen a otros devices, y actualiza el baseline local = lo que
+ *  quedó en remoto. Reemplaza el par `reconcileDeletes(...) + setBaseline(...)`
+ *  que tenía cada push, sumándole la escritura de tombstones. */
+async function syncDeletes(
+  sb: ReturnType<typeof getSupabaseBrowser>, uid: string,
+  table: string, localIds: string[], baselineKey: string, idColumn: string = 'id',
+): Promise<void> {
+  const base = getBaseline(baselineKey)
+  await reconcileDeletes(sb, table, uid, localIds, base, idColumn)
+  await writeTombstones(sb, uid, table, deletedSince(base, localIds))
+  setBaseline(baselineKey, localIds)
+}
+
 // ─── TASKS ────────────────────────────────────────────────────────────────────
 
 async function pushTasks() {
@@ -330,23 +345,11 @@ async function pushTasks() {
   const taskIds = taskRows.map((r) => r.id)
   const subtaskIds = subtaskRows.map((r) => r.id)
 
-  // Tombstones: ids borrados a propósito (baseline viejo ∩ ¬local). Se calculan
-  // ANTES de setBaseline. Registrarlos hace que el borrado se propague a los
-  // otros devices aunque su baseline local esté vacío/viejo.
-  const baseProjects = getBaseline('tasks:projects')
-  const baseTasks = getBaseline('tasks:tasks')
-  const baseSubtasks = getBaseline('tasks:subtasks')
-  await reconcileDeletes(sb, 'subtasks', state.userId!, subtaskIds, baseSubtasks)
-  await reconcileDeletes(sb, 'tasks', state.userId!, taskIds, baseTasks)
-  await reconcileDeletes(sb, 'projects', state.userId!, projectIds, baseProjects)
-  await writeTombstones(sb, state.userId!, 'subtasks', deletedSince(baseSubtasks, subtaskIds))
-  await writeTombstones(sb, state.userId!, 'tasks', deletedSince(baseTasks, taskIds))
-  await writeTombstones(sb, state.userId!, 'projects', deletedSince(baseProjects, projectIds))
-
-  // Baseline = lo que acabamos de dejar en remoto (todo lo local).
-  setBaseline('tasks:projects', projectIds)
-  setBaseline('tasks:tasks', taskIds)
-  setBaseline('tasks:subtasks', subtaskIds)
+  // Borra lo quitado a propósito (baseline ∩ ¬local), registra tombstones para
+  // propagar el borrado a otros devices, y actualiza baseline = lo local.
+  await syncDeletes(sb, state.userId!, 'subtasks', subtaskIds, 'tasks:subtasks')
+  await syncDeletes(sb, state.userId!, 'tasks', taskIds, 'tasks:tasks')
+  await syncDeletes(sb, state.userId!, 'projects', projectIds, 'tasks:projects')
   markSynced('tasks')
 }
 
@@ -612,24 +615,18 @@ async function pushWallet() {
     }
   }
 
-  // Reconcile deletes — borra solo lo que el user quitó (baseline ∩ ¬local).
+  // Borra lo quitado a propósito + tombstones + baseline, por tabla.
   const txIds = txRows.map((r) => r.id)
   const walletIds = walletRows.map((r) => r.id)
   const deletedIds = deletedRows.map((r) => r.id)
   const recurringIds = recurringRows.map((r) => r.id)
   const currencyCodes = currencies.map((c) => c.code)
-  await reconcileDeletes(sb, 'wallet_transactions', uid, txIds, getBaseline('wallet:transactions'))
-  await reconcileDeletes(sb, 'wallets', uid, walletIds, getBaseline('wallet:wallets'))
-  await reconcileDeletes(sb, 'wallets_deleted', uid, deletedIds, getBaseline('wallet:deleted'))
-  await reconcileDeletes(sb, 'wallet_recurring_expenses', uid, recurringIds, getBaseline('wallet:recurring'))
+  await syncDeletes(sb, uid, 'wallet_transactions', txIds, 'wallet:transactions')
+  await syncDeletes(sb, uid, 'wallets', walletIds, 'wallet:wallets')
+  await syncDeletes(sb, uid, 'wallets_deleted', deletedIds, 'wallet:deleted')
+  await syncDeletes(sb, uid, 'wallet_recurring_expenses', recurringIds, 'wallet:recurring')
   // Currencies: PK natural = code.
-  await reconcileDeletes(sb, 'wallet_currencies', uid, currencyCodes, getBaseline('wallet:currencies'), 'code')
-
-  setBaseline('wallet:transactions', txIds)
-  setBaseline('wallet:wallets', walletIds)
-  setBaseline('wallet:deleted', deletedIds)
-  setBaseline('wallet:recurring', recurringIds)
-  setBaseline('wallet:currencies', currencyCodes)
+  await syncDeletes(sb, uid, 'wallet_currencies', currencyCodes, 'wallet:currencies', 'code')
   markSynced('wallet')
 }
 
@@ -706,20 +703,27 @@ async function pullWallet(): Promise<boolean> {
     deletedAt: d.deleted_at as number,
   }))
 
+  const tombs = await fetchTombstones(sb, uid, [
+    'wallet_currencies', 'wallets', 'wallet_transactions', 'wallets_deleted', 'wallet_recurring_expenses',
+  ])
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const patch: any = {
     currencies: mergeById<Currency>({
       local: localW.currencies, remote: remoteCurrencies,
       baseline: getBaseline('wallet:currencies'), getId: (c) => c.code,
+      tombstones: tombs.get('wallet_currencies'),
     }),
     wallets: mergeById<WalletT>({
       local: localW.wallets, remote: remoteWallets,
       baseline: getBaseline('wallet:wallets'), getId: (w) => w.id,
+      tombstones: tombs.get('wallets'),
     }),
     transactions: mergeById<Tx>({
       local: localW.transactions, remote: remoteTx,
       baseline: getBaseline('wallet:transactions'), getId: (t) => t.id,
       getUpdatedAt: (t) => t.timestamp,
+      tombstones: tombs.get('wallet_transactions'),
     }),
     distribution: cfgRes.data
       ? (cfgRes.data as Row).distribution as import('@/lib/store/walletStore').DistributionItem[]
@@ -728,6 +732,7 @@ async function pullWallet(): Promise<boolean> {
       local: localW.deletedWallets, remote: remoteDeleted,
       baseline: getBaseline('wallet:deleted'), getId: (d) => d.id,
       getUpdatedAt: (d) => d.deletedAt,
+      tombstones: tombs.get('wallets_deleted'),
     }),
   }
 
@@ -754,6 +759,7 @@ async function pullWallet(): Promise<boolean> {
     patch.recurringExpenses = mergeById<Recurring>({
       local: localW.recurringExpenses, remote: remoteRecurring,
       baseline: getBaseline('wallet:recurring'), getId: (r) => r.id,
+      tombstones: tombs.get('wallet_recurring_expenses'),
     })
   }
 
@@ -845,23 +851,14 @@ async function pushTrading() {
   if (errorRows.length > 0)    await sb.from('trading_errors').upsert(errorRows)
   if (emotionalRows.length > 0) await sb.from('trading_emotional').upsert(emotionalRows)
 
-  // Reconcile deletes — reverse FK order: leaf nodes first. Solo borra lo que
-  // el user quitó a propósito (baseline ∩ ¬local).
-  await reconcileDeletes(sb, 'trading_errors', uid, errorRows.map((r) => r.id), getBaseline('trading:errors'))
-  await reconcileDeletes(sb, 'trading_emotional', uid, emotionalRows.map((r) => r.id), getBaseline('trading:emotional'))
-  await reconcileDeletes(sb, 'trading_payouts', uid, payoutRows.map((r) => r.id), getBaseline('trading:payouts'))
-  await reconcileDeletes(sb, 'trading_trades', uid, tradeRows.map((r) => r.id), getBaseline('trading:trades'))
-  await reconcileDeletes(sb, 'trading_accounts', uid, accountRows.map((r) => r.id), getBaseline('trading:accounts'))
-  await reconcileDeletes(sb, 'trading_strategies', uid, stratRows.map((r) => r.id), getBaseline('trading:strategies'))
-  await reconcileDeletes(sb, 'trading_firms', uid, firmRows.map((r) => r.id), getBaseline('trading:firms'))
-
-  setBaseline('trading:errors', errorRows.map((r) => r.id))
-  setBaseline('trading:emotional', emotionalRows.map((r) => r.id))
-  setBaseline('trading:payouts', payoutRows.map((r) => r.id))
-  setBaseline('trading:trades', tradeRows.map((r) => r.id))
-  setBaseline('trading:accounts', accountRows.map((r) => r.id))
-  setBaseline('trading:strategies', stratRows.map((r) => r.id))
-  setBaseline('trading:firms', firmRows.map((r) => r.id))
+  // Borra lo quitado + tombstones + baseline. Reverse FK order: leaf nodes first.
+  await syncDeletes(sb, uid, 'trading_errors', errorRows.map((r) => r.id), 'trading:errors')
+  await syncDeletes(sb, uid, 'trading_emotional', emotionalRows.map((r) => r.id), 'trading:emotional')
+  await syncDeletes(sb, uid, 'trading_payouts', payoutRows.map((r) => r.id), 'trading:payouts')
+  await syncDeletes(sb, uid, 'trading_trades', tradeRows.map((r) => r.id), 'trading:trades')
+  await syncDeletes(sb, uid, 'trading_accounts', accountRows.map((r) => r.id), 'trading:accounts')
+  await syncDeletes(sb, uid, 'trading_strategies', stratRows.map((r) => r.id), 'trading:strategies')
+  await syncDeletes(sb, uid, 'trading_firms', firmRows.map((r) => r.id), 'trading:firms')
 
   // ─── Scaling System config (singleton JSONB row) ──
   const r = await sb.from('trading_scaling_config').upsert(
@@ -993,19 +990,24 @@ async function pullTrading(): Promise<boolean> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any))
 
-  // Trading no usa updatedAt → conflicto gana remote (push-first cubre locales).
-  const m = <T,>(local: T[], remote: T[], key: string, getId: (x: T) => string) =>
-    mergeById<T>({ local, remote, baseline: getBaseline(key), getId })
+  // Trading no usa updatedAt → conflicto gana remote. Tombstones globales para
+  // que los borrados se propaguen entre devices y no resuciten.
+  const tombs = await fetchTombstones(sb, uid, [
+    'trading_firms', 'trading_strategies', 'trading_accounts', 'trading_trades',
+    'trading_payouts', 'trading_errors', 'trading_emotional',
+  ])
+  const m = <T,>(local: T[], remote: T[], key: string, table: string, getId: (x: T) => string) =>
+    mergeById<T>({ local, remote, baseline: getBaseline(key), getId, tombstones: tombs.get(table) })
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const patch: any = {
-    firms:      m(localT.firms,      remoteFirms,     'trading:firms',      (x) => x.id),
-    strategies: m(localT.strategies, remoteStrats,    'trading:strategies', (x) => x.id),
-    accounts:   m(localT.accounts,   remoteAccounts,  'trading:accounts',   (x) => x.id),
-    trades:     m(localT.trades,     remoteTrades,    'trading:trades',     (x) => x.id),
-    payouts:    m(localT.payouts,    remotePayouts,   'trading:payouts',    (x) => x.id),
-    errors:     m(localT.errors,     remoteErrors,    'trading:errors',     (x) => x.id),
-    emotional:  m(localT.emotional,  remoteEmotional, 'trading:emotional',  (x) => x.id),
+    firms:      m(localT.firms,      remoteFirms,     'trading:firms',      'trading_firms',      (x) => x.id),
+    strategies: m(localT.strategies, remoteStrats,    'trading:strategies', 'trading_strategies', (x) => x.id),
+    accounts:   m(localT.accounts,   remoteAccounts,  'trading:accounts',   'trading_accounts',   (x) => x.id),
+    trades:     m(localT.trades,     remoteTrades,    'trading:trades',     'trading_trades',     (x) => x.id),
+    payouts:    m(localT.payouts,    remotePayouts,   'trading:payouts',    'trading_payouts',    (x) => x.id),
+    errors:     m(localT.errors,     remoteErrors,    'trading:errors',     'trading_errors',     (x) => x.id),
+    emotional:  m(localT.emotional,  remoteEmotional, 'trading:emotional',  'trading_emotional',  (x) => x.id),
     // Scaling: solo pisar si la fila remota existe (singleton).
     ...(scalingRes.data
       ? { scaling: (scalingRes.data as { payload: unknown }).payload as import('@/lib/store/tradingStore').ScalingConfig }
@@ -1059,8 +1061,7 @@ async function pushHabits() {
       throw r.error
     }
   }
-  await reconcileDeletes(sb, 'habits', uid, rows.map((r) => r.id), getBaseline('habits:habits'))
-  setBaseline('habits:habits', rows.map((r) => r.id))
+  await syncDeletes(sb, uid, 'habits', rows.map((r) => r.id), 'habits:habits')
   markSynced('habits')
 }
 
@@ -1101,12 +1102,14 @@ async function pullHabits(): Promise<boolean> {
   // Conflicto de hábito → mergeHabit: UNE completedDates/skippedDates para no
   // perder ninguna marca diaria hecha en otro device (causa del "snapshot a la
   // mitad"). Escalares toman remote.
+  const tombs = await fetchTombstones(sb, uid, ['habits'])
   const merged = mergeById<Habit>({
     local: localHabits,
     remote: remoteHabits,
     baseline: getBaseline('habits:habits'),
     getId: (h) => h.id,
     mergeItem: mergeHabit,
+    tombstones: tombs.get('habits'),
   })
 
   // Reordenar: orden remoto (sort_order) primero, luego los locales nuevos
@@ -1173,8 +1176,7 @@ async function pushSPI() {
     const r = await sb.from('spi_sessions').upsert(sessRows)
     if (r.error) { reportSyncError(`spi_sessions upsert failed: ${r.error.message}`); throw r.error }
   }
-  await reconcileDeletes(sb, 'spi_sessions', uid, sessRows.map((r) => r.id), getBaseline('spi:sessions'))
-  setBaseline('spi:sessions', sessRows.map((r) => r.id))
+  await syncDeletes(sb, uid, 'spi_sessions', sessRows.map((r) => r.id), 'spi:sessions')
 
   // ── Bitácora (cross-session) ──────────────────────────────────────
   const bitRows = bitacoraEntries.map((e) => ({
@@ -1191,8 +1193,7 @@ async function pushSPI() {
     const r = await sb.from('spi_bitacora').upsert(bitRows)
     if (r.error) { reportSyncError(`spi_bitacora upsert failed: ${r.error.message}`); throw r.error }
   }
-  await reconcileDeletes(sb, 'spi_bitacora', uid, bitRows.map((r) => r.id), getBaseline('spi:bitacora'))
-  setBaseline('spi:bitacora', bitRows.map((r) => r.id))
+  await syncDeletes(sb, uid, 'spi_bitacora', bitRows.map((r) => r.id), 'spi:bitacora')
   markSynced('spi')
 }
 
@@ -1288,6 +1289,7 @@ async function pullSPI(): Promise<boolean> {
   }))
 
   const localSPI = useSPIStore.getState()
+  const tombs = await fetchTombstones(sb, uid, ['spi_sessions', 'spi_bitacora'])
 
   // Merge no-destructivo. Sesiones en conflicto → deep-merge campo-por-campo
   // (mergeSpiSession): preserva respuestas no-vacías de cada device (arregla
@@ -1299,6 +1301,7 @@ async function pullSPI(): Promise<boolean> {
     getId: (s) => s.id,
     getUpdatedAt: (s) => s.updatedAt,
     mergeItem: mergeSpiSession,
+    tombstones: tombs.get('spi_sessions'),
   })
 
   const mergedBitacora = mergeById<import('@/lib/spi/types').BitacoraEntry>({
@@ -1307,6 +1310,7 @@ async function pullSPI(): Promise<boolean> {
     baseline: getBaseline('spi:bitacora'),
     getId: (e) => e.id,
     getUpdatedAt: (e) => e.updatedAt,
+    tombstones: tombs.get('spi_bitacora'),
   })
 
   useSPIStore.setState({
@@ -1346,8 +1350,7 @@ async function pushProjection() {
     const r = await sb.from('projection_plans').upsert(rows)
     if (r.error) { reportSyncError(`projection_plans upsert failed: ${r.error.message}`); throw r.error }
   }
-  await reconcileDeletes(sb, 'projection_plans', uid, rows.map((r) => r.id), getBaseline('projection:plans'))
-  setBaseline('projection:plans', rows.map((r) => r.id))
+  await syncDeletes(sb, uid, 'projection_plans', rows.map((r) => r.id), 'projection:plans')
   markSynced('projection')
 }
 
@@ -1383,6 +1386,7 @@ async function pullProjection(): Promise<boolean> {
   }
   const remotePlans: import('@/lib/projection/types').ProjectionPlan[] =
     (res.data ?? []).map((r: Row) => sanitize(r.payload))
+  const tombs = await fetchTombstones(sb, uid, ['projection_plans'])
   const mergedPlans = mergeById<import('@/lib/projection/types').ProjectionPlan>({
     local: useProjectionStore.getState().plans,
     remote: remotePlans,
@@ -1390,6 +1394,7 @@ async function pullProjection(): Promise<boolean> {
     getId: (p) => p.id,
     getUpdatedAt: (p) => p.updatedAt,
     mergeItem: mergeProjectionPlan,
+    tombstones: tombs.get('projection_plans'),
   })
   useProjectionStore.setState({ plans: mergedPlans })
   setBaseline('projection:plans', remotePlans.map((p) => p.id))
@@ -1423,8 +1428,7 @@ async function pushLab() {
   }))
 
   if (rows.length > 0) await sb.from('lab_sessions').upsert(rows)
-  await reconcileDeletes(sb, 'lab_sessions', uid, rows.map((r) => r.id), getBaseline('lab:sessions'))
-  setBaseline('lab:sessions', rows.map((r) => r.id))
+  await syncDeletes(sb, uid, 'lab_sessions', rows.map((r) => r.id), 'lab:sessions')
 
   // ─── Beliefs ──
   const beliefRows = beliefs.map((b) => ({
@@ -1446,8 +1450,7 @@ async function pushLab() {
       throw r.error
     }
   }
-  await reconcileDeletes(sb, 'lab_beliefs', uid, beliefRows.map((r) => r.id), getBaseline('lab:beliefs'))
-  setBaseline('lab:beliefs', beliefRows.map((r) => r.id))
+  await syncDeletes(sb, uid, 'lab_beliefs', beliefRows.map((r) => r.id), 'lab:beliefs')
   markSynced('lab')
 }
 
@@ -1517,6 +1520,7 @@ async function pullLab(): Promise<boolean> {
   const remoteSessions: import('@/lib/lab/types').LabSession[] =
     (sessionRes.data ?? []).map((r: LabRow) => sanitize(r.payload))
   const localLab = useLabStore.getState()
+  const tombs = await fetchTombstones(sb, uid, ['lab_sessions', 'lab_beliefs'])
 
   const mergedSessions = mergeById<import('@/lib/lab/types').LabSession>({
     local: localLab.sessions,
@@ -1525,6 +1529,7 @@ async function pullLab(): Promise<boolean> {
     getId: (s) => s.id,
     getUpdatedAt: (s) => s.updatedAt,
     mergeItem: mergeLabSession,
+    tombstones: tombs.get('lab_sessions'),
   })
   setBaseline('lab:sessions', remoteSessions.map((s) => s.id))
 
@@ -1538,6 +1543,7 @@ async function pullLab(): Promise<boolean> {
         baseline: getBaseline('lab:beliefs'),
         getId: (b) => b.id,
         getUpdatedAt: (b) => b.updatedAt,
+        tombstones: tombs.get('lab_beliefs'),
       })
   if (!beliefRes.error) setBaseline('lab:beliefs', beliefs.map((b) => b.id))
 
@@ -1573,8 +1579,7 @@ async function pushMindMaps() {
       throw r.error
     }
   }
-  await reconcileDeletes(sb, 'mindmaps', uid, rows.map((r) => r.id), getBaseline('mindmaps:maps'))
-  setBaseline('mindmaps:maps', rows.map((r) => r.id))
+  await syncDeletes(sb, uid, 'mindmaps', rows.map((r) => r.id), 'mindmaps:maps')
   markSynced('mindmaps')
 }
 
@@ -1607,12 +1612,14 @@ async function pullMindMaps(): Promise<boolean> {
   }
   const remoteMaps: import('@/lib/store/mindmapStore').MindMap[] =
     (res.data ?? []).map((r: MapRow) => sanitize(r.payload))
+  const tombs = await fetchTombstones(sb, uid, ['mindmaps'])
   const mergedMaps = mergeById<import('@/lib/store/mindmapStore').MindMap>({
     local: useMindMapStore.getState().maps,
     remote: remoteMaps,
     baseline: getBaseline('mindmaps:maps'),
     getId: (m) => m.id,
     getUpdatedAt: (m) => m.updatedAt,
+    tombstones: tombs.get('mindmaps'),
   })
   useMindMapStore.setState({ maps: mergedMaps })
   setBaseline('mindmaps:maps', remoteMaps.map((m) => m.id))
@@ -1761,8 +1768,7 @@ async function pushGym() {
     const r = await sb.from('gym_weight_entries').upsert(weightRows)
     if (r.error) { reportSyncError(`gym_weight_entries upsert failed: ${r.error.message}`); throw r.error }
   }
-  await reconcileDeletes(sb, 'gym_weight_entries', uid, weightRows.map((r) => r.id), getBaseline('gym:weights'))
-  setBaseline('gym:weights', weightRows.map((r) => r.id))
+  await syncDeletes(sb, uid, 'gym_weight_entries', weightRows.map((r) => r.id), 'gym:weights')
 
   // Config (singleton)
   await sb.from('gym_config').upsert(
@@ -1785,8 +1791,7 @@ async function pushGym() {
     const r = await sb.from('gym_routines').upsert(routineRows)
     if (r.error) { reportSyncError(`gym_routines upsert failed: ${r.error.message}`); throw r.error }
   }
-  await reconcileDeletes(sb, 'gym_routines', uid, routineRows.map((r) => r.id), getBaseline('gym:routines'))
-  setBaseline('gym:routines', routineRows.map((r) => r.id))
+  await syncDeletes(sb, uid, 'gym_routines', routineRows.map((r) => r.id), 'gym:routines')
 
   // Sessions (nested exercises + sets as JSONB). activeSession is local-only.
   const sessionRows = sessions.map((s) => ({
@@ -1801,8 +1806,7 @@ async function pushGym() {
     const r = await sb.from('gym_sessions').upsert(sessionRows)
     if (r.error) { reportSyncError(`gym_sessions upsert failed: ${r.error.message}`); throw r.error }
   }
-  await reconcileDeletes(sb, 'gym_sessions', uid, sessionRows.map((r) => r.id), getBaseline('gym:sessions'))
-  setBaseline('gym:sessions', sessionRows.map((r) => r.id))
+  await syncDeletes(sb, uid, 'gym_sessions', sessionRows.map((r) => r.id), 'gym:sessions')
   markSynced('gym')
 }
 
@@ -1877,17 +1881,21 @@ async function pullGym(): Promise<boolean> {
   } as any))
 
   // Merge no-destructivo + re-orden (weights por fecha desc, sessions por inicio desc).
+  const tombs = await fetchTombstones(sb, uid, ['gym_weight_entries', 'gym_routines', 'gym_sessions'])
   patch.weightEntries = mergeById<Weight>({
     local: localG.weightEntries, remote: remoteWeights,
     baseline: getBaseline('gym:weights'), getId: (e) => e.id, getUpdatedAt: (e) => e.createdAt,
+    tombstones: tombs.get('gym_weight_entries'),
   }).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
   patch.routines = mergeById<Routine>({
     local: localG.routines, remote: remoteRoutines,
     baseline: getBaseline('gym:routines'), getId: (r) => r.id,
+    tombstones: tombs.get('gym_routines'),
   })
   patch.sessions = mergeById<GSession>({
     local: localG.sessions, remote: remoteSessions,
     baseline: getBaseline('gym:sessions'), getId: (s) => s.id, getUpdatedAt: (s) => s.startedAt,
+    tombstones: tombs.get('gym_sessions'),
   }).sort((a, b) => (a.startedAt < b.startedAt ? 1 : a.startedAt > b.startedAt ? -1 : 0))
 
   useGymStore.setState(patch)
@@ -1934,8 +1942,7 @@ async function pushHealth() {
   // Reconcile deletes por fecha — solo borra los snapshots que el user quitó
   // (baseline ∩ ¬local). PK natural = date.
   const localDates = Object.keys(snapshots)
-  await reconcileDeletes(sb, 'health_snapshots', uid, localDates, getBaseline('health:snapshots'), 'date')
-  setBaseline('health:snapshots', localDates)
+  await syncDeletes(sb, uid, 'health_snapshots', localDates, 'health:snapshots', 'date')
 
   await sb.from('health_config').upsert(
     { user_id: uid, sleep_goal_minutes: baseline.sleepGoalMinutes, updated_at: new Date().toISOString() },
@@ -1993,9 +2000,11 @@ async function pullHealth(): Promise<boolean> {
   type Snap = import('@/lib/store/healthStore').HealthSnapshot
   const localSnaps = Object.values(useHealthStore.getState().snapshots)
   const remoteSnaps = Object.values(snapMap)
+  const tombs = await fetchTombstones(sb, uid, ['health_snapshots'])
   const mergedSnaps = mergeById<Snap>({
     local: localSnaps, remote: remoteSnaps,
     baseline: getBaseline('health:snapshots'), getId: (s) => s.date, getUpdatedAt: (s) => s.syncedAt,
+    tombstones: tombs.get('health_snapshots'),
   })
   const mergedMap: Record<string, Snap> = {}
   for (const s of mergedSnaps) mergedMap[s.date] = s
@@ -2031,8 +2040,7 @@ async function pushChat() {
     const r = await sb.from('chat_messages').upsert(rows)
     if (r.error) { reportSyncError(`chat_messages upsert failed: ${r.error.message}`); throw r.error }
   }
-  await reconcileDeletes(sb, 'chat_messages', uid, rows.map((r) => r.id), getBaseline('chat:messages'))
-  setBaseline('chat:messages', rows.map((r) => r.id))
+  await syncDeletes(sb, uid, 'chat_messages', rows.map((r) => r.id), 'chat:messages')
   markSynced('chat')
 }
 
@@ -2061,12 +2069,14 @@ async function pullChat(): Promise<boolean> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any))
 
+  const tombs = await fetchTombstones(sb, uid, ['chat_messages'])
   const merged = mergeById<Msg>({
     local: localMsgs,
     remote: remoteMsgs,
     baseline: getBaseline('chat:messages'),
     getId: (m) => m.id,
     getUpdatedAt: (m) => m.timestamp,
+    tombstones: tombs.get('chat_messages'),
   })
   // Mensajes ordenados cronológicamente.
   merged.sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0))
@@ -2163,8 +2173,7 @@ async function pushKpis() {
       throw r.error
     }
   }
-  await reconcileDeletes(sb, 'kpis', uid, rows.map((r) => r.id), getBaseline('kpis:definitions'))
-  setBaseline('kpis:definitions', rows.map((r) => r.id))
+  await syncDeletes(sb, uid, 'kpis', rows.map((r) => r.id), 'kpis:definitions')
   markSynced('kpis')
 }
 
@@ -2203,12 +2212,14 @@ async function pullKpis(): Promise<boolean> {
     }
     const remoteDefs: import('@/lib/kpi/types').KPIDefinition[] =
       (res.data ?? []).map((r: KpiRow) => sanitize(r.payload))
+    const tombs = await fetchTombstones(sb, uid, ['kpis'])
     const mergedDefs = mergeById<import('@/lib/kpi/types').KPIDefinition>({
       local: useKpisStore.getState().definitions,
       remote: remoteDefs,
       baseline: getBaseline('kpis:definitions'),
       getId: (d) => d.id,
       getUpdatedAt: (d) => d.updatedAt,
+      tombstones: tombs.get('kpis'),
     })
     useKpisStore.setState({ definitions: mergedDefs })
     setBaseline('kpis:definitions', remoteDefs.map((d) => d.id))
@@ -2286,17 +2297,24 @@ async function initAllDomains() {
   }
 
   // ─── Wallet ───────────────────────────────────────────────────────────
+  // Pull-first: wallet tiene mantenimiento de arranque (processRecurringExpenses)
+  // que marcaría modified → push-first con data vieja pisaría el cloud. Las tx
+  // resuelven por timestamp (LWW) y el resto es aditivo; tombstones cubren
+  // borrados. Después del pull, push del estado mergeado.
   if (!state.walletInit) {
     state.walletInit = true
     const { wallets, transactions, currencies } = useWalletStore.getState()
     const hasLocal = wallets.length > 0 || transactions.length > 0 || currencies.length > 0
-    if (hasLocal && hasUnsyncedChanges('wallet')) {
-      await pushWallet().catch((e) => console.error('Wallet initial push failed', e))
-    }
     await pullWallet()
+    if (hasLocal) await pushWallet().catch((e) => console.error('Wallet post-pull push failed', e))
   }
 
   // ─── Trading ──────────────────────────────────────────────────────────
+  // Push-first (si hay cambios locales sin sincronizar): trading NO tiene
+  // updatedAt por fila, así que en conflicto gana remote. Push-first sube tu
+  // edición local PRIMERO para que sea la canónica y no la pise el pull. No hay
+  // mantenimiento de arranque que ensucie el flag → push-first solo corre con
+  // ediciones reales. Tombstones igual propagan los borrados.
   if (!state.tradingInit) {
     state.tradingInit = true
     const { firms, accounts, trades } = useTradingStore.getState()
@@ -2308,6 +2326,9 @@ async function initAllDomains() {
   }
 
   // ─── Habits ───────────────────────────────────────────────────────────
+  // Push-first (idem trading): escalares (nombre/icono) sin updatedAt → push
+  // primero para preservar renombres locales. Las marcas diarias se UNEN
+  // (mergeHabit) en cualquier dirección, y tombstones propagan borrados.
   if (!state.habitsInit) {
     state.habitsInit = true
     const { habits } = useHabitsStore.getState()
@@ -2318,6 +2339,8 @@ async function initAllDomains() {
   }
 
   // ─── Gym basics ───────────────────────────────────────────────────────
+  // Pull-first: pesos/sesiones resuelven por fecha (LWW) y todo es aditivo;
+  // tombstones cubren borrados.
   if (!state.gymBasicsInit) {
     state.gymBasicsInit = true
     const { weightEntries, routines, sessions, trainingPlan } = useGymStore.getState()
@@ -2325,31 +2348,28 @@ async function initAllDomains() {
       || routines.length > 0
       || sessions.length > 0
       || Object.keys(trainingPlan).length > 0
-    if (hasLocal && hasUnsyncedChanges('gym')) {
-      await pushGymBasics().catch((e) => console.error('Gym basics initial push failed', e))
-    }
     await pullGymBasics()
+    if (hasLocal) await pushGymBasics().catch((e) => console.error('Gym basics post-pull push failed', e))
   }
 
   // ─── Health ───────────────────────────────────────────────────────────
+  // Pull-first: snapshots resuelven por syncedAt (LWW) + tombstones.
   if (!state.healthInit) {
     state.healthInit = true
     const { snapshots } = useHealthStore.getState()
     const hasLocal = Object.keys(snapshots).length > 0
-    if (hasLocal && hasUnsyncedChanges('health')) {
-      await pushHealth().catch((e) => console.error('Health initial push failed', e))
-    }
     await pullHealth()
+    if (hasLocal) await pushHealth().catch((e) => console.error('Health post-pull push failed', e))
   }
 
   // ─── Chat ─────────────────────────────────────────────────────────────
+  // Pull-first: mensajes resuelven por timestamp (LWW) y son aditivos.
   if (!state.chatInit) {
     state.chatInit = true
     const { messages } = useChatStore.getState()
-    if (messages.length > 0 && hasUnsyncedChanges('chat')) {
-      await pushChat().catch((e) => console.error('Chat initial push failed', e))
-    }
+    const hasLocal = messages.length > 0
     await pullChat()
+    if (hasLocal) await pushChat().catch((e) => console.error('Chat post-pull push failed', e))
   }
 
   // ─── Food ─────────────────────────────────────────────────────────────
@@ -2364,35 +2384,34 @@ async function initAllDomains() {
   }
 
   // ─── SPI ──────────────────────────────────────────────────────────────
+  // Pull-first: sesiones con deep-merge (mergeSpiSession) + LWW por updatedAt
+  // + tombstones. No pisa respuestas de otro device.
   if (!state.spiInit) {
     state.spiInit = true
     const { sessions, bitacoraEntries } = useSPIStore.getState()
     const hasLocal = sessions.length > 0 || bitacoraEntries.length > 0
-    if (hasLocal && hasUnsyncedChanges('spi')) {
-      await pushSPI().catch((e) => console.error('SPI initial push failed', e))
-    }
     await pullSPI()
+    if (hasLocal) await pushSPI().catch((e) => console.error('SPI post-pull push failed', e))
   }
 
   // ─── Projection ───────────────────────────────────────────────────────
+  // Pull-first: deep-merge (mergeProjectionPlan) + LWW por updatedAt + tombstones.
   if (!state.projectionInit) {
     state.projectionInit = true
     const { plans } = useProjectionStore.getState()
-    if (plans.length > 0 && hasUnsyncedChanges('projection')) {
-      await pushProjection().catch((e) => console.error('Projection initial push failed', e))
-    }
+    const hasLocal = plans.length > 0
     await pullProjection()
+    if (hasLocal) await pushProjection().catch((e) => console.error('Projection post-pull push failed', e))
   }
 
   // ─── Lab ──────────────────────────────────────────────────────────────
+  // Pull-first: deep-merge (mergeLabSession) + LWW por updatedAt + tombstones.
   if (!state.labInit) {
     state.labInit = true
     const { sessions, beliefs } = useLabStore.getState()
     const hasLocal = sessions.length > 0 || beliefs.length > 0
-    if (hasLocal && hasUnsyncedChanges('lab')) {
-      await pushLab().catch((e) => console.error('Lab initial push failed', e))
-    }
     await pullLab()
+    if (hasLocal) await pushLab().catch((e) => console.error('Lab post-pull push failed', e))
   }
 
   // ─── App preferences ──────────────────────────────────────────────────
@@ -2409,26 +2428,26 @@ async function initAllDomains() {
   }
 
   // ─── Mind maps ────────────────────────────────────────────────────────
+  // Pull-first: LWW por updatedAt + tombstones.
   if (!state.mindmapInit) {
     state.mindmapInit = true
     const { maps } = useMindMapStore.getState()
-    if (maps.length > 0 && hasUnsyncedChanges('mindmaps')) {
-      await pushMindMaps().catch((e) => console.error('Mindmaps initial push failed', e))
-    }
+    const hasLocal = maps.length > 0
     await pullMindMaps()
+    if (hasLocal) await pushMindMaps().catch((e) => console.error('Mindmaps post-pull push failed', e))
   }
 
   // ─── KPIs (library de definiciones) ───────────────────────────────────
   // Sincroniza la library completa de KPIs entre devices. Las activaciones
   // por semana y los valores cargados viven dentro de SPI sessions, NO
   // acá — esta tabla solo guarda definiciones (nombre, target, etc.).
+  // Pull-first: LWW por updatedAt + tombstones.
   if (!state.kpisInit) {
     state.kpisInit = true
     const { definitions } = useKpisStore.getState()
-    if (definitions.length > 0 && hasUnsyncedChanges('kpis')) {
-      await pushKpis().catch((e) => console.error('KPIs initial push failed', e))
-    }
+    const hasLocal = definitions.length > 0
     await pullKpis()
+    if (hasLocal) await pushKpis().catch((e) => console.error('KPIs post-pull push failed', e))
   }
 }
 
@@ -2618,6 +2637,32 @@ export async function forceSyncAll(): Promise<void> {
 
 export async function forceSyncTasks()    { await pushTasks() }
 export async function forcePullTasks()    { return pullTasks() }
+
+/** "Este dispositivo: descartar tareas locales y adoptar el cloud."
+ *
+ *  Para limpiar de una vez una divergencia vieja (data que quedó en este device
+ *  de ANTES del sistema de tombstones y que de otro modo podría volver a
+ *  pushearse/resucitar). Borra el store de tareas + sus baselines locales y
+ *  hace un pull limpio: como local queda vacío, el merge devuelve EXACTAMENTE lo
+ *  que hay en Supabase. NO sube nada de este device antes de bajar, así que es
+ *  imposible que reviva o pise lo del cloud.
+ *
+ *  Devuelve cuántos projects/tasks quedaron tras adoptar el cloud. */
+export async function resyncTasksFromCloud(): Promise<{ projects: number; tasks: number } | null> {
+  // 1) Vaciar el store local (proyectos + tareas) y sus baselines, así el merge
+  //    no conserva ninguna fila "local-only".
+  startPulling('tasks') // evita que el setState de abajo marque modified
+  try {
+    useTasksStore.setState({ projects: {}, tasks: {} })
+  } finally {
+    endPulling('tasks')
+  }
+  setBaseline('tasks:projects', [])
+  setBaseline('tasks:tasks', [])
+  setBaseline('tasks:subtasks', [])
+  // 2) Pull limpio: trae el estado canónico del cloud (incluye tombstones).
+  return pullTasks()
+}
 export async function forceSyncWallet()   { await pushWallet() }
 export async function forcePullWallet()   { return pullWallet() }
 export async function forceSyncTrading()  { await pushTrading() }
