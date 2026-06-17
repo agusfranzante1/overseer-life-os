@@ -260,6 +260,16 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
     setNewSubtask('')
   }
 
+  // Pegar varios renglones → una subtarea por línea no-vacía.
+  const handleSubtaskPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const lines = e.clipboardData.getData('text').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    if (lines.length > 1) {
+      e.preventDefault()
+      for (const line of lines) addSubtask(task.id, line)
+      setNewSubtask('')
+    }
+  }
+
   const commitTitle = () => {
     setEditingTitle(false)
     const v = titleDraft.trim()
@@ -778,6 +788,14 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                         autoFocus
                         value={childDraft}
                         onChange={(e) => setChildDraft(e.target.value)}
+                        onPaste={(e) => {
+                          const lines = e.clipboardData.getData('text').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+                          if (lines.length > 1) {
+                            e.preventDefault()
+                            for (const line of lines) addSubtask(task.id, line, root.id)
+                            setChildDraft('')
+                          }
+                        }}
                         onKeyDown={(e) => {
                           e.stopPropagation()
                           if (e.key === 'Escape') { setAddingChildTo(null); setChildDraft('') }
@@ -810,6 +828,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
               ref={subtaskInputRef}
               value={newSubtask}
               onChange={(e) => setNewSubtask(e.target.value)}
+              onPaste={handleSubtaskPaste}
               placeholder={t('tasks.addSubtask')}
               className="flex-1 bg-transparent border-b border-white/[0.12] focus:border-indigo-500 outline-none text-sm text-zinc-300 placeholder-zinc-600 py-0.5"
             />
@@ -833,6 +852,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
               ref={subtaskInputRef}
               value={newSubtask}
               onChange={(e) => setNewSubtask(e.target.value)}
+              onPaste={handleSubtaskPaste}
               placeholder={t('tasks.addSubtask')}
               className="flex-1 bg-transparent border-b border-white/[0.12] focus:border-indigo-500 outline-none text-sm text-zinc-300 placeholder-zinc-600 py-0.5"
             />

@@ -156,6 +156,16 @@ export function TaskDetail({ task, project, onClose }: Props) {
     setNewSubtask('')
   }
 
+  // Pegar varios renglones → una subtarea por línea no-vacía.
+  const handleSubtaskPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const lines = e.clipboardData.getData('text').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    if (lines.length > 1) {
+      e.preventDefault()
+      for (const line of lines) addSubtask(effective.id, line)
+      setNewSubtask('')
+    }
+  }
+
   return (
     <AnimatePresence>
       <motion.div
@@ -637,6 +647,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 <input
                   value={newSubtask}
                   onChange={(e) => setNewSubtask(e.target.value)}
+                  onPaste={handleSubtaskPaste}
                   placeholder={t('tasks.addSubtask')}
                   className="flex-1 bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-1.5 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500"
                 />

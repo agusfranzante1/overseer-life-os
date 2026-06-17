@@ -154,6 +154,16 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
     setNewChildTitle('')
   }
 
+  // Pegar varios renglones → una sub-subtarea por línea no-vacía.
+  const handleChildPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const lines = e.clipboardData.getData('text').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    if (lines.length > 1) {
+      e.preventDefault()
+      for (const line of lines) addSubtask(taskId, line, subtask.id)
+      setNewChildTitle('')
+    }
+  }
+
   const openChild = openChildId ? children.find((c) => c.id === openChildId) : null
 
   return (
@@ -408,6 +418,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
                   <input
                     value={newChildTitle}
                     onChange={(e) => setNewChildTitle(e.target.value)}
+                    onPaste={handleChildPaste}
                     placeholder="Agregar sub-subtarea..."
                     className="flex-1 bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-1.5 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500"
                   />

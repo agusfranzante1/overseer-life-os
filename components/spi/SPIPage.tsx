@@ -815,6 +815,11 @@ function ActiveSession({
           que arranques desde acá queda asociada al SPI semanal. */}
       <LabBlock spiSessionId={session.id} isClosed={isClosed} />
 
+      {/* Metas de la semana por área — referencia read-only arriba de las
+          tareas, para tener a la vista lo que definiste en "Qué buscás esta
+          semana?" al momento de listar las tareas. */}
+      <WeeklyGoalsRecap session={session} />
+
       {/* Tasks block */}
       <TasksBlock
         session={session}
@@ -2031,6 +2036,43 @@ function Field({
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// WEEKLY GOALS RECAP — metas semanales por área (read-only)
+// ─────────────────────────────────────────────────────────────────────
+/** Lista todas las metas semanales que el usuario cargó en la sección
+ *  "Qué buscás esta semana?" (una por área principal), juntas, como
+ *  referencia arriba del bloque de tareas. Lee los campos dinámicos
+ *  `session.values.que_buscamos.meta_${areaKey}_sem`. Si no hay ninguna
+ *  cargada, no renderiza nada. */
+function WeeklyGoalsRecap({ session }: { session: SPISession }) {
+  const qb = session.values['que_buscamos'] ?? {}
+  const goals = Object.entries(qb)
+    .filter(([k, v]) => k.startsWith('meta_') && k.endsWith('_sem') && (v ?? '').trim().length > 0)
+    .map(([k, v]) => {
+      const areaKey = k.slice('meta_'.length, k.length - '_sem'.length)
+      return { areaKey, label: AREA_LABEL_MAP[areaKey] ?? areaKey, goal: v.trim() }
+    })
+  if (goals.length === 0) return null
+  return (
+    <div className="bg-amber-500/[0.06] border border-amber-500/20 rounded-2xl p-4">
+      <p className="text-[10px] font-mono uppercase tracking-wider text-amber-300/80 mb-1 flex items-center gap-1.5">
+        ⭐ Tus metas de la semana por área
+      </p>
+      <p className="text-[11px] text-zinc-500 italic mb-3">
+        Lo que definiste en &quot;Qué buscás esta semana?&quot;. Tenelo de referencia al listar las tareas.
+      </p>
+      <div className="space-y-2">
+        {goals.map((g) => (
+          <div key={g.areaKey} className="bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2">
+            <p className="text-[10px] font-mono uppercase tracking-wider text-amber-200/80 mb-0.5">{g.label}</p>
+            <p className="text-sm text-zinc-200 whitespace-pre-wrap leading-snug">{g.goal}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // TASKS BLOCK
 // ─────────────────────────────────────────────────────────────────────
 function TasksBlock({
@@ -2045,11 +2087,25 @@ function TasksBlock({
   onPush: (taskId: string) => void
 }) {
   const [newTitle, setNewTitle] = useState('')
+  // Agrega una tarea por cada título. Reusado por el submit normal (1) y por
+  // el pegado multi-línea (N).
+  const addMany = (titles: string[]) => {
+    for (const tt of titles) onAdd({ title: tt, important: false })
+    setNewTitle('')
+  }
   const submit = () => {
     const t = newTitle.trim()
     if (!t) return
-    onAdd({ title: t, important: false })
-    setNewTitle('')
+    addMany([t])
+  }
+  // Pegar varios renglones → una tarea por línea no-vacía.
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData('text')
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    if (lines.length > 1) {
+      e.preventDefault()
+      addMany(lines)
+    }
   }
   const sessionTasks = session.tasks ?? []
   const importantCount = sessionTasks.filter((t) => t.important).length
@@ -2090,7 +2146,8 @@ function TasksBlock({
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit() } }}
-          placeholder="Agregar tarea..."
+          onPaste={handlePaste}
+          placeholder="Agregar tarea... (pegá varios renglones = varias tareas)"
           className="flex-1 bg-white/[0.03] border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-700 focus:outline-none focus:border-fuchsia-500/40"
         />
         <button
@@ -3132,15 +3189,23 @@ function WeekSnapshotContainer({ session }: { session: SPISession }) {
   const hasKpis = (snapshot.kpis?.length ?? 0) > 0
   if (!hasHabits && !hasKpis) return null
   const isLive = isStillCurrentWeek || !session.weekSnapshot
-  return <WeekHabitsBlock snapshot={snapshot} isLive={isLive} />
+  return <WeekHabitsBlock snapshot={snapshot} isLive={isLive} session={session} />
 }
 
 /** Renderiza la imagen de hábitos de la semana — grid 7 días × hábito.
  *  `Sáb · Dom · Lun · Mar · Mié · Jue · Vie`. Cada celda blanco/negro/N/A
  *  matching el lenguaje visual de HabitsPage. */
 function WeekHabitsBlock({
-  snapshot, isLive,
-}: { snapshot: WeekClosureSnapshot; isLive: boolean }) {
+  snapshot, isLive, session,
+}: { snapshot: WeekClosureSnapshot; isLive: boolean; session: SPISession }) {
+  // Re-capturar: reconstruye el snapshot congelado leyendo los hábitos actuales.
+  // Útil cuando el snapshot quedó "a la mitad" porque se cerró la semana en un
+  // device con marcas sin sincronizar — una vez que los completedDates se
+  // unieron entre devices, esto refresca el grid histórico.
+  const recaptureSnapshots = useSPIStore((s) => s.recaptureSnapshots)
+  const [recaptured, setRecaptured] = useState(false)
+  const canRecapture = !isLive && !!session.closedAt
+
   const [yStr, mStr, dStr] = snapshot.weekStartDate.split('-').map(Number)
   const sat = new Date(yStr, mStr - 1, dStr)
   const dayLabels = ['Sáb', 'Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie']
@@ -3169,9 +3234,24 @@ function WeekHabitsBlock({
         <p className="text-[10px] font-mono uppercase tracking-wider text-emerald-300/80">
           🎯 {isLive ? 'Vista en vivo' : 'Snapshot del cierre'} · Hábitos de la semana
         </p>
-        <span className="text-[10px] text-zinc-600 font-mono">
-          {isLive ? 'calculado en vivo desde tus datos' : `capturado el ${capturedDate}`}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-zinc-600 font-mono">
+            {isLive ? 'calculado en vivo desde tus datos' : `capturado el ${capturedDate}`}
+          </span>
+          {canRecapture && (
+            <button
+              onClick={() => {
+                recaptureSnapshots(session.id)
+                setRecaptured(true)
+                setTimeout(() => setRecaptured(false), 2500)
+              }}
+              title="Volver a capturar este snapshot con tus hábitos actuales. Útil si quedó incompleto porque se cerró la semana antes de sincronizar las marcas entre dispositivos."
+              className="px-2 py-1 bg-white/[0.03] border border-white/[0.08] hover:border-amber-500/40 hover:text-amber-300 text-zinc-400 rounded-md text-[10px] font-medium transition-all flex items-center gap-1 shrink-0"
+            >
+              <RotateCcw className="w-3 h-3" /> {recaptured ? 'Recapturado ✓' : 'Recapturar'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Resumen KPI: promedio semanal */}

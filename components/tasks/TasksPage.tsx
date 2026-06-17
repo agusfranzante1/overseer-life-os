@@ -135,18 +135,36 @@ function NewTaskForm({ projectId, statuses, onAdd, onClose, t }: {
   // form onSubmit AND from the explicit Enter handler on the input.
   // On mobile, some soft keyboards' Enter doesn't reliably trigger form
   // submit, so we wire both paths and let whichever fires first win.
+  // Crea una tarea por cada título de la lista (append en orden). Reusado por
+  // el guardado normal (1 título) y por el pegado multi-línea (N títulos).
+  const addMany = (titles: string[]) => {
+    const status = statuses[0]?.label ?? 'To Do'
+    for (const tt of titles) onAdd(tt, projectId, status)
+    // Stay open so the user can keep adding tasks in a streak — clearing
+    // the input is enough feedback. Briefly flash a checkmark to confirm.
+    setTitle('')
+    setJustSaved(true)
+    setTimeout(() => setJustSaved(false), 1200)
+  }
+
   const handleSave = () => {
     const trimmed = title.trim()
     if (!trimmed) {
       onClose()
       return
     }
-    onAdd(trimmed, projectId, statuses[0]?.label ?? 'To Do')
-    // Stay open so the user can keep adding tasks in a streak — clearing
-    // the input is enough feedback. Briefly flash a checkmark to confirm.
-    setTitle('')
-    setJustSaved(true)
-    setTimeout(() => setJustSaved(false), 1200)
+    addMany([trimmed])
+  }
+
+  // Pegar varios renglones → una tarea por línea (no-vacía). Si el texto pegado
+  // tiene una sola línea, dejamos el paste normal del input.
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData('text')
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    if (lines.length > 1) {
+      e.preventDefault()
+      addMany(lines)
+    }
   }
 
   return (
@@ -161,6 +179,7 @@ function NewTaskForm({ projectId, statuses, onAdd, onClose, t }: {
         autoFocus
         value={title}
         onChange={(e) => setTitle(e.target.value)}
+        onPaste={handlePaste}
         placeholder={t('tasks.taskTitle')}
         // Hint the mobile keyboard to show "done"/return instead of next.
         enterKeyHint="done"

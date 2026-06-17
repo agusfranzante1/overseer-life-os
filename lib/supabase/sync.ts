@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useRef } from 'react'
-import { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseBrowser, hasSupabaseConfig } from './client'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useWalletStore } from '@/lib/store/walletStore'
@@ -19,7 +18,9 @@ import { useKpisStore } from '@/lib/store/kpisStore'
 import {
   startPulling, endPulling,
   markModifiedIfNotPulling, markSynced, hasUnsyncedChanges,
+  getBaseline, setBaseline,
 } from './syncTracking'
+import { mergeById, reconcileDeletes, mergeSpiSession, mergeProjectionPlan, mergeLabSession, mergeHabit } from './syncMerge'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
@@ -139,65 +140,10 @@ function reportSyncError(message: string) {
 
 type Row = Record<string, unknown>
 
-/** 🛟 GUARDAVIDAS — abortamos cualquier delete batch que afecte más
- *  de este umbral de rows. Es la salvaguarda contra "perdí toda mi data
- *  porque el dev local pusheó vacío a producción".
- *
- *  Si la lógica de sync intenta borrar >= ABORT_THRESHOLD rows de una
- *  sola tabla en una sola operación, asumimos que algo está mal
- *  (probablemente local quedó vacío/inconsistente respecto a remote)
- *  y NO ejecutamos el delete. Lanzamos error visible + console.error
- *  con el detalle para que el user vea qué pasó. */
-// El "guardavidas" antes abortaba el delete si afectaba >= 10 filas. Lo
-// removimos a pedido del user — su workflow ahora pasa por snapshots
-// manuales (botón "Guardar ahora" en /tasks), así que tiene su propio
-// safety net controlado. Sin esto los restores fallaban con error de
-// "demasiadas filas".  Lo dejo configurable en Infinity para que el
-// código que lo usa siga compilando, pero efectivamente NUNCA bloquea.
-const DELETE_SURPLUS_ABORT_THRESHOLD = Number.POSITIVE_INFINITY
-
-/** Custom error que el push handler atrapa para abortar el flujo entero
- *  (sin marcar como synced) y mostrarle al user el banner. */
-class GuardAbortError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'GuardAbortError'
-  }
-}
-
-/**
- * After upserting rows, delete any remote rows whose id is NOT in localIds.
- * Uses a SELECT + DELETE to avoid PostgREST filter format issues.
- *
- * 🛟 SAFETY: si el delete afectaría más de DELETE_SURPLUS_ABORT_THRESHOLD
- * rows, lanzamos GuardAbortError y NO ejecutamos. Esto evita pérdida masiva
- * de data por mismatches dev↔prod o estados inconsistentes.
- */
-async function deleteSurplus(
-  sb: SupabaseClient,
-  table: string,
-  userId: string,
-  localIds: string[],
-) {
-  const { data } = await sb.from(table).select('id').eq('user_id', userId)
-  if (!data) return
-  const localSet = new Set(localIds)
-  const toDelete = (data as Row[]).filter((r) => !localSet.has(r.id as string)).map((r) => r.id as string)
-  if (toDelete.length === 0) return
-
-  // 🛟 Guardavidas — si el delete es masivo, abortamos.
-  if (toDelete.length >= DELETE_SURPLUS_ABORT_THRESHOLD) {
-    const msg = `🛟 GUARDAVIDAS: aborté delete de ${toDelete.length} rows en "${table}". ` +
-      `Tu local tiene MUCHO menos que lo que hay en Supabase — esto suele significar ` +
-      `que estás corriendo dev local contra el Supabase de producción con data vacía/distinta. ` +
-      `Revisá tu .env.local y/o creá un proyecto Supabase separado para dev. ` +
-      `NO se borró nada esta vez.`
-    reportSyncError(msg)
-    throw new GuardAbortError(msg)
-  }
-
-  await sb.from(table).delete().eq('user_id', userId).in('id', toDelete)
-}
+// El viejo `deleteSurplus` (snapshot completo + borrado de todo lo ausente en
+// local) fue reemplazado por `reconcileDeletes` (en syncMerge.ts), que solo
+// borra lo que el user quitó a propósito (baseline ∩ ¬local). Todos los
+// dominios usan ahora merge no-destructivo + reconcileDeletes.
 
 // ─── TASKS ────────────────────────────────────────────────────────────────────
 
@@ -320,10 +266,19 @@ async function pushTasks() {
     }
   }
 
-  // Delete surplus
-  await deleteSurplus(sb, 'subtasks', state.userId!, subtaskRows.map((r) => r.id))
-  await deleteSurplus(sb, 'tasks', state.userId!, taskRows.map((r) => r.id))
-  await deleteSurplus(sb, 'projects', state.userId!, projectRows.map((r) => r.id))
+  // Reconcile deletes — solo borra lo que el user quitó a propósito (estaba
+  // en baseline y ya no está local). Nunca borra filas que otro device sumó.
+  const projectIds = projectRows.map((r) => r.id)
+  const taskIds = taskRows.map((r) => r.id)
+  const subtaskIds = subtaskRows.map((r) => r.id)
+  await reconcileDeletes(sb, 'subtasks', state.userId!, subtaskIds, getBaseline('tasks:subtasks'))
+  await reconcileDeletes(sb, 'tasks', state.userId!, taskIds, getBaseline('tasks:tasks'))
+  await reconcileDeletes(sb, 'projects', state.userId!, projectIds, getBaseline('tasks:projects'))
+
+  // Baseline = lo que acabamos de dejar en remoto (todo lo local).
+  setBaseline('tasks:projects', projectIds)
+  setBaseline('tasks:tasks', taskIds)
+  setBaseline('tasks:subtasks', subtaskIds)
   markSynced('tasks')
 }
 
@@ -356,85 +311,137 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
     subtasksByTaskId.get(sid)!.push(s as Row)
   }
 
-  useTasksStore.setState({
-    projects: Object.fromEntries((projectsRes.data ?? []).map((p: Row) => [p.id as string, {
-      id: p.id as string,
-      name: p.name as string,
-      color: p.color as string,
-      icon: (p.icon as string) ?? undefined,
-      description: (p.description as string) ?? undefined,
-      statuses: (p.statuses as unknown[]) ?? [],
-      taskIds: (tasksRes.data ?? []).filter((t: Row) => t.project_id === p.id).map((t: Row) => t.id as string),
-      createdAt: p.created_at as string,
-      archived: !!p.archived,
-      // Flags de "system project" — sin esto se duplicaba el proyecto
-      // SPI en cada cierre porque ensureSystemProject no encontraba
-      // el tag y creaba uno nuevo.
-      isSystemProject: !!(p.is_system_project as boolean),
-      systemProjectKey: (p.system_project_key as 'spi' | null) ?? undefined,
-      type:            (p.type              as 'standard' | 'subject' | 'content' | null) ?? undefined,
-      subjectMeta:     (p.subject_meta      as import('@/types').SubjectMeta | null) ?? undefined,
-      contentMeta:     (p.content_meta      as import('@/types').ContentMeta | null) ?? undefined,
-      parentProjectId: (p.parent_project_id as string | null) ?? undefined,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any])),
-    tasks: Object.fromEntries((tasksRes.data ?? []).map((t: Row) => [t.id as string, {
-      id: t.id as string,
-      projectId: t.project_id as string,
-      title: t.title as string,
-      description: (t.description as string) ?? undefined,
-      status: t.status as string,
-      priority: t.priority as 'low' | 'medium' | 'high' | 'urgent',
-      importance: t.importance as 'low' | 'medium' | 'high' | 'critical',
-      dueDate: (t.due_date as string) ?? undefined,
-      energyEstimate: (t.energy_estimate as number) ?? undefined,
-      notes: (t.notes as string) ?? undefined,
-      subtasks: (subtasksByTaskId.get(t.id as string) ?? []).map((s) => ({
-        id: s.id as string,
-        title: s.title as string,
-        completed: s.completed as boolean,
-        status: s.status as string,
-        order: s.order as number,
-        notes: (s.notes as string) ?? undefined,
-        priority: (s.priority as 'low' | 'medium' | 'high' | 'urgent' | null) ?? undefined,
-        parentId: (s.parent_id as string) ?? undefined,
-        // Ciclo de vida — necesario para que el auto-purge nocturno
-        // pueda archivar subtasks completadas el día anterior. Sin esto
-        // el pull pisaba `completedAt` con undefined y el archive las
-        // ignoraba por su guard `!st.completedAt`.
-        completedAt: (s.completed_at as string) ?? undefined,
-        archivedAt:  (s.archived_at  as string) ?? undefined,
-        dueDate:         (s.due_date         as string) ?? undefined,
-        dueTime:         (s.due_time         as string) ?? undefined,
-        durationMinutes: (s.duration_minutes as number) ?? undefined,
-        description:     (s.description      as string) ?? undefined,
-        recurrence:      (s.recurrence       as import('@/types').TaskRecurrence) ?? undefined,
-      })),
-      createdAt: t.created_at as string,
-      scheduledFor: (t.scheduled_for as 'today' | 'tomorrow') ?? undefined,
-      completedAt: (t.completed_at as string) ?? undefined,
-      archivedAt: (t.archived_at as string) ?? undefined,
-      updatedAt: t.updated_at as string,
-      postponedCount: (t.postponed_count as number) ?? 0,
-      category: (t.category as string) ?? undefined,
-      // Campos antes faltantes — sin esto se perdía la hora del bloque
-      // del calendario, la duración, el linkage con GCal y la recurrencia
-      // en cada pull.
-      dueTime:              (t.due_time              as string) ?? undefined,
-      durationMinutes:      (t.duration_minutes      as number) ?? undefined,
-      gcalEventId:          (t.gcal_event_id         as string) ?? undefined,
-      gcalCalendarId:       (t.gcal_calendar_id      as string) ?? undefined,
-      notifyBeforeMinutes:  (t.notify_before_minutes as number) ?? undefined,
-      recurrence:           (t.recurrence            as import('@/types').TaskRecurrence) ?? undefined,
-      parcialId:            (t.parcial_id            as string) ?? undefined,
-      rescheduledFrom:      (t.rescheduled_from      as string) ?? undefined,
-      recurringHeadId:      (t.recurring_head_id     as string) ?? undefined,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any])),
+  // Tipos del store local — reutilizados para tipar las filas remotas mapeadas.
+  const localState = useTasksStore.getState()
+  const localProjects = Object.values(localState.projects)
+  const localTasks = Object.values(localState.tasks)
+  type LocalProject = (typeof localProjects)[number]
+  type LocalTask = (typeof localTasks)[number]
+  type LocalSubtask = LocalTask['subtasks'][number]
+
+  // ── Map de filas remotas → objetos de dominio (misma forma que el store) ──
+  const remoteProjects = (projectsRes.data ?? []).map((p: Row) => ({
+    id: p.id as string,
+    name: p.name as string,
+    color: p.color as string,
+    icon: (p.icon as string) ?? undefined,
+    description: (p.description as string) ?? undefined,
+    statuses: (p.statuses as unknown[]) ?? [],
+    taskIds: [] as string[], // se recomputa abajo desde las tasks mergeadas
+    createdAt: p.created_at as string,
+    archived: !!p.archived,
+    isSystemProject: !!(p.is_system_project as boolean),
+    systemProjectKey: (p.system_project_key as 'spi' | null) ?? undefined,
+    type:            (p.type              as 'standard' | 'subject' | 'content' | null) ?? undefined,
+    subjectMeta:     (p.subject_meta      as import('@/types').SubjectMeta | null) ?? undefined,
+    contentMeta:     (p.content_meta      as import('@/types').ContentMeta | null) ?? undefined,
+    parentProjectId: (p.parent_project_id as string | null) ?? undefined,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any)) as LocalProject[]
+
+  const remoteTasks = (tasksRes.data ?? []).map((t: Row) => ({
+    id: t.id as string,
+    projectId: t.project_id as string,
+    title: t.title as string,
+    description: (t.description as string) ?? undefined,
+    status: t.status as string,
+    priority: t.priority as 'low' | 'medium' | 'high' | 'urgent',
+    importance: t.importance as 'low' | 'medium' | 'high' | 'critical',
+    dueDate: (t.due_date as string) ?? undefined,
+    energyEstimate: (t.energy_estimate as number) ?? undefined,
+    notes: (t.notes as string) ?? undefined,
+    subtasks: (subtasksByTaskId.get(t.id as string) ?? []).map((s) => ({
+      id: s.id as string,
+      title: s.title as string,
+      completed: s.completed as boolean,
+      status: s.status as string,
+      order: s.order as number,
+      notes: (s.notes as string) ?? undefined,
+      priority: (s.priority as 'low' | 'medium' | 'high' | 'urgent' | null) ?? undefined,
+      parentId: (s.parent_id as string) ?? undefined,
+      completedAt: (s.completed_at as string) ?? undefined,
+      archivedAt:  (s.archived_at  as string) ?? undefined,
+      dueDate:         (s.due_date         as string) ?? undefined,
+      dueTime:         (s.due_time         as string) ?? undefined,
+      durationMinutes: (s.duration_minutes as number) ?? undefined,
+      description:     (s.description      as string) ?? undefined,
+      recurrence:      (s.recurrence       as import('@/types').TaskRecurrence) ?? undefined,
+    })),
+    createdAt: t.created_at as string,
+    scheduledFor: (t.scheduled_for as 'today' | 'tomorrow') ?? undefined,
+    completedAt: (t.completed_at as string) ?? undefined,
+    archivedAt: (t.archived_at as string) ?? undefined,
+    updatedAt: t.updated_at as string,
+    postponedCount: (t.postponed_count as number) ?? 0,
+    category: (t.category as string) ?? undefined,
+    dueTime:              (t.due_time              as string) ?? undefined,
+    durationMinutes:      (t.duration_minutes      as number) ?? undefined,
+    gcalEventId:          (t.gcal_event_id         as string) ?? undefined,
+    gcalCalendarId:       (t.gcal_calendar_id      as string) ?? undefined,
+    notifyBeforeMinutes:  (t.notify_before_minutes as number) ?? undefined,
+    recurrence:           (t.recurrence            as import('@/types').TaskRecurrence) ?? undefined,
+    parcialId:            (t.parcial_id            as string) ?? undefined,
+    rescheduledFrom:      (t.rescheduled_from      as string) ?? undefined,
+    recurringHeadId:      (t.recurring_head_id     as string) ?? undefined,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any)) as LocalTask[]
+
+  // ── Merge no-destructivo local ⊕ remoto ───────────────────────────────────
+  const subtaskBaseline = getBaseline('tasks:subtasks')
+
+  const mergedTasks = mergeById<LocalTask>({
+    local: localTasks,
+    remote: remoteTasks,
+    baseline: getBaseline('tasks:tasks'),
+    getId: (t) => t.id,
+    getUpdatedAt: (t) => t.updatedAt,
+    // Conflicto de task → escalares de la más reciente; subtasks se mergean
+    // por id (la task más nueva resuelve el contenido de cada subtask).
+    mergeItem: (l, r) => {
+      const lNewer = (l.updatedAt ?? '') >= (r.updatedAt ?? '')
+      const scalarBase = lNewer ? l : r
+      const mergedSubs = mergeById<LocalSubtask>({
+        local: l.subtasks ?? [],
+        remote: r.subtasks ?? [],
+        baseline: subtaskBaseline,
+        getId: (s) => s.id,
+        mergeItem: (ls, rs) => (lNewer ? ls : rs),
+      })
+      return { ...scalarBase, subtasks: mergedSubs }
+    },
   })
 
+  // Projects sin updatedAt → en conflicto gana remote (canónico tras push).
+  const mergedProjects = mergeById<LocalProject>({
+    local: localProjects,
+    remote: remoteProjects,
+    baseline: getBaseline('tasks:projects'),
+    getId: (p) => p.id,
+  })
+
+  // Recomputar taskIds de cada project desde las tasks mergeadas.
+  const taskIdsByProject = new Map<string, string[]>()
+  for (const t of mergedTasks) {
+    if (!taskIdsByProject.has(t.projectId)) taskIdsByProject.set(t.projectId, [])
+    taskIdsByProject.get(t.projectId)!.push(t.id)
+  }
+  const projectsWithTaskIds = mergedProjects.map((p) => ({
+    ...p, taskIds: taskIdsByProject.get(p.id) ?? [],
+  }))
+
+  useTasksStore.setState({
+    projects: Object.fromEntries(projectsWithTaskIds.map((p) => [p.id, p])),
+    tasks: Object.fromEntries(mergedTasks.map((t) => [t.id, t])),
+  })
+
+  // Baseline = lo confirmado en remoto (lo que Supabase tiene ahora). Las
+  // filas creadas local sin pushear aún quedan fuera; el próximo push las
+  // sube y actualiza el baseline.
+  setBaseline('tasks:projects', remoteProjects.map((p) => p.id))
+  setBaseline('tasks:tasks', remoteTasks.map((t) => t.id))
+  setBaseline('tasks:subtasks', remoteTasks.flatMap((t) => t.subtasks.map((s) => s.id)))
   markSynced('tasks')
-  return { projects: projectsRes.data?.length ?? 0, tasks: tasksRes.data?.length ?? 0 }
+  return { projects: remoteProjects.length, tasks: remoteTasks.length }
   } finally {
     endPulling('tasks')
   }
@@ -528,21 +535,24 @@ async function pushWallet() {
     }
   }
 
-  // Delete surplus
-  await deleteSurplus(sb, 'wallet_transactions', uid, txRows.map((r) => r.id))
-  await deleteSurplus(sb, 'wallets', uid, walletRows.map((r) => r.id))
-  await deleteSurplus(sb, 'wallets_deleted', uid, deletedRows.map((r) => r.id))
-  await deleteSurplus(sb, 'wallet_recurring_expenses', uid, recurringRows.map((r) => r.id))
+  // Reconcile deletes — borra solo lo que el user quitó (baseline ∩ ¬local).
+  const txIds = txRows.map((r) => r.id)
+  const walletIds = walletRows.map((r) => r.id)
+  const deletedIds = deletedRows.map((r) => r.id)
+  const recurringIds = recurringRows.map((r) => r.id)
+  const currencyCodes = currencies.map((c) => c.code)
+  await reconcileDeletes(sb, 'wallet_transactions', uid, txIds, getBaseline('wallet:transactions'))
+  await reconcileDeletes(sb, 'wallets', uid, walletIds, getBaseline('wallet:wallets'))
+  await reconcileDeletes(sb, 'wallets_deleted', uid, deletedIds, getBaseline('wallet:deleted'))
+  await reconcileDeletes(sb, 'wallet_recurring_expenses', uid, recurringIds, getBaseline('wallet:recurring'))
+  // Currencies: PK natural = code.
+  await reconcileDeletes(sb, 'wallet_currencies', uid, currencyCodes, getBaseline('wallet:currencies'), 'code')
 
-  // Currencies: delete by code (custom helper since PK is composite)
-  const { data: remoteCurrencies } = await sb.from('wallet_currencies').select('code').eq('user_id', uid)
-  if (remoteCurrencies) {
-    const localCodes = new Set(currencies.map((c) => c.code))
-    const toDelete = (remoteCurrencies as Row[]).filter((r) => !localCodes.has(r.code as string)).map((r) => r.code as string)
-    if (toDelete.length > 0) {
-      await sb.from('wallet_currencies').delete().eq('user_id', uid).in('code', toDelete)
-    }
-  }
+  setBaseline('wallet:transactions', txIds)
+  setBaseline('wallet:wallets', walletIds)
+  setBaseline('wallet:deleted', deletedIds)
+  setBaseline('wallet:recurring', recurringIds)
+  setBaseline('wallet:currencies', currencyCodes)
   markSynced('wallet')
 }
 
@@ -575,70 +585,108 @@ async function pullWallet(): Promise<boolean> {
   const hasData = (wallRes.data?.length ?? 0) > 0 || (txRes.data?.length ?? 0) > 0
   if (!hasData && !cfgRes.data) { markSynced('wallet'); return false }
 
-  useWalletStore.setState({
-    currencies: (curRes.data ?? []).map((c: Row) => ({
-      code: c.code as string,
-      symbol: c.symbol as string,
-      name: c.name as string,
-      color: c.color as string,
-    })),
-    wallets: (wallRes.data ?? []).map((w: Row) => ({
-      id: w.id as string,
-      name: w.name as string,
-      color: w.color as string,
-      icon: w.icon as string,
-      currencyCodes: (w.currency_codes as string[]) ?? [],
-      createdAt: w.created_at as string,
-    })),
-    transactions: (txRes.data ?? []).map((t: Row) => ({
-      id: t.id as string,
-      type: t.type as 'income' | 'expense' | 'transfer',
-      walletId: t.wallet_id as string,
-      currencyCode: t.currency_code as string,
-      amount: t.amount as number,
-      label: t.label as string,
-      category: t.category as string,
-      date: t.date as string,
-      timestamp: t.timestamp as number,
-      toWalletId: (t.to_wallet_id as string) ?? undefined,
-      toCurrencyCode: (t.to_currency_code as string) ?? undefined,
-      toAmount: (t.to_amount as number) ?? undefined,
-    })),
+  const localW = useWalletStore.getState()
+  type Currency = (typeof localW.currencies)[number]
+  type WalletT = (typeof localW.wallets)[number]
+  type Tx = (typeof localW.transactions)[number]
+  type DeletedW = (typeof localW.deletedWallets)[number]
+  type Recurring = (typeof localW.recurringExpenses)[number]
+
+  const remoteCurrencies: Currency[] = (curRes.data ?? []).map((c: Row) => ({
+    code: c.code as string,
+    symbol: c.symbol as string,
+    name: c.name as string,
+    color: c.color as string,
+  }))
+  const remoteWallets: WalletT[] = (wallRes.data ?? []).map((w: Row) => ({
+    id: w.id as string,
+    name: w.name as string,
+    color: w.color as string,
+    icon: w.icon as string,
+    currencyCodes: (w.currency_codes as string[]) ?? [],
+    createdAt: w.created_at as string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any))
+  const remoteTx: Tx[] = (txRes.data ?? []).map((t: Row) => ({
+    id: t.id as string,
+    type: t.type as 'income' | 'expense' | 'transfer',
+    walletId: t.wallet_id as string,
+    currencyCode: t.currency_code as string,
+    amount: t.amount as number,
+    label: t.label as string,
+    category: t.category as string,
+    date: t.date as string,
+    timestamp: t.timestamp as number,
+    toWalletId: (t.to_wallet_id as string) ?? undefined,
+    toCurrencyCode: (t.to_currency_code as string) ?? undefined,
+    toAmount: (t.to_amount as number) ?? undefined,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any))
+  const remoteDeleted: DeletedW[] = (delRes.data ?? []).map((d: Row) => ({
+    id: d.id as string,
+    wallet: d.wallet as import('@/lib/store/walletStore').Wallet,
+    transactions: d.transactions as import('@/lib/store/walletStore').Transaction[],
+    deletedAt: d.deleted_at as number,
+  }))
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const patch: any = {
+    currencies: mergeById<Currency>({
+      local: localW.currencies, remote: remoteCurrencies,
+      baseline: getBaseline('wallet:currencies'), getId: (c) => c.code,
+    }),
+    wallets: mergeById<WalletT>({
+      local: localW.wallets, remote: remoteWallets,
+      baseline: getBaseline('wallet:wallets'), getId: (w) => w.id,
+    }),
+    transactions: mergeById<Tx>({
+      local: localW.transactions, remote: remoteTx,
+      baseline: getBaseline('wallet:transactions'), getId: (t) => t.id,
+      getUpdatedAt: (t) => t.timestamp,
+    }),
     distribution: cfgRes.data
       ? (cfgRes.data as Row).distribution as import('@/lib/store/walletStore').DistributionItem[]
-      : useWalletStore.getState().distribution,
-    deletedWallets: (delRes.data ?? []).map((d: Row) => ({
-      id: d.id as string,
-      wallet: d.wallet as import('@/lib/store/walletStore').Wallet,
-      transactions: d.transactions as import('@/lib/store/walletStore').Transaction[],
-      deletedAt: d.deleted_at as number,
-    })),
-    // Only overwrite recurringExpenses if we actually got valid data —
-    // otherwise (migration missing, transient error) keep whatever the
-    // store has locally.
-    ...(recRes.error
-      ? {}
-      : {
-          recurringExpenses: (recRes.data ?? []).map((r: Row) => ({
-            id: r.id as string,
-            walletId: r.wallet_id as string,
-            currencyCode: r.currency_code as string,
-            amount: r.amount as number,
-            label: r.label as string,
-            category: r.category as string,
-            dayOfMonth: r.day_of_month as number,
-            active: r.active as boolean,
-            startDate: r.start_date as string,
-            endDate: (r.end_date as string) ?? undefined,
-            lastAppliedYearMonth: (r.last_applied_year_month as string) ?? undefined,
-            isSubscription: (r.is_subscription as boolean) ?? true,
-            notes: (r.notes as string) ?? undefined,
-            createdAt: r.created_at as string,
-          })),
-        }
-    ),
-  })
+      : localW.distribution,
+    deletedWallets: mergeById<DeletedW>({
+      local: localW.deletedWallets, remote: remoteDeleted,
+      baseline: getBaseline('wallet:deleted'), getId: (d) => d.id,
+      getUpdatedAt: (d) => d.deletedAt,
+    }),
+  }
 
+  // recurringExpenses: solo mergear si el pull no falló (tabla opcional).
+  let remoteRecurring: Recurring[] = []
+  if (!recRes.error) {
+    remoteRecurring = (recRes.data ?? []).map((r: Row) => ({
+      id: r.id as string,
+      walletId: r.wallet_id as string,
+      currencyCode: r.currency_code as string,
+      amount: r.amount as number,
+      label: r.label as string,
+      category: r.category as string,
+      dayOfMonth: r.day_of_month as number,
+      active: r.active as boolean,
+      startDate: r.start_date as string,
+      endDate: (r.end_date as string) ?? undefined,
+      lastAppliedYearMonth: (r.last_applied_year_month as string) ?? undefined,
+      isSubscription: (r.is_subscription as boolean) ?? true,
+      notes: (r.notes as string) ?? undefined,
+      createdAt: r.created_at as string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any))
+    patch.recurringExpenses = mergeById<Recurring>({
+      local: localW.recurringExpenses, remote: remoteRecurring,
+      baseline: getBaseline('wallet:recurring'), getId: (r) => r.id,
+    })
+  }
+
+  useWalletStore.setState(patch)
+
+  setBaseline('wallet:currencies', remoteCurrencies.map((c) => c.code))
+  setBaseline('wallet:wallets', remoteWallets.map((w) => w.id))
+  setBaseline('wallet:transactions', remoteTx.map((t) => t.id))
+  setBaseline('wallet:deleted', remoteDeleted.map((d) => d.id))
+  if (!recRes.error) setBaseline('wallet:recurring', remoteRecurring.map((r) => r.id))
   markSynced('wallet')
   return true
   } finally {
@@ -720,14 +768,23 @@ async function pushTrading() {
   if (errorRows.length > 0)    await sb.from('trading_errors').upsert(errorRows)
   if (emotionalRows.length > 0) await sb.from('trading_emotional').upsert(emotionalRows)
 
-  // Delete surplus — reverse FK order: leaf nodes first
-  await deleteSurplus(sb, 'trading_errors', uid, errorRows.map((r) => r.id))
-  await deleteSurplus(sb, 'trading_emotional', uid, emotionalRows.map((r) => r.id))
-  await deleteSurplus(sb, 'trading_payouts', uid, payoutRows.map((r) => r.id))
-  await deleteSurplus(sb, 'trading_trades', uid, tradeRows.map((r) => r.id))
-  await deleteSurplus(sb, 'trading_accounts', uid, accountRows.map((r) => r.id))
-  await deleteSurplus(sb, 'trading_strategies', uid, stratRows.map((r) => r.id))
-  await deleteSurplus(sb, 'trading_firms', uid, firmRows.map((r) => r.id))
+  // Reconcile deletes — reverse FK order: leaf nodes first. Solo borra lo que
+  // el user quitó a propósito (baseline ∩ ¬local).
+  await reconcileDeletes(sb, 'trading_errors', uid, errorRows.map((r) => r.id), getBaseline('trading:errors'))
+  await reconcileDeletes(sb, 'trading_emotional', uid, emotionalRows.map((r) => r.id), getBaseline('trading:emotional'))
+  await reconcileDeletes(sb, 'trading_payouts', uid, payoutRows.map((r) => r.id), getBaseline('trading:payouts'))
+  await reconcileDeletes(sb, 'trading_trades', uid, tradeRows.map((r) => r.id), getBaseline('trading:trades'))
+  await reconcileDeletes(sb, 'trading_accounts', uid, accountRows.map((r) => r.id), getBaseline('trading:accounts'))
+  await reconcileDeletes(sb, 'trading_strategies', uid, stratRows.map((r) => r.id), getBaseline('trading:strategies'))
+  await reconcileDeletes(sb, 'trading_firms', uid, firmRows.map((r) => r.id), getBaseline('trading:firms'))
+
+  setBaseline('trading:errors', errorRows.map((r) => r.id))
+  setBaseline('trading:emotional', emotionalRows.map((r) => r.id))
+  setBaseline('trading:payouts', payoutRows.map((r) => r.id))
+  setBaseline('trading:trades', tradeRows.map((r) => r.id))
+  setBaseline('trading:accounts', accountRows.map((r) => r.id))
+  setBaseline('trading:strategies', stratRows.map((r) => r.id))
+  setBaseline('trading:firms', firmRows.map((r) => r.id))
 
   // ─── Scaling System config (singleton JSONB row) ──
   const r = await sb.from('trading_scaling_config').upsert(
@@ -775,83 +832,117 @@ async function pullTrading(): Promise<boolean> {
     .some((r) => (r.data?.length ?? 0) > 0) || !!scalingRes.data
   if (!hasData) return false
 
-  useTradingStore.setState({
-    firms: (firmRes.data ?? []).map((f: Row) => ({
-      id: f.id as string, name: f.name as string, color: f.color as string,
-      rules: f.rules as import('@/lib/store/tradingStore').PropFirmRules,
-      notes: (f.notes as string) ?? undefined, createdAt: f.created_at as string,
-    })),
-    strategies: (stratRes.data ?? []).map((s: Row) => ({
-      id: s.id as string, name: s.name as string, color: s.color as string,
-      instrument: s.instrument as string, timeframe: s.timeframe as string,
-      session: s.session as string,
-      riskPerTradePct: (s.risk_per_trade_pct as number) ?? undefined,
-      targetRRR: (s.target_rrr as number) ?? undefined,
-      rules: (s.rules as string) ?? '',
-      active: s.active as boolean,
-      description: (s.description as string) ?? undefined,
-      createdAt: s.created_at as string,
-    })),
-    accounts: (accRes.data ?? []).map((a: Row) => ({
-      id: a.id as string, firmId: a.firm_id as string, alias: a.alias as string,
-      accountSize: a.account_size as number, evaluationCost: a.evaluation_cost as number,
-      status: a.status as import('@/lib/store/tradingStore').AccountStatus,
-      startDate: a.start_date as string,
-      closedDate: (a.closed_date as string) ?? undefined,
-      notes: (a.notes as string) ?? undefined,
-      mode: (a.mode as import('@/lib/store/tradingStore').AccountMode) ?? undefined,
-      maxRiskPerTradePct: (a.max_risk_per_trade_pct as number) ?? undefined,
-      maxDailyLossPct: (a.max_daily_loss_pct as number) ?? undefined,
-      maxDailyTrades: (a.max_daily_trades as number) ?? undefined,
-      targetPayoutAmount: (a.target_payout_amount as number) ?? undefined,
-      createdAt: a.created_at as string,
-    })),
-    trades: (tradeRes.data ?? []).map((t: Row) => ({
-      id: t.id as string, accountId: t.account_id as string, strategyId: t.strategy_id as string,
-      dateTime: t.date_time as string, exitDateTime: (t.exit_date_time as string) ?? undefined,
-      instrument: t.instrument as string,
-      direction: t.direction as 'long' | 'short',
-      plannedPnL: t.planned_pnl as number, actualPnL: t.actual_pnl as number,
-      rMultipleStrategy: (t.r_multiple_strategy as number) ?? undefined,
-      rMultipleActual: (t.r_multiple_actual as number) ?? undefined,
-      moodBefore: (t.mood_before as import('@/lib/store/tradingStore').Mood) ?? undefined,
-      moodAfter: (t.mood_after as import('@/lib/store/tradingStore').Mood) ?? undefined,
-      notes: (t.notes as string) ?? undefined,
-      screenshotUrl: (t.screenshot_url as string) ?? undefined,
-      createdAt: t.created_at as string,
-    })),
-    payouts: (payRes.data ?? []).map((p: Row) => ({
-      id: p.id as string, accountId: p.account_id as string,
-      amount: p.amount as number, date: p.date as string,
-      note: (p.note as string) ?? undefined, createdAt: p.created_at as string,
-    })),
-    errors: (errRes.data ?? []).map((e: Row) => ({
-      id: e.id as string, tradeId: e.trade_id as string,
-      strategyId: e.strategy_id as string, accountId: e.account_id as string,
-      type: e.type as import('@/lib/store/tradingStore').ErrorType,
-      description: e.description as string,
-      screenshotUrl: (e.screenshot_url as string) ?? undefined,
-      createdAt: e.created_at as string,
-    })),
-    emotional: (emotRes.data ?? []).map((e: Row) => ({
-      id: e.id as string, date: e.date as string,
-      mood: e.mood as import('@/lib/store/tradingStore').Mood,
-      energyBefore: e.energy_before as number,
-      energyAfter: (e.energy_after as number) ?? undefined,
-      description: e.description as string,
-      tags: (e.tags as string[]) ?? [],
-      tradeIds: (e.trade_ids as string[]) ?? [],
-      createdAt: e.created_at as string,
-    })),
-    // Only overwrite scaling if the remote row actually exists. Otherwise
-    // keep whatever local default the store already has (avoids wiping the
-    // user's local scaling config on a fresh device where the migration
-    // hasn't been run yet).
+  const localT = useTradingStore.getState()
+  type Firm = (typeof localT.firms)[number]
+  type Strat = (typeof localT.strategies)[number]
+  type Account = (typeof localT.accounts)[number]
+  type Trade = (typeof localT.trades)[number]
+  type Payout = (typeof localT.payouts)[number]
+  type TErr = (typeof localT.errors)[number]
+  type Emot = (typeof localT.emotional)[number]
+
+  const remoteFirms: Firm[] = (firmRes.data ?? []).map((f: Row) => ({
+    id: f.id as string, name: f.name as string, color: f.color as string,
+    rules: f.rules as import('@/lib/store/tradingStore').PropFirmRules,
+    notes: (f.notes as string) ?? undefined, createdAt: f.created_at as string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any))
+  const remoteStrats: Strat[] = (stratRes.data ?? []).map((s: Row) => ({
+    id: s.id as string, name: s.name as string, color: s.color as string,
+    instrument: s.instrument as string, timeframe: s.timeframe as string,
+    session: s.session as string,
+    riskPerTradePct: (s.risk_per_trade_pct as number) ?? undefined,
+    targetRRR: (s.target_rrr as number) ?? undefined,
+    rules: (s.rules as string) ?? '',
+    active: s.active as boolean,
+    description: (s.description as string) ?? undefined,
+    createdAt: s.created_at as string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any))
+  const remoteAccounts: Account[] = (accRes.data ?? []).map((a: Row) => ({
+    id: a.id as string, firmId: a.firm_id as string, alias: a.alias as string,
+    accountSize: a.account_size as number, evaluationCost: a.evaluation_cost as number,
+    status: a.status as import('@/lib/store/tradingStore').AccountStatus,
+    startDate: a.start_date as string,
+    closedDate: (a.closed_date as string) ?? undefined,
+    notes: (a.notes as string) ?? undefined,
+    mode: (a.mode as import('@/lib/store/tradingStore').AccountMode) ?? undefined,
+    maxRiskPerTradePct: (a.max_risk_per_trade_pct as number) ?? undefined,
+    maxDailyLossPct: (a.max_daily_loss_pct as number) ?? undefined,
+    maxDailyTrades: (a.max_daily_trades as number) ?? undefined,
+    targetPayoutAmount: (a.target_payout_amount as number) ?? undefined,
+    createdAt: a.created_at as string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any))
+  const remoteTrades: Trade[] = (tradeRes.data ?? []).map((t: Row) => ({
+    id: t.id as string, accountId: t.account_id as string, strategyId: t.strategy_id as string,
+    dateTime: t.date_time as string, exitDateTime: (t.exit_date_time as string) ?? undefined,
+    instrument: t.instrument as string,
+    direction: t.direction as 'long' | 'short',
+    plannedPnL: t.planned_pnl as number, actualPnL: t.actual_pnl as number,
+    rMultipleStrategy: (t.r_multiple_strategy as number) ?? undefined,
+    rMultipleActual: (t.r_multiple_actual as number) ?? undefined,
+    moodBefore: (t.mood_before as import('@/lib/store/tradingStore').Mood) ?? undefined,
+    moodAfter: (t.mood_after as import('@/lib/store/tradingStore').Mood) ?? undefined,
+    notes: (t.notes as string) ?? undefined,
+    screenshotUrl: (t.screenshot_url as string) ?? undefined,
+    createdAt: t.created_at as string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any))
+  const remotePayouts: Payout[] = (payRes.data ?? []).map((p: Row) => ({
+    id: p.id as string, accountId: p.account_id as string,
+    amount: p.amount as number, date: p.date as string,
+    note: (p.note as string) ?? undefined, createdAt: p.created_at as string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any))
+  const remoteErrors: TErr[] = (errRes.data ?? []).map((e: Row) => ({
+    id: e.id as string, tradeId: e.trade_id as string,
+    strategyId: e.strategy_id as string, accountId: e.account_id as string,
+    type: e.type as import('@/lib/store/tradingStore').ErrorType,
+    description: e.description as string,
+    screenshotUrl: (e.screenshot_url as string) ?? undefined,
+    createdAt: e.created_at as string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any))
+  const remoteEmotional: Emot[] = (emotRes.data ?? []).map((e: Row) => ({
+    id: e.id as string, date: e.date as string,
+    mood: e.mood as import('@/lib/store/tradingStore').Mood,
+    energyBefore: e.energy_before as number,
+    energyAfter: (e.energy_after as number) ?? undefined,
+    description: e.description as string,
+    tags: (e.tags as string[]) ?? [],
+    tradeIds: (e.trade_ids as string[]) ?? [],
+    createdAt: e.created_at as string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any))
+
+  // Trading no usa updatedAt → conflicto gana remote (push-first cubre locales).
+  const m = <T,>(local: T[], remote: T[], key: string, getId: (x: T) => string) =>
+    mergeById<T>({ local, remote, baseline: getBaseline(key), getId })
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const patch: any = {
+    firms:      m(localT.firms,      remoteFirms,     'trading:firms',      (x) => x.id),
+    strategies: m(localT.strategies, remoteStrats,    'trading:strategies', (x) => x.id),
+    accounts:   m(localT.accounts,   remoteAccounts,  'trading:accounts',   (x) => x.id),
+    trades:     m(localT.trades,     remoteTrades,    'trading:trades',     (x) => x.id),
+    payouts:    m(localT.payouts,    remotePayouts,   'trading:payouts',    (x) => x.id),
+    errors:     m(localT.errors,     remoteErrors,    'trading:errors',     (x) => x.id),
+    emotional:  m(localT.emotional,  remoteEmotional, 'trading:emotional',  (x) => x.id),
+    // Scaling: solo pisar si la fila remota existe (singleton).
     ...(scalingRes.data
       ? { scaling: (scalingRes.data as { payload: unknown }).payload as import('@/lib/store/tradingStore').ScalingConfig }
       : {}),
-  })
+  }
+  useTradingStore.setState(patch)
 
+  setBaseline('trading:firms', remoteFirms.map((x) => x.id))
+  setBaseline('trading:strategies', remoteStrats.map((x) => x.id))
+  setBaseline('trading:accounts', remoteAccounts.map((x) => x.id))
+  setBaseline('trading:trades', remoteTrades.map((x) => x.id))
+  setBaseline('trading:payouts', remotePayouts.map((x) => x.id))
+  setBaseline('trading:errors', remoteErrors.map((x) => x.id))
+  setBaseline('trading:emotional', remoteEmotional.map((x) => x.id))
   markSynced('trading')
   return true
   } finally {
@@ -891,7 +982,8 @@ async function pushHabits() {
       throw r.error
     }
   }
-  await deleteSurplus(sb, 'habits', uid, rows.map((r) => r.id))
+  await reconcileDeletes(sb, 'habits', uid, rows.map((r) => r.id), getBaseline('habits:habits'))
+  setBaseline('habits:habits', rows.map((r) => r.id))
   markSynced('habits')
 }
 
@@ -913,20 +1005,43 @@ async function pullHabits(): Promise<boolean> {
   }
   if ((res.data?.length ?? 0) === 0) { markSynced('habits'); return false }
 
-  useHabitsStore.setState({
-    habits: (res.data ?? []).map((h: Row) => ({
-      id: h.id as string,
-      name: h.name as string,
-      icon: h.icon as string,
-      color: h.color as string,
-      targetDays: (h.target_days as number[]) ?? [],
-      completedDates: (h.completed_dates as string[]) ?? [],
-      skippedDates: (h.skipped_dates as string[]) ?? [],
-      category: h.category as string,
-      createdAt: h.created_at as string,
-      reminderTime: (h.reminder_time as string | null) ?? undefined,
-    })),
+  const localHabits = useHabitsStore.getState().habits
+  type Habit = (typeof localHabits)[number]
+  const remoteHabits: Habit[] = (res.data ?? []).map((h: Row) => ({
+    id: h.id as string,
+    name: h.name as string,
+    icon: h.icon as string,
+    color: h.color as string,
+    targetDays: (h.target_days as number[]) ?? [],
+    completedDates: (h.completed_dates as string[]) ?? [],
+    skippedDates: (h.skipped_dates as string[]) ?? [],
+    category: h.category as string,
+    createdAt: h.created_at as string,
+    reminderTime: (h.reminder_time as string | null) ?? undefined,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any))
+
+  // Conflicto de hábito → mergeHabit: UNE completedDates/skippedDates para no
+  // perder ninguna marca diaria hecha en otro device (causa del "snapshot a la
+  // mitad"). Escalares toman remote.
+  const merged = mergeById<Habit>({
+    local: localHabits,
+    remote: remoteHabits,
+    baseline: getBaseline('habits:habits'),
+    getId: (h) => h.id,
+    mergeItem: mergeHabit,
   })
+
+  // Reordenar: orden remoto (sort_order) primero, luego los locales nuevos
+  // (aún sin pushear) preservando su orden local. El array es la fuente
+  // canónica del orden, así que esto mantiene el reordenamiento entre devices.
+  const byId = new Map(merged.map((h) => [h.id, h]))
+  const ordered: Habit[] = []
+  for (const r of remoteHabits) { const h = byId.get(r.id); if (h) { ordered.push(h); byId.delete(r.id) } }
+  for (const l of localHabits) { const h = byId.get(l.id); if (h) { ordered.push(h); byId.delete(l.id) } }
+
+  useHabitsStore.setState({ habits: ordered })
+  setBaseline('habits:habits', remoteHabits.map((h) => h.id))
   markSynced('habits')
   return true
   } finally {
@@ -940,7 +1055,29 @@ async function pushSPI() {
   if (!state.userId) return
   const sb = getSupabaseBrowser()
   const uid = state.userId!
-  const { sessions, bitacoraEntries } = useSPIStore.getState()
+  const { sessions, bitacoraEntries, template } = useSPIStore.getState()
+
+  // ── Template (singleton: títulos de sección, carriles, checklist) ──
+  // LWW por version. Solo pisamos el remoto si el local es >= remoto, así un
+  // device con template viejo no clobberea el renombrado hecho en otro device.
+  // Tabla opcional — si falta la migration, warn y seguimos (no rompe el push).
+  try {
+    const localVer = template.version ?? 0
+    const { data: remoteT } = await sb.from('spi_template')
+      .select('version').eq('user_id', uid).maybeSingle()
+    const remoteVer = (remoteT as { version?: number } | null)?.version ?? -1
+    if (remoteVer <= localVer) {
+      const r = await sb.from('spi_template').upsert(
+        { user_id: uid, payload: template, version: localVer, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id' },
+      )
+      if (r.error) {
+        console.warn('[spi_template push] failed (run migration_spi_template.sql?):', r.error.message)
+      }
+    }
+  } catch (e) {
+    console.warn('[spi_template push] skipped:', e)
+  }
 
   // ── Sessions ──────────────────────────────────────────────────────
   // Each session stored as one row; full payload in JSONB. We strip the
@@ -959,7 +1096,8 @@ async function pushSPI() {
     const r = await sb.from('spi_sessions').upsert(sessRows)
     if (r.error) { reportSyncError(`spi_sessions upsert failed: ${r.error.message}`); throw r.error }
   }
-  await deleteSurplus(sb, 'spi_sessions', uid, sessRows.map((r) => r.id))
+  await reconcileDeletes(sb, 'spi_sessions', uid, sessRows.map((r) => r.id), getBaseline('spi:sessions'))
+  setBaseline('spi:sessions', sessRows.map((r) => r.id))
 
   // ── Bitácora (cross-session) ──────────────────────────────────────
   const bitRows = bitacoraEntries.map((e) => ({
@@ -976,7 +1114,8 @@ async function pushSPI() {
     const r = await sb.from('spi_bitacora').upsert(bitRows)
     if (r.error) { reportSyncError(`spi_bitacora upsert failed: ${r.error.message}`); throw r.error }
   }
-  await deleteSurplus(sb, 'spi_bitacora', uid, bitRows.map((r) => r.id))
+  await reconcileDeletes(sb, 'spi_bitacora', uid, bitRows.map((r) => r.id), getBaseline('spi:bitacora'))
+  setBaseline('spi:bitacora', bitRows.map((r) => r.id))
   markSynced('spi')
 }
 
@@ -987,15 +1126,30 @@ async function pullSPI(): Promise<boolean> {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
-  const [sessRes, bitRes] = await Promise.all([
+  const [sessRes, bitRes, templateRes] = await Promise.all([
     sb.from('spi_sessions').select('*').eq('user_id', uid)
       .order('week_start_date', { ascending: false }),
     sb.from('spi_bitacora').select('*').eq('user_id', uid)
       .order('created_at', { ascending: false }),
+    sb.from('spi_template').select('*').eq('user_id', uid).maybeSingle(),
   ])
 
   if (sessRes.error) { console.error('SPI sessions pull failed', sessRes.error); return false }
   if (bitRes.error)  { console.error('SPI bitacora pull failed', bitRes.error) }
+
+  // ── Template (singleton) — independiente de las sesiones, se aplica SIEMPRE.
+  // Adoptamos el remoto solo si su version es mayor que la local (LWW). Tabla
+  // opcional: si falta la migration, templateRes.error → warn y seguimos.
+  if (templateRes.error) {
+    console.warn('[spi_template pull] failed (run migration_spi_template.sql?):', templateRes.error.message)
+  } else if (templateRes.data) {
+    const row = templateRes.data as { payload: unknown; version?: number }
+    const remoteVer = row.version ?? 0
+    const localVer = useSPIStore.getState().template.version ?? 0
+    if (remoteVer > localVer) {
+      useSPIStore.setState({ template: row.payload as import('@/lib/spi/types').SPITemplate })
+    }
+  }
 
   const hasSessions = (sessRes.data?.length ?? 0) > 0
   const hasBitacora = (bitRes.data?.length ?? 0) > 0
@@ -1044,18 +1198,47 @@ async function pullSPI(): Promise<boolean> {
     }
   }
 
-  useSPIStore.setState({
-    sessions: (sessRes.data ?? []).map((r: SessRow) => sanitize(r.payload)),
-    bitacoraEntries: (bitRes.data ?? []).map((r: BitRow) => ({
-      id: r.id,
-      kind: r.kind,
-      situation: r.situation,
-      dominoEffect: r.domino_effect,
-      resolved: r.resolved ?? false,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
-    })),
+  const remoteSessions: import('@/lib/spi/types').SPISession[] =
+    (sessRes.data ?? []).map((r: SessRow) => sanitize(r.payload))
+  const remoteBitacora: import('@/lib/spi/types').BitacoraEntry[] = (bitRes.data ?? []).map((r: BitRow) => ({
+    id: r.id,
+    kind: r.kind,
+    situation: r.situation,
+    dominoEffect: r.domino_effect,
+    resolved: r.resolved ?? false,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }))
+
+  const localSPI = useSPIStore.getState()
+
+  // Merge no-destructivo. Sesiones en conflicto → deep-merge campo-por-campo
+  // (mergeSpiSession): preserva respuestas no-vacías de cada device (arregla
+  // "la pregunta de estrategia quedó en local").
+  const mergedSessions = mergeById<import('@/lib/spi/types').SPISession>({
+    local: localSPI.sessions,
+    remote: remoteSessions,
+    baseline: getBaseline('spi:sessions'),
+    getId: (s) => s.id,
+    getUpdatedAt: (s) => s.updatedAt,
+    mergeItem: mergeSpiSession,
   })
+
+  const mergedBitacora = mergeById<import('@/lib/spi/types').BitacoraEntry>({
+    local: localSPI.bitacoraEntries,
+    remote: remoteBitacora,
+    baseline: getBaseline('spi:bitacora'),
+    getId: (e) => e.id,
+    getUpdatedAt: (e) => e.updatedAt,
+  })
+
+  useSPIStore.setState({
+    sessions: mergedSessions,
+    bitacoraEntries: mergedBitacora,
+  })
+
+  setBaseline('spi:sessions', remoteSessions.map((s) => s.id))
+  setBaseline('spi:bitacora', remoteBitacora.map((e) => e.id))
   markSynced('spi')
   return true
   } finally {
@@ -1086,7 +1269,8 @@ async function pushProjection() {
     const r = await sb.from('projection_plans').upsert(rows)
     if (r.error) { reportSyncError(`projection_plans upsert failed: ${r.error.message}`); throw r.error }
   }
-  await deleteSurplus(sb, 'projection_plans', uid, rows.map((r) => r.id))
+  await reconcileDeletes(sb, 'projection_plans', uid, rows.map((r) => r.id), getBaseline('projection:plans'))
+  setBaseline('projection:plans', rows.map((r) => r.id))
   markSynced('projection')
 }
 
@@ -1120,9 +1304,18 @@ async function pullProjection(): Promise<boolean> {
       selectedLanes: p.selectedLanes,
     }
   }
-  useProjectionStore.setState({
-    plans: (res.data ?? []).map((r: Row) => sanitize(r.payload)),
+  const remotePlans: import('@/lib/projection/types').ProjectionPlan[] =
+    (res.data ?? []).map((r: Row) => sanitize(r.payload))
+  const mergedPlans = mergeById<import('@/lib/projection/types').ProjectionPlan>({
+    local: useProjectionStore.getState().plans,
+    remote: remotePlans,
+    baseline: getBaseline('projection:plans'),
+    getId: (p) => p.id,
+    getUpdatedAt: (p) => p.updatedAt,
+    mergeItem: mergeProjectionPlan,
   })
+  useProjectionStore.setState({ plans: mergedPlans })
+  setBaseline('projection:plans', remotePlans.map((p) => p.id))
   markSynced('projection')
   return true
   } finally {
@@ -1153,7 +1346,8 @@ async function pushLab() {
   }))
 
   if (rows.length > 0) await sb.from('lab_sessions').upsert(rows)
-  await deleteSurplus(sb, 'lab_sessions', uid, rows.map((r) => r.id))
+  await reconcileDeletes(sb, 'lab_sessions', uid, rows.map((r) => r.id), getBaseline('lab:sessions'))
+  setBaseline('lab:sessions', rows.map((r) => r.id))
 
   // ─── Beliefs ──
   const beliefRows = beliefs.map((b) => ({
@@ -1175,7 +1369,8 @@ async function pushLab() {
       throw r.error
     }
   }
-  await deleteSurplus(sb, 'lab_beliefs', uid, beliefRows.map((r) => r.id))
+  await reconcileDeletes(sb, 'lab_beliefs', uid, beliefRows.map((r) => r.id), getBaseline('lab:beliefs'))
+  setBaseline('lab:beliefs', beliefRows.map((r) => r.id))
   markSynced('lab')
 }
 
@@ -1242,10 +1437,34 @@ async function pullLab(): Promise<boolean> {
       autoTitled: p.autoTitled,
     }
   }
-  useLabStore.setState({
-    sessions: (sessionRes.data ?? []).map((r: LabRow) => sanitize(r.payload)),
-    beliefs,
+  const remoteSessions: import('@/lib/lab/types').LabSession[] =
+    (sessionRes.data ?? []).map((r: LabRow) => sanitize(r.payload))
+  const localLab = useLabStore.getState()
+
+  const mergedSessions = mergeById<import('@/lib/lab/types').LabSession>({
+    local: localLab.sessions,
+    remote: remoteSessions,
+    baseline: getBaseline('lab:sessions'),
+    getId: (s) => s.id,
+    getUpdatedAt: (s) => s.updatedAt,
+    mergeItem: mergeLabSession,
   })
+  setBaseline('lab:sessions', remoteSessions.map((s) => s.id))
+
+  // Beliefs: solo mergear si el pull no falló (tabla opcional). Si falló,
+  // mantenemos los locales intactos para no perderlos.
+  const mergedBeliefs = beliefRes.error
+    ? localLab.beliefs
+    : mergeById<import('@/lib/lab/types').LabBelief>({
+        local: localLab.beliefs,
+        remote: beliefs,
+        baseline: getBaseline('lab:beliefs'),
+        getId: (b) => b.id,
+        getUpdatedAt: (b) => b.updatedAt,
+      })
+  if (!beliefRes.error) setBaseline('lab:beliefs', beliefs.map((b) => b.id))
+
+  useLabStore.setState({ sessions: mergedSessions, beliefs: mergedBeliefs })
   markSynced('lab')
   return true
   } finally {
@@ -1277,7 +1496,8 @@ async function pushMindMaps() {
       throw r.error
     }
   }
-  await deleteSurplus(sb, 'mindmaps', uid, rows.map((r) => r.id))
+  await reconcileDeletes(sb, 'mindmaps', uid, rows.map((r) => r.id), getBaseline('mindmaps:maps'))
+  setBaseline('mindmaps:maps', rows.map((r) => r.id))
   markSynced('mindmaps')
 }
 
@@ -1308,9 +1528,17 @@ async function pullMindMaps(): Promise<boolean> {
       updatedAt: p.updatedAt ?? new Date().toISOString(),
     }
   }
-  useMindMapStore.setState({
-    maps: (res.data ?? []).map((r: MapRow) => sanitize(r.payload)),
+  const remoteMaps: import('@/lib/store/mindmapStore').MindMap[] =
+    (res.data ?? []).map((r: MapRow) => sanitize(r.payload))
+  const mergedMaps = mergeById<import('@/lib/store/mindmapStore').MindMap>({
+    local: useMindMapStore.getState().maps,
+    remote: remoteMaps,
+    baseline: getBaseline('mindmaps:maps'),
+    getId: (m) => m.id,
+    getUpdatedAt: (m) => m.updatedAt,
   })
+  useMindMapStore.setState({ maps: mergedMaps })
+  setBaseline('mindmaps:maps', remoteMaps.map((m) => m.id))
   markSynced('mindmaps')
   return true
   } finally {
@@ -1456,7 +1684,8 @@ async function pushGym() {
     const r = await sb.from('gym_weight_entries').upsert(weightRows)
     if (r.error) { reportSyncError(`gym_weight_entries upsert failed: ${r.error.message}`); throw r.error }
   }
-  await deleteSurplus(sb, 'gym_weight_entries', uid, weightRows.map((r) => r.id))
+  await reconcileDeletes(sb, 'gym_weight_entries', uid, weightRows.map((r) => r.id), getBaseline('gym:weights'))
+  setBaseline('gym:weights', weightRows.map((r) => r.id))
 
   // Config (singleton)
   await sb.from('gym_config').upsert(
@@ -1479,7 +1708,8 @@ async function pushGym() {
     const r = await sb.from('gym_routines').upsert(routineRows)
     if (r.error) { reportSyncError(`gym_routines upsert failed: ${r.error.message}`); throw r.error }
   }
-  await deleteSurplus(sb, 'gym_routines', uid, routineRows.map((r) => r.id))
+  await reconcileDeletes(sb, 'gym_routines', uid, routineRows.map((r) => r.id), getBaseline('gym:routines'))
+  setBaseline('gym:routines', routineRows.map((r) => r.id))
 
   // Sessions (nested exercises + sets as JSONB). activeSession is local-only.
   const sessionRows = sessions.map((s) => ({
@@ -1494,7 +1724,8 @@ async function pushGym() {
     const r = await sb.from('gym_sessions').upsert(sessionRows)
     if (r.error) { reportSyncError(`gym_sessions upsert failed: ${r.error.message}`); throw r.error }
   }
-  await deleteSurplus(sb, 'gym_sessions', uid, sessionRows.map((r) => r.id))
+  await reconcileDeletes(sb, 'gym_sessions', uid, sessionRows.map((r) => r.id), getBaseline('gym:sessions'))
+  setBaseline('gym:sessions', sessionRows.map((r) => r.id))
   markSynced('gym')
 }
 
@@ -1525,18 +1756,13 @@ async function pullGym(): Promise<boolean> {
     (sessionsRes.data?.length ?? 0) > 0
   if (!hasData) { markSynced('gym'); return false }
 
+  const localG = useGymStore.getState()
+  type Weight = (typeof localG.weightEntries)[number]
+  type Routine = (typeof localG.routines)[number]
+  type GSession = (typeof localG.sessions)[number]
   const patch: Partial<ReturnType<typeof useGymStore.getState>> = {}
 
-  if ((weightRes.data?.length ?? 0) > 0) {
-    patch.weightEntries = (weightRes.data ?? []).map((e: Row) => ({
-      id: e.id as string,
-      date: e.date as string,
-      kg: Number(e.kg),
-      note: (e.note as string) ?? undefined,
-      createdAt: e.created_at as string,
-    }))
-  }
-
+  // Config singleton — solo pisar si existe la fila remota.
   if (cfgRes.data) {
     const c = cfgRes.data as Row
     patch.gymType = (c.gym_type as 'home' | 'commercial') ?? 'home'
@@ -1546,29 +1772,51 @@ async function pullGym(): Promise<boolean> {
       : null
   }
 
-  if ((routinesRes.data?.length ?? 0) > 0) {
-    patch.routines = (routinesRes.data ?? []).map((r: Row) => ({
-      id: r.id as string,
-      name: r.name as string,
-      dayLabel: (r.day_label as string) ?? '',
-      exercises: (r.exercises as import('@/lib/store/gymStore').RoutineExercise[]) ?? [],
-    }))
-  }
+  const remoteWeights: Weight[] = (weightRes.data ?? []).map((e: Row) => ({
+    id: e.id as string,
+    date: e.date as string,
+    kg: Number(e.kg),
+    note: (e.note as string) ?? undefined,
+    createdAt: e.created_at as string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any))
+  const remoteRoutines: Routine[] = (routinesRes.data ?? []).map((r: Row) => ({
+    id: r.id as string,
+    name: r.name as string,
+    dayLabel: (r.day_label as string) ?? '',
+    exercises: (r.exercises as import('@/lib/store/gymStore').RoutineExercise[]) ?? [],
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any))
+  const remoteSessions: GSession[] = (sessionsRes.data ?? []).map((s: Row) => ({
+    id: s.id as string,
+    date: s.date as string,
+    name: s.name as string,
+    routineId: (s.routine_id as string) ?? undefined,
+    exercises: (s.exercises as import('@/lib/store/gymStore').WorkoutExercise[]) ?? [],
+    startedAt: s.started_at as string,
+    endedAt: (s.ended_at as string) ?? undefined,
+    notes: (s.notes as string) ?? undefined,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any))
 
-  if ((sessionsRes.data?.length ?? 0) > 0) {
-    patch.sessions = (sessionsRes.data ?? []).map((s: Row) => ({
-      id: s.id as string,
-      date: s.date as string,
-      name: s.name as string,
-      routineId: (s.routine_id as string) ?? undefined,
-      exercises: (s.exercises as import('@/lib/store/gymStore').WorkoutExercise[]) ?? [],
-      startedAt: s.started_at as string,
-      endedAt: (s.ended_at as string) ?? undefined,
-      notes: (s.notes as string) ?? undefined,
-    }))
-  }
+  // Merge no-destructivo + re-orden (weights por fecha desc, sessions por inicio desc).
+  patch.weightEntries = mergeById<Weight>({
+    local: localG.weightEntries, remote: remoteWeights,
+    baseline: getBaseline('gym:weights'), getId: (e) => e.id, getUpdatedAt: (e) => e.createdAt,
+  }).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+  patch.routines = mergeById<Routine>({
+    local: localG.routines, remote: remoteRoutines,
+    baseline: getBaseline('gym:routines'), getId: (r) => r.id,
+  })
+  patch.sessions = mergeById<GSession>({
+    local: localG.sessions, remote: remoteSessions,
+    baseline: getBaseline('gym:sessions'), getId: (s) => s.id, getUpdatedAt: (s) => s.startedAt,
+  }).sort((a, b) => (a.startedAt < b.startedAt ? 1 : a.startedAt > b.startedAt ? -1 : 0))
 
   useGymStore.setState(patch)
+  setBaseline('gym:weights', remoteWeights.map((e) => e.id))
+  setBaseline('gym:routines', remoteRoutines.map((r) => r.id))
+  setBaseline('gym:sessions', remoteSessions.map((s) => s.id))
   markSynced('gym')
   return true
   } finally {
@@ -1606,15 +1854,11 @@ async function pushHealth() {
     if (r.error) { reportSyncError(`health_snapshots upsert failed: ${r.error.message}`); throw r.error }
   }
 
-  // Delete snapshots no longer present locally
-  const { data: remote } = await sb.from('health_snapshots').select('date').eq('user_id', uid)
-  if (remote) {
-    const localDates = new Set(Object.keys(snapshots))
-    const toDelete = (remote as Row[]).filter((r) => !localDates.has(r.date as string)).map((r) => r.date as string)
-    if (toDelete.length > 0) {
-      await sb.from('health_snapshots').delete().eq('user_id', uid).in('date', toDelete)
-    }
-  }
+  // Reconcile deletes por fecha — solo borra los snapshots que el user quitó
+  // (baseline ∩ ¬local). PK natural = date.
+  const localDates = Object.keys(snapshots)
+  await reconcileDeletes(sb, 'health_snapshots', uid, localDates, getBaseline('health:snapshots'), 'date')
+  setBaseline('health:snapshots', localDates)
 
   await sb.from('health_config').upsert(
     { user_id: uid, sleep_goal_minutes: baseline.sleepGoalMinutes, updated_at: new Date().toISOString() },
@@ -1668,11 +1912,23 @@ async function pullHealth(): Promise<boolean> {
     ? ((cfgRes.data as Row).sleep_goal_minutes as number) ?? 480
     : useHealthStore.getState().baseline.sleepGoalMinutes
 
+  // Merge no-destructivo por fecha (conflicto → syncedAt más reciente).
+  type Snap = import('@/lib/store/healthStore').HealthSnapshot
+  const localSnaps = Object.values(useHealthStore.getState().snapshots)
+  const remoteSnaps = Object.values(snapMap)
+  const mergedSnaps = mergeById<Snap>({
+    local: localSnaps, remote: remoteSnaps,
+    baseline: getBaseline('health:snapshots'), getId: (s) => s.date, getUpdatedAt: (s) => s.syncedAt,
+  })
+  const mergedMap: Record<string, Snap> = {}
+  for (const s of mergedSnaps) mergedMap[s.date] = s
+
   useHealthStore.setState({
-    snapshots: snapMap,
+    snapshots: mergedMap,
     baseline: { ...useHealthStore.getState().baseline, sleepGoalMinutes: sleepGoal },
     lastSyncAt: Date.now(),
   })
+  setBaseline('health:snapshots', Object.keys(snapMap))
   useHealthStore.getState().computeBaseline()
   markSynced('health')
   return true
@@ -1698,7 +1954,8 @@ async function pushChat() {
     const r = await sb.from('chat_messages').upsert(rows)
     if (r.error) { reportSyncError(`chat_messages upsert failed: ${r.error.message}`); throw r.error }
   }
-  await deleteSurplus(sb, 'chat_messages', uid, rows.map((r) => r.id))
+  await reconcileDeletes(sb, 'chat_messages', uid, rows.map((r) => r.id), getBaseline('chat:messages'))
+  setBaseline('chat:messages', rows.map((r) => r.id))
   markSynced('chat')
 }
 
@@ -1716,15 +1973,29 @@ async function pullChat(): Promise<boolean> {
   }
   if ((res.data?.length ?? 0) === 0) { markSynced('chat'); return false }
 
-  useChatStore.setState({
-    messages: (res.data ?? []).map((m: Row) => ({
-      id: m.id as string,
-      role: m.role as 'user' | 'assistant',
-      content: m.content as string,
-      timestamp: m.timestamp as string,
-      actionCard: (m.action_card as import('@/types').ChatActionCard | null) ?? undefined,
-    })),
+  const localMsgs = useChatStore.getState().messages
+  type Msg = (typeof localMsgs)[number]
+  const remoteMsgs: Msg[] = (res.data ?? []).map((m: Row) => ({
+    id: m.id as string,
+    role: m.role as 'user' | 'assistant',
+    content: m.content as string,
+    timestamp: m.timestamp as string,
+    actionCard: (m.action_card as import('@/types').ChatActionCard | null) ?? undefined,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any))
+
+  const merged = mergeById<Msg>({
+    local: localMsgs,
+    remote: remoteMsgs,
+    baseline: getBaseline('chat:messages'),
+    getId: (m) => m.id,
+    getUpdatedAt: (m) => m.timestamp,
   })
+  // Mensajes ordenados cronológicamente.
+  merged.sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0))
+
+  useChatStore.setState({ messages: merged })
+  setBaseline('chat:messages', remoteMsgs.map((m) => m.id))
   markSynced('chat')
   return true
   } finally {
@@ -1815,7 +2086,8 @@ async function pushKpis() {
       throw r.error
     }
   }
-  await deleteSurplus(sb, 'kpis', uid, rows.map((r) => r.id))
+  await reconcileDeletes(sb, 'kpis', uid, rows.map((r) => r.id), getBaseline('kpis:definitions'))
+  setBaseline('kpis:definitions', rows.map((r) => r.id))
   markSynced('kpis')
 }
 
@@ -1852,9 +2124,17 @@ async function pullKpis(): Promise<boolean> {
         updatedAt: p.updatedAt ?? new Date().toISOString(),
       }
     }
-    useKpisStore.setState({
-      definitions: (res.data ?? []).map((r: KpiRow) => sanitize(r.payload)),
+    const remoteDefs: import('@/lib/kpi/types').KPIDefinition[] =
+      (res.data ?? []).map((r: KpiRow) => sanitize(r.payload))
+    const mergedDefs = mergeById<import('@/lib/kpi/types').KPIDefinition>({
+      local: useKpisStore.getState().definitions,
+      remote: remoteDefs,
+      baseline: getBaseline('kpis:definitions'),
+      getId: (d) => d.id,
+      getUpdatedAt: (d) => d.updatedAt,
     })
+    useKpisStore.setState({ definitions: mergedDefs })
+    setBaseline('kpis:definitions', remoteDefs.map((d) => d.id))
     markSynced('kpis')
     return true
   } finally {

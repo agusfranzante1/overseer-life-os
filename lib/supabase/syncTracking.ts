@@ -42,6 +42,46 @@
 
 const MODIFIED_PREFIX = 'overseer-sync-modified:'
 const SYNCED_PREFIX = 'overseer-sync-synced:'
+const BASELINE_PREFIX = 'overseer-sync-baseline:'
+
+// ─── Baseline de ids sincronizados ──────────────────────────────────────────
+//
+// El baseline de un dominio/tabla es el conjunto de ids de filas que sabemos
+// quedaron en sync tras el último push/pull exitoso. Es la pieza que permite
+// distinguir DOS situaciones que el viejo `deleteSurplus` confundía:
+//
+//   - "esta fila está en remoto pero NO en mi local porque OTRO device la
+//     creó" → NO la tengo que borrar (id ∉ baseline).
+//   - "esta fila está en remoto pero NO en mi local porque YO la borré a
+//     propósito" → SÍ la borro de remoto (id ∈ baseline, ya la había
+//     sincronizado y ahora no está local).
+//
+// Y en el pull, para el caso inverso (id en mi local pero no en remoto):
+//   - id ∈ baseline → fue borrada en otro device → la saco de local.
+//   - id ∉ baseline → la creé local y todavía no pusheé → la conservo.
+//
+// Vive en localStorage (no necesita schema en Supabase). Para usuarios
+// existentes arranca vacío → el primer ciclo es no-destructivo (unión).
+//
+// La `key` es por TABLA, no por dominio, ej: 'tasks:tasks', 'tasks:subtasks',
+// 'spi:sessions'. Así un dominio con varias tablas trackea cada una aparte.
+
+export function getBaseline(key: string): Set<string> {
+  if (typeof window === 'undefined') return new Set()
+  try {
+    const raw = localStorage.getItem(BASELINE_PREFIX + key)
+    if (!raw) return new Set()
+    const arr = JSON.parse(raw)
+    return Array.isArray(arr) ? new Set(arr as string[]) : new Set()
+  } catch { return new Set() }
+}
+
+export function setBaseline(key: string, ids: Iterable<string>): void {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(BASELINE_PREFIX + key, JSON.stringify([...ids]))
+  } catch { /* QuotaExceeded etc — best-effort */ }
+}
 
 /** Dominios que están CURRENTLY haciendo pull. Mientras un dominio está
  *  en este set, los subscribe handlers NO marcan modified (esos cambios
