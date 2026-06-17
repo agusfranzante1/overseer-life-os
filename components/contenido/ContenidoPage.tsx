@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo, useRef, useLayoutEffect } from 'react'
+import { useState, useMemo, useRef, useLayoutEffect, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Sparkles, Target, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown,
@@ -33,6 +33,7 @@ const LS_TAB = 'overseer-contenido-tab'
 const LS_MONTH = 'overseer-contenido-month'
 const LS_NETWORK_FILTER = 'overseer-contenido-network-filter'
 const LS_PROFILE_FILTER = 'overseer-contenido-profile-filter'
+const LS_TAB_ORDER = 'overseer-contenido-tab-order'
 
 function readLS<T extends string>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback
@@ -41,6 +42,34 @@ function readLS<T extends string>(key: string, fallback: T): T {
 function writeLS(key: string, value: string) {
   if (typeof window === 'undefined') return
   try { window.localStorage.setItem(key, value) } catch { /* noop */ }
+}
+
+// Definición (label + icono) de cada tab. El ORDEN visual lo decide el user
+// (drag-and-drop, persistido en LS_TAB_ORDER); acá solo está el default.
+const TAB_DEFS: { key: Tab; label: string; icon: React.ReactNode }[] = [
+  { key: 'estrategia',  label: 'ADN de marca',   icon: <Target className="w-3.5 h-3.5" /> },
+  { key: 'mes',         label: 'Mes en curso',   icon: <BookOpen className="w-3.5 h-3.5" /> },
+  { key: 'calendario',  label: 'Calendario',     icon: <CalendarIcon className="w-3.5 h-3.5" /> },
+  { key: 'pipeline',    label: 'Pipeline',       icon: <Layers className="w-3.5 h-3.5" /> },
+  { key: 'estilo',      label: 'Estilo visual',  icon: <ImageIcon className="w-3.5 h-3.5" /> },
+]
+const DEFAULT_TAB_ORDER: Tab[] = TAB_DEFS.map((t) => t.key)
+
+/** Normaliza el orden guardado: conserva solo keys válidas (sin duplicados) y
+ *  agrega al final cualquier tab nueva que no estuviera guardada (forward-compat). */
+function sanitizeTabOrder(raw: string): Tab[] {
+  let parsed: unknown = null
+  try { parsed = JSON.parse(raw) } catch { /* default abajo */ }
+  const valid = new Set<Tab>(DEFAULT_TAB_ORDER)
+  const seen = new Set<Tab>()
+  const out: Tab[] = []
+  if (Array.isArray(parsed)) {
+    for (const k of parsed) {
+      if (typeof k === 'string' && valid.has(k as Tab) && !seen.has(k as Tab)) { out.push(k as Tab); seen.add(k as Tab) }
+    }
+  }
+  for (const k of DEFAULT_TAB_ORDER) if (!seen.has(k)) out.push(k)
+  return out
 }
 
 export function ContenidoPage() {
@@ -143,13 +172,20 @@ function Header({
   currentMonth: string; setCurrentMonth: (m: string) => void
   networkFilter: ContentNetwork | 'all'; setNetworkFilter: (n: ContentNetwork | 'all') => void
 }) {
-  const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
-    { key: 'estrategia',  label: 'ADN de marca',   icon: <Target className="w-3.5 h-3.5" /> },
-    { key: 'mes',         label: 'Mes en curso',   icon: <BookOpen className="w-3.5 h-3.5" /> },
-    { key: 'calendario',  label: 'Calendario',     icon: <CalendarIcon className="w-3.5 h-3.5" /> },
-    { key: 'pipeline',    label: 'Pipeline',       icon: <Layers className="w-3.5 h-3.5" /> },
-    { key: 'estilo',      label: 'Estilo visual',  icon: <ImageIcon className="w-3.5 h-3.5" /> },
-  ]
+  // Orden de tabs reordenable por el user (drag-and-drop), persistido. Se lee
+  // en un effect (no en el init) para no romper la hidratación SSR.
+  const [tabOrder, setTabOrderState] = useState<Tab[]>(DEFAULT_TAB_ORDER)
+  useEffect(() => { setTabOrderState(sanitizeTabOrder(readLS(LS_TAB_ORDER, ''))) }, [])
+  const setTabOrder = (order: Tab[]) => { setTabOrderState(order); writeLS(LS_TAB_ORDER, JSON.stringify(order)) }
+  const [dragTab, setDragTab] = useState<Tab | null>(null)
+  const moveTab = (from: Tab, to: Tab) => {
+    if (from === to) return
+    const arr = tabOrder.filter((k) => k !== from)
+    const idx = arr.indexOf(to)
+    arr.splice(idx < 0 ? arr.length : idx, 0, from)
+    setTabOrder(arr)
+  }
+
   const shiftMonth = (delta: number) => {
     const [y, m] = currentMonth.split('-').map(Number)
     const d = new Date(y, m - 1 + delta, 1)
@@ -191,21 +227,33 @@ function Header({
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-1 border-b border-white/[0.06] -mb-2">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
-              tab === t.key
-                ? 'border-violet-400 text-white'
-                : 'border-transparent text-zinc-500 hover:text-zinc-300'
-            }`}
-          >
-            {t.icon}{t.label}
-          </button>
-        ))}
+      {/* Tabs — arrastrá una pestaña para reordenarlas (orden persistido). */}
+      <div className="flex items-center gap-1 border-b border-white/[0.06] -mb-2 flex-wrap">
+        {tabOrder.map((key) => {
+          const def = TAB_DEFS.find((d) => d.key === key)
+          if (!def) return null
+          return (
+            <button
+              key={key}
+              draggable
+              onDragStart={(e) => { setDragTab(key); e.dataTransfer.effectAllowed = 'move' }}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+              onDrop={(e) => { e.preventDefault(); if (dragTab) moveTab(dragTab, key); setDragTab(null) }}
+              onDragEnd={() => setDragTab(null)}
+              onClick={() => setTab(key)}
+              title="Arrastrá para reordenar"
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors cursor-grab active:cursor-grabbing ${
+                dragTab === key ? 'opacity-40' : ''
+              } ${
+                tab === key
+                  ? 'border-violet-400 text-white'
+                  : 'border-transparent text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              {def.icon}{def.label}
+            </button>
+          )
+        })}
       </div>
 
       {/* Network filter chips — solo en calendario/pipeline */}

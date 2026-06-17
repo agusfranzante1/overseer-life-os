@@ -80,6 +80,19 @@ export function Sidebar({
   const [overKey, setOverKey] = useState<string | null>(null)
   const draggedRef = useRef<string | null>(null)
 
+  // Footer colapsable — agrupa modo claro / idioma / timezone / sync / cerrar
+  // sesión detrás de un botón "Opciones" para no ocupar tanto espacio. Recuerda
+  // la preferencia en localStorage. Default: colapsado. Se lee en un effect
+  // (no en el init) para no romper la hidratación SSR de Next.
+  const [footerOpen, setFooterOpenState] = useState(false)
+  useEffect(() => {
+    try { setFooterOpenState(localStorage.getItem('overseer-sidebar-footer-open') === '1') } catch { /* noop */ }
+  }, [])
+  const setFooterOpen = (v: boolean) => {
+    setFooterOpenState(v)
+    try { localStorage.setItem('overseer-sidebar-footer-open', v ? '1' : '0') } catch { /* noop */ }
+  }
+
   // Swipe-to-close — mobile only. The user can grab the drawer and drag it
   // left to dismiss it (the same way iOS/Android drawers work). While dragging,
   // we translate the drawer in real time so the gesture feels live. On release,
@@ -430,58 +443,87 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* Bottom actions — texto plano, mismo estilo que los nav items
-          inactivos. Sin border-top: la separación es solo el gap. */}
+      {/* Bottom actions — colapsables detrás de "Opciones" para no ocupar
+          tanto espacio. Sin border-top: la separación es solo el gap. */}
       <div className="pt-4 pb-4 px-3 space-y-0.5">
-        <SyncNowButton collapsed={!showLabels} />
-        <TimezoneButton collapsed={!showLabels} />
-
+        {/* Toggle "Opciones" */}
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.97 }}
-          onClick={toggleTheme}
-          title={!showLabels ? (theme === 'dark' ? 'Modo claro' : 'Modo oscuro') : undefined}
-          className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2 rounded-xl text-[13px] text-zinc-500 hover:text-white transition-colors`}
+          onClick={() => setFooterOpen(!footerOpen)}
+          title={!showLabels ? 'Opciones' : undefined}
+          aria-expanded={footerOpen}
+          className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2 rounded-xl text-[13px] transition-colors ${footerOpen ? 'text-white' : 'text-zinc-500 hover:text-white'}`}
         >
-          {theme === 'dark'
-            ? <Sun className="w-4 h-4 shrink-0" />
-            : <Moon className="w-4 h-4 shrink-0" />}
+          <Settings2 className="w-4 h-4 shrink-0" />
           {showLabels && (
-            <span className="text-sm font-medium whitespace-nowrap">
-              {theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
-            </span>
+            <>
+              <span className="text-sm font-medium whitespace-nowrap flex-1 text-left">Opciones</span>
+              {footerOpen ? <ChevronUp className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
+            </>
           )}
         </motion.button>
 
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={toggleLang}
-          title={!showLabels ? (language === 'en' ? 'English' : 'Español') : undefined}
-          className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2 rounded-xl text-[13px] text-zinc-500 hover:text-white transition-colors`}
-        >
-          <Globe className="w-4 h-4 shrink-0" />
-          {showLabels && (
-            <span className="text-sm font-medium whitespace-nowrap">
-              {language === 'en' ? '🇬🇧 English' : '🇦🇷 Español'}
-            </span>
-          )}
-        </motion.button>
+        <AnimatePresence initial={false}>
+          {footerOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden space-y-0.5"
+            >
+              <SyncNowButton collapsed={!showLabels} />
+              <TimezoneButton collapsed={!showLabels} />
 
-        {hasSupabaseConfig() && (
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={handleLogout}
-            title={!showLabels ? t('nav.logout') : undefined}
-            className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2.5 rounded-xl text-zinc-300 hover:text-red-300 hover:bg-red-500/10 transition-colors`}
-          >
-            <LogOut className="w-4 h-4 shrink-0" />
-            {showLabels && (
-              <span className="text-sm font-medium whitespace-nowrap">{t('nav.logout')}</span>
-            )}
-          </motion.button>
-        )}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={toggleTheme}
+                title={!showLabels ? (theme === 'dark' ? 'Modo claro' : 'Modo oscuro') : undefined}
+                className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2 rounded-xl text-[13px] text-zinc-500 hover:text-white transition-colors`}
+              >
+                {theme === 'dark'
+                  ? <Sun className="w-4 h-4 shrink-0" />
+                  : <Moon className="w-4 h-4 shrink-0" />}
+                {showLabels && (
+                  <span className="text-sm font-medium whitespace-nowrap">
+                    {theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+                  </span>
+                )}
+              </motion.button>
+
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={toggleLang}
+                title={!showLabels ? (language === 'en' ? 'English' : 'Español') : undefined}
+                className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2 rounded-xl text-[13px] text-zinc-500 hover:text-white transition-colors`}
+              >
+                <Globe className="w-4 h-4 shrink-0" />
+                {showLabels && (
+                  <span className="text-sm font-medium whitespace-nowrap">
+                    {language === 'en' ? '🇬🇧 English' : '🇦🇷 Español'}
+                  </span>
+                )}
+              </motion.button>
+
+              {hasSupabaseConfig() && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={handleLogout}
+                  title={!showLabels ? t('nav.logout') : undefined}
+                  className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2.5 rounded-xl text-zinc-300 hover:text-red-300 hover:bg-red-500/10 transition-colors`}
+                >
+                  <LogOut className="w-4 h-4 shrink-0" />
+                  {showLabels && (
+                    <span className="text-sm font-medium whitespace-nowrap">{t('nav.logout')}</span>
+                  )}
+                </motion.button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.aside>
   )
