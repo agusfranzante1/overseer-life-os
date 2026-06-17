@@ -20,7 +20,7 @@ import {
   markModifiedIfNotPulling, markSynced, hasUnsyncedChanges,
   getBaseline, setBaseline,
 } from './syncTracking'
-import { mergeById, reconcileDeletes, mergeSpiSession, mergeProjectionPlan, mergeLabSession, mergeHabit } from './syncMerge'
+import { mergeById, reconcileDeletes, mergeSpiSession, mergeProjectionPlan, mergeLabSession, mergeHabit, toMs } from './syncMerge'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
@@ -144,6 +144,64 @@ type Row = Record<string, unknown>
 // local) fue reemplazado por `reconcileDeletes` (en syncMerge.ts), que solo
 // borra lo que el user quitó a propósito (baseline ∩ ¬local). Todos los
 // dominios usan ahora merge no-destructivo + reconcileDeletes.
+
+// ─── Tombstones globales (tabla deleted_rows) ─────────────────────────────────
+//
+// El baseline (localStorage por-device) detecta los borrados que ESTE device
+// hizo, pero no puede saber de borrados que pasaron en OTRO device mientras
+// estaba offline. Los tombstones cierran ese hueco: cuando un device borra una
+// fila, escribe acá {table_name, row_id, deleted_at}; en cada pull, todos los
+// devices descartan esa fila si el tombstone es más nuevo que su updatedAt.
+// Ver supabase/migration_deleted_rows.sql. Graceful si falta la migration.
+
+type Tombstones = Map<string, Map<string, number>> // table_name → (row_id → deleted_at ms)
+
+/** Trae los tombstones de las tablas pedidas en un solo query. Siempre devuelve
+ *  un map por tabla (vacío si falta la migration o falla el query). */
+async function fetchTombstones(
+  sb: ReturnType<typeof getSupabaseBrowser>, userId: string, tableNames: string[],
+): Promise<Tombstones> {
+  const out: Tombstones = new Map()
+  for (const t of tableNames) out.set(t, new Map())
+  try {
+    const { data, error } = await sb.from('deleted_rows')
+      .select('table_name,row_id,deleted_at')
+      .eq('user_id', userId).in('table_name', tableNames)
+    if (error) {
+      console.warn('[tombstones] fetch failed (¿falta migration_deleted_rows.sql?):', error.message)
+      return out
+    }
+    for (const row of (data ?? []) as Row[]) {
+      const m = out.get(row.table_name as string)
+      if (m) m.set(row.row_id as string, toMs(row.deleted_at as string))
+    }
+  } catch (e) {
+    console.warn('[tombstones] fetch skipped:', e)
+  }
+  return out
+}
+
+/** Registra borrados en deleted_rows para que se propaguen a otros devices.
+ *  No limpiamos tombstones viejos: una fila re-creada gana por su updatedAt más
+ *  nuevo (ver `tombDead` en syncMerge.ts), así que el tombstone stale es inocuo. */
+async function writeTombstones(
+  sb: ReturnType<typeof getSupabaseBrowser>, userId: string, tableName: string, ids: string[],
+): Promise<void> {
+  if (ids.length === 0) return
+  const nowIso = new Date().toISOString()
+  const rows = ids.map((id) => ({ user_id: userId, table_name: tableName, row_id: id, deleted_at: nowIso }))
+  const r = await sb.from('deleted_rows').upsert(rows, { onConflict: 'user_id,table_name,row_id' })
+  if (r.error) {
+    console.warn(`[tombstones] write ${tableName} failed (¿falta migration_deleted_rows.sql?):`, r.error.message)
+  }
+}
+
+/** Ids que estaban en el baseline (ya sincronizados) y ya no están en local =
+ *  borrados a propósito por el user en este device. */
+function deletedSince(baseline: Set<string>, localIds: string[]): string[] {
+  const localSet = new Set(localIds)
+  return [...baseline].filter((id) => !localSet.has(id))
+}
 
 // ─── TASKS ────────────────────────────────────────────────────────────────────
 
@@ -271,9 +329,19 @@ async function pushTasks() {
   const projectIds = projectRows.map((r) => r.id)
   const taskIds = taskRows.map((r) => r.id)
   const subtaskIds = subtaskRows.map((r) => r.id)
-  await reconcileDeletes(sb, 'subtasks', state.userId!, subtaskIds, getBaseline('tasks:subtasks'))
-  await reconcileDeletes(sb, 'tasks', state.userId!, taskIds, getBaseline('tasks:tasks'))
-  await reconcileDeletes(sb, 'projects', state.userId!, projectIds, getBaseline('tasks:projects'))
+
+  // Tombstones: ids borrados a propósito (baseline viejo ∩ ¬local). Se calculan
+  // ANTES de setBaseline. Registrarlos hace que el borrado se propague a los
+  // otros devices aunque su baseline local esté vacío/viejo.
+  const baseProjects = getBaseline('tasks:projects')
+  const baseTasks = getBaseline('tasks:tasks')
+  const baseSubtasks = getBaseline('tasks:subtasks')
+  await reconcileDeletes(sb, 'subtasks', state.userId!, subtaskIds, baseSubtasks)
+  await reconcileDeletes(sb, 'tasks', state.userId!, taskIds, baseTasks)
+  await reconcileDeletes(sb, 'projects', state.userId!, projectIds, baseProjects)
+  await writeTombstones(sb, state.userId!, 'subtasks', deletedSince(baseSubtasks, subtaskIds))
+  await writeTombstones(sb, state.userId!, 'tasks', deletedSince(baseTasks, taskIds))
+  await writeTombstones(sb, state.userId!, 'projects', deletedSince(baseProjects, projectIds))
 
   // Baseline = lo que acabamos de dejar en remoto (todo lo local).
   setBaseline('tasks:projects', projectIds)
@@ -387,6 +455,12 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
   } as any)) as LocalTask[]
 
   // ── Merge no-destructivo local ⊕ remoto ───────────────────────────────────
+  // Tombstones globales: un borrado hecho en cualquier device se aplica acá,
+  // sin depender del baseline local (que puede estar viejo en este device).
+  const tombs = await fetchTombstones(sb, state.userId!, ['projects', 'tasks', 'subtasks'])
+  const tombProjects = tombs.get('projects')!
+  const tombTasks = tombs.get('tasks')!
+  const tombSubtasks = tombs.get('subtasks')!
   const subtaskBaseline = getBaseline('tasks:subtasks')
 
   const mergedTasks = mergeById<LocalTask>({
@@ -395,6 +469,7 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
     baseline: getBaseline('tasks:tasks'),
     getId: (t) => t.id,
     getUpdatedAt: (t) => t.updatedAt,
+    tombstones: tombTasks,
     // Conflicto de task → escalares de la más reciente; subtasks se mergean
     // por id (la task más nueva resuelve el contenido de cada subtask).
     mergeItem: (l, r) => {
@@ -405,6 +480,7 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
         remote: r.subtasks ?? [],
         baseline: subtaskBaseline,
         getId: (s) => s.id,
+        tombstones: tombSubtasks,
         mergeItem: (ls, rs) => (lNewer ? ls : rs),
       })
       return { ...scalarBase, subtasks: mergedSubs }
@@ -417,6 +493,7 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
     remote: remoteProjects,
     baseline: getBaseline('tasks:projects'),
     getId: (p) => p.id,
+    tombstones: tombProjects,
   })
 
   // Recomputar taskIds de cada project desde las tasks mergeadas.
@@ -2193,14 +2270,19 @@ async function initAllDomains() {
   // hacía push-first con deleteSurplus y borraba el trabajo de otro device.
 
   // ─── Tasks ────────────────────────────────────────────────────────────
+  // PULL-FIRST SIEMPRE (a diferencia del resto de los dominios). El merge de
+  // tareas es LWW por updatedAt + tombstones globales, así que bajar primero el
+  // cloud NO pisa ediciones locales más nuevas (gana la de updatedAt mayor) ni
+  // resucita borrados (los tombstones los matan). Esto evita el bug donde un
+  // device con data vieja hacía push-first y (a) clobereaba con upsert lo más
+  // nuevo de la PC y (b) resucitaba tareas viejas. Después del pull, el push
+  // sube el estado YA mergeado (incl. tombstones de los borrados locales).
   if (!state.tasksInit) {
     state.tasksInit = true
     const { projects, tasks } = useTasksStore.getState()
     const hasLocal = Object.keys(projects).length > 0 || Object.keys(tasks).length > 0
-    if (hasLocal && hasUnsyncedChanges('tasks')) {
-      await pushTasks().catch((e) => console.error('Tasks initial push failed', e))
-    }
     await pullTasks()
+    if (hasLocal) await pushTasks().catch((e) => console.error('Tasks post-pull push failed', e))
   }
 
   // ─── Wallet ───────────────────────────────────────────────────────────

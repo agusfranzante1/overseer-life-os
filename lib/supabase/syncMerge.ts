@@ -34,6 +34,13 @@ export interface MergeByIdOpts<T> {
   /** Merge fino cuando el id existe en ambos lados (ej: deep-merge de una
    *  sesión SPI). Si no se pasa, gana el de `getUpdatedAt` más reciente. */
   mergeItem?: (local: T, remote: T) => T
+  /** Borrados globales propagados vía la tabla `deleted_rows`: id → deleted_at
+   *  en ms. Una fila se descarta si su tombstone es MÁS NUEVO que su
+   *  `updatedAt` (re-crearla con un updatedAt posterior la revive). Si se pasa
+   *  este map, además se vuelve estricto el caso "solo en remoto pero ∈
+   *  baseline" → borrado local pendiente, NO se resucita. Opt-in: sin este
+   *  param el merge se comporta exactamente como antes. */
+  tombstones?: Map<string, number>
 }
 
 /** Une local + remote por id, sin perder filas:
@@ -43,12 +50,22 @@ export interface MergeByIdOpts<T> {
  *                     Si ∈ baseline → fue borrada en otro device → se descarta.
  */
 export function mergeById<T>(opts: MergeByIdOpts<T>): T[] {
-  const { local, remote, baseline, getId, getUpdatedAt, mergeItem } = opts
+  const { local, remote, baseline, getId, getUpdatedAt, mergeItem, tombstones } = opts
 
   const localById = new Map<string, T>()
   for (const it of local) localById.set(getId(it), it)
   const remoteById = new Map<string, T>()
   for (const it of remote) remoteById.set(getId(it), it)
+
+  const updMs = (it: T): number => (getUpdatedAt ? toMs(getUpdatedAt(it)) : 0)
+  // ¿La fila está muerta por un tombstone global más nuevo que su updatedAt?
+  // Sin updatedAt (updMs=0) cualquier tombstone la mata — los ids son únicos,
+  // así que un id viejo tombstoneado no se reusa salvo restore explícito.
+  const tombDead = (it: T): boolean => {
+    if (!tombstones) return false
+    const ts = tombstones.get(getId(it))
+    return ts !== undefined && ts > updMs(it)
+  }
 
   const allIds = new Set<string>([...localById.keys(), ...remoteById.keys()])
   const merged: T[] = []
@@ -56,15 +73,31 @@ export function mergeById<T>(opts: MergeByIdOpts<T>): T[] {
     const l = localById.get(id)
     const r = remoteById.get(id)
     if (l !== undefined && r !== undefined) {
+      // Vive en remoto: solo la dropeamos si un tombstone es más nuevo que
+      // AMBAS ediciones (alguien la borró después de las dos versiones).
+      const ts = tombstones?.get(id)
+      if (ts !== undefined && ts > Math.max(updMs(l), updMs(r))) continue
       merged.push(mergeItem ? mergeItem(l, r) : pickNewer(l, r, getUpdatedAt))
     } else if (r !== undefined) {
+      if (tombDead(r)) continue                      // borrada en otro device
+      if (tombstones && baseline.has(id)) continue   // borrado local pendiente → no resucitar
       merged.push(r)
     } else if (l !== undefined) {
-      if (!baseline.has(id)) merged.push(l)
+      if (tombDead(l)) continue                       // borrada en otro device (global)
+      if (!baseline.has(id)) merged.push(l)           // nueva local sin pushear → conservar
       // ∈ baseline → borrada en otro device → no se incluye
     }
   }
   return merged
+}
+
+/** Normaliza un updatedAt (ISO string o ms) a número de ms. `undefined`/inválido
+ *  → 0 (la fila más vieja posible, así cualquier tombstone gana). */
+export function toMs(v: string | number | undefined): number {
+  if (v == null) return 0
+  if (typeof v === 'number') return v
+  const t = Date.parse(v)
+  return Number.isNaN(t) ? 0 : t
 }
 
 function pickNewer<T>(l: T, r: T, getUpdatedAt?: (i: T) => string | number | undefined): T {

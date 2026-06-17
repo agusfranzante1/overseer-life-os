@@ -764,15 +764,7 @@ function ActiveSession({
           const laneSections = template.sections.filter((sec) => sec.laneKey === lane.key)
           if (laneSections.length === 0) return null
           return (
-            <div key={lane.key} className="space-y-3">
-              {/* Lane header */}
-              <div className="flex items-center gap-2 px-1 pt-2">
-                <span className="text-base">{lane.emoji}</span>
-                <h3 className="text-[11px] font-mono uppercase tracking-widest" style={{ color: lane.color }}>
-                  {lane.title}
-                </h3>
-                <div className="flex-1 h-px" style={{ background: `${lane.color}30` }} />
-              </div>
+            <CollapsibleBlock key={lane.key} title={lane.title} emoji={lane.emoji} accent={lane.color}>
               {/* In the strategic lane, surface year/quarter/month anchors
                   from Proyección up top so the user doesn't have to re-write
                   them every week — they only fill the weekly variation. */}
@@ -792,7 +784,7 @@ function ActiveSession({
                   onSetKpis={onSetKpis}
                 />
               ))}
-            </div>
+            </CollapsibleBlock>
           )
         })}
       {/* Sections WITHOUT a laneKey (e.g. user-added in editor without
@@ -813,23 +805,27 @@ function ActiveSession({
       {/* Laboratorio — preset picker for mind/emotion exercises.
           Linked to this SPI session via spiSessionId so cualquier sesión
           que arranques desde acá queda asociada al SPI semanal. */}
-      <LabBlock spiSessionId={session.id} isClosed={isClosed} />
+      <CollapsibleBlock title="Laboratorio" emoji="🧪" accent="#e879f9">
+        <LabBlock spiSessionId={session.id} isClosed={isClosed} />
+      </CollapsibleBlock>
 
       {/* Metas de la semana por área — referencia read-only arriba de las
           tareas, para tener a la vista lo que definiste en "Qué buscás esta
-          semana?" al momento de listar las tareas. */}
+          semana?" al momento de listar las tareas. (Colapsable interno.) */}
       <WeeklyGoalsRecap session={session} />
 
       {/* Tasks block */}
-      <TasksBlock
-        session={session}
-        projectsById={projectsById}
-        taskMap={taskMap}
-        onAdd={onAddTask}
-        onUpdate={onUpdateTask}
-        onRemove={onRemoveTask}
-        onPush={onPushTask}
-      />
+      <CollapsibleBlock title="Tareas de la semana" emoji="⚒️" accent="#d946ef">
+        <TasksBlock
+          session={session}
+          projectsById={projectsById}
+          taskMap={taskMap}
+          onAdd={onAddTask}
+          onUpdate={onUpdateTask}
+          onRemove={onRemoveTask}
+          onPush={onPushTask}
+        />
+      </CollapsibleBlock>
 
       {/* Scoreboard de KPIs — métricas de output que el usuario trackea
           DURANTE TODA LA SEMANA, no solo al planear. Por eso si el SPI
@@ -838,16 +834,18 @@ function ActiveSession({
           Tratamos COMO ACTIVA tanto la sesión que se está editando hoy
           (ritual sábado para próxima semana) como la sesión cuya semana
           Mon→Sun contiene HOY (la que sigue viva hasta domingo noche). */}
-      <KpiScoreboard
-        session={session}
-        isClosed={
-          isClosed
-          && session.weekStartDate !== lastSaturdayYmd()
-          && session.weekStartDate !== activeWeekAnchorYmd()
-        }
-        onSelectedChange={onSetKpis}
-        onValueChange={onValueChange}
-      />
+      <CollapsibleBlock title="Resumen de KPIs" emoji="📊" accent="#d946ef">
+        <KpiScoreboard
+          session={session}
+          isClosed={
+            isClosed
+            && session.weekStartDate !== lastSaturdayYmd()
+            && session.weekStartDate !== activeWeekAnchorYmd()
+          }
+          onSelectedChange={onSetKpis}
+          onValueChange={onValueChange}
+        />
+      </CollapsibleBlock>
 
       {/* KPIs de hábitos de la semana — espejo del snapshot mensual.
           Si la sesión está cerrada y tiene snapshot guardado, mostramos
@@ -1698,6 +1696,58 @@ function QuickKpiModal({
 // ─────────────────────────────────────────────────────────────────────
 // SECTION (recursive — supports subsections)
 // ─────────────────────────────────────────────────────────────────────
+// COLLAPSIBLE BLOCK — wrapper genérico para colapsar bloques de alto nivel
+// del SPI semanal (carriles, KPIs, tareas, hábitos, etc.) de forma
+// independiente. Arranca CERRADO por defecto — el user abre lo que necesita.
+// ─────────────────────────────────────────────────────────────────────
+function CollapsibleBlock({
+  title, emoji, accent, defaultOpen = false, headerRight, children,
+}: {
+  title: string
+  emoji?: string
+  /** Color de acento del título + línea inferior del header. */
+  accent?: string
+  defaultOpen?: boolean
+  /** Contenido opcional a la derecha del título (ej. contadores). */
+  headerRight?: React.ReactNode
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full px-4 py-3 flex items-center gap-2.5 text-left hover:bg-white/[0.03] transition-colors"
+      >
+        {emoji && <span className="text-base shrink-0">{emoji}</span>}
+        <h3
+          className="flex-1 min-w-0 text-[11px] font-mono uppercase tracking-widest font-semibold truncate"
+          style={{ color: accent ?? '#d4d4d8' }}
+        >
+          {title}
+        </h3>
+        {headerRight}
+        {open
+          ? <ChevronDown className="w-4 h-4 text-zinc-500 shrink-0" />
+          : <ChevronRight className="w-4 h-4 text-zinc-500 shrink-0" />}
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="px-3 pb-3 pt-1 space-y-3">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
 function Section({
   section, session, parentKey, onValueChange, onSetKpis,
 }: {
@@ -2053,11 +2103,8 @@ function WeeklyGoalsRecap({ session }: { session: SPISession }) {
     })
   if (goals.length === 0) return null
   return (
-    <div className="bg-amber-500/[0.06] border border-amber-500/20 rounded-2xl p-4">
-      <p className="text-[10px] font-mono uppercase tracking-wider text-amber-300/80 mb-1 flex items-center gap-1.5">
-        ⭐ Tus metas de la semana por área
-      </p>
-      <p className="text-[11px] text-zinc-500 italic mb-3">
+    <CollapsibleBlock title="Tus metas de la semana por área" emoji="⭐" accent="#fbbf24">
+      <p className="text-[11px] text-zinc-500 italic">
         Lo que definiste en &quot;Qué buscás esta semana?&quot;. Tenelo de referencia al listar las tareas.
       </p>
       <div className="space-y-2">
@@ -2068,7 +2115,7 @@ function WeeklyGoalsRecap({ session }: { session: SPISession }) {
           </div>
         ))}
       </div>
-    </div>
+    </CollapsibleBlock>
   )
 }
 
@@ -3189,7 +3236,11 @@ function WeekSnapshotContainer({ session }: { session: SPISession }) {
   const hasKpis = (snapshot.kpis?.length ?? 0) > 0
   if (!hasHabits && !hasKpis) return null
   const isLive = isStillCurrentWeek || !session.weekSnapshot
-  return <WeekHabitsBlock snapshot={snapshot} isLive={isLive} session={session} />
+  return (
+    <CollapsibleBlock title="Hábitos de la semana" emoji="🎯" accent="#6ee7b7">
+      <WeekHabitsBlock snapshot={snapshot} isLive={isLive} session={session} />
+    </CollapsibleBlock>
+  )
 }
 
 /** Renderiza la imagen de hábitos de la semana — grid 7 días × hábito.
