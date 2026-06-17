@@ -15,6 +15,7 @@ import { useLabStore } from '@/lib/store/labStore'
 import { useAppStore } from '@/lib/store/appStore'
 import { useMindMapStore } from '@/lib/store/mindmapStore'
 import { useKpisStore } from '@/lib/store/kpisStore'
+import { useStudyStore } from '@/lib/store/studyStore'
 import {
   startPulling, endPulling,
   markModifiedIfNotPulling, markSynced, hasUnsyncedChanges,
@@ -41,6 +42,7 @@ interface SyncState {
   appPrefsInit: boolean
   mindmapInit: boolean
   kpisInit: boolean
+  studyInit: boolean
 }
 
 const state: SyncState = {
@@ -60,6 +62,7 @@ const state: SyncState = {
   appPrefsInit: false,
   mindmapInit: false,
   kpisInit: false,
+  studyInit: false,
 }
 
 // ─── Push timers (debounced per domain) ───────────────────────────────────────
@@ -78,6 +81,7 @@ let labPushTimer: ReturnType<typeof setTimeout> | null = null
 let appPrefsPushTimer: ReturnType<typeof setTimeout> | null = null
 let mindmapPushTimer: ReturnType<typeof setTimeout> | null = null
 let kpisPushTimer: ReturnType<typeof setTimeout> | null = null
+let studyPushTimer: ReturnType<typeof setTimeout> | null = null
 
 // Registro de push debounceados que están en cola. Lo usa
 // flushAllPendingPushes() para forzar TODO a salir antes de que el
@@ -2230,6 +2234,151 @@ async function pullKpis(): Promise<boolean> {
   }
 }
 
+// ─── ESTUDIO (Carrera › Materia › Parcial › Tema, módulo independiente) ───────
+
+async function pushStudy() {
+  if (!state.userId) return
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { carreras, materias, parciales, temas } = useStudyStore.getState()
+
+  const carreraRows = carreras.map((c) => ({
+    id: c.id, user_id: uid, created_at: c.createdAt, updated_at: c.updatedAt, payload: c,
+  }))
+  const materiaRows = materias.map((m) => ({
+    id: m.id, user_id: uid, carrera_id: m.carreraId, created_at: m.createdAt, updated_at: m.updatedAt, payload: m,
+  }))
+  const parcialRows = parciales.map((p) => ({
+    id: p.id, user_id: uid, materia_id: p.materiaId, created_at: p.createdAt, updated_at: p.updatedAt, payload: p,
+  }))
+  const temaRows = temas.map((t) => ({
+    id: t.id, user_id: uid, parcial_id: t.parcialId, created_at: t.createdAt, updated_at: t.updatedAt, payload: t,
+  }))
+
+  if (carreraRows.length > 0) {
+    const r = await sb.from('study_carreras').upsert(carreraRows)
+    if (r.error) { reportSyncError(`study_carreras upsert failed: ${r.error.message}. ¿Falta correr migration_study.sql?`); throw r.error }
+  }
+  if (materiaRows.length > 0) {
+    const r = await sb.from('study_materias').upsert(materiaRows)
+    if (r.error) { reportSyncError(`study_materias upsert failed: ${r.error.message}`); throw r.error }
+  }
+  if (parcialRows.length > 0) {
+    const r = await sb.from('study_parciales').upsert(parcialRows)
+    if (r.error) { reportSyncError(`study_parciales upsert failed: ${r.error.message}`); throw r.error }
+  }
+  if (temaRows.length > 0) {
+    const r = await sb.from('study_temas').upsert(temaRows)
+    if (r.error) { reportSyncError(`study_temas upsert failed: ${r.error.message}`); throw r.error }
+  }
+
+  // Borra lo quitado + tombstones + baseline (leaf-first).
+  await syncDeletes(sb, uid, 'study_temas', temaRows.map((r) => r.id), 'study:temas')
+  await syncDeletes(sb, uid, 'study_parciales', parcialRows.map((r) => r.id), 'study:parciales')
+  await syncDeletes(sb, uid, 'study_materias', materiaRows.map((r) => r.id), 'study:materias')
+  await syncDeletes(sb, uid, 'study_carreras', carreraRows.map((r) => r.id), 'study:carreras')
+  markSynced('study')
+}
+
+async function pullStudy(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('study')
+  try {
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const [carRes, matRes, parRes, temRes] = await Promise.all([
+    sb.from('study_carreras').select('*').eq('user_id', uid),
+    sb.from('study_materias').select('*').eq('user_id', uid),
+    sb.from('study_parciales').select('*').eq('user_id', uid),
+    sb.from('study_temas').select('*').eq('user_id', uid),
+  ])
+
+  const anyErr = carRes.error ?? matRes.error ?? parRes.error ?? temRes.error
+  if (anyErr) { console.error('Study pull failed (run migration_study.sql?):', anyErr); return false }
+
+  const hasData = [carRes, matRes, parRes, temRes].some((r) => (r.data?.length ?? 0) > 0)
+  if (!hasData) { markSynced('study'); return false }
+
+  type Carrera = import('@/lib/study/types').Carrera
+  type Materia = import('@/lib/study/types').Materia
+  type Parcial = import('@/lib/study/types').Parcial
+  type Tema = import('@/lib/study/types').Tema
+  const nowIso = () => new Date().toISOString()
+
+  const remoteCarreras: Carrera[] = (carRes.data ?? []).map((r: Row) => {
+    const c = ((r as Row).payload ?? {}) as Partial<Carrera>
+    return {
+      id: c.id ?? (r as Row).id as string, name: c.name ?? 'Carrera',
+      icon: c.icon, color: c.color, institucion: c.institucion,
+      sortOrder: c.sortOrder ?? 0, createdAt: c.createdAt ?? nowIso(), updatedAt: c.updatedAt ?? nowIso(),
+    }
+  })
+  const remoteMaterias: Materia[] = (matRes.data ?? []).map((r: Row) => {
+    const m = ((r as Row).payload ?? {}) as Partial<Materia>
+    return {
+      id: m.id ?? (r as Row).id as string, carreraId: m.carreraId ?? (r as Row).carrera_id as string,
+      name: m.name ?? 'Materia', icon: m.icon, color: m.color,
+      profesor: m.profesor, codigo: m.codigo, cuatrimestre: m.cuatrimestre,
+      sortOrder: m.sortOrder ?? 0, createdAt: m.createdAt ?? nowIso(), updatedAt: m.updatedAt ?? nowIso(),
+    }
+  })
+  const remoteParciales: Parcial[] = (parRes.data ?? []).map((r: Row) => {
+    const p = ((r as Row).payload ?? {}) as Partial<Parcial>
+    return {
+      id: p.id ?? (r as Row).id as string, materiaId: p.materiaId ?? (r as Row).materia_id as string,
+      label: p.label ?? 'Parcial', examDate: p.examDate, closed: p.closed,
+      sortOrder: p.sortOrder ?? 0, createdAt: p.createdAt ?? nowIso(), updatedAt: p.updatedAt ?? nowIso(),
+    }
+  })
+  const remoteTemas: Tema[] = (temRes.data ?? []).map((r: Row) => {
+    const t = ((r as Row).payload ?? {}) as Partial<Tema>
+    return {
+      id: t.id ?? (r as Row).id as string, parcialId: t.parcialId ?? (r as Row).parcial_id as string,
+      title: t.title ?? 'Tema', notes: t.notes, done: !!t.done,
+      items: Array.isArray(t.items) ? t.items : [],
+      sortOrder: t.sortOrder ?? 0, createdAt: t.createdAt ?? nowIso(), updatedAt: t.updatedAt ?? nowIso(),
+    }
+  })
+
+  const tombs = await fetchTombstones(sb, uid, [
+    'study_carreras', 'study_materias', 'study_parciales', 'study_temas',
+  ])
+  const local = useStudyStore.getState()
+
+  const mergedCarreras = mergeById<Carrera>({
+    local: local.carreras, remote: remoteCarreras, baseline: getBaseline('study:carreras'),
+    getId: (x) => x.id, getUpdatedAt: (x) => x.updatedAt, tombstones: tombs.get('study_carreras'),
+  })
+  const mergedMaterias = mergeById<Materia>({
+    local: local.materias, remote: remoteMaterias, baseline: getBaseline('study:materias'),
+    getId: (x) => x.id, getUpdatedAt: (x) => x.updatedAt, tombstones: tombs.get('study_materias'),
+  })
+  const mergedParciales = mergeById<Parcial>({
+    local: local.parciales, remote: remoteParciales, baseline: getBaseline('study:parciales'),
+    getId: (x) => x.id, getUpdatedAt: (x) => x.updatedAt, tombstones: tombs.get('study_parciales'),
+  })
+  const mergedTemas = mergeById<Tema>({
+    local: local.temas, remote: remoteTemas, baseline: getBaseline('study:temas'),
+    getId: (x) => x.id, getUpdatedAt: (x) => x.updatedAt, tombstones: tombs.get('study_temas'),
+  })
+
+  useStudyStore.setState({
+    carreras: mergedCarreras, materias: mergedMaterias,
+    parciales: mergedParciales, temas: mergedTemas,
+  })
+
+  setBaseline('study:carreras', remoteCarreras.map((x) => x.id))
+  setBaseline('study:materias', remoteMaterias.map((x) => x.id))
+  setBaseline('study:parciales', remoteParciales.map((x) => x.id))
+  setBaseline('study:temas', remoteTemas.map((x) => x.id))
+  markSynced('study')
+  return true
+  } finally {
+    endPulling('study')
+  }
+}
+
 // ─── Scheduled pushes ─────────────────────────────────────────────────────────
 
 function scheduleTasks()      { schedule(tasksPushTimer,     pushTasks,     (t) => { tasksPushTimer = t }) }
@@ -2246,6 +2395,7 @@ function scheduleLab()        { schedule(labPushTimer,        pushLab,        (t
 function scheduleAppPrefs()   { schedule(appPrefsPushTimer,   pushAppPrefs,   (t) => { appPrefsPushTimer = t }) }
 function scheduleMindMaps()   { schedule(mindmapPushTimer,    pushMindMaps,   (t) => { mindmapPushTimer = t }) }
 function scheduleKpis()       { schedule(kpisPushTimer,       pushKpis,       (t) => { kpisPushTimer = t }) }
+function scheduleStudy()      { schedule(studyPushTimer,      pushStudy,      (t) => { studyPushTimer = t }) }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
@@ -2449,6 +2599,16 @@ async function initAllDomains() {
     await pullKpis()
     if (hasLocal) await pushKpis().catch((e) => console.error('KPIs post-pull push failed', e))
   }
+
+  // ─── Estudio (Carrera › Materia › Parcial › Tema) ──────────────────────
+  // Pull-first: todos los niveles tienen updatedAt → LWW seguro + tombstones.
+  if (!state.studyInit) {
+    state.studyInit = true
+    const { carreras, materias, parciales, temas } = useStudyStore.getState()
+    const hasLocal = carreras.length > 0 || materias.length > 0 || parciales.length > 0 || temas.length > 0
+    await pullStudy()
+    if (hasLocal) await pushStudy().catch((e) => console.error('Study post-pull push failed', e))
+  }
 }
 
 /** Mount once at the app root. Wires all domains for sync. */
@@ -2498,6 +2658,7 @@ export function useSupabaseSync() {
       useAppStore.subscribe(() => { markModifiedIfNotPulling('appPrefs'); if (state.userId) scheduleAppPrefs() })
       useMindMapStore.subscribe(() => { markModifiedIfNotPulling('mindmaps'); if (state.userId) scheduleMindMaps() })
       useKpisStore.subscribe(() => { markModifiedIfNotPulling('kpis'); if (state.userId) scheduleKpis() })
+      useStudyStore.subscribe(() => { markModifiedIfNotPulling('study'); if (state.userId) scheduleStudy() })
     }
 
     // Auth state changes — when the user signs in *after* mount (e.g. from
@@ -2630,6 +2791,7 @@ export async function forceSyncAll(): Promise<void> {
   state.appPrefsInit = false
   state.mindmapInit = false
   state.kpisInit = false
+  state.studyInit = false
   await initAllDomains()
 }
 
@@ -2689,3 +2851,5 @@ export async function forceSyncMindMaps() { await pushMindMaps() }
 export async function forcePullMindMaps() { return pullMindMaps() }
 export async function forceSyncKpis()     { await pushKpis() }
 export async function forcePullKpis()     { return pullKpis() }
+export async function forceSyncStudy()    { await pushStudy() }
+export async function forcePullStudy()    { return pullStudy() }
