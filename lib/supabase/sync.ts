@@ -250,6 +250,9 @@ async function pushTasks() {
     subject_meta:       p.subjectMeta      ?? null,
     content_meta:       p.contentMeta      ?? null,
     parent_project_id:  p.parentProjectId  ?? null,
+    // Orden manual del sidebar (↑/↓). Sin esto el pull pisaba el orden local.
+    // Requiere migration_projects_order.sql aplicada.
+    sort_order:         p.order            ?? null,
     created_at: p.createdAt,
   }))
 
@@ -411,6 +414,8 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
     subjectMeta:     (p.subject_meta      as import('@/types').SubjectMeta | null) ?? undefined,
     contentMeta:     (p.content_meta      as import('@/types').ContentMeta | null) ?? undefined,
     parentProjectId: (p.parent_project_id as string | null) ?? undefined,
+    // Orden manual del sidebar. Sin esto el merge perdía el orden en cada pull.
+    order:           (p.sort_order        as number | null) ?? undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any)) as LocalProject[]
 

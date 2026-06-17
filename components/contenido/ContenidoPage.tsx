@@ -47,13 +47,15 @@ export function ContenidoPage() {
   const [creatingForDay, setCreatingForDay] = useState<string | null>(null)
   const [networkFilter, setNetworkFilterState] = useState<ContentNetwork | 'all'>(() => readLS<ContentNetwork | 'all'>(LS_NETWORK_FILTER, 'all'))
   const setNetworkFilter = (n: ContentNetwork | 'all') => { setNetworkFilterState(n); writeLS(LS_NETWORK_FILTER, n) }
-  // profileFilter: cuál perfil mirar en Calendario/Pipeline. Independiente
-  // del `currentProfileId` (que define qué perfil EDITAS en ADN/Mes).
-  //   'all'      → todos los perfiles mezclados (lo que el user pidió)
-  //   <id>       → solo ese perfil
-  //   'current'  → seguir el currentProfileId del store (default histórico)
-  const [profileFilter, setProfileFilterState] = useState<string>(() => readLS(LS_PROFILE_FILTER, 'current'))
-  const setProfileFilter = (p: string) => { setProfileFilterState(p); writeLS(LS_PROFILE_FILTER, p) }
+  // El perfil seleccionado es UNO SOLO y vive en el store (`currentProfileId`):
+  // elegirlo en cualquier tab (ADN, Calendario, Pipeline) lo mantiene constante
+  // al cambiar de tab. `profileFilter` ya NO elige perfil — solo decide, en
+  // Calendario/Pipeline, si se ve ESE perfil ('current') o TODOS ('all').
+  // (Valores viejos con un id puntual se normalizan a 'current'.)
+  const [profileFilter, setProfileFilterState] = useState<'all' | 'current'>(
+    () => (readLS<string>(LS_PROFILE_FILTER, 'current') === 'all' ? 'all' : 'current'),
+  )
+  const setProfileFilter = (p: 'all' | 'current') => { setProfileFilterState(p); writeLS(LS_PROFILE_FILTER, p) }
   const [currentMonth, setCurrentMonthState] = useState(() => {
     const fallback = (() => {
       const d = new Date()
@@ -240,8 +242,8 @@ function ProfileBar({
   showAllToggle, profileFilter, setProfileFilter,
 }: {
   showAllToggle?: boolean
-  profileFilter?: string
-  setProfileFilter?: (p: string) => void
+  profileFilter?: 'all' | 'current'
+  setProfileFilter?: (p: 'all' | 'current') => void
 } = {}) {
   const profiles = useContentStore((s) => s.profiles)
   const currentProfileId = useContentStore((s) => s.currentProfileId)
@@ -252,23 +254,17 @@ function ProfileBar({
   const [editing, setEditing] = useState<ContentProfile | null>(null)
   const [creating, setCreating] = useState(false)
 
-  // Sin showAllToggle (ADN/Mes): el chip "activo" sigue al currentProfileId
-  // y al click cambia el perfil activo. Con showAllToggle (Calendario/Pipeline):
-  // los chips reflejan profileFilter — 'all' = todos, '<id>' = ese solo.
-  // Cambiar el chip cambia el FILTRO (no el perfil activo del store).
+  // El chip SIEMPRE setea el perfil activo del store (fuente única de verdad),
+  // en cualquier tab → la selección se mantiene constante entre ADN, Calendario
+  // y Pipeline. En Calendario/Pipeline, además, elegir un perfil sale del modo
+  // "Todos". El botón "Todos" solo cambia la vista, no el perfil seleccionado.
   const handleChipClick = (profileId: string) => {
-    if (showAllToggle && setProfileFilter) {
-      setProfileFilter(profileId)
-    } else {
-      setCurrentProfile(profileId)
-    }
+    setCurrentProfile(profileId)
+    if (showAllToggle && setProfileFilter) setProfileFilter('current')
   }
   const isActive = (profileId: string) => {
-    if (showAllToggle && profileFilter !== undefined) {
-      // 'current' significa "seguir el perfil activo del store"
-      if (profileFilter === 'current') return profileId === currentProfileId
-      return profileFilter === profileId
-    }
+    // En modo "Todos" ningún chip queda resaltado (el resaltado va al botón Todos).
+    if (showAllToggle && profileFilter === 'all') return false
     return profileId === currentProfileId
   }
 
