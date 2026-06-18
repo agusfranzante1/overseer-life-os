@@ -833,6 +833,37 @@ function ThisWeekView() {
     return matching.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))[0]
   }, [sessions, activeSessionId, currentSat])
 
+  // Resolvemos la sesión a usar ANTES de cualquier early-return. Esto es
+  // crítico: el `useMemo` de `weekRange` (abajo) DEBE correr en todos los
+  // renders. Si lo dejábamos después de los early-returns, el store de
+  // Zustand (que hidrata async desde localStorage) renderizaba primero
+  // vacío → early-return sin llamar el hook, y al hidratar aparecía la
+  // sesión → el hook SÍ se llamaba. Eso cambia la cantidad de hooks entre
+  // renders y React tira "Rendered more hooks than during the previous
+  // render", crasheando toda la página de KPIs.
+  const session = current ?? sessions.find((s) => s.weekStartDate === currentSat) ?? null
+
+  // Calculamos el rango "de cuándo a cuándo" que esta sesión cubre — la
+  // SEMANA está en LUNES→DOMINGO, no en sábado→viernes (los KPIs viven
+  // en la sesión cuya ventana Mon-Sun contiene el día actual). Esto le
+  // da orientación al user de qué semana exacta está trackeando.
+  const weekRange = useMemo(() => {
+    if (!session) return null
+    const [y, m, d] = session.weekStartDate.split('-').map(Number)
+    const sat = new Date(y, m - 1, d)
+    // El sábado de weekStartDate "owns" la semana Mon(+2) → Sun(+8).
+    const monday = new Date(sat); monday.setDate(sat.getDate() + 2)
+    const sunday = new Date(sat); sunday.setDate(sat.getDate() + 8)
+    const fmt = (date: Date) =>
+      date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const todayCopy = new Date(today)
+    const isCurrent = today >= monday && todayCopy <= sunday
+    const isFuture = monday > today
+    return { mondayLabel: fmt(monday), sundayLabel: fmt(sunday), isCurrent, isFuture }
+  }, [session])
+
   if (!current && !needsCreate) {
     return (
       <div className="bg-black/20 border border-white/[0.08] border-dashed rounded-2xl p-10 text-center">
@@ -851,8 +882,7 @@ function ThisWeekView() {
     )
   }
 
-  const session = current ?? sessions.find((s) => s.weekStartDate === currentSat)
-  if (!session) return null
+  if (!session || !weekRange) return null
 
   // Los KPIs son MÉTRICAS SEMANALES que el user trackea durante toda la
   // semana (no solo al planear). El SPI semanal, en cambio, es la
@@ -869,26 +899,6 @@ function ThisWeekView() {
   // aclarando que la planificación quedó congelada pero los KPIs siguen
   // editables hasta el próximo sábado.
   const sessionClosed = !!session.closedAt
-
-  // Calculamos el rango "de cuándo a cuándo" que esta sesión cubre — la
-  // SEMANA está en LUNES→DOMINGO, no en sábado→viernes (los KPIs viven
-  // en la sesión cuya ventana Mon-Sun contiene el día actual). Esto le
-  // da orientación al user de qué semana exacta está trackeando.
-  const weekRange = useMemo(() => {
-    const [y, m, d] = session.weekStartDate.split('-').map(Number)
-    const sat = new Date(y, m - 1, d)
-    // El sábado de weekStartDate "owns" la semana Mon(+2) → Sun(+8).
-    const monday = new Date(sat); monday.setDate(sat.getDate() + 2)
-    const sunday = new Date(sat); sunday.setDate(sat.getDate() + 8)
-    const fmt = (date: Date) =>
-      date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const todayCopy = new Date(today)
-    const isCurrent = today >= monday && todayCopy <= sunday
-    const isFuture = monday > today
-    return { mondayLabel: fmt(monday), sundayLabel: fmt(sunday), isCurrent, isFuture }
-  }, [session.weekStartDate])
 
   return (
     <div className="space-y-3">
