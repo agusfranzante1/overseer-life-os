@@ -34,7 +34,7 @@ const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
 export function TaskCard({ task, project, onClick, showProjectBadge = false, subtaskSortMode = 'manual' }: Props) {
   const { completeTask, postponeTask, deleteTask, duplicateTask, toggleSubtask, addSubtask, updateSubtask, deleteSubtask, updateTask, convertTaskToSubtask, promoteSubtaskToTask } = useTasksStore()
-  const { t } = useTranslation()
+  const { t, dfLocale } = useTranslation()
   // Estado de UI (expanded del card, colapso de cada sub-tarea-1) vive
   // en su propio store persistido. Refrescar la página ya no resetea el
   // layout — recordamos qué quedó abierto/cerrado.
@@ -547,7 +547,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                 const color = isOverdue || isLate ? 'text-red-400' : isToday ? 'text-amber-400' : isDueTomorrow ? 'text-red-400' : 'text-zinc-500'
                 return (
                   <span className={`text-xs ${color} flex items-center gap-1`}>
-                    {isOverdue ? '⚠️ ' : ''}{format(localDue, 'MMM d')}
+                    {isOverdue ? '⚠️ ' : ''}{format(localDue, 'MMM d', { locale: dfLocale })}
                     {isToday && (
                       <span className="text-[10px] font-semibold text-amber-400 px-1.5 py-0.5 rounded bg-amber-400/10 border border-amber-400/30">→ HOY</span>
                     )}
@@ -611,6 +611,10 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
             >
               <Plus className="w-3.5 h-3.5" />
             </button>
+            {/* Programar fecha + hora directo desde la card, sin abrir el
+                detalle. Abre un popover (portal, para escapar el
+                overflow-hidden de la card) con inputs de fecha y hora. */}
+            <TaskScheduleButton task={task} updateTask={updateTask} />
             <button
               data-interactive
               onClick={(e) => { e.stopPropagation(); postponeTask(task.id) }}
@@ -955,6 +959,140 @@ function InlineSelectBadge({ value, options, onChange, bgColor, fgColor, renderL
               {opt.value === value && <span className="ml-auto text-zinc-500">✓</span>}
             </button>
           ))}
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
+
+// ─── Task schedule button (date + time inline popover) ───────────────────────
+// Botón de calendario en la fila de acciones de la tarea madre. Abre un
+// popover (vía portal, para escapar del overflow-hidden de la card) con
+// inputs de fecha y hora, así el user agenda la tarea en el calendario sin
+// tener que abrir el detalle. Si la tarea ya tiene fecha, el icono se tiñe.
+
+function TaskScheduleButton({
+  task, updateTask,
+}: {
+  task: Task
+  updateTask: (id: string, patch: Partial<Task>) => void
+}) {
+  const { dfLocale } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => setMounted(true), [])
+
+  const POPOVER_W = 220
+  const openMenu = () => {
+    const r = btnRef.current?.getBoundingClientRect()
+    if (!r) return
+    // Right-align el popover contra el botón; clamp para no salirse por
+    // el borde izquierdo de la ventana.
+    const left = Math.max(8, r.right - POPOVER_W)
+    setPos({ top: r.bottom + 4, left })
+    setOpen(true)
+  }
+
+  // Cerrar al click afuera / Escape / scroll — mismo patrón que InlineSelectBadge.
+  useEffect(() => {
+    if (!open) return
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as Element | null
+      if (target && target.closest('[data-schedule-popover]')) return
+      if (btnRef.current && btnRef.current.contains(target as Node)) return
+      setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    const onScroll = () => setOpen(false)
+    window.addEventListener('mousedown', onClick)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onScroll, true)
+    return () => {
+      window.removeEventListener('mousedown', onClick)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', onScroll, true)
+    }
+  }, [open])
+
+  const hasSchedule = !!task.dueDate
+  const scheduleLabel = task.dueDate
+    ? (() => {
+        const [y, m, d] = task.dueDate.split('-').map(Number)
+        const dt = new Date(y, m - 1, d)
+        const base = format(dt, 'EEE d MMM', { locale: dfLocale })
+        return task.dueTime ? `${base} · ${task.dueTime}` : base
+      })()
+    : null
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        data-interactive
+        onClick={(e) => { e.stopPropagation(); open ? setOpen(false) : openMenu() }}
+        title={scheduleLabel ? `Programada: ${scheduleLabel} — click para cambiar` : 'Poner fecha y hora'}
+        className={`transition-colors p-1 ${hasSchedule ? 'text-indigo-300 hover:text-indigo-200' : 'text-zinc-600 hover:text-indigo-300'}`}
+      >
+        <Calendar className="w-3.5 h-3.5" />
+      </button>
+      {mounted && open && pos && createPortal(
+        <div
+          data-schedule-popover
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            top: pos.top,
+            left: pos.left,
+            width: POPOVER_W,
+            zIndex: 9999,
+            background: 'var(--surface-popover)',
+            boxShadow: '0 10px 32px -8px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.04), 0 0 24px -8px rgba(99,102,241,0.35)',
+          }}
+          className="rounded-lg border border-white/[0.14] p-3 space-y-2"
+        >
+          <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Programar</p>
+          <div>
+            <label className="text-[10px] text-zinc-500 mb-1 block">Fecha</label>
+            <input
+              type="date"
+              value={task.dueDate ?? ''}
+              onChange={(e) => {
+                const v = e.target.value || undefined
+                // Si se borra la fecha, la hora pierde sentido → limpiamos
+                // ambas para que la tarea no quede con hora colgada sin día.
+                updateTask(task.id, v ? { dueDate: v } : { dueDate: undefined, dueTime: undefined })
+              }}
+              className="w-full text-xs bg-black/30 border border-white/[0.12] rounded px-2 py-1.5 text-zinc-200 focus:outline-none focus:border-indigo-500/60"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-zinc-500 mb-1 block">Hora (opcional)</label>
+            <input
+              type="time"
+              value={task.dueTime ?? ''}
+              disabled={!task.dueDate}
+              onChange={(e) => updateTask(task.id, { dueTime: e.target.value || undefined })}
+              className="w-full text-xs bg-black/30 border border-white/[0.12] rounded px-2 py-1.5 text-zinc-200 focus:outline-none focus:border-indigo-500/60 disabled:opacity-40"
+            />
+            {!task.dueDate && (
+              <p className="text-[9px] text-zinc-600 mt-1">Elegí una fecha primero.</p>
+            )}
+            {task.dueDate && task.dueTime && (
+              <p className="text-[9px] text-indigo-300/80 mt-1">Aparece como bloque en el calendario.</p>
+            )}
+          </div>
+          {hasSchedule && (
+            <button
+              onClick={() => { updateTask(task.id, { dueDate: undefined, dueTime: undefined }); setOpen(false) }}
+              className="w-full flex items-center justify-center gap-1 text-[10px] text-zinc-500 hover:text-red-400 transition-colors pt-1"
+            >
+              <X className="w-2.5 h-2.5" /> Quitar fecha
+            </button>
+          )}
         </div>,
         document.body
       )}

@@ -2,7 +2,7 @@
 import { useAppStore } from '@/lib/store/appStore'
 import { getT } from '@/lib/i18n'
 import { translateStatus } from '@/lib/i18n/statusTranslate'
-import { dateLocale } from '@/lib/i18n/dateLocale'
+import { dateLocale, dateFnsLocale } from '@/lib/i18n/dateLocale'
 import { en } from '@/lib/i18n/en'
 import { es } from '@/lib/i18n/es'
 
@@ -10,6 +10,8 @@ import { es } from '@/lib/i18n/es'
  *  - t(key): traduce una clave del diccionario, devuelve string.
  *  - lang: 'en' | 'es' actual del store.
  *  - locale: BCP-47 ('en-US' / 'es-AR') para Intl / toLocaleDateString.
+ *  - dfLocale: objeto Locale de date-fns para pasar a format() y que los
+ *    nombres de día/mes salgan en el idioma actual.
  *  - tStatus(label): traduce label de status LIVE (custom queda intacto).
  *  - tArray(key): para arrays del diccionario (calendar.weekdaysShort, etc.). */
 export function useTranslation() {
@@ -24,5 +26,5 @@ export function useTranslation() {
     for (const p of parts) value = value?.[p]
     return Array.isArray(value) ? value : []
   }
-  return { t, lang, locale: dateLocale(lang), tStatus, tArray }
+  return { t, lang, locale: dateLocale(lang), dfLocale: dateFnsLocale(lang), tStatus, tArray }
 }

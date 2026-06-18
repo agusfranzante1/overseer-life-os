@@ -94,6 +94,21 @@ let contentPushTimer: ReturnType<typeof setTimeout> | null = null
 // ejecutamos manualmente.
 const pendingPushes = new Map<() => Promise<void>, ReturnType<typeof setTimeout>>()
 
+/** Extrae un mensaje legible de cualquier error. Los errores de Supabase
+ *  (PostgrestError, StorageError) NO son instancias de Error pero tienen
+ *  `.message` (+ a veces `.details`/`.hint`/`.code`). Sin esto el catch genérico
+ *  mostraba "[object Object]" y ocultaba la causa real (ej. falta una migration). */
+function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message
+  if (e && typeof e === 'object') {
+    const o = e as Record<string, unknown>
+    const parts = [o.message, o.details, o.hint, o.code].filter((x): x is string => typeof x === 'string' && x.length > 0)
+    if (parts.length > 0) return parts.join(' · ')
+    try { return JSON.stringify(e) } catch { /* fall through */ }
+  }
+  return String(e)
+}
+
 function schedule(
   timer: ReturnType<typeof setTimeout> | null,
   fn: () => Promise<void>,
@@ -107,7 +122,7 @@ function schedule(
     try {
       await fn()
     } catch (e) {
-      reportSyncError(`Sync push failed: ${e instanceof Error ? e.message : String(e)}`)
+      reportSyncError(`Sync push failed: ${errMsg(e)}`)
     }
   }, 1500)
   pendingPushes.set(fn, newTimer)
@@ -127,7 +142,7 @@ export async function flushAllPendingPushes(): Promise<void> {
   pendingPushes.clear()
   if (toFlush.length === 0) return
   await Promise.allSettled(toFlush.map(([fn]) => fn().catch((e) => {
-    reportSyncError(`Flush push failed: ${e instanceof Error ? e.message : String(e)}`)
+    reportSyncError(`Flush push failed: ${errMsg(e)}`)
   })))
 }
 

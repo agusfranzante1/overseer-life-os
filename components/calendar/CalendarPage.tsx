@@ -25,7 +25,7 @@ import {
 type ViewMode = 'month' | 'week'
 
 export function CalendarPage() {
-  const { t, tArray } = useTranslation()
+  const { t, tArray, dfLocale } = useTranslation()
   const { tasks, projects, addTask, updateTask, updateSubtask, completeTask, toggleSubtask } = useTasksStore()
   // Selección de task para abrir el detalle al click en un bloque sintético.
   const [selectedTask, setSelectedTask] = useState<import('@/types').Task | null>(null)
@@ -367,11 +367,11 @@ export function CalendarPage() {
           <h1 className="text-lg md:text-xl font-bold text-white tracking-tight leading-none shrink-0">{t('calendar.title')}</h1>
           <p className="text-zinc-500 text-xs truncate">
             {view === 'month'
-              ? format(currentDate, 'MMMM yyyy')
+              ? format(currentDate, 'MMMM yyyy', { locale: dfLocale })
               : (() => {
                   const ws = startOfWeek(currentDate, { weekStartsOn: 1 })
                   const we = endOfWeek(currentDate, { weekStartsOn: 1 })
-                  return `${format(ws, 'd MMM')} – ${format(we, 'd MMM yyyy')}`
+                  return `${format(ws, 'd MMM', { locale: dfLocale })} – ${format(we, 'd MMM yyyy', { locale: dfLocale })}`
                 })()}
           </p>
         </div>
@@ -663,7 +663,7 @@ export function CalendarPage() {
                   : <ChevronDown className="w-3.5 h-3.5 text-zinc-500 shrink-0" />}
                 <Calendar className="w-4 h-4 text-indigo-400" />
                 <h3 className="text-sm font-semibold text-zinc-200">
-                  {selectedDay ? format(selectedDay, 'EEEE d MMM') : 'Elegí un día'}
+                  {selectedDay ? format(selectedDay, 'EEEE d MMM', { locale: dfLocale }) : 'Elegí un día'}
                 </h3>
                 {dayPanelCollapsed && (selectedDayTasks.length + selectedDayEvents.length) > 0 && (
                   <span className="text-[10px] font-mono text-zinc-500 ml-1">
@@ -1546,6 +1546,7 @@ interface WeekViewProps {
 }
 
 function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, setSelectedDay, hideNight, hideStart, hideEnd, onEventClick, onCreateAt, onEventMove, onToggleTaskDone }: WeekViewProps) {
+  const { dfLocale } = useTranslation()
   const weekStart = startOfWeek(anchor, { weekStartsOn: 1 })
   const weekEnd   = endOfWeek(anchor, { weekStartsOn: 1 })
   const days = eachDayOfInterval({ start: weekStart, end: weekEnd })
@@ -1726,7 +1727,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
               <p className={`text-[11px] font-medium uppercase tracking-wide mb-0.5 ${
                 today ? 'text-blue-400' : 'text-zinc-400'
               }`}>
-                {format(day, 'EEE')}
+                {format(day, 'EEE', { locale: dfLocale })}
               </p>
               {/* Today gets a filled circle behind the number, GCal style. */}
               <div className="flex items-center justify-center">
@@ -2060,7 +2061,13 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                             ? `linear-gradient(90deg, ${priorityColor}55, ${priorityColor}22)`
                             : `linear-gradient(180deg, ${color}, ${color}dd)`,
                           borderLeft: `3px solid ${ev.isTask ? projectColor : color}`,
-                          color: ev.isTask ? '#ffffff' : fg,
+                          // Para tasks el fondo es un tinte translúcido de la
+                          // prioridad sobre la superficie de la card. En modo
+                          // OSCURO eso queda oscuro → texto claro; en modo CLARO
+                          // queda pálido → texto oscuro. Hardcodear blanco hacía
+                          // el texto invisible en claro. var(--app-fg) sigue el
+                          // tema (≈blanco en oscuro, ≈negro en claro).
+                          color: ev.isTask ? 'var(--app-fg)' : fg,
                           opacity: ev.isCompleted ? 0.55 : undefined,
                           minHeight: 18,
                           boxShadow: isBeingDragged
