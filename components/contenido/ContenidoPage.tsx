@@ -647,7 +647,13 @@ function PillarsSection() {
 // ───────────────────────────────────────────────────────────────────
 function MesTab({ monthYmd }: { monthYmd: string }) {
   const currentProfileId = useContentStore((s) => s.currentProfileId)
-  const getCampaign = useContentStore((s) => s.getCampaignForMonth)
+  // Suscribimos a `campaigns` (no a `getCampaignForMonth`): el getter es una
+  // ref de función estable, así que seleccionarlo NO re-renderiza cuando se
+  // agrega/edita una campaña. Por eso antes había que salir y volver a entrar
+  // para ver la campaña nueva, y los inputs controlados quedaban "congelados"
+  // (escribías, updateCampaign actualizaba el store, pero el value no se
+  // re-renderizaba). Derivando del array reactivo, todo se actualiza en vivo.
+  const campaigns = useContentStore((s) => s.campaigns)
   const addCampaign = useContentStore((s) => s.addCampaign)
   const updateCampaign = useContentStore((s) => s.updateCampaign)
   const removeCampaign = useContentStore((s) => s.removeCampaign)
@@ -655,7 +661,10 @@ function MesTab({ monthYmd }: { monthYmd: string }) {
   const updateWeeklyFocus = useContentStore((s) => s.updateWeeklyFocus)
   const removeWeeklyFocus = useContentStore((s) => s.removeWeeklyFocus)
 
-  const campaign = getCampaign(monthYmd)
+  const campaign = useMemo(
+    () => campaigns.find((c) => c.profileId === currentProfileId && c.monthYmd === monthYmd),
+    [campaigns, currentProfileId, monthYmd],
+  )
 
   const mondays = useMemo(() => {
     const [y, m] = monthYmd.split('-').map(Number)
