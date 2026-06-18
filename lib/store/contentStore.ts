@@ -22,6 +22,7 @@ import type {
   ContentPillar,
   ContentProfile,
   ContentStageId,
+  StoryStageId,
   ContentNetwork,
   VisualStyleCategory,
   VisualStyleImage,
@@ -81,6 +82,8 @@ interface Actions {
   updateItem: (id: string, patch: Partial<ContentItem>) => void
   removeItem: (id: string) => void
   setItemStage: (id: string, stage: ContentStageId) => void
+  /** Mueve una historia entre columnas del pipeline de Historias. */
+  setItemStoryStage: (id: string, storyStage: StoryStageId) => void
 
   // Helpers
   getActiveProfile: () => ContentProfile | undefined
@@ -341,6 +344,12 @@ export const useContentStore = create<State & Actions>()(
           set((s) => ({
             items: s.items.map((it) =>
               it.id === id ? { ...it, stage, updatedAt: new Date().toISOString() } : it,
+            ),
+          })),
+        setItemStoryStage: (id, storyStage) =>
+          set((s) => ({
+            items: s.items.map((it) =>
+              it.id === id ? { ...it, storyStage, updatedAt: new Date().toISOString() } : it,
             ),
           })),
 

@@ -2,17 +2,17 @@
 import { useState, useMemo, useRef, useLayoutEffect, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Sparkles, Target, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown,
+  Sparkles, Target, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Plus, Trash2, X, BookOpen, Layers, Zap, Pencil, Send, Check,
   Image as ImageIcon, Upload, Loader2,
 } from 'lucide-react'
 import { useContentStore, buildAIContentPrompt } from '@/lib/store/contentStore'
 import {
-  FORMAT_LABELS, MOMENT_LABELS, STAGE_LABELS, ANGLE_SUGGESTIONS,
-  NETWORK_META,
+  FORMAT_LABELS, MOMENT_LABELS, STAGE_LABELS, STORY_STAGE_LABELS, STORY_STAGE_ORDER,
+  ANGLE_SUGGESTIONS, NETWORK_META,
 } from '@/types/content'
 import type {
-  ContentItem, ContentFormat, ContentMomentType, ContentStageId,
+  ContentItem, ContentFormat, ContentMomentType, ContentStageId, StoryStageId, StoryFrame,
   ContentProfile, PostCycleAction, ContentNetwork,
   VisualStyleCategory, VisualStyleImage,
 } from '@/types/content'
@@ -34,6 +34,12 @@ const LS_MONTH = 'overseer-contenido-month'
 const LS_NETWORK_FILTER = 'overseer-contenido-network-filter'
 const LS_PROFILE_FILTER = 'overseer-contenido-profile-filter'
 const LS_TAB_ORDER = 'overseer-contenido-tab-order'
+const LS_PIPELINE_MODE = 'overseer-contenido-pipeline-mode'
+
+/** Id corto para frames de historias (no necesitamos el genId del store acá). */
+function genFrameId(): string {
+  return `frame_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
+}
 
 function readLS<T extends string>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback
@@ -1028,6 +1034,12 @@ function PipelineTab({
   const [dragId, setDragId] = useState<string | null>(null)
   // Para el quick-add: qué columna tiene el input abierto.
   const [addingStage, setAddingStage] = useState<ContentStageId | null>(null)
+  // Modo del tablero: 'general' (reels/carruseles/etc) o 'historias'
+  // (pipeline propio de Instagram Stories). Persistido en LS.
+  const [pipelineMode, setPipelineModeState] = useState<'general' | 'historias'>(
+    () => (readLS<string>(LS_PIPELINE_MODE, 'general') === 'historias' ? 'historias' : 'general'),
+  )
+  const setPipelineMode = (m: 'general' | 'historias') => { setPipelineModeState(m); writeLS(LS_PIPELINE_MODE, m) }
   const stages: ContentStageId[] = ['idea', 'script', 'recording', 'editing', 'scheduled', 'published']
   const pillarByItem = (it: ContentItem) => {
     const ownProfile = profileById.get(it.profileId)
@@ -1035,9 +1047,13 @@ function PipelineTab({
     return ownPillars.find((p) => p.id === it.pillarId)
   }
 
+  // El board General excluye las historias — viven en su propio tablero
+  // (modo 'historias') para no duplicarlas ni mezclar dos estilos de
+  // creación con etapas distintas.
   const filteredItems = items.filter((it) =>
     (showAllProfiles || (viewProfileId && it.profileId === viewProfileId))
     && (networkFilter === 'all' || it.network === networkFilter)
+    && it.format !== 'stories'
   )
 
   // Defaults para el quick-add: si el filtro de red está fijado, lo
@@ -1075,6 +1091,37 @@ function PipelineTab({
   }
 
   return (
+    <div className="space-y-3">
+      {/* Toggle General / Historias — dos pipelines distintos sobre el
+          mismo set de items (mutuamente excluyentes por formato). */}
+      <div className="inline-flex items-center bg-black/30 border border-white/[0.08] rounded-xl p-1 gap-1">
+        {([
+          { key: 'general' as const, label: 'General' },
+          { key: 'historias' as const, label: '📸 Historias' },
+        ]).map((m) => {
+          const active = pipelineMode === m.key
+          return (
+            <button
+              key={m.key}
+              type="button"
+              onClick={() => setPipelineMode(m.key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                active ? 'bg-violet-500/25 text-violet-200' : 'text-zinc-500 hover:text-zinc-200'
+              }`}
+            >
+              {m.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {pipelineMode === 'historias' ? (
+        <HistoriasBoard
+          networkFilter={networkFilter}
+          profileFilter={profileFilter}
+          onEditItem={onEditItem}
+        />
+      ) : (
     <div className="overflow-x-auto pb-3">
       <div className="flex gap-3 min-w-max">
         {stages.map((stage) => {
@@ -1179,6 +1226,8 @@ function PipelineTab({
         })}
       </div>
     </div>
+      )}
+    </div>
   )
 }
 
@@ -1243,6 +1292,190 @@ function QuickAddRow({
 }
 
 // ───────────────────────────────────────────────────────────────────
+// Tablero de Historias — pipeline propio (idea → diseño → cta →
+// programado → publicado) sobre los items con format === 'stories'.
+// Mismo lenguaje visual que el board General pero con su forma de avanzar.
+// ───────────────────────────────────────────────────────────────────
+function HistoriasBoard({
+  networkFilter, profileFilter, onEditItem,
+}: { networkFilter: ContentNetwork | 'all'; profileFilter: string; onEditItem: (i: ContentItem) => void }) {
+  const items = useContentStore((s) => s.items)
+  const profiles = useContentStore((s) => s.profiles)
+  const currentProfileId = useContentStore((s) => s.currentProfileId)
+  const profileById = useMemo(() => new Map(profiles.map((p) => [p.id, p])), [profiles])
+  const showAllProfiles = profileFilter === 'all'
+  const viewProfileId = profileFilter === 'current' ? currentProfileId : profileFilter === 'all' ? null : profileFilter
+  const activeProfile = profiles.find((p) => p.id === currentProfileId)
+  const fallbackPillars = activeProfile?.brandDNA.pillars ?? []
+  const setItemStoryStage = useContentStore((s) => s.setItemStoryStage)
+  const addItem = useContentStore((s) => s.addItem)
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [addingStage, setAddingStage] = useState<StoryStageId | null>(null)
+
+  const pillarByItem = (it: ContentItem) => {
+    const ownProfile = profileById.get(it.profileId)
+    const ownPillars = ownProfile?.brandDNA.pillars ?? fallbackPillars
+    return ownPillars.find((p) => p.id === it.pillarId)
+  }
+
+  // Solo historias, respetando los filtros de perfil/red del tab.
+  const storyItems = items.filter((it) =>
+    it.format === 'stories'
+    && (showAllProfiles || (viewProfileId && it.profileId === viewProfileId))
+    && (networkFilter === 'all' || it.network === networkFilter)
+  )
+
+  // Defaults para el quick-add (mismo criterio que PipelineTab).
+  const targetProfileId = showAllProfiles ? currentProfileId : (viewProfileId ?? currentProfileId)
+  const targetProfile = profileById.get(targetProfileId) ?? activeProfile
+  // Las historias son de Instagram por naturaleza; si el filtro de red está
+  // fijado lo respetamos, si no caemos a instagram.
+  const targetNetwork: ContentNetwork = networkFilter !== 'all' ? networkFilter : 'instagram'
+  const targetPillarId = targetProfile?.brandDNA.pillars[0]?.id ?? ''
+  const todayYmd = useMemo(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }, [])
+
+  function quickAdd(storyStage: StoryStageId, title: string) {
+    const t = title.trim()
+    if (!t) return
+    addItem({
+      profileId: targetProfileId,
+      network: targetNetwork,
+      pillarId: targetPillarId,
+      scheduledYmd: todayYmd,
+      format: 'stories',
+      angle: 'Personal / Historia',
+      momentType: 'live-moment',
+      hook: '',
+      title: t,
+      script: '',
+      hashtags: '',
+      frames: [],
+      cta: '',
+      storyStage,
+      stage: 'idea',
+    })
+  }
+
+  return (
+    <div className="overflow-x-auto pb-3">
+      <div className="flex gap-3 min-w-max">
+        {STORY_STAGE_ORDER.map((storyStage) => {
+          const stageMeta = STORY_STAGE_LABELS[storyStage]
+          const stageItems = storyItems.filter((it) => (it.storyStage ?? 'idea') === storyStage)
+          return (
+            <div
+              key={storyStage}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault()
+                if (dragId) { setItemStoryStage(dragId, storyStage); setDragId(null) }
+              }}
+              className="w-72 shrink-0 bg-black/30 border border-white/[0.08] rounded-2xl p-3"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full" style={{ background: stageMeta.color }} />
+                  <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: stageMeta.color }}>
+                    {stageMeta.label}
+                  </h3>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-mono text-zinc-600">{stageItems.length}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAddingStage((cur) => cur === storyStage ? null : storyStage)}
+                    title={`Agregar historia en ${stageMeta.label}`}
+                    className="w-5 h-5 flex items-center justify-center rounded transition-colors"
+                    style={{
+                      color: addingStage === storyStage ? '#fff' : stageMeta.color,
+                      background: addingStage === storyStage ? `${stageMeta.color}40` : `${stageMeta.color}15`,
+                    }}
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              {addingStage === storyStage && (
+                <QuickAddRow
+                  stageColor={stageMeta.color}
+                  onSubmit={(title) => { quickAdd(storyStage, title) }}
+                  onClose={() => setAddingStage(null)}
+                />
+              )}
+
+              <div className="space-y-2">
+                {stageItems.length === 0 ? (
+                  <p className="text-[10px] text-zinc-700 text-center py-4 italic">vacío</p>
+                ) : (
+                  stageItems.map((it) => {
+                    const pillar = pillarByItem(it)
+                    const color = pillar?.color ?? '#71717a'
+                    const netMeta = NETWORK_META[it.network]
+                    const ownerProfile = profileById.get(it.profileId)
+                    const frames = it.frames ?? []
+                    const framesDone = frames.filter((f) => f.done).length
+                    const hasCta = !!it.cta?.trim()
+                    return (
+                      <div
+                        key={it.id}
+                        draggable
+                        onDragStart={() => setDragId(it.id)}
+                        onDragEnd={() => setDragId(null)}
+                        onClick={() => onEditItem(it)}
+                        title={ownerProfile ? `${ownerProfile.name} · ${it.title}` : it.title}
+                        className="rounded-lg p-2.5 cursor-pointer transition-all hover:brightness-125"
+                        style={{
+                          background: `${color}10`,
+                          borderLeft: `3px solid ${color}`,
+                          opacity: dragId === it.id ? 0.4 : 1,
+                          ...(showAllProfiles && ownerProfile
+                            ? { borderTop: `2px solid ${ownerProfile.color}` }
+                            : {}),
+                        }}
+                      >
+                        <div className="flex items-center gap-1.5 mb-1">
+                          {showAllProfiles && ownerProfile && (
+                            <span
+                              className="text-[10px] font-semibold px-1 py-0.5 rounded shrink-0"
+                              style={{ background: `${ownerProfile.color}25`, color: ownerProfile.color }}
+                              title={ownerProfile.name}
+                            >
+                              {ownerProfile.icon ?? '·'} {ownerProfile.name}
+                            </span>
+                          )}
+                          <span className="text-xs" style={{ color: netMeta.color }}>{netMeta.icon}</span>
+                          <div className="text-xs font-semibold text-zinc-200 line-clamp-2 flex-1 min-w-0">
+                            {it.title || '(sin título)'}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 text-[9px] text-zinc-500 flex-wrap">
+                          <span>{it.scheduledYmd}</span>
+                          <span>·</span>
+                          <span title="slides listos / total">
+                            🖼 {framesDone}/{frames.length} slides
+                          </span>
+                          {hasCta && (
+                            <span className="text-amber-400/90" title={`CTA: ${it.cta}`}>🔗 CTA</span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────
 // Modal de item — crear/editar
 // ───────────────────────────────────────────────────────────────────
 function ItemModal({
@@ -1277,6 +1510,25 @@ function ItemModal({
 
   const setF = <K extends keyof ContentItem>(k: K, v: ContentItem[K]) => setDraft((d) => ({ ...d, [k]: v }))
 
+  // ── Historias: el editor cambia de cara cuando el formato es 'stories'.
+  //    Se arma como carrusel de frames (nota + listo) + un CTA, sin guion.
+  const isStory = draft.format === 'stories'
+  const frames: StoryFrame[] = draft.frames ?? []
+  const setFrames = (next: StoryFrame[]) => setF('frames', next)
+  const addFrame = () => setFrames([...frames, { id: genFrameId(), note: '', done: false }])
+  const updateFrame = (id: string, patch: Partial<StoryFrame>) =>
+    setFrames(frames.map((f) => (f.id === id ? { ...f, ...patch } : f)))
+  const removeFrame = (id: string) => setFrames(frames.filter((f) => f.id !== id))
+  const moveFrame = (id: string, dir: -1 | 1) => {
+    const idx = frames.findIndex((f) => f.id === id)
+    if (idx < 0) return
+    const to = idx + dir
+    if (to < 0 || to >= frames.length) return
+    const next = [...frames]
+    ;[next[idx], next[to]] = [next[to], next[idx]]
+    setFrames(next)
+  }
+
   const handleSave = () => {
     if (!draft.title?.trim() && !draft.hook?.trim()) {
       alert('Poné al menos un título o un hook para guardar.')
@@ -1300,6 +1552,10 @@ function ItemModal({
         hashtags: draft.hashtags ?? '',
         notes: draft.notes,
         stage: draft.stage ?? 'idea',
+        // Campos de Historias — solo relevantes con format === 'stories'.
+        frames: draft.frames,
+        cta: draft.cta,
+        storyStage: draft.format === 'stories' ? (draft.storyStage ?? 'idea') : undefined,
         campaignId: draft.campaignId,
         weekFocusId: draft.weekFocusId,
       })
@@ -1376,12 +1632,14 @@ function ItemModal({
                 {Object.entries(FORMAT_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
             </FormField>
-            <FormField label="Tipo de momento">
-              <select value={draft.momentType ?? 'talk'} onChange={(e) => setF('momentType', e.target.value as ContentMomentType)}
-                className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500">
-                {Object.entries(MOMENT_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
-            </FormField>
+            {!isStory && (
+              <FormField label="Tipo de momento">
+                <select value={draft.momentType ?? 'talk'} onChange={(e) => setF('momentType', e.target.value as ContentMomentType)}
+                  className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500">
+                  {Object.entries(MOMENT_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </FormField>
+            )}
             <FormField label="Ángulo">
               <input list="angle-options" value={draft.angle ?? ''} onChange={(e) => setF('angle', e.target.value)}
                 className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500" />
@@ -1391,18 +1649,86 @@ function ItemModal({
             </FormField>
           </div>
 
-          <FormField label="Hook (primeros 3 segundos)" hint="Lo más importante. Define si te miran o te pasan.">
-            <textarea value={draft.hook ?? ''} onChange={(e) => setF('hook', e.target.value)} rows={2}
-              className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500 resize-none" />
-          </FormField>
+          {!isStory && (
+            <FormField label="Hook (primeros 3 segundos)" hint="Lo más importante. Define si te miran o te pasan.">
+              <textarea value={draft.hook ?? ''} onChange={(e) => setF('hook', e.target.value)} rows={2}
+                className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500 resize-none" />
+            </FormField>
+          )}
           <FormField label="Título / Encabezado">
             <input value={draft.title ?? ''} onChange={(e) => setF('title', e.target.value)}
               className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500" />
           </FormField>
-          <FormField label="Guion / Texto">
-            <textarea value={draft.script ?? ''} onChange={(e) => setF('script', e.target.value)} rows={5}
-              className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500 resize-none" />
-          </FormField>
+          {isStory ? (
+            <>
+              {/* Frames de la historia — se arma como un carrusel: cada slide
+                  es una nota (qué va en esa imagen) + un check de "listo". */}
+              <FormField label="Slides de la historia" hint="Armá el carrusel: una nota por slide + tildá cuando la imagen esté lista.">
+                <div className="space-y-1.5">
+                  {frames.length === 0 && (
+                    <p className="text-[11px] text-zinc-600 italic px-1 py-2">
+                      Todavía no agregaste slides. Tocá &quot;+ Agregar slide&quot;.
+                    </p>
+                  )}
+                  {frames.map((f, idx) => (
+                    <div key={f.id} className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-mono text-zinc-600 w-5 text-right shrink-0">{idx + 1}.</span>
+                      <button
+                        type="button"
+                        onClick={() => updateFrame(f.id, { done: !f.done })}
+                        title={f.done ? 'Marcar como no listo' : 'Marcar imagen como lista'}
+                        className="shrink-0 w-5 h-5 rounded border flex items-center justify-center transition-colors"
+                        style={{
+                          borderColor: f.done ? '#10b981' : 'rgba(255,255,255,0.18)',
+                          background: f.done ? '#10b98125' : 'transparent',
+                          color: f.done ? '#10b981' : '#71717a',
+                        }}
+                      >
+                        {f.done && <Check className="w-3 h-3" />}
+                      </button>
+                      <input
+                        value={f.note}
+                        onChange={(e) => updateFrame(f.id, { note: e.target.value })}
+                        placeholder={`Slide ${idx + 1} — qué muestra`}
+                        className={`flex-1 min-w-0 bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-violet-500 ${f.done ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}
+                      />
+                      <div className="flex items-center shrink-0">
+                        <button type="button" onClick={() => moveFrame(f.id, -1)} disabled={idx === 0}
+                          title="Subir" className="text-zinc-600 hover:text-zinc-200 disabled:opacity-25 disabled:cursor-not-allowed p-0.5">
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button type="button" onClick={() => moveFrame(f.id, 1)} disabled={idx === frames.length - 1}
+                          title="Bajar" className="text-zinc-600 hover:text-zinc-200 disabled:opacity-25 disabled:cursor-not-allowed p-0.5">
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button type="button" onClick={() => removeFrame(f.id)}
+                          title="Eliminar slide" className="text-zinc-600 hover:text-red-400 p-0.5">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={addFrame}
+                    className="mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-violet-300 hover:text-violet-200 px-2 py-1 rounded-lg bg-violet-500/10 border border-violet-500/30 hover:bg-violet-500/20 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Agregar slide
+                  </button>
+                </div>
+              </FormField>
+              <FormField label="CTA (call-to-action)" hint="El cierre de la historia: qué querés que haga la persona.">
+                <input value={draft.cta ?? ''} onChange={(e) => setF('cta', e.target.value)}
+                  placeholder="Ej. Mandá DM 'QUIERO', Deslizá ↑, Respondé la encuesta…"
+                  className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500" />
+              </FormField>
+            </>
+          ) : (
+            <FormField label="Guion / Texto">
+              <textarea value={draft.script ?? ''} onChange={(e) => setF('script', e.target.value)} rows={5}
+                className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500 resize-none" />
+            </FormField>
+          )}
           <FormField label="Hashtags">
             <input value={draft.hashtags ?? ''} onChange={(e) => setF('hashtags', e.target.value)}
               placeholder="#estrategia #creatividad"
@@ -1413,27 +1739,45 @@ function ItemModal({
               className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-violet-500 resize-none" />
           </FormField>
 
-          <FormField label="Etapa de producción">
+          <FormField label={isStory ? 'Etapa de la historia' : 'Etapa de producción'}>
             <div className="flex gap-1 flex-wrap">
-              {(Object.keys(STAGE_LABELS) as ContentStageId[]).map((s) => {
-                const meta = STAGE_LABELS[s]
-                const active = draft.stage === s
-                return (
-                  <button key={s} onClick={() => setF('stage', s)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors`}
-                    style={{
-                      borderColor: active ? meta.color : 'rgba(255,255,255,0.1)',
-                      background: active ? `${meta.color}25` : 'transparent',
-                      color: active ? meta.color : '#a1a1aa',
-                    }}>
-                    {meta.label}
-                  </button>
-                )
-              })}
+              {isStory ? (
+                STORY_STAGE_ORDER.map((s) => {
+                  const meta = STORY_STAGE_LABELS[s]
+                  const active = (draft.storyStage ?? 'idea') === s
+                  return (
+                    <button key={s} onClick={() => setF('storyStage', s)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors`}
+                      style={{
+                        borderColor: active ? meta.color : 'rgba(255,255,255,0.1)',
+                        background: active ? `${meta.color}25` : 'transparent',
+                        color: active ? meta.color : '#a1a1aa',
+                      }}>
+                      {meta.label}
+                    </button>
+                  )
+                })
+              ) : (
+                (Object.keys(STAGE_LABELS) as ContentStageId[]).map((s) => {
+                  const meta = STAGE_LABELS[s]
+                  const active = draft.stage === s
+                  return (
+                    <button key={s} onClick={() => setF('stage', s)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors`}
+                      style={{
+                        borderColor: active ? meta.color : 'rgba(255,255,255,0.1)',
+                        background: active ? `${meta.color}25` : 'transparent',
+                        color: active ? meta.color : '#a1a1aa',
+                      }}>
+                      {meta.label}
+                    </button>
+                  )
+                })
+              )}
             </div>
           </FormField>
 
-          {draft.stage === 'published' && (
+          {(isStory ? draft.storyStage === 'published' : draft.stage === 'published') && (
             <div className="pt-3 border-t border-white/[0.06] space-y-3">
               <h3 className="text-xs font-semibold text-emerald-300 flex items-center gap-2">
                 <Zap className="w-3.5 h-3.5" /> Performance post-publicación

@@ -66,6 +66,16 @@ export type ContentStageId =
   | 'scheduled'
   | 'published'
 
+/** Pipeline propio de las Historias de Instagram (`format === 'stories'`).
+ *  No tiene guion/grabación/edición — se arma como un carrusel de imágenes
+ *  + un CTA, así que su "forma de avanzar" es distinta a la de un reel. */
+export type StoryStageId =
+  | 'idea'
+  | 'design'      // armar las imágenes / frames
+  | 'cta'         // definir el call-to-action
+  | 'scheduled'
+  | 'published'
+
 /** Acción decidida tras analizar performance de una pieza —
  *  Sem 4 del ciclo de optimización. */
 export type PostCycleAction = 'repeat' | 'improve' | 'delete' | 'undecided'
@@ -207,6 +217,18 @@ export interface ContentWeeklyFocus {
 }
 
 // ───────────────────────────────────────────────────────────────────
+// HISTORIAS — un "frame" es un slide del carrusel de la historia.
+// Se planifica como checklist (nota + listo), sin subir la imagen.
+// ───────────────────────────────────────────────────────────────────
+export interface StoryFrame {
+  id: string
+  /** Qué va en este slide — texto descriptivo (NO guion). */
+  note: string
+  /** Marcado cuando la imagen de este slide ya está hecha/lista. */
+  done: boolean
+}
+
+// ───────────────────────────────────────────────────────────────────
 // ITEMS DE CONTENIDO
 // ───────────────────────────────────────────────────────────────────
 export interface ContentItem {
@@ -241,6 +263,14 @@ export interface ContentItem {
   hashtags: string
   /** Notas adicionales (referencias visuales, brief, etc). */
   notes?: string
+  // ── Historias (solo cuando format === 'stories'): se arma como un
+  //    carrusel de frames (sin guion) + un CTA, con su propio pipeline.
+  /** Slides de la historia, en orden (es un carrusel). */
+  frames?: StoryFrame[]
+  /** Call-to-action de la historia (ej. "Mandá DM", "Deslizá ↑"). */
+  cta?: string
+  /** Etapa dentro del pipeline de Historias. */
+  storyStage?: StoryStageId
   // ── Producción
   stage: ContentStageId
   // ── Performance — se llena post-publicación (Sem 4 del ciclo)
@@ -329,6 +359,19 @@ export const STAGE_LABELS: Record<ContentStageId, { label: string; color: string
   scheduled:  { label: 'Programado', color: '#06b6d4' },
   published:  { label: 'Publicado',  color: '#10b981' },
 }
+
+/** Etapas del pipeline de Historias — orden de izquierda a derecha en el
+ *  tablero. Distinto del de reels: sin guion/grabación/edición. */
+export const STORY_STAGE_LABELS: Record<StoryStageId, { label: string; color: string }> = {
+  idea:       { label: 'Idea',       color: '#71717a' },
+  design:     { label: 'Diseño',     color: '#a855f7' },
+  cta:        { label: 'CTA',        color: '#f59e0b' },
+  scheduled:  { label: 'Programado', color: '#06b6d4' },
+  published:  { label: 'Publicado',  color: '#10b981' },
+}
+
+/** Orden canónico de las etapas de Historias (para iterar columnas). */
+export const STORY_STAGE_ORDER: StoryStageId[] = ['idea', 'design', 'cta', 'scheduled', 'published']
 
 export const ANGLE_SUGGESTIONS: string[] = [
   'Educativo',
