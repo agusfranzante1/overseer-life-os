@@ -2855,6 +2855,8 @@ export function useSupabaseSync() {
       state.appPrefsInit = false
       state.mindmapInit = false
       state.kpisInit = false
+      state.studyInit = false
+      state.contentInit = false
       if (newId) {
         initAllDomains().catch((e) => console.error('Init after auth change failed', e))
       }
@@ -2897,6 +2899,8 @@ export function useSupabaseSync() {
       state.appPrefsInit = false
       state.mindmapInit = false
       state.kpisInit = false
+      state.studyInit = false
+      state.contentInit = false
       try {
         await initAllDomains()
       } catch (e) {
