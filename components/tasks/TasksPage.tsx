@@ -903,19 +903,9 @@ export function TasksPage() {
         </div>
       )}
 
-      {/* Mobile floating "open projects" button — appears when collapsed.
-          Sits at the top-left of the tasks viewport so it doesn't collide
-          with the AppShell hamburger (which is at the top-left of the
-          entire app on the sticky top bar). */}
-      {projectsPanelCollapsed && (
-        <button
-          onClick={toggleProjectsPanel}
-          aria-label="Mostrar proyectos"
-          className="sm:hidden fixed top-14 left-3 z-30 w-10 h-10 rounded-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 shadow-lg shadow-indigo-900/40 text-white flex items-center justify-center transition-colors"
-        >
-          <FolderOpen className="w-4 h-4" />
-        </button>
-      )}
+      {/* (El viejo botón flotante de "abrir proyectos" se reemplazó por un
+          botón inline al tope del contenido — ver más abajo — que no tapa el
+          título ni flota sobre el contenido en mobile.) */}
 
       {/* Expanded panel — DRAWER overlay on mobile (with backdrop +
           swipe-to-close), INLINE column on desktop. The user can dismiss
@@ -1061,7 +1051,19 @@ export function TasksPage() {
       )}
 
       {/* Main: Tasks (or Archive / Recurring view) */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto p-3 sm:p-6">
+        {/* Botón inline "Proyectos" — solo mobile, en flujo normal (reemplaza
+            al botón flotante que tapaba el título). Aparece en todas las
+            vistas (tareas / papelera / recurrentes) cuando el panel está
+            colapsado. */}
+        {projectsPanelCollapsed && (
+          <button
+            onClick={toggleProjectsPanel}
+            className="sm:hidden mb-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] active:bg-white/[0.08] text-sm font-medium text-zinc-300 transition-colors"
+          >
+            <FolderOpen className="w-4 h-4 text-indigo-400" /> Proyectos
+          </button>
+        )}
         {inRecurringView ? (
           <RecurringView
             tasks={Object.values(tasks)}
@@ -1085,7 +1087,7 @@ export function TasksPage() {
             Row 2: view controls (mode + sort + filters). */}
         <div className="mb-5 space-y-3">
           {/* Row 1 — Identity + actions */}
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start justify-between gap-2 sm:gap-4">
             <div className="flex-1 min-w-0">
               {activeProject ? (
                 <ProjectHeader
@@ -1101,30 +1103,34 @@ export function TasksPage() {
                   }}
                 />
               ) : (
-                <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight leading-none">{t('tasks.title')}</h1>
+                <h1 className="text-2xl sm:text-4xl md:text-5xl font-bold text-white tracking-tight leading-tight sm:leading-none">{t('tasks.title')}</h1>
               )}
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            {/* Acciones — en mobile los labels se ocultan (icon-only) para que
+                no empujen el título ni desborden la pantalla; en pantallas
+                grandes vuelven los textos. */}
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               <SnapshotControls />
               <button
                 onClick={() => setShowBreakdown({ task: null })}
-                className="flex items-center gap-2 px-4 py-2.5 bg-white/[0.04] border border-white/[0.08] hover:border-indigo-400/40 hover:bg-indigo-500/10 text-zinc-200 hover:text-indigo-200 rounded-xl text-sm font-medium transition-all"
+                className="flex items-center gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 bg-white/[0.04] border border-white/[0.08] hover:border-indigo-400/40 hover:bg-indigo-500/10 text-zinc-200 hover:text-indigo-200 rounded-xl text-sm font-medium transition-all"
                 title="Pedile a la IA que desglose una tarea en sub-pasos"
               >
-                <Wand2 className="w-4 h-4" />
-                Desglosar con IA
+                <Wand2 className="w-4 h-4 shrink-0" />
+                <span className="hidden lg:inline">Desglosar con IA</span>
               </button>
               <button
                 onClick={() => setNewTaskProjectId(activeProject?.id ?? projectList[0]?.id ?? null)}
-                className="flex items-center gap-2 px-4 py-2.5 text-white rounded-xl text-sm font-semibold transition-all"
+                className="flex items-center gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 text-white rounded-xl text-sm font-semibold transition-all shrink-0"
                 style={{
                   background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
                   boxShadow: '0 0 24px -8px rgba(99,102,241,0.6), inset 0 1px 0 rgba(255,255,255,0.15)',
                 }}
+                title={t('tasks.newTask')}
               >
-                <Plus className="w-4 h-4" />
-                {t('tasks.newTask')}
+                <Plus className="w-4 h-4 shrink-0" />
+                <span className="hidden sm:inline">{t('tasks.newTask')}</span>
               </button>
             </div>
           </div>
@@ -2307,16 +2313,16 @@ function SnapshotControls() {
         onClick={handleSave}
         disabled={busy === 'saving'}
         title="Guardar copia inmutable de proyectos+tareas (local + remota)"
-        className="flex items-center gap-1.5 px-3 py-2.5 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 hover:border-emerald-500/50 text-emerald-200 rounded-xl text-xs font-semibold transition-all disabled:opacity-50"
+        className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 sm:py-2.5 bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 hover:border-emerald-500/50 text-emerald-200 rounded-xl text-xs font-semibold transition-all disabled:opacity-50"
       >
-        💾 {busy === 'saving' ? 'Guardando…' : 'Guardar ahora'}
+        💾 <span className="hidden sm:inline">{busy === 'saving' ? 'Guardando…' : 'Guardar ahora'}</span>
       </button>
       <button
         onClick={handleOpenList}
         title="Ver snapshots y restaurar una versión anterior"
-        className="flex items-center gap-1.5 px-3 py-2.5 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50 text-amber-200 rounded-xl text-xs font-semibold transition-all"
+        className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 sm:py-2.5 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50 text-amber-200 rounded-xl text-xs font-semibold transition-all"
       >
-        ⏮ Cargar versión
+        ⏮ <span className="hidden sm:inline">Cargar versión</span>
       </button>
 
       {feedback && (
@@ -2328,7 +2334,10 @@ function SnapshotControls() {
       {openList && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpenList(false)} />
-          <div className="absolute right-0 top-full mt-2 z-50 w-80 max-h-96 overflow-y-auto rounded-xl border border-white/[0.12] shadow-2xl"
+          {/* En mobile el popover se ancla a la pantalla (bottom-sheet) para
+              no salirse del costado; en desktop es el dropdown clásico
+              colgado del botón. */}
+          <div className="fixed sm:absolute left-3 right-3 bottom-3 sm:left-auto sm:right-0 sm:bottom-auto sm:top-full sm:mt-2 z-50 w-auto sm:w-80 max-h-[60vh] sm:max-h-96 overflow-y-auto rounded-xl border border-white/[0.12] shadow-2xl"
             style={{ background: 'var(--surface-popover)', boxShadow: '0 10px 32px -8px rgba(0,0,0,0.75)' }}
           >
             <div className="p-3 border-b border-white/[0.08] flex items-center justify-between">

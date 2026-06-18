@@ -7,6 +7,7 @@ import {
   Image as ImageIcon, Upload, Loader2,
 } from 'lucide-react'
 import { useContentStore, buildAIContentPrompt } from '@/lib/store/contentStore'
+import { useAppStore } from '@/lib/store/appStore'
 import {
   FORMAT_LABELS, MOMENT_LABELS, STAGE_LABELS, STORY_STAGE_LABELS, STORY_STAGE_ORDER,
   ANGLE_SUGGESTIONS, NETWORK_META,
@@ -62,15 +63,14 @@ const TAB_DEFS: { key: Tab; label: string; icon: React.ReactNode }[] = [
 const DEFAULT_TAB_ORDER: Tab[] = TAB_DEFS.map((t) => t.key)
 
 /** Normaliza el orden guardado: conserva solo keys válidas (sin duplicados) y
- *  agrega al final cualquier tab nueva que no estuviera guardada (forward-compat). */
-function sanitizeTabOrder(raw: string): Tab[] {
-  let parsed: unknown = null
-  try { parsed = JSON.parse(raw) } catch { /* default abajo */ }
+ *  agrega al final cualquier tab nueva que no estuviera guardada (forward-compat).
+ *  Acepta el array tal cual viene del store sincronizado (o cualquier cosa). */
+function sanitizeTabOrder(saved: readonly unknown[] | null | undefined): Tab[] {
   const valid = new Set<Tab>(DEFAULT_TAB_ORDER)
   const seen = new Set<Tab>()
   const out: Tab[] = []
-  if (Array.isArray(parsed)) {
-    for (const k of parsed) {
+  if (Array.isArray(saved)) {
+    for (const k of saved) {
       if (typeof k === 'string' && valid.has(k as Tab) && !seen.has(k as Tab)) { out.push(k as Tab); seen.add(k as Tab) }
     }
   }
@@ -178,11 +178,27 @@ function Header({
   currentMonth: string; setCurrentMonth: (m: string) => void
   networkFilter: ContentNetwork | 'all'; setNetworkFilter: (n: ContentNetwork | 'all') => void
 }) {
-  // Orden de tabs reordenable por el user (drag-and-drop), persistido. Se lee
-  // en un effect (no en el init) para no romper la hidratación SSR.
-  const [tabOrder, setTabOrderState] = useState<Tab[]>(DEFAULT_TAB_ORDER)
-  useEffect(() => { setTabOrderState(sanitizeTabOrder(readLS(LS_TAB_ORDER, ''))) }, [])
-  const setTabOrder = (order: Tab[]) => { setTabOrderState(order); writeLS(LS_TAB_ORDER, JSON.stringify(order)) }
+  // Orden de tabs reordenable por el user (drag-and-drop). Vive en el appStore
+  // (sincronizado multi-device vía appPrefs) en lugar de localStorage, así el
+  // orden que ponés en la PC aparece igual en el celular.
+  const savedTabOrder = useAppStore((s) => s.contenidoTabOrder)
+  const setSavedTabOrder = useAppStore((s) => s.setContenidoTabOrder)
+  const tabOrder = useMemo(() => sanitizeTabOrder(savedTabOrder), [savedTabOrder])
+  const setTabOrder = (order: Tab[]) => setSavedTabOrder(order)
+  // Migración one-shot: si el store está vacío (nunca se ordenó en ningún
+  // device) pero este browser tiene el orden viejo en localStorage, lo
+  // sembramos en el store para no perder lo que ya habías ordenado acá.
+  // A partir de ahí, viaja por sync.
+  useEffect(() => {
+    if (savedTabOrder.length > 0) return
+    const raw = readLS(LS_TAB_ORDER, '')
+    if (!raw) return
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed) && parsed.length > 0) setSavedTabOrder(sanitizeTabOrder(parsed))
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [dragTab, setDragTab] = useState<Tab | null>(null)
   const moveTab = (from: Tab, to: Tab) => {
     if (from === to) return

@@ -167,6 +167,11 @@ export interface AppState {
   navOrder: string[]
   setNavOrder: (keys: string[]) => void
 
+  // Orden de las pestañas de Content Strategy (persisted + synced multi-device
+  // vía appPrefs). Vacío = orden default. Mismo patrón que navOrder.
+  contenidoTabOrder: string[]
+  setContenidoTabOrder: (keys: string[]) => void
+
   // AI provider settings (persisted)
   aiProvider: 'off' | 'ollama' | 'anthropic'
   anthropicApiKey: string
@@ -321,6 +326,8 @@ export const useAppStore = create<AppState>()(
 
       navOrder: [],  // empty = use default order from Sidebar's NAV_ITEMS
       setNavOrder: (keys) => set({ navOrder: keys }),
+      contenidoTabOrder: [],  // empty = use default tab order
+      setContenidoTabOrder: (keys) => set({ contenidoTabOrder: keys }),
 
       aiProvider: 'off',
       anthropicApiKey: '',

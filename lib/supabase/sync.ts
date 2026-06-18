@@ -1676,6 +1676,7 @@ type AppPrefsPayload = {
   scheduleOrder?: string[]
   dayTypes?: import('@/types').DayTypeConfig[]
   navOrder?: string[]
+  contenidoTabOrder?: string[]
   aiProvider?: 'off' | 'ollama' | 'anthropic'
   anthropicApiKey?: string
   anthropicModel?: string
@@ -1695,6 +1696,7 @@ async function pushAppPrefs() {
     scheduleOrder: s.scheduleOrder,
     dayTypes: s.dayTypes,
     navOrder: s.navOrder,
+    contenidoTabOrder: s.contenidoTabOrder,
     aiProvider: s.aiProvider,
     anthropicApiKey: s.anthropicApiKey,
     anthropicModel: s.anthropicModel,
@@ -1767,6 +1769,7 @@ async function pullAppPrefs(): Promise<boolean> {
     ...(p.scheduleOrder !== undefined ? { scheduleOrder: p.scheduleOrder } : {}),
     ...(p.dayTypes !== undefined ? { dayTypes: p.dayTypes } : {}),
     ...(p.navOrder !== undefined ? { navOrder: p.navOrder } : {}),
+    ...(p.contenidoTabOrder !== undefined ? { contenidoTabOrder: p.contenidoTabOrder } : {}),
     ...(p.aiProvider !== undefined ? { aiProvider: p.aiProvider } : {}),
     ...(p.anthropicApiKey !== undefined ? { anthropicApiKey: p.anthropicApiKey } : {}),
     ...(p.anthropicModel !== undefined ? { anthropicModel: p.anthropicModel } : {}),
