@@ -552,6 +552,15 @@ function sortTasks(
 const ARCHIVE_SENTINEL = '__archive__'
 const RECURRING_SENTINEL = '__recurring__'
 
+/** Una tarea "completada Y calendarizada" (tiene fecha + hora y ya está
+ *  hecha). Estas se MANTIENEN en el task manager hasta el domingo para que
+ *  el snapshot del SPI quede completo y para no borrarlas de Google Calendar
+ *  antes de tiempo. Pero en la vista de TODOS LOS PROYECTOS las ocultamos —
+ *  ya están hechas, ensucian el panorama general. Siguen visibles al entrar
+ *  al proyecto individual. */
+const isDoneAndCalendarized = (t: Task) =>
+  !!t.completedAt && !!t.dueDate && !!t.dueTime
+
 export function TasksPage() {
   const tasksStoreApi = useTasksStore()
   const {
@@ -1334,7 +1343,9 @@ export function TasksPage() {
             // still split by status internally, so sort is applied first to
             // give a stable cross-project order within each status bucket.
             tasks={sortTasks(
-              Object.values(tasks).filter((t) => !t.archivedAt).filter(passesFilters),
+              // Ocultamos las completadas-y-calendarizadas en la vista de
+              // Todos los Proyectos (siguen visibles en su proyecto).
+              Object.values(tasks).filter((t) => !t.archivedAt && !isDoneAndCalendarized(t)).filter(passesFilters),
               sortMode,
               null,
             )}
@@ -1349,12 +1360,17 @@ export function TasksPage() {
           <div className="space-y-6">
             {projectListSortedByUrgency.map((proj) => {
               const projStatusOrder = new Map(proj.statuses.map((s, i) => [s.label, i]))
+              // Base del proyecto en la vista global SIN las completadas-y-
+              // calendarizadas (se ocultan acá, no en el proyecto individual).
+              // Usamos esta base tanto para la lista como para el contador, así
+              // el "hechas/total" del header no queda descuadrado.
+              const projBaseTasks = getProjectTasks(proj.id).filter((t) => !isDoneAndCalendarized(t))
               const projTasks = sortTasks(
-                getProjectTasks(proj.id).filter(passesFilters),
+                projBaseTasks.filter(passesFilters),
                 sortMode,
                 projStatusOrder,
               )
-              const totalInProject = getProjectTasks(proj.id).length
+              const totalInProject = projBaseTasks.length
               const expanded = expandedProjects[proj.id] !== false
               const done = projTasks.filter((t) =>
                 proj.statuses.find((s) => s.label === t.status)?.countsAsDone
