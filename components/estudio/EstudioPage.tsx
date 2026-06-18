@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   GraduationCap, Plus, ChevronLeft, ChevronDown, ChevronRight,
@@ -385,6 +385,20 @@ function ParcialBlock({ parcial, fallbackColor, isOpen, onToggle }: { parcial: P
   const [newTema, setNewTema] = useState('')
   const color = fallbackColor
 
+  // Selector de fecha nativo (calendario) en lugar del viejo prompt() de
+  // texto. El input type=date vive oculto solapado sobre el botón; al
+  // clickear el botón abrimos el picker nativo con showPicker() (fallback a
+  // .click() en browsers que no lo soporten).
+  const examDateRef = useRef<HTMLInputElement>(null)
+  const openExamDatePicker = () => {
+    const input = examDateRef.current
+    if (!input) return
+    if (typeof input.showPicker === 'function') {
+      try { input.showPicker(); return } catch { /* showPicker puede tirar en contextos sin foco */ }
+    }
+    input.click()
+  }
+
   const parcialTemas = useMemo(
     () => temas.filter((t) => t.parcialId === parcial.id).sort((a, b) => a.sortOrder - b.sortOrder),
     [temas, parcial.id],
@@ -417,8 +431,24 @@ function ParcialBlock({ parcial, fallbackColor, isOpen, onToggle }: { parcial: P
           </p>
         </button>
         <span className="font-mono font-semibold tabular-nums text-[12px]" style={{ color }}>{prog.pct}%</span>
-        <button onClick={(e) => { e.stopPropagation(); const v = prompt('Fecha de examen (YYYY-MM-DD), vacío para quitar:', parcial.examDate ?? ''); if (v !== null) updateParcial(parcial.id, { examDate: v.trim() || undefined }) }}
-          className="text-zinc-600 hover:text-zinc-300 transition-colors" title="Fecha de examen"><Calendar className="w-3.5 h-3.5" /></button>
+        <div className="relative shrink-0 inline-flex">
+          <button onClick={(e) => { e.stopPropagation(); openExamDatePicker() }}
+            className={`transition-colors ${parcial.examDate ? 'text-indigo-300 hover:text-indigo-200' : 'text-zinc-600 hover:text-zinc-300'}`}
+            title={parcial.examDate ? `Examen: ${parcial.examDate} — click para cambiar` : 'Fecha de examen'}><Calendar className="w-3.5 h-3.5" /></button>
+          <input
+            ref={examDateRef}
+            type="date"
+            value={parcial.examDate ?? ''}
+            onChange={(e) => updateParcial(parcial.id, { examDate: e.target.value || undefined })}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute inset-0 w-full h-full opacity-0 pointer-events-none"
+            tabIndex={-1}
+          />
+        </div>
+        {parcial.examDate && (
+          <button onClick={(e) => { e.stopPropagation(); updateParcial(parcial.id, { examDate: undefined }) }}
+            className="shrink-0 text-zinc-700 hover:text-red-400 transition-colors" title="Quitar fecha de examen"><X className="w-3 h-3" /></button>
+        )}
         <button onClick={(e) => { e.stopPropagation(); if (confirm(`¿Eliminar el parcial "${parcial.label}"? Borra sus temas.`)) deleteParcial(parcial.id) }}
           className="text-zinc-600 hover:text-red-400 transition-colors" title="Eliminar parcial"><Trash2 className="w-3.5 h-3.5" /></button>
       </div>
