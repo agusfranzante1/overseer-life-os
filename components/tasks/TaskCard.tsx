@@ -447,10 +447,9 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                 disabled={blocked}
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (blocked) {
-                    alert(`Esta tarea tiene ${openSubs.length} subtarea${openSubs.length > 1 ? 's' : ''} pendiente${openSubs.length > 1 ? 's' : ''}. Completá esas primero — o si querés marcarla igual, abrila y completala desde el detalle.`)
-                    return
-                  }
+                  // Bloqueada (subtareas pendientes): simplemente no hace nada,
+                  // sin avisos ni cambios de color que molesten.
+                  if (blocked) return
                   completeTask(task.id)
                 }}
                 title={blocked ? `Falta completar ${openSubs.length} subtarea(s)` : isDone ? 'Marcar como pendiente' : 'Marcar como completada'}
@@ -458,7 +457,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                   isDone
                     ? 'text-emerald-400'
                     : blocked
-                      ? 'text-amber-500/60 cursor-not-allowed'
+                      ? 'text-zinc-600 cursor-not-allowed'   // neutro: el color NO comunica el bloqueo
                       : 'text-zinc-600 hover:text-emerald-400'
                 }`}
               >
@@ -651,7 +650,10 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
               comerse espacio. El offset `right-9` (36px) deja libre el
               espacio del chevron de expand/collapse (que sigue en el
               flow del flex row) para que no se choquen visualmente. */}
-          <div className={`absolute top-3 flex items-center gap-0.5 shrink-0 opacity-0 group-hover/card:opacity-100 transition-opacity bg-zinc-900/85 backdrop-blur-sm rounded-md px-1 ${
+          {/* En mobile SIEMPRE visibles (antes eran invisibles pero clickeables:
+              al tocar el chevron para colapsar se tocaba el tachito invisible y
+              se borraba la tarea). En desktop siguen apareciendo solo al hover. */}
+          <div className={`absolute top-3 flex items-center gap-0.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover/card:opacity-100 transition-opacity bg-zinc-900/85 backdrop-blur-sm rounded-md px-1 ${
             visibleSubtasks.length > 0 ? 'right-9' : 'right-3'
           }`}>
             {/* "+" rápido para agregar subtask1 sin abrir el modal de
@@ -694,10 +696,12 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
             >
               <Copy className="w-3.5 h-3.5" />
             </button>
+            {/* Eliminar — oculto en mobile (ahí se borra deslizando la tarjeta,
+                y así un toque cerca del chevron no puede borrar por accidente). */}
             <button
               data-interactive
               onClick={(e) => { e.stopPropagation(); deleteTask(task.id) }}
-              className="text-zinc-600 hover:text-red-400 transition-colors p-1"
+              className="hidden sm:block text-zinc-600 hover:text-red-400 transition-colors p-1"
               title={t('tasks.delete')}
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -1436,7 +1440,7 @@ function InlineSubtask({
           lejos. Lo posicionamos absoluto encima del chip con opacity:0
           para que el popover salga PEGADO al chip. */}
       {subtask.dueDate ? (
-        <div className="relative hidden sm:inline-block shrink-0">
+        <div className="relative inline-block shrink-0">
           <button
             data-interactive
             onClick={(e) => { e.stopPropagation(); openDatePicker() }}
@@ -1466,12 +1470,12 @@ function InlineSubtask({
           />
         </div>
       ) : (
-        <div className="relative hidden sm:inline-block shrink-0">
+        <div className="relative inline-block shrink-0">
           <button
             data-interactive
             onClick={(e) => { e.stopPropagation(); openDatePicker() }}
             title="Agregar fecha de entrega"
-            className="text-zinc-700 hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-all p-0.5"
+            className="text-zinc-700 hover:text-zinc-300 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all p-0.5"
           >
             <Calendar className="w-3 h-3" />
           </button>
@@ -1510,7 +1514,7 @@ function InlineSubtask({
             aria-hidden={!onUngroup}
             tabIndex={!onUngroup ? -1 : undefined}
             className={`text-zinc-600 hover:text-zinc-200 transition-all text-[11px] px-1 ${
-              onUngroup ? 'opacity-0 group-hover:opacity-100' : 'invisible pointer-events-none'
+              onUngroup ? 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100' : 'invisible pointer-events-none'
             }`}
           >
             ↶
@@ -1530,7 +1534,7 @@ function InlineSubtask({
             aria-hidden={!onPromoteToTask}
             tabIndex={!onPromoteToTask ? -1 : undefined}
             className={`text-zinc-600 hover:text-emerald-300 transition-all text-[11px] px-1 ${
-              onPromoteToTask ? 'opacity-0 group-hover:opacity-100' : 'invisible pointer-events-none'
+              onPromoteToTask ? 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100' : 'invisible pointer-events-none'
             }`}
           >
             ↗
@@ -1545,7 +1549,7 @@ function InlineSubtask({
             data-interactive
             onClick={(e) => { e.stopPropagation(); onAddChild() }}
             title="Agregar subtarea adentro"
-            className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-indigo-300 transition-all p-0.5"
+            className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-zinc-600 hover:text-indigo-300 transition-all p-0.5"
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
@@ -1554,7 +1558,7 @@ function InlineSubtask({
           data-interactive
           onClick={(e) => { e.stopPropagation(); onOpenDetail() }}
           title="Abrir detalle"
-          className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-zinc-200 transition-all p-0.5"
+          className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-zinc-600 hover:text-zinc-200 transition-all p-0.5"
         >
           <MoreHorizontal className="w-3.5 h-3.5" />
         </button>
@@ -1562,7 +1566,7 @@ function InlineSubtask({
           data-interactive
           onClick={(e) => { e.stopPropagation(); onDelete() }}
           title="Eliminar"
-          className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"
+          className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"
         >
           <Trash2 className="w-3 h-3" />
         </button>

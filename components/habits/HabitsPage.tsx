@@ -91,6 +91,11 @@ export function HabitsPage() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name: '', icon: '🎯', color: COLORS[0], category: 'Salud', reminderTime: '', targetDays: [] as number[] })
   const [weekAnchor, setWeekAnchor] = useState(() => startOfWeekMonday(new Date()))
+  // Día seleccionado para la vista MOBILE (que muestra 1 solo día). En desktop
+  // se usa la grilla semanal (weekAnchor); en mobile navegamos día por día con
+  // este estado, porque las flechas de semana (±7) no servían para cambiar de
+  // día cuando la grilla de 7 está oculta.
+  const [selectedDay, setSelectedDay] = useState(() => new Date())
   const [chartMonth, setChartMonth] = useState(() => {
     const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d
   })
@@ -178,6 +183,11 @@ export function HabitsPage() {
   // Week navigation
   const isCurrentWeek = dateToStr(weekAnchor) === dateToStr(startOfWeekMonday(new Date()))
   const weekLabel = `${weekDays[0].getDate()} ${weekDays[0].toLocaleDateString(locale, { month: 'short' })} – ${weekDays[6].getDate()} ${weekDays[6].toLocaleDateString(locale, { month: 'short' })}`
+
+  // Day navigation (mobile)
+  const selectedDayStr = dateToStr(selectedDay)
+  const isSelectedToday = selectedDayStr === today
+  const selectedDayLabel = selectedDay.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'short' })
 
   // Month navigation
   const isCurrentMonth = chartMonth.getFullYear() === new Date().getFullYear() && chartMonth.getMonth() === new Date().getMonth()
@@ -344,7 +354,8 @@ export function HabitsPage() {
       <section>
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-wider">{t('habits.week')}</h2>
-          <div className="flex items-center gap-1">
+          {/* Desktop: navegación SEMANAL (controla la grilla de 7 días). */}
+          <div className="hidden md:flex items-center gap-1">
             <button onClick={() => setWeekAnchor(addDays(weekAnchor, -7))}
               className="p-1.5 rounded hover:bg-white/[0.05] text-zinc-500 hover:text-white">
               <ChevronLeft className="w-3.5 h-3.5" />
@@ -356,6 +367,24 @@ export function HabitsPage() {
             </button>
             {!isCurrentWeek && (
               <button onClick={() => setWeekAnchor(startOfWeekMonday(new Date()))}
+                className="text-[10px] text-pink-400 hover:text-pink-300 px-2 py-1 rounded hover:bg-pink-500/10 ml-1">
+                {t('habits.todayLabel')}
+              </button>
+            )}
+          </div>
+          {/* Mobile: navegación DÍA POR DÍA (la vista mobile muestra 1 día). */}
+          <div className="flex md:hidden items-center gap-1">
+            <button onClick={() => setSelectedDay(addDays(selectedDay, -1))}
+              className="p-1.5 rounded hover:bg-white/[0.05] text-zinc-500 hover:text-white">
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <span className="text-xs text-zinc-400 font-mono px-2 min-w-[120px] text-center capitalize">{selectedDayLabel}</span>
+            <button onClick={() => setSelectedDay(addDays(selectedDay, 1))}
+              className="p-1.5 rounded hover:bg-white/[0.05] text-zinc-500 hover:text-white">
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+            {!isSelectedToday && (
+              <button onClick={() => setSelectedDay(new Date())}
                 className="text-[10px] text-pink-400 hover:text-pink-300 px-2 py-1 rounded hover:bg-pink-500/10 ml-1">
                 {t('habits.todayLabel')}
               </button>
@@ -578,11 +607,12 @@ export function HabitsPage() {
                   })}
                 </div>
 
-                {/* Mobile fallback: tri-state toggle for today */}
+                {/* Mobile fallback: tri-state toggle para el DÍA SELECCIONADO
+                    (no siempre hoy — se navega con las flechas de día arriba). */}
                 {(() => {
-                  const skippedToday = (habit.skippedDates ?? []).includes(today)
-                  const doneTodayHabit = habit.completedDates.includes(today)
-                  const offTodayHabit = isOffDay(habit, today, todayDateObj, today)
+                  const skippedToday = (habit.skippedDates ?? []).includes(selectedDayStr)
+                  const doneTodayHabit = habit.completedDates.includes(selectedDayStr)
+                  const offTodayHabit = isOffDay(habit, selectedDayStr, selectedDay, today)
                   if (offTodayHabit) {
                     return (
                       <div
@@ -594,7 +624,7 @@ export function HabitsPage() {
                     )
                   }
                   return (
-                    <button onClick={() => toggleDate(habit.id, today)}
+                    <button onClick={() => toggleDate(habit.id, selectedDayStr)}
                       disabled={reorderMode}
                       className={`md:hidden shrink-0 rounded-lg flex items-center justify-center transition-all w-10 h-10 hover:ring-1 hover:ring-white/70 ${reorderMode ? 'opacity-40 pointer-events-none' : ''}`}
                       // Mismo lenguaje que el desktop: celda negra, punto
