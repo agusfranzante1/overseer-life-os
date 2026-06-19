@@ -330,11 +330,69 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
     ? { opacity: 0.4 }
     : {}
 
+  // ── Swipe-to-delete (mobile) ───────────────────────────────────────
+  // Deslizar la tarjeta hacia la IZQUIERDA revela un botón de eliminar
+  // (patrón típico de apps de tareas). Solo se engancha cuando el gesto es
+  // claramente horizontal — el axis-lock deja pasar el scroll vertical, y el
+  // `touch-action: pan-y` del card le cede el pan horizontal a estos handlers.
+  const SWIPE_MAX = 88      // px que se revela el botón al abrir
+  const SWIPE_TRIGGER = 44  // px a partir del cual el release "abre" en vez de cerrar
+  const [swipeX, setSwipeX] = useState(0)
+  // `dragging` es estado (no ref) porque se lee en el render para decidir la
+  // transición. Los valores que SOLO se usan dentro de los handlers (start,
+  // base, axis, active) viven en el ref para no re-renderizar en cada touchmove.
+  const [dragging, setDragging] = useState(false)
+  const swipe = useRef({ startX: 0, startY: 0, base: 0, active: false, axis: '' as '' | 'x' | 'y' })
+  const onCardTouchStart = (e: React.TouchEvent) => {
+    const tch = e.touches[0]
+    swipe.current = { startX: tch.clientX, startY: tch.clientY, base: swipeX, active: true, axis: '' }
+  }
+  const onCardTouchMove = (e: React.TouchEvent) => {
+    const s = swipe.current
+    if (!s.active) return
+    const dx = e.touches[0].clientX - s.startX
+    const dy = e.touches[0].clientY - s.startY
+    if (s.axis === '') {
+      if (Math.abs(dy) > 8 && Math.abs(dy) >= Math.abs(dx)) { s.axis = 'y'; return }  // scroll vertical → soltar
+      if (Math.abs(dx) > 8) { s.axis = 'x'; setDragging(true) }
+    }
+    if (s.axis !== 'x') return
+    setSwipeX(Math.max(-SWIPE_MAX, Math.min(0, s.base + dx)))
+  }
+  const onCardTouchEnd = () => {
+    const s = swipe.current
+    s.active = false
+    if (s.axis === 'x') { setDragging(false); setSwipeX(swipeX <= -SWIPE_TRIGGER ? -SWIPE_MAX : 0) }
+  }
+  const swiped = swipeX !== 0
+  const swipeStyle: React.CSSProperties = (swiped || dragging)
+    ? { transform: `translateX(${swipeX}px)`, transition: dragging ? 'none' : 'transform 0.2s ease-out' }
+    : {}
+
   return (
-    // Plain <div> — was a motion.div but Framer Motion's `onDragStart` /
+    // Wrapper relativo + recortado: contiene el botón de eliminar que vive
+    // DETRÁS de la tarjeta y se revela cuando ésta se desliza a la izquierda.
+    <div className="relative overflow-hidden rounded-2xl">
+      {/* Botón eliminar — detrás de la tarjeta, anclado a la derecha. Solo es
+          accesible cuando la tarjeta está deslizada (si no, queda tapado y
+          fuera del tab order). */}
+      <button
+        data-interactive
+        onClick={() => { deleteTask(task.id); setSwipeX(0) }}
+        tabIndex={swiped ? 0 : -1}
+        aria-hidden={!swiped}
+        title="Eliminar tarea"
+        className="absolute inset-y-0 right-0 flex flex-col items-center justify-center gap-0.5 bg-red-600 active:bg-red-700 text-white text-[11px] font-semibold"
+        style={{ width: SWIPE_MAX }}
+      >
+        <Trash2 className="w-4 h-4" />
+        Eliminar
+      </button>
+
+    {/* Plain <div> — was a motion.div but Framer Motion's `onDragStart` /
     // `onDrag` typings clash with HTML5 drag-and-drop. We weren't using any
     // animation props here (no initial/animate/whileHover/etc), so dropping
-    // motion has zero visual impact and unblocks the HTML5 DnD handlers.
+    // motion has zero visual impact and unblocks the HTML5 DnD handlers. */}
     <div
       draggable
       onDragStart={onTaskDragStart}
@@ -342,6 +400,9 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
       onDragLeave={onTaskDragLeave}
       onDrop={onTaskDrop}
       onDragEnd={onTaskDragEnd}
+      onTouchStart={onCardTouchStart}
+      onTouchMove={onCardTouchMove}
+      onTouchEnd={onCardTouchEnd}
       style={{
         ...dndStyle,
         // Estilo del mockup: card oscura translúcida. Cuando la tarea
@@ -357,6 +418,11 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
           : '1px solid var(--card-border)',
         boxShadow: `inset 0 0 0 1px var(--card-inset), 0 1px 2px rgba(0,0,0,0.3)`,
         opacity: isDone ? 0.55 : 1,
+        // `pan-y`: el browser maneja el scroll vertical, el pan horizontal
+        // (swipe) nos llega a nosotros. `relative` para apilar sobre el botón.
+        touchAction: 'pan-y',
+        position: 'relative',
+        ...swipeStyle,
       }}
       className={`rounded-2xl transition-all overflow-hidden ${dndClass}`}
     >
@@ -367,6 +433,9 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
       <div
         className="relative p-4 cursor-pointer group/card"
         onClick={(e) => {
+          // Si la tarjeta está deslizada (botón eliminar visible), un tap
+          // primero la CIERRA en vez de abrir el detalle.
+          if (swiped) { setSwipeX(0); return }
           // Don't trigger if user clicked an interactive element (they handle their own clicks with stopPropagation)
           if ((e.target as HTMLElement).closest('[data-interactive]')) return
           onClick()
@@ -869,6 +938,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
           onClose={() => setDetailSubtaskId(null)}
         />
       )}
+    </div>
     </div>
   )
 }

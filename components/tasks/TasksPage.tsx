@@ -928,12 +928,16 @@ export function TasksPage() {
             className="sm:hidden fixed inset-0 z-30 bg-black/60 backdrop-blur-sm"
             aria-hidden="true"
           />
+          {/* En mobile es un drawer overlay: necesita fondo SÓLIDO (bg-zinc-900,
+              que el tema mapea a blanco en modo claro) para que se distinga del
+              contenido de atrás. En desktop es columna inline y mantiene el look
+              "hundido" translúcido (sm:bg-black/30). */}
           <SwipeableDrawer
             onSwipeClose={toggleProjectsPanel}
             enableSwipe={isMobile}
             className="
               fixed sm:relative inset-y-0 left-0 z-40 sm:z-auto
-              w-72 sm:w-64 shrink-0 border-r border-white/[0.08] overflow-y-auto bg-black/30 p-4 shadow-2xl sm:shadow-none
+              w-72 sm:w-64 shrink-0 border-r border-white/[0.08] overflow-y-auto bg-zinc-900 sm:bg-black/30 p-4 shadow-2xl sm:shadow-none
             "
           >
         <div className="flex items-center justify-between mb-4">
