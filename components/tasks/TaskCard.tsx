@@ -331,21 +331,19 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
     : {}
 
   // ── Swipe-to-delete (mobile) ───────────────────────────────────────
-  // Deslizar la tarjeta hacia la IZQUIERDA revela un botón de eliminar
-  // (patrón típico de apps de tareas). Solo se engancha cuando el gesto es
-  // claramente horizontal — el axis-lock deja pasar el scroll vertical, y el
-  // `touch-action: pan-y` del card le cede el pan horizontal a estos handlers.
-  const SWIPE_MAX = 88      // px que se revela el botón al abrir
-  const SWIPE_TRIGGER = 44  // px a partir del cual el release "abre" en vez de cerrar
-  const [swipeX, setSwipeX] = useState(0)
-  // `dragging` es estado (no ref) porque se lee en el render para decidir la
-  // transición. Los valores que SOLO se usan dentro de los handlers (start,
-  // base, axis, active) viven en el ref para no re-renderizar en cada touchmove.
-  const [dragging, setDragging] = useState(false)
-  const swipe = useRef({ startX: 0, startY: 0, base: 0, active: false, axis: '' as '' | 'x' | 'y' })
+  // Deslizando la tarjeta hacia la IZQUIERDA aparece un tachito rojo POR
+  // ENCIMA de la tarjeta, anclado a la derecha; su ancho crece con el swipe
+  // hasta 1/4 de la tarjeta. La tarjeta NO se mueve. Cualquier cosa que no
+  // sea tocar el tachito (scrollear, tocar la tarjeta) lo cierra y queda todo
+  // igual. El axis-lock + `touch-action: pan-y` dejan pasar el scroll vertical.
+  const cardWrapRef = useRef<HTMLDivElement>(null)
+  const [revealW, setRevealW] = useState(0)     // px del tachito revelado
+  const [dragging, setDragging] = useState(false) // estado: se lee en el render para la transición
+  const swipe = useRef({ startX: 0, startY: 0, base: 0, active: false, axis: '' as '' | 'x' | 'y', maxW: 90 })
   const onCardTouchStart = (e: React.TouchEvent) => {
     const tch = e.touches[0]
-    swipe.current = { startX: tch.clientX, startY: tch.clientY, base: swipeX, active: true, axis: '' }
+    const w = cardWrapRef.current?.getBoundingClientRect().width ?? 360
+    swipe.current = { startX: tch.clientX, startY: tch.clientY, base: revealW, active: true, axis: '', maxW: Math.round(w * 0.25) }
   }
   const onCardTouchMove = (e: React.TouchEvent) => {
     const s = swipe.current
@@ -353,42 +351,36 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
     const dx = e.touches[0].clientX - s.startX
     const dy = e.touches[0].clientY - s.startY
     if (s.axis === '') {
-      if (Math.abs(dy) > 8 && Math.abs(dy) >= Math.abs(dx)) { s.axis = 'y'; return }  // scroll vertical → soltar
+      // Movimiento vertical dominante → es scroll: cerramos el tachito y soltamos.
+      if (Math.abs(dy) > 8 && Math.abs(dy) >= Math.abs(dx)) {
+        s.axis = 'y'; s.active = false; setDragging(false); if (revealW) setRevealW(0); return
+      }
       if (Math.abs(dx) > 8) { s.axis = 'x'; setDragging(true) }
     }
     if (s.axis !== 'x') return
-    setSwipeX(Math.max(-SWIPE_MAX, Math.min(0, s.base + dx)))
+    // Swipe a la izquierda (dx < 0) revela; a la derecha lo cierra. Tope: 1/4.
+    setRevealW(Math.max(0, Math.min(s.maxW, s.base - dx)))
   }
   const onCardTouchEnd = () => {
     const s = swipe.current
     s.active = false
-    if (s.axis === 'x') { setDragging(false); setSwipeX(swipeX <= -SWIPE_TRIGGER ? -SWIPE_MAX : 0) }
+    // Al soltar: si pasó ~40% del ancho máximo, queda abierto (1/4) para poder
+    // tocar el tachito; si no, se cierra.
+    if (s.axis === 'x') { setDragging(false); setRevealW(revealW >= s.maxW * 0.4 ? s.maxW : 0) }
   }
-  const swiped = swipeX !== 0
-  const swipeStyle: React.CSSProperties = (swiped || dragging)
-    ? { transform: `translateX(${swipeX}px)`, transition: dragging ? 'none' : 'transform 0.2s ease-out' }
-    : {}
+  const revealOpen = revealW > 0
+  // Mientras el tachito esté abierto, cualquier scroll (seguir bajando) lo cierra.
+  useEffect(() => {
+    if (!revealOpen) return
+    const close = () => setRevealW(0)
+    window.addEventListener('scroll', close, true)
+    return () => window.removeEventListener('scroll', close, true)
+  }, [revealOpen])
 
   return (
-    // Wrapper relativo + recortado: contiene el botón de eliminar que vive
-    // DETRÁS de la tarjeta y se revela cuando ésta se desliza a la izquierda.
-    <div className="relative overflow-hidden rounded-2xl">
-      {/* Botón eliminar — detrás de la tarjeta, anclado a la derecha. Solo es
-          accesible cuando la tarjeta está deslizada (si no, queda tapado y
-          fuera del tab order). */}
-      <button
-        data-interactive
-        onClick={() => { deleteTask(task.id); setSwipeX(0) }}
-        tabIndex={swiped ? 0 : -1}
-        aria-hidden={!swiped}
-        title="Eliminar tarea"
-        className="absolute inset-y-0 right-0 flex flex-col items-center justify-center gap-0.5 bg-red-600 active:bg-red-700 text-white text-[11px] font-semibold"
-        style={{ width: SWIPE_MAX }}
-      >
-        <Trash2 className="w-4 h-4" />
-        Eliminar
-      </button>
-
+    // Wrapper relativo + recortado: contiene la tarjeta y, POR ENCIMA, el
+    // tachito rojo que se revela al deslizar. `ref` para medir el ancho (1/4).
+    <div ref={cardWrapRef} className="relative overflow-hidden rounded-2xl">
     {/* Plain <div> — was a motion.div but Framer Motion's `onDragStart` /
     // `onDrag` typings clash with HTML5 drag-and-drop. We weren't using any
     // animation props here (no initial/animate/whileHover/etc), so dropping
@@ -419,10 +411,8 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
         boxShadow: `inset 0 0 0 1px var(--card-inset), 0 1px 2px rgba(0,0,0,0.3)`,
         opacity: isDone ? 0.55 : 1,
         // `pan-y`: el browser maneja el scroll vertical, el pan horizontal
-        // (swipe) nos llega a nosotros. `relative` para apilar sobre el botón.
+        // (swipe) nos llega a estos handlers. La tarjeta NO se mueve.
         touchAction: 'pan-y',
-        position: 'relative',
-        ...swipeStyle,
       }}
       className={`rounded-2xl transition-all overflow-hidden ${dndClass}`}
     >
@@ -433,9 +423,9 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
       <div
         className="relative p-4 cursor-pointer group/card"
         onClick={(e) => {
-          // Si la tarjeta está deslizada (botón eliminar visible), un tap
-          // primero la CIERRA en vez de abrir el detalle.
-          if (swiped) { setSwipeX(0); return }
+          // Si el tachito está abierto, un tap en la tarjeta lo CIERRA en vez
+          // de abrir el detalle (cualquier cosa que no sea el tachito → cerrar).
+          if (revealOpen) { setRevealW(0); return }
           // Don't trigger if user clicked an interactive element (they handle their own clicks with stopPropagation)
           if ((e.target as HTMLElement).closest('[data-interactive]')) return
           onClick()
@@ -939,6 +929,25 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
         />
       )}
     </div>
+
+      {/* Tachito rojo — POR ENCIMA de la tarjeta, anclado a la derecha. Su
+          ancho = lo que deslizaste (tope 1/4). Tocarlo borra; cualquier otra
+          cosa lo cierra. Mientras está casi cerrado no intercepta toques. */}
+      <button
+        data-interactive
+        onClick={(e) => { e.stopPropagation(); deleteTask(task.id); setRevealW(0) }}
+        aria-hidden={!revealOpen}
+        tabIndex={revealOpen ? 0 : -1}
+        title="Eliminar tarea"
+        className="absolute top-0 right-0 bottom-0 z-10 flex items-center justify-center bg-red-600 active:bg-red-700 text-white overflow-hidden rounded-r-2xl"
+        style={{
+          width: revealW,
+          transition: dragging ? 'none' : 'width 0.18s ease-out',
+          pointerEvents: revealW > 6 ? 'auto' : 'none',
+        }}
+      >
+        <Trash2 className="w-5 h-5 shrink-0" />
+      </button>
     </div>
   )
 }
