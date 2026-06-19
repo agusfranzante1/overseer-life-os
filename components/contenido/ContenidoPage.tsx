@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Sparkles, Target, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Plus, Trash2, X, BookOpen, Layers, Zap, Pencil, Send, Check,
-  Image as ImageIcon, Upload, Loader2,
+  Image as ImageIcon, Upload, Loader2, Archive,
 } from 'lucide-react'
 import { useContentStore, buildAIContentPrompt } from '@/lib/store/contentStore'
 import { useAppStore } from '@/lib/store/appStore'
@@ -19,7 +19,7 @@ import type {
 } from '@/types/content'
 import { uploadVisualImage, deleteVisualImage } from '@/lib/content/visualUpload'
 
-type Tab = 'estrategia' | 'mes' | 'calendario' | 'pipeline' | 'estilo'
+type Tab = 'estrategia' | 'mes' | 'calendario' | 'pipeline' | 'estilo' | 'baul'
 
 const ALL_NETWORKS: ContentNetwork[] = [
   'instagram', 'tiktok', 'youtube', 'linkedin', 'x',
@@ -59,6 +59,7 @@ const TAB_DEFS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: 'calendario',  label: 'Calendario',     icon: <CalendarIcon className="w-3.5 h-3.5" /> },
   { key: 'pipeline',    label: 'Pipeline',       icon: <Layers className="w-3.5 h-3.5" /> },
   { key: 'estilo',      label: 'Estilo visual',  icon: <ImageIcon className="w-3.5 h-3.5" /> },
+  { key: 'baul',        label: 'Baúl',           icon: <Archive className="w-3.5 h-3.5" /> },
 ]
 const DEFAULT_TAB_ORDER: Tab[] = TAB_DEFS.map((t) => t.key)
 
@@ -150,6 +151,11 @@ export function ContenidoPage() {
         {tab === 'estilo' && (
           <motion.div key="t5" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <EstiloVisualTab />
+          </motion.div>
+        )}
+        {tab === 'baul' && (
+          <motion.div key="t6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <BaulTab />
           </motion.div>
         )}
       </AnimatePresence>
@@ -2080,6 +2086,41 @@ function KnowledgeMapField({
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ───────────────────────────────────────────────────────────────────
+// BAÚL — caja de texto libre por perfil. Para ir tirando links de videos,
+// referencias, ideas y cosas importantes del canal que quieras guardar.
+// Se guarda en el perfil (sincroniza multi-device por payload, sin migración).
+// ───────────────────────────────────────────────────────────────────
+function BaulTab() {
+  const currentProfileId = useContentStore((s) => s.currentProfileId)
+  const profile = useContentStore((s) => s.profiles.find((p) => p.id === s.currentProfileId))
+  const updateProfile = useContentStore((s) => s.updateProfile)
+  const value = profile?.baul ?? ''
+
+  if (!profile) {
+    return <p className="text-sm text-zinc-500">Elegí un perfil para abrir su baúl.</p>
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="text-xs text-zinc-500">
+          Baúl de <span className="font-semibold" style={{ color: profile.color }}>{profile.name}</span> —
+          pegá links de videos, referencias, ideas y cualquier cosa importante del canal. Se guarda solo y sincroniza entre dispositivos.
+        </p>
+        <span className="text-[10px] font-mono text-zinc-600 ml-auto">{value.length} car.</span>
+      </div>
+      <textarea
+        value={value}
+        onChange={(e) => updateProfile(currentProfileId, { baul: e.target.value })}
+        placeholder={'Ej.:\nhttps://youtube.com/...  → buena edición de cortes\nIdea de serie: "errores que cometí"\nReferencia de thumbnail: ...'}
+        className="w-full min-h-[72vh] bg-zinc-900 border border-white/[0.10] rounded-2xl p-4 text-sm text-zinc-200 leading-relaxed placeholder:text-zinc-600 focus:outline-none focus:border-violet-500 resize-y"
+        spellCheck={false}
+      />
     </div>
   )
 }

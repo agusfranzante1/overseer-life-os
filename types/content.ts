@@ -102,6 +102,9 @@ export interface ContentProfile {
    *  referencia ("Estilo videos", "Estilo portadas", …). Opcional para
    *  back-compat con perfiles creados antes de la feature. */
   visualStyle?: VisualStyleCategory[]
+  /** Baúl — caja de texto libre por perfil para guardar links de videos,
+   *  referencias, ideas y cosas importantes del canal. Opcional. */
+  baul?: string
   createdAt: string
 }
 
