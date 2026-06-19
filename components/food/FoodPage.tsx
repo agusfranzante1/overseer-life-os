@@ -35,17 +35,20 @@ export function FoodPage() {
   const [tab, setTab] = useState<Tab>('compras')
 
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="p-6 space-y-6">
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="p-3 sm:p-6 space-y-5 sm:space-y-6 overflow-x-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <Utensils className="w-5 h-5 text-emerald-400" />
+            <Utensils className="w-5 h-5 text-emerald-400 shrink-0" />
             {t('food.title')}
           </h1>
           <p className="text-sm text-zinc-500 mt-0.5">{t('food.subtitle')}</p>
         </div>
-        <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
+        {/* Tabs — en mobile ocupan el ancho completo en grilla 2×2 (antes la
+            fila de 4 tabs era más ancha que la pantalla y hacía que toda la
+            página se moviera para el costado). En desktop vuelve la fila. */}
+        <div className="grid grid-cols-2 w-full gap-1 sm:flex sm:w-auto sm:gap-0 items-stretch bg-zinc-900 border border-zinc-800 rounded-lg p-1 sm:p-0.5">
           {(['compras','gastos','dieta','alimentos'] as Tab[]).map((tabId) => {
             const Icon =
               tabId === 'dieta' ? Utensils :
@@ -54,10 +57,10 @@ export function FoodPage() {
               Wallet
             return (
               <button key={tabId} onClick={() => setTab(tabId)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                className={`flex items-center justify-center sm:justify-start gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
                   tab === tabId ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-200'
                 }`}>
-                <Icon className="w-3.5 h-3.5" /> {t(`food.tabs.${tabId}`)}
+                <Icon className="w-3.5 h-3.5 shrink-0" /> {t(`food.tabs.${tabId}`)}
               </button>
             )
           })}
