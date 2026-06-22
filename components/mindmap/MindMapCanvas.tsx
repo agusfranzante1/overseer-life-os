@@ -3,7 +3,7 @@ import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight, ZoomIn, ZoomOut, Square, Circle, Type, Copy } from 'lucide-react'
 import {
   useMindMapStore, NODE_PALETTE,
-  type MindMapNode, type MindMapEdgeShape, type MindMapNodeShape,
+  type MindMapNode, type MindMapEdge, type MindMapEdgeShape, type MindMapNodeShape,
 } from '@/lib/store/mindmapStore'
 import {
   buildEdgePath, computeEdgeEndpoints, computeDrawingEndpoints, computeEdgeBreakpoints,
@@ -49,6 +49,7 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
   const setNodeShape = useMindMapStore((s) => s.setNodeShape)
   const setNodeFontSize = useMindMapStore((s) => s.setNodeFontSize)
   const duplicateNode = useMindMapStore((s) => s.duplicateNode)
+  const pasteSubgraph = useMindMapStore((s) => s.pasteSubgraph)
 
   // Selection — either a node or an edge.
   // Selection model:
@@ -115,6 +116,8 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
   // Hover (one node at a time) — drives the "+" connector affordance.
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
+  // Feedback efímero al copiar (Ctrl+C) — muestra "Copiado N nodos" un rato.
+  const [copyFlash, setCopyFlash] = useState<string | null>(null)
 
   // Drawing mode: an in-progress edge that follows the cursor. While
   // `drawingFromId` is non-null, the canvas tracks the cursor position
@@ -287,6 +290,52 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [selection, selectedNodeIds, drawingFromId, mapId, removeNode, removeEdge])
+
+  // Copiar / Pegar (Ctrl/Cmd + C / V) — copia los nodos seleccionados MÁS las
+  // líneas internas (edges con ambos extremos seleccionados) a un "portapapeles"
+  // en localStorage, así se puede pegar en OTRO mapa (sobrevive la navegación y
+  // el reload). Pegar genera ids nuevos, remapea las líneas y selecciona lo
+  // pegado para que puedas moverlo enseguida.
+  useEffect(() => {
+    const CLIP_KEY = 'overseer-mindmap-clipboard'
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return
+      const target = e.target as HTMLElement | null
+      // Si estás editando texto, dejá que Ctrl+C/V actúen sobre el texto.
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+      const key = e.key.toLowerCase()
+
+      if (key === 'c') {
+        if (!map || selectedNodeIds.length === 0) return
+        e.preventDefault()
+        const idset = new Set(selectedNodeIds)
+        const nodes = map.nodes.filter((n) => idset.has(n.id))
+        const edges = map.edges.filter((ed) => idset.has(ed.fromNodeId) && idset.has(ed.toNodeId))
+        try {
+          localStorage.setItem(CLIP_KEY, JSON.stringify({ nodes, edges, copiedAt: Date.now() }))
+          setCopyFlash(`Copiado: ${nodes.length} nodo${nodes.length === 1 ? '' : 's'}${edges.length ? ` · ${edges.length} línea${edges.length === 1 ? '' : 's'}` : ''}`)
+          setTimeout(() => setCopyFlash(null), 1500)
+        } catch { /* quota / privacidad — best-effort */ }
+        return
+      }
+
+      if (key === 'v') {
+        let payload: { nodes?: MindMapNode[]; edges?: MindMapEdge[] } | null = null
+        try { payload = JSON.parse(localStorage.getItem(CLIP_KEY) || 'null') } catch { payload = null }
+        if (!payload || !Array.isArray(payload.nodes) || payload.nodes.length === 0) return
+        e.preventDefault()
+        const newIds = pasteSubgraph(mapId, { nodes: payload.nodes, edges: payload.edges ?? [] })
+        if (newIds.length > 0) {
+          setSelection(null)
+          setSelectedNodeIds(newIds)
+          setCopyFlash(`Pegado: ${newIds.length} nodo${newIds.length === 1 ? '' : 's'}`)
+          setTimeout(() => setCopyFlash(null), 1500)
+        }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [map, selectedNodeIds, mapId, pasteSubgraph])
 
   // Convert a screen-space pointer event into CONTENT coords (the same space
   // that node.x/y live in — i.e. canvas-local, minus pan, divided by zoom).
@@ -1041,11 +1090,18 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
           )
         })()}
 
+        {/* Feedback efímero de copiar/pegar (Ctrl+C / Ctrl+V). */}
+        {copyFlash && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-40 px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/50 text-emerald-200 text-xs font-semibold shadow-lg pointer-events-none">
+            {copyFlash}
+          </div>
+        )}
+
         {/* Counter de multi-selección — chip flotante arriba a la izquierda
             que muestra cuántos nodos hay seleccionados. Visible solo con 2+. */}
         {selectedNodeIds.length > 1 && (
           <div className="absolute top-14 left-3 z-30 px-2.5 py-1 rounded-lg bg-indigo-500/15 border border-indigo-500/40 text-indigo-200 text-[11px] font-mono">
-            {selectedNodeIds.length} nodos seleccionados · arrastrá uno para mover todos
+            {selectedNodeIds.length} nodos seleccionados · Ctrl+C copiar · Supr borrar
           </div>
         )}
 

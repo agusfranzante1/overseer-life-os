@@ -201,6 +201,14 @@ let lastToastAt = 0
  *  (policy/migración) y se muestra UNA vez (deduplicado). */
 function reportSyncError(message: string) {
   console.error('[sync]', message)
+  // Errores de RED transitorios (sin conexión / fetch abortado): NO son
+  // accionables por el usuario y se reintentan solos en el próximo ciclo
+  // (los cambios locales quedan marcados como unsynced, no se pierden). No
+  // alarmamos con un toast rojo — solo log. En iOS Safari el texto es
+  // "Load failed"; en Chrome "Failed to fetch".
+  if (/load failed|failed to fetch|networkerror|network request failed|err_network|the network connection was lost|connection appears to be offline/i.test(message)) {
+    return
+  }
   if (/row-level security|unauthorized|jwt|\b401\b|not authenticated/i.test(message)) {
     void (async () => {
       const ok = await ensureSession()
@@ -3007,6 +3015,10 @@ export function useSupabaseSync() {
     // pagehide es más confiable que beforeunload en iOS Safari y se
     // dispara también cuando el user va al app switcher. Mismo flush.
     const onPageHide = () => { void flushAllPendingPushes() }
+    // Al RECUPERAR conexión: reintentar el sync enseguida (bypass del throttle
+    // de 30s). Así, si un push falló por "Load failed" (red caída), apenas
+    // vuelve internet se sube solo, sin esperar ni que el user haga nada.
+    const onOnline = () => { lastPullAt = 0; void tryAutoPull(); void flushAllPendingPushes() }
 
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', onVisibilityChange)
@@ -3014,6 +3026,7 @@ export function useSupabaseSync() {
     if (typeof window !== 'undefined') {
       window.addEventListener('focus', onFocus)
       window.addEventListener('pagehide', onPageHide)
+      window.addEventListener('online', onOnline)
     }
 
     return () => {
@@ -3025,6 +3038,7 @@ export function useSupabaseSync() {
       if (typeof window !== 'undefined') {
         window.removeEventListener('focus', onFocus)
         window.removeEventListener('pagehide', onPageHide)
+        window.removeEventListener('online', onOnline)
       }
     }
   }, [])

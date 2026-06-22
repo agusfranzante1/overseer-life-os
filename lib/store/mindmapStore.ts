@@ -101,6 +101,16 @@ interface MindMapState {
    *  exist). Edges are NOT copied — too easy to accidentally clone a
    *  whole subgraph; the user can wire connections explicitly. */
   duplicateNode: (mapId: string, nodeId: string) => string | null
+  /** Pega un subgrafo (nodos + edges internas) en un mapa: genera ids nuevos,
+   *  remapea las edges a esos ids, y offsetea posiciones (y bend/anchors) por
+   *  (dx,dy) para que no caigan exactamente encima. Preserva la estructura
+   *  relativa "tal cual estaba". Devuelve los ids de los nodos nuevos (para
+   *  seleccionarlos tras pegar). Sirve para copiar/pegar ENTRE mapas. */
+  pasteSubgraph: (
+    mapId: string,
+    payload: { nodes: MindMapNode[]; edges: MindMapEdge[] },
+    offset?: { dx: number; dy: number },
+  ) => string[]
 
   // Edge CRUD
   addEdge: (mapId: string, fromNodeId: string, toNodeId: string) => string | null
@@ -216,6 +226,43 @@ export const useMindMapStore = create<MindMapState>()(
           })
         }),
       })),
+
+      pasteSubgraph: (mapId, payload, offset = { dx: 40, dy: 40 }) => {
+        const srcNodes = Array.isArray(payload?.nodes) ? payload.nodes : []
+        if (srcNodes.length === 0) return []
+        const srcEdges = Array.isArray(payload?.edges) ? payload.edges : []
+        // old id → new id, para remapear las edges al subgrafo recién pegado.
+        const idMap = new Map<string, string>()
+        const newNodes: MindMapNode[] = srcNodes.map((n) => {
+          const newId = genId()
+          idMap.set(n.id, newId)
+          return { ...n, id: newId, x: (n.x ?? 0) + offset.dx, y: (n.y ?? 0) + offset.dy }
+        })
+        const newEdges: MindMapEdge[] = srcEdges
+          // Solo edges cuyos DOS extremos están en el subgrafo copiado.
+          .filter((e) => idMap.has(e.fromNodeId) && idMap.has(e.toNodeId))
+          .map((e) => {
+            const ne: MindMapEdge = {
+              ...e,
+              id: genId(),
+              fromNodeId: idMap.get(e.fromNodeId)!,
+              toNodeId: idMap.get(e.toNodeId)!,
+            }
+            // bend/anchors viven en coords de content → offsetear igual que los nodos.
+            if (e.bend) ne.bend = { x: e.bend.x + offset.dx, y: e.bend.y + offset.dy }
+            if (e.fromAnchor) ne.fromAnchor = { x: e.fromAnchor.x + offset.dx, y: e.fromAnchor.y + offset.dy }
+            if (e.toAnchor) ne.toAnchor = { x: e.toAnchor.x + offset.dx, y: e.toAnchor.y + offset.dy }
+            return ne
+          })
+        set((s) => ({
+          maps: s.maps.map((m) => m.id !== mapId ? m : touch({
+            ...m,
+            nodes: [...m.nodes, ...newNodes],
+            edges: [...m.edges, ...newEdges],
+          })),
+        }))
+        return newNodes.map((n) => n.id)
+      },
 
       addEdge: (mapId, fromNodeId, toNodeId) => {
         if (fromNodeId === toNodeId) return null
