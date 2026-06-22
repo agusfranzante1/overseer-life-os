@@ -146,15 +146,82 @@ export async function flushAllPendingPushes(): Promise<void> {
   })))
 }
 
-/** Surface a sync failure to the user. Previously these were `console.error`
- *  only — invisible unless devtools were open. Now we ALSO fire a browser
- *  CustomEvent the UI subscribes to (see `useSyncErrors` hook) so users get
- *  a real toast and can fix the underlying issue (usually a missing migration). */
-function reportSyncError(message: string) {
-  console.error('[sync]', message)
+// ─── Sesión vencida ───────────────────────────────────────────────────────────
+// Cuando el token de Supabase caduca (típico tras horas en background, sobre
+// todo en mobile) y no logra refrescarse, TODAS las escrituras rebotan con 401 /
+// RLS. Antes eso spameaba un toast por tabla ("error error error") y el usuario
+// no sabía que en realidad tenía que re-loguear. Ahora:
+//   - antes de cada ciclo de sync refrescamos/validamos la sesión (ensureSession),
+//   - si está realmente muerta, cerramos sesión sola UNA vez y avisamos con un
+//     CTA para reingresar (handleSessionExpired),
+//   - y deduplicamos los toasts para que nunca sea una cascada.
+let authExpiredHandled = false
+
+/** Hay sesión válida? `getSession()` refresca el access token si está vencido
+ *  pero el refresh token sigue vivo. Sincroniza state.userId con el resultado. */
+async function ensureSession(): Promise<boolean> {
+  try {
+    const sb = getSupabaseBrowser()
+    const { data: { session } } = await sb.auth.getSession()
+    state.userId = session?.user?.id ?? null
+    return !!session
+  } catch {
+    return false
+  }
+}
+
+/** Sesión muerta (no refrescable): cancela pushes pendientes, limpia el userId,
+ *  cierra sesión y avisa UNA sola vez con botón para reingresar. Idempotente. */
+async function handleSessionExpired(): Promise<void> {
+  if (authExpiredHandled) return
+  authExpiredHandled = true
+  for (const [, timer] of pendingPushes) clearTimeout(timer)
+  pendingPushes.clear()
+  state.userId = null
   if (typeof window !== 'undefined') {
     try {
-      window.dispatchEvent(new CustomEvent('overseer-sync-error', { detail: { message, at: Date.now() } }))
+      window.dispatchEvent(new CustomEvent('overseer-sync-error', {
+        detail: {
+          message: 'Tu sesión expiró. Volvé a iniciar sesión para seguir sincronizando.',
+          action: { label: 'Volver a entrar', href: '/login' },
+          at: Date.now(),
+        },
+      }))
+    } catch { /* noop */ }
+  }
+  try { await getSupabaseBrowser().auth.signOut() } catch { /* noop */ }
+}
+
+let lastToastMsg = ''
+let lastToastAt = 0
+
+/** Surface a sync failure to the user. Si el error huele a auth (401 / RLS / JWT)
+ *  y la sesión está muerta, cierra sesión sola en vez de mostrar el toast
+ *  engañoso de "falta migración". Si la sesión está viva, es un problema real
+ *  (policy/migración) y se muestra UNA vez (deduplicado). */
+function reportSyncError(message: string) {
+  console.error('[sync]', message)
+  if (/row-level security|unauthorized|jwt|\b401\b|not authenticated/i.test(message)) {
+    void (async () => {
+      const ok = await ensureSession()
+      if (!ok) { await handleSessionExpired(); return }
+      surfaceSyncToast(message)
+    })()
+    return
+  }
+  surfaceSyncToast(message)
+}
+
+/** Dispara el toast global, deduplicando ráfagas del mismo mensaje (8s) para
+ *  que un fallo masivo no llene la pantalla de carteles. */
+function surfaceSyncToast(message: string) {
+  const now = Date.now()
+  if (message === lastToastMsg && now - lastToastAt < 8000) return
+  lastToastMsg = message
+  lastToastAt = now
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(new CustomEvent('overseer-sync-error', { detail: { message, at: now } }))
     } catch { /* noop */ }
   }
 }
@@ -2800,6 +2867,7 @@ export function useSupabaseSync() {
       const { data: { user } } = await sb.auth.getUser()
       if (!mounted) return
       state.userId = user?.id ?? null
+      if (user) authExpiredHandled = false
       state.ready = true
       await initAllDomains()
     })()
@@ -2844,6 +2912,9 @@ export function useSupabaseSync() {
       const newId = session?.user?.id ?? null
       if (newId === state.userId) return
       state.userId = newId
+      // Nuevo login → rehabilitamos el manejo de "sesión vencida" para la
+      // próxima vez que caduque (si no, tras un re-login no volvería a avisar).
+      if (newId) authExpiredHandled = false
       state.tasksInit = false
       state.walletInit = false
       state.tradingInit = false
@@ -2884,6 +2955,11 @@ export function useSupabaseSync() {
       const now = Date.now()
       if (now - lastPullAt < PULL_THROTTLE_MS) return
       lastPullAt = now
+
+      // Validar/refrescar la sesión ANTES de sincronizar. Si el token venció
+      // en background, getSession lo renueva → el sync usa un token válido y
+      // no caen 401. Si está muerto (no refrescable) → cerramos sesión sola.
+      if (!(await ensureSession())) { await handleSessionExpired(); return }
 
       // Resetear init flags así initAllDomains corre las pulls de nuevo.
       // Si hay cambios locales pendientes, push-first los sube primero
