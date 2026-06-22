@@ -1122,11 +1122,14 @@ export const useTasksStore = create<TasksState>()(
               if (st.archivedAt) return st
               if (!st.completed || !st.completedAt) return st
               const stKey = dateKeyInTz(new Date(st.completedAt), timezone)
-              // Subtask con dueDate + dueTime → aparece en el calendario
-              // → espera al fin de semana.
+              // Subtask con dueDate + dueTime → aparece en el calendario.
+              // Deadline = domingo de la semana de su dueDate (la semana en que
+              // fue bloque y en la que el snapshot la necesita), NO la semana en
+              // que se completó. Así un bloque viejo que marcás hecho hoy se
+              // archiva en la próxima pasada, no una semana después.
               const subIsTimed = !!st.dueDate && !!st.dueTime
               const ready = subIsTimed
-                ? endOfWeekKey(stKey) < todayKey
+                ? endOfWeekKey(st.dueDate!) < todayKey
                 : stKey < todayKey
               if (!ready) return st
               archived++
@@ -1146,8 +1149,12 @@ export const useTasksStore = create<TasksState>()(
               if (statusDef?.countsAsDone && t.completedAt) {
                 const completedKey = dateKeyInTz(new Date(t.completedAt), timezone)
                 const taskIsTimed = !!t.dueDate && !!t.dueTime
+                // Bloque calendarizado → deadline = domingo de la semana de su
+                // dueDate (no la de completado). Un bloque de una semana pasada
+                // que completás hoy (p.ej. para limpiarlo) se archiva en la
+                // próxima pasada, en vez de quedarse otra semana entera.
                 const ready = taskIsTimed
-                  ? endOfWeekKey(completedKey) < todayKey
+                  ? endOfWeekKey(t.dueDate!) < todayKey
                   : completedKey < todayKey
                 if (ready) {
                   tasks[t.id] = { ...t, subtasks: updatedSubs, archivedAt: nowIso }

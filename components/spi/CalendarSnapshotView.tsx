@@ -47,8 +47,21 @@ export function CalendarSnapshotView({ snapshot, onClose }: Props) {
   const { timedByDay, allDayByDay } = useMemo(() => {
     const timed = new Map<string, typeof snapshot.blocks>()
     const allDay = new Map<string, typeof snapshot.blocks>()
+    const pad = (n: number) => String(n).padStart(2, '0')
     for (const b of snapshot.blocks) {
-      const key = b.start.slice(0, 10)
+      // Clave por día LOCAL. Para los bloques timed, b.start es ISO en UTC:
+      // si agrupábamos por b.start.slice(0,10) (fecha UTC), las tareas de la
+      // tarde/noche —que en UTC-3 caen al día siguiente en UTC— quedaban en
+      // la columna equivocada, y las del domingo a la noche se perdían (UTC
+      // las manda al lunes, fuera de la semana). Convertimos a fecha local.
+      // Los all-day guardan b.start como 'YYYY-MM-DD' local → se usa tal cual.
+      let key: string
+      if (b.isAllDay) {
+        key = b.start.slice(0, 10)
+      } else {
+        const dt = new Date(b.start)
+        key = `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`
+      }
       const target = b.isAllDay ? allDay : timed
       if (!target.has(key)) target.set(key, [])
       target.get(key)!.push(b)
