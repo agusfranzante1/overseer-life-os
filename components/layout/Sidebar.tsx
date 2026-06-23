@@ -279,7 +279,7 @@ export function Sidebar({
               filter: 'blur(8px)',
             }}
           />
-          <Image src="/logo.png" alt="Overseer" width={30} height={30} className="rounded-lg relative z-10" />
+          <Image src="/eye-v3.png" alt="Overseer" width={34} height={34} className="relative z-10" />
         </motion.button>
         {showLabels && (
           <>

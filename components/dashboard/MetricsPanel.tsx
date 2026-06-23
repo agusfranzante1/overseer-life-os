@@ -32,7 +32,7 @@ const SUBJECTIVE_KEYS: (keyof MetricEntry)[] = [
   'wakeTime',
 ]
 
-export function MetricsPanel() {
+export function MetricsPanel({ compact = false }: { compact?: boolean } = {}) {
   const { t } = useTranslation()
   const snapshots = useHealthStore((s) => s.snapshots)
   const baseline = useHealthStore((s) => s.baseline)
@@ -64,7 +64,7 @@ export function MetricsPanel() {
 
   return (
     <div>
-      <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3 flex items-center justify-between">
+      <h2 className={`text-xs font-semibold text-zinc-500 uppercase tracking-wider flex items-center justify-between ${compact ? 'mb-2' : 'mb-3'}`}>
         <span>{t('dashboard.metrics')}</span>
         {today?.syncedAt && (
           <span className="text-[9px] text-zinc-600 font-mono normal-case tracking-normal">
@@ -72,7 +72,7 @@ export function MetricsPanel() {
           </span>
         )}
       </h2>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className={`grid grid-cols-2 ${compact ? 'md:grid-cols-6 gap-2' : 'md:grid-cols-4 gap-3'}`}>
         {/* Auto-synced from Band → Apple Health */}
         <AutoMetricCard
           label="Energía"

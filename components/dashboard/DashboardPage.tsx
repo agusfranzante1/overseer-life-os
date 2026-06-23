@@ -2,21 +2,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { useAppStore } from '@/lib/store/appStore'
-import { useHabitsStore } from '@/lib/store/habitsStore'
-import { useTasksStore } from '@/lib/store/tasksStore'
 import { getSupabaseBrowser } from '@/lib/supabase/client'
-import { DayRing } from './DayRing'
-import { GoalTicker } from './GoalTicker'
 import { MetricsPanel } from './MetricsPanel'
-import { DayTypeSelector } from './DayTypeSelector'
-import { TodayTaskList } from './TodayTaskList'
-import { TomorrowPlanBlock } from './TomorrowPlanBlock'
-import { QuickActions } from './QuickActions'
 import { IdealScheduleCard } from './IdealScheduleCard'
-import { DailyGoals } from './DailyGoals'
-import { FavoritesPanel } from './FavoritesPanel'
+import { DailyPriorities } from './DailyPriorities'
+import { DailyAgendaCard } from './DailyAgendaCard'
 import { format } from 'date-fns'
-import { GripVertical, LayoutGrid, RotateCcw, Check, Eye, EyeOff, Battery, Activity, Flame } from 'lucide-react'
+import { GripVertical, LayoutGrid, RotateCcw, Check, Eye, EyeOff } from 'lucide-react'
 
 function getGreeting(hour: number): string {
   if (hour < 12) return 'Buenos días'
@@ -48,51 +40,24 @@ interface WidgetDef {
 
 const WIDGETS: WidgetDef[] = [
   {
-    id: 'goal-ticker',
-    label: 'Goal Ticker',
-    render: () => <GoalTicker />,
+    id: 'day-metrics',
+    label: 'Métricas diarias',
+    render: () => <MetricsPanel compact />,
   },
   {
-    id: 'day-ring-metrics',
-    label: 'Day Ring + Métricas',
-    render: () => (
-      <div className="grid grid-cols-1 lg:grid-cols-[200px_1fr] gap-5 items-start">
-        <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 flex items-center justify-center shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-          <DayRing />
-        </div>
-        <MetricsPanel />
-      </div>
-    ),
+    id: 'daily-priorities',
+    label: '⚡ Prioridades de hoy',
+    render: () => <DailyPriorities />,
   },
   {
-    id: 'quick-actions',
-    label: 'Acciones rápidas',
-    render: () => <QuickActions />,
-  },
-  {
-    id: 'daily-goals',
-    label: 'Objetivos diarios',
-    render: () => <DailyGoals />,
-  },
-  {
-    id: 'tasks',
-    label: 'Tareas — Hoy + Mañana',
-    render: () => (
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-        <TodayTaskList />
-        <TomorrowPlanBlock />
-      </div>
-    ),
+    id: 'daily-view',
+    label: 'Tu día · agenda',
+    render: () => <DailyAgendaCard />,
   },
   {
     id: 'ideal-schedule',
     label: 'Horarios ideales',
     render: () => <IdealScheduleCard />,
-  },
-  {
-    id: 'favorites',
-    label: 'Favoritos · links rápidos',
-    render: () => <FavoritesPanel />,
   },
 ]
 
@@ -146,24 +111,6 @@ export function DashboardPage() {
     })()
     return () => { cancelled = true }
   }, [])
-
-  // Stats de los chips superiores — % de hábitos de hoy + tareas pendientes.
-  const habitsTodayPct = useHabitsStore((s) => {
-    const today = new Date()
-    const dateKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-    const dow = today.getDay()
-    // Hábitos esperados hoy: si targetDays está vacío → todos los días.
-    const expected = s.habits.filter((h) => {
-      const tgt = h.targetDays
-      return !tgt || tgt.length === 0 || tgt.includes(dow)
-    }).filter((h) => !h.skippedDates?.includes(dateKey))
-    if (expected.length === 0) return null
-    const done = expected.filter((h) => h.completedDates.includes(dateKey)).length
-    return Math.round((done / expected.length) * 100)
-  })
-  const tasksOpenCount = useTasksStore((s) => {
-    return Object.values(s.tasks).filter((t) => !t.archivedAt && !t.completedAt).length
-  })
 
   const [order, setOrder] = useState<string[]>(DEFAULT_ORDER)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
@@ -251,55 +198,29 @@ export function DashboardPage() {
         `,
       }}
     >
-      {/* Header — mockup style: chips arriba pequeños, saludo MUY
-          grande (text-5xl), subtítulo gris fino, día type chips a la
-          derecha + botón reordenar. */}
-      <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-6">
-        <div className="space-y-3 flex-1 min-w-0">
-          {/* Status chips — pill pequeño con icono + label, glass sutil */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="inline-flex items-center gap-1.5 text-[12px] text-zinc-300 bg-white/[0.04] border border-white/[0.08] rounded-full px-3 py-1">
-              <Flame className="w-3 h-3 text-orange-400" /> {tasksOpenCount} tareas
-            </span>
-            <span className="inline-flex items-center gap-1.5 text-[12px] text-zinc-400 bg-white/[0.04] border border-white/[0.08] rounded-full px-3 py-1">
-              <Battery className="w-3 h-3 text-zinc-500" /> {dateStr}
-            </span>
-            {habitsTodayPct !== null && (
-              <span className="inline-flex items-center gap-1.5 text-[12px] text-zinc-300 bg-white/[0.04] border border-white/[0.08] rounded-full px-3 py-1">
-                <Activity className="w-3 h-3 text-emerald-400" /> {habitsTodayPct}%
-              </span>
-            )}
-          </div>
-          {/* Saludo MUY grande — 5xl-6xl bold tight tracking, dos líneas */}
-          <h1 className="text-5xl md:text-6xl font-bold text-white tracking-tight leading-[1.02]">
-            {greeting},
-            <br />
-            {displayName}
+      {/* Header — limpio: solo fecha + saludo chico a la izquierda y el
+          botón reordenar a la derecha. Sin chips de stats, sin Goal bar,
+          sin Day Type. */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-[12px] text-zinc-500 capitalize mb-0.5">{dateStr}</p>
+          <h1 className="text-xl font-semibold text-white tracking-tight truncate">
+            {greeting}, {displayName}
           </h1>
-          <p className="text-sm text-zinc-500 max-w-md">
-            Que tengas un buen día. Tu sistema te espera.
-          </p>
         </div>
-        <div className="flex flex-col items-end gap-3 shrink-0">
-          {/* Day type label arriba a la derecha como el mockup */}
-          <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-zinc-500">Day Type</p>
-          <div className="flex items-center gap-2 flex-wrap justify-end">
-            <DayTypeSelector />
-            {/* Botón reordenar — glass sutil */}
-            <button
-              onClick={() => setEditMode((v) => !v)}
-              title={editMode ? 'Salir del modo edición' : 'Reordenar widgets'}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-medium transition-colors ${
-                editMode
-                  ? 'bg-indigo-500/20 border border-indigo-400/40 text-indigo-200'
-                  : 'bg-white/[0.04] border border-white/[0.08] text-zinc-300 hover:text-white hover:bg-white/[0.06]'
-              }`}
-            >
-              {editMode ? <Check className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
-              {editMode ? 'Listo' : 'Reordenar'}
-            </button>
-          </div>
-        </div>
+        {/* Botón reordenar — glass sutil */}
+        <button
+          onClick={() => setEditMode((v) => !v)}
+          title={editMode ? 'Salir del modo edición' : 'Reordenar widgets'}
+          className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-medium transition-colors ${
+            editMode
+              ? 'bg-indigo-500/20 border border-indigo-400/40 text-indigo-200'
+              : 'bg-white/[0.04] border border-white/[0.08] text-zinc-300 hover:text-white hover:bg-white/[0.06]'
+          }`}
+        >
+          {editMode ? <Check className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
+          {editMode ? 'Listo' : 'Reordenar'}
+        </button>
       </div>
 
       {/* Edit-mode toolbar */}

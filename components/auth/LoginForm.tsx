@@ -92,7 +92,7 @@ export default function LoginForm() {
         className="w-full max-w-sm"
       >
         <div className="flex items-center gap-3 justify-center mb-8">
-          <Image src="/logo.png" alt="Overseer" width={44} height={44} className="rounded-xl" priority />
+          <Image src="/eye-v3.png" alt="Overseer" width={52} height={52} priority />
           <h1 className="text-2xl font-bold text-white tracking-wider uppercase">
             Overseer
           </h1>

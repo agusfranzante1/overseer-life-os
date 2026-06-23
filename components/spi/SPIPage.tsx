@@ -1990,6 +1990,7 @@ function TasksBlock({
   }
   const sessionTasks = session.tasks ?? []
   const importantCount = sessionTasks.filter((t) => t.important).length
+  const priorityCount = sessionTasks.filter((t) => t.priority).length
   const linkedCount = sessionTasks.filter((t) => !!t.linkedTaskId).length
 
   return (
@@ -1998,12 +1999,14 @@ function TasksBlock({
         <h3 className="text-sm font-semibold text-zinc-200 flex items-center gap-2">
           ⚒️ Tareas de la semana
           <span className="text-[10px] font-mono text-zinc-500">
-            {session.tasks.length} · {importantCount} ⭐ · {linkedCount} en task manager
+            {session.tasks.length} · {importantCount} ⭐ · {priorityCount} ⚡ · {linkedCount} en task manager
           </span>
         </h3>
       </div>
       <p className="text-xs text-zinc-500 italic mb-4">
-        Listá TODAS las tareas que se te ocurran. Después marcá con ⭐ las que son tu 80/20.
+        Listá TODAS las tareas que se te ocurran. Marcá con ⭐ las que son tu 80/20, y con
+        <span className="text-violet-400 font-semibold"> ⚡</span> las <span className="text-violet-400 font-semibold">prioridades del día</span> —
+        esas aparecen como checkbox en el Panel y desbloquean tu vista diaria al completarlas.
         Al cerrar la sesión, todas se materializan en el proyecto <span className="text-fuchsia-400 font-semibold">SPI</span> del task manager.
         Podés hacer push individual antes con la flecha.
       </p>
@@ -2073,6 +2076,16 @@ function TaskRow({
           className={`shrink-0 transition-colors ${task.important ? 'text-amber-400' : 'text-zinc-700 hover:text-amber-400'}`}
         >
           <Star className={`w-4 h-4 ${task.important ? 'fill-amber-400' : ''}`} />
+        </button>
+        {/* ⚡ Prioridad del día — needle-mover. En el Panel se pide completar
+            estas tareas PRIMERO para desbloquear la vista diaria. Distinto del
+            ⭐ Pareto (alto impacto): priority = "esto va antes que nada hoy". */}
+        <button
+          onClick={() => onUpdate({ priority: !task.priority })}
+          title={task.priority ? 'Quitar de prioridades del día' : 'Marcar como prioridad del día (desbloquea el Panel)'}
+          className={`shrink-0 transition-colors ${task.priority ? 'text-violet-400' : 'text-zinc-700 hover:text-violet-400'}`}
+        >
+          <Zap className={`w-4 h-4 ${task.priority ? 'fill-violet-400' : ''}`} />
         </button>
         <input
           value={task.title}

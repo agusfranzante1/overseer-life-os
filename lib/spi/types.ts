@@ -19,6 +19,11 @@ export interface SPITask {
   /** ⭐ Pareto flag — the user marks tasks that are part of the 20% that
    *  drives 80% of the outcomes. Used for prioritization in the UI. */
   important: boolean
+  /** ⚡ Prioridad del día — needle-mover. En el Panel estas tareas aparecen
+   *  como checkboxes y se piden completar PRIMERO para desbloquear la vista
+   *  diaria (agenda + tareas de hoy). Distinto de `important` (⭐ Pareto):
+   *  Pareto = "alto impacto", priority = "esto va antes que nada hoy". */
+  priority?: boolean
   /** ISO date string (YYYY-MM-DD) — when the user plans to do it. */
   dueDate?: string
   /** "Para qué" — the purpose/why behind this task. Lives only here
