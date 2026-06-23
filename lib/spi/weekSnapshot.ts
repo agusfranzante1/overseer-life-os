@@ -7,6 +7,7 @@ import type { KPISnapshot } from '@/lib/kpi/types'
 import { useHabitsStore } from '@/lib/store/habitsStore'
 import { useKpisStore, kpiCompletionPct } from '@/lib/store/kpisStore'
 import { readKpiValue, readKpiTargetOverride } from '@/lib/kpi/sessionHelpers'
+import { calendarMondayForSpiWeek } from './calendarSnapshot'
 
 function dateToStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -20,18 +21,24 @@ export function buildWeekSnapshot(
   weekStartDate: string,
   session?: SPISession,
 ): WeekClosureSnapshot {
-  const [yStr, mStr, dStr] = weekStartDate.split('-').map(Number)
-  const sat = new Date(yStr, mStr - 1, dStr)
-  sat.setHours(0, 0, 0, 0)
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  // Pre-computamos los 7 strings de fecha Sáb→Vie de una.
+  // La semana de hábitos es LUNES→DOMINGO — la misma ventana que el snapshot
+  // del calendario y los KPIs (el SPI del sábado planifica la semana que
+  // arranca el lunes siguiente). Usamos la MISMA función que el calendario
+  // para garantizar que coincidan exactamente.
+  const mondayStr = calendarMondayForSpiWeek(weekStartDate)
+  const [my, mm, md] = mondayStr.split('-').map(Number)
+  const monday = new Date(my, mm - 1, md)
+  monday.setHours(0, 0, 0, 0)
+
+  // Pre-computamos los 7 strings de fecha Lun→Dom de una.
   const dateStrs: string[] = []
   const dateObjs: Date[] = []
   for (let i = 0; i < 7; i++) {
-    const d = new Date(sat)
-    d.setDate(sat.getDate() + i)
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + i)
     d.setHours(0, 0, 0, 0)
     dateObjs.push(d)
     dateStrs.push(dateToStr(d))

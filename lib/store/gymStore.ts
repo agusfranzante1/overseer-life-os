@@ -126,9 +126,17 @@ interface GymState {
   endSession: () => void
   cancelSession: () => void
   addExerciseToSession: (name: string, muscleGroup?: string) => WorkoutExercise | null
+  /** Saca un ejercicio de la sesión EN VIVO (no toca el histórico ni la
+   *  rutina). Para "agregué press banca y press máquina pero hoy hago solo
+   *  uno". */
+  removeExerciseFromSession: (exerciseId: string) => void
   addSetToExercise: (exerciseName: string, weight: number, reps: number, unit?: 'kg' | 'lb') => boolean
   setCurrentExercise: (name: string) => WorkoutExercise | null
   deleteSession: (id: string) => void
+  /** Vuelve a activar una sesión finalizada (la saca del histórico y la pone
+   *  como activeSession) — por si la cerraste sin querer. No hace nada si ya
+   *  hay una sesión activa. */
+  reactivateSession: (id: string) => void
 
   // Routine actions
   addRoutine: (name: string, dayLabel: string) => string
@@ -273,19 +281,50 @@ export const useGymStore = create<GymState>()(
           (e) => e.name.toLowerCase() === name.toLowerCase()
         )
         if (existing) return existing
+        const mg = muscleGroup ?? inferMuscleGroup(name)
         const exercise: WorkoutExercise = {
           id: genId(),
           name,
-          muscleGroup: muscleGroup ?? 'General',
+          muscleGroup: mg,
           sets: [],
         }
-        const updated = {
-          ...activeSession,
-          exercises: [...activeSession.exercises, exercise],
-        }
-        set({ activeSession: updated })
+        set((s) => {
+          const sess = s.activeSession
+          if (!sess) return s
+          const updatedSession = { ...sess, exercises: [...sess.exercises, exercise] }
+          // Si la sesión está atada a una rutina y este ejercicio no existe en
+          // ella, lo agregamos a la rutina automáticamente. Así, un ejercicio
+          // que sumás "sobre la marcha" queda como parte de la rutina y su
+          // progreso se trackea de ahí en más (no se pierde al cerrar).
+          let routines = s.routines
+          if (sess.routineId) {
+            routines = s.routines.map((r) => {
+              if (r.id !== sess.routineId) return r
+              if (r.exercises.some((e) => e.name.toLowerCase() === name.toLowerCase())) return r
+              return {
+                ...r,
+                exercises: [
+                  ...r.exercises,
+                  { id: genId(), name, muscleGroup: mg, targetSets: 3, targetReps: '8-12' },
+                ],
+              }
+            })
+          }
+          return { activeSession: updatedSession, routines }
+        })
         return exercise
       },
+
+      removeExerciseFromSession: (exerciseId) => set((s) => {
+        if (!s.activeSession) return s
+        const ex = s.activeSession.exercises.find((e) => e.id === exerciseId)
+        const exercises = s.activeSession.exercises.filter((e) => e.id !== exerciseId)
+        // Si era el ejercicio "actual", limpiamos el puntero para que el chat
+        // no siga cargando series a un ejercicio que ya no está.
+        const currentExerciseName =
+          ex && s.currentExerciseName === ex.name ? null : s.currentExerciseName
+        return { activeSession: { ...s.activeSession, exercises }, currentExerciseName }
+      }),
 
       addSetToExercise: (exerciseName, weight, reps, unit = 'kg') => {
         const { activeSession, currentExerciseName } = get()
@@ -341,6 +380,19 @@ export const useGymStore = create<GymState>()(
 
       deleteSession: (id) =>
         set((s) => ({ sessions: s.sessions.filter((sess) => sess.id !== id) })),
+
+      reactivateSession: (id) => set((s) => {
+        // No piso una sesión activa en curso.
+        if (s.activeSession) return s
+        const sess = s.sessions.find((x) => x.id === id)
+        if (!sess) return s
+        return {
+          sessions: s.sessions.filter((x) => x.id !== id),
+          // endedAt undefined → vuelve a estar "abierta".
+          activeSession: { ...sess, endedAt: undefined },
+          currentExerciseName: null,
+        }
+      }),
 
       addRoutine: (name, dayLabel) => {
         const id = genId()

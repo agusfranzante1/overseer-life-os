@@ -7,7 +7,7 @@ import {
   Settings2, FlaskConical, Copy, CalendarDays, RotateCcw,
 } from 'lucide-react'
 import { CalendarSnapshotView } from './CalendarSnapshotView'
-import { buildCalendarSnapshot } from '@/lib/spi/calendarSnapshot'
+import { buildCalendarSnapshot, calendarMondayForSpiWeek } from '@/lib/spi/calendarSnapshot'
 import { sessionToMarkdown, copyMarkdownToClipboard } from '@/lib/projection/exportMarkdown'
 import Link from 'next/link'
 import { useLabStore, exercisesByCategoryCombined as exercisesByCategory, findExerciseCombined as findExercise, findCategoryCombined as findCategory } from '@/lib/store/labStore'
@@ -3052,24 +3052,30 @@ function WeekSnapshotContainer({ session }: { session: SPISession }) {
   // la sesión — la planificación queda congelada pero los hábitos y
   // KPIs siguen llenándose. Recién el lunes siguiente se considera
   // "snapshot definitivo" y mostramos el frozen.
-  const isStillCurrentWeek =
-    session.weekStartDate === activeWeekAnchorYmd()
-    || session.weekStartDate === lastSaturdayYmd()
-  const liveSnapshot = useMemo(() => {
-    if (session.weekSnapshot && !isStillCurrentWeek) return null
-    return buildWeekSnapshot(session.weekStartDate, session)
+  // SIEMPRE recomputamos en vivo desde los stores persistentes.
+  //
+  // Por qué: el `session.weekSnapshot` frozen se capturaba al CERRAR el SPI —
+  // que en el flujo normal es el SÁBADO del ritual, o sea al INICIO de la
+  // semana planificada, cuando todavía no pasó ningún día → casi todos los
+  // días quedaban 'future' y el snapshot salía VACÍO. Por eso las semanas
+  // pasadas mostraban datos incompletos.
+  //
+  // Los `completedDates`/`skippedDates` de hábitos y los `session.values` de
+  // KPIs NO se borran nunca, así que reconstruir la semana en vivo es exacto
+  // para CUALQUIER semana (pasada o actual). El frozen ya no se usa para mostrar.
+  const liveSnapshot = useMemo(
+    () => buildWeekSnapshot(session.weekStartDate, session),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, session.weekSnapshot, session.weekStartDate, habits, kpisLibrary, isStillCurrentWeek])
-
-  // Prioridad: si la semana SIGUE en curso → live (aunque haya frozen).
-  // Si ya terminó (lunes en adelante) y hay frozen → frozen.
-  // Si no hay frozen → live como fallback.
-  const snapshot = isStillCurrentWeek ? liveSnapshot : (session.weekSnapshot ?? liveSnapshot)
+    [session, session.weekStartDate, habits, kpisLibrary],
+  )
+  const snapshot = liveSnapshot
   if (!snapshot) return null
   const hasHabits = snapshot.habits.length > 0
   const hasKpis = (snapshot.kpis?.length ?? 0) > 0
   if (!hasHabits && !hasKpis) return null
-  const isLive = isStillCurrentWeek || !session.weekSnapshot
+  // Siempre en vivo (recomputado): ocultamos el "recapturar" porque ya no hace
+  // falta congelar nada — la reconstrucción siempre refleja los datos reales.
+  const isLive = true
   return (
     <CollapsibleBlock title="Hábitos de la semana" emoji="🎯" accent="#6ee7b7">
       <WeekHabitsBlock snapshot={snapshot} isLive={isLive} session={session} />
@@ -3091,12 +3097,15 @@ function WeekHabitsBlock({
   const [recaptured, setRecaptured] = useState(false)
   const canRecapture = !isLive && !!session.closedAt
 
-  const [yStr, mStr, dStr] = snapshot.weekStartDate.split('-').map(Number)
-  const sat = new Date(yStr, mStr - 1, dStr)
-  const dayLabels = ['Sáb', 'Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie']
+  // Semana LUNES→DOMINGO — misma ventana que el calendario y los KPIs. Usamos
+  // la misma función que el calendario para alinear con los datos del snapshot.
+  const mondayStr = calendarMondayForSpiWeek(snapshot.weekStartDate)
+  const [my, mm, md] = mondayStr.split('-').map(Number)
+  const monday = new Date(my, mm - 1, md)
+  const dayLabels = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
   const dayNumbers = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(sat)
-    d.setDate(sat.getDate() + i)
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + i)
     return d.getDate()
   })
 

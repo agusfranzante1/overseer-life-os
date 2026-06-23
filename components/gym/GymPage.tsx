@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
@@ -11,7 +11,8 @@ import {
 } from 'lucide-react'
 import {
   useGymStore, type WorkoutSession, type GymType, type GymRoutine, type WeightEntry,
-  type TrainingPhase, analyzeExercise, uniqueRoutineExercises,
+  type TrainingPhase, type WorkoutExercise, type RoutineExercise,
+  analyzeExercise, uniqueRoutineExercises,
 } from '@/lib/store/gymStore'
 import { useHealthStore } from '@/lib/store/healthStore'
 import { TrainingDistribution } from './TrainingDistribution'
@@ -46,22 +47,24 @@ export function GymPage() {
   const { t } = useTranslation()
 
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="p-6 space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="p-3 sm:p-6 space-y-5 sm:space-y-6 overflow-x-hidden">
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div className="min-w-0">
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <Dumbbell className="w-5 h-5 text-amber-400" />
+            <Dumbbell className="w-5 h-5 text-amber-400 shrink-0" />
             {t('gym.title')}
           </h1>
           <p className="text-sm text-zinc-500 mt-0.5">{t('gym.subtitle')}</p>
         </div>
-        <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5">
+        {/* Tab bar — scrollea internamente si no entran las 5 tabs (en vez de
+            empujar toda la página de costado en mobile). */}
+        <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 max-w-full overflow-x-auto">
           {(Object.keys(GYM_TAB_META) as GymTab[]).map((tabId) => {
             const { Icon, key } = GYM_TAB_META[tabId]
             const label = t(`gym.tabs.${key}`)
             return (
               <button key={tabId} onClick={() => setTab(tabId)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors shrink-0 whitespace-nowrap ${
                   tab === tabId ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-200'
                 }`}>
                 <Icon className="w-3.5 h-3.5" /> {label}
@@ -594,6 +597,7 @@ function SessionManager() {
     routines, activeSession, currentExerciseName,
     gymType, setGymType,
     startSession, endSession, cancelSession, setCurrentExercise, addExerciseToSession,
+    removeExerciseFromSession,
   } = useGymStore()
 
   const [pendingPickRoutine, setPendingPickRoutine] = useState(false)
@@ -745,69 +749,17 @@ function SessionManager() {
             </p>
             {activeSession.exercises.map((ex, idx) => {
               const isCurrent = ex.name === currentExerciseName
-              const hasReps = ex.sets.length > 0
-              // Look up target from routine if linked
               const target = activeRoutine?.exercises.find((r) => r.name.toLowerCase() === ex.name.toLowerCase())
               return (
-                <button
+                <SessionExerciseRow
                   key={ex.id}
-                  onClick={() => setCurrentExercise(ex.name)}
-                  className={`w-full text-left rounded-xl border p-3 transition-all ${
-                    isCurrent
-                      ? 'bg-amber-500/10 border-amber-500 shadow-[0_0_0_2px_rgba(245,158,11,0.2)]'
-                      : 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-600'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="flex items-start gap-2.5 flex-1 min-w-0">
-                      {/* Status icon */}
-                      <div className={`shrink-0 mt-0.5 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                        hasReps
-                          ? 'bg-emerald-500/20 text-emerald-400'
-                          : isCurrent
-                            ? 'bg-amber-500/30 text-amber-300'
-                            : 'bg-zinc-800 text-zinc-500'
-                      }`}>
-                        {hasReps ? '✓' : idx + 1}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-bold text-white truncate">{ex.name}</p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-[10px] text-zinc-500 font-mono">{ex.muscleGroup}</span>
-                          {target && (
-                            <span className="text-[10px] text-zinc-500 font-mono">
-                              · target {target.targetSets}×{target.targetReps}{target.targetWeight ? ` · ${target.targetWeight}` : ''}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    {isCurrent && (
-                      <span className="shrink-0 text-[9px] font-mono uppercase tracking-wider text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded">
-                        actual
-                      </span>
-                    )}
-                  </div>
-
-                  {ex.sets.length === 0 ? (
-                    <p className="text-[11px] italic text-zinc-600 pl-8">
-                      {isCurrent
-                        ? <>↳ Decile al chat: <span className="text-amber-300/80">&quot;hice 80kg 8 reps&quot;</span></>
-                        : 'Sin series cargadas'}
-                    </p>
-                  ) : (
-                    <div className="pl-8 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
-                      {ex.sets.map((set, i) => (
-                        <div key={set.id} className="bg-zinc-900 border border-zinc-800 rounded-md px-2 py-1 text-xs">
-                          <span className="text-zinc-500 mr-1">#{i + 1}</span>
-                          <span className="text-zinc-200 font-semibold tabular-nums">{set.weight}{set.unit}</span>
-                          <span className="text-zinc-500 mx-0.5">×</span>
-                          <span className="text-zinc-300 tabular-nums">{set.reps}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </button>
+                  ex={ex}
+                  idx={idx}
+                  isCurrent={isCurrent}
+                  target={target}
+                  onSelect={() => setCurrentExercise(ex.name)}
+                  onRemove={() => removeExerciseFromSession(ex.id)}
+                />
               )
             })}
           </div>
@@ -850,6 +802,137 @@ function SessionManager() {
         </div>
       )}
     </section>
+  )
+}
+
+// ─── Fila de ejercicio en la sesión EN VIVO — con swipe-a-la-derecha para
+//     sacarlo de la sesión (mismo gesto que las tareas). El tachito rojo
+//     aparece POR ENCIMA desde la izquierda y crece con el swipe; soltar
+//     pasado el umbral lo deja abierto, tocar la fila (o scrollear) lo cierra.
+function SessionExerciseRow({
+  ex, idx, isCurrent, target, onSelect, onRemove,
+}: {
+  ex: WorkoutExercise
+  idx: number
+  isCurrent: boolean
+  target: RoutineExercise | undefined
+  onSelect: () => void
+  onRemove: () => void
+}) {
+  const hasReps = ex.sets.length > 0
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [revealW, setRevealW] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const swipe = useRef({ startX: 0, startY: 0, base: 0, active: false, axis: '' as '' | 'x' | 'y', maxW: 88 })
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    const tch = e.touches[0]
+    const w = wrapRef.current?.getBoundingClientRect().width ?? 320
+    swipe.current = { startX: tch.clientX, startY: tch.clientY, base: revealW, active: true, axis: '', maxW: Math.round(Math.min(96, w * 0.25)) }
+  }
+  const onTouchMove = (e: React.TouchEvent) => {
+    const s = swipe.current
+    if (!s.active) return
+    const dx = e.touches[0].clientX - s.startX
+    const dy = e.touches[0].clientY - s.startY
+    if (s.axis === '') {
+      if (Math.abs(dy) > 8 && Math.abs(dy) >= Math.abs(dx)) { s.axis = 'y'; s.active = false; setDragging(false); if (revealW) setRevealW(0); return }
+      if (Math.abs(dx) > 8) { s.axis = 'x'; setDragging(true) }
+    }
+    if (s.axis !== 'x') return
+    // Swipe a la DERECHA (dx > 0) revela; a la izquierda lo cierra.
+    setRevealW(Math.max(0, Math.min(s.maxW, s.base + dx)))
+  }
+  const onTouchEnd = () => {
+    const s = swipe.current
+    s.active = false
+    if (s.axis === 'x') { setDragging(false); setRevealW(revealW >= s.maxW * 0.4 ? s.maxW : 0) }
+  }
+  const revealOpen = revealW > 0
+  useEffect(() => {
+    if (!revealOpen) return
+    const close = () => setRevealW(0)
+    window.addEventListener('scroll', close, true)
+    return () => window.removeEventListener('scroll', close, true)
+  }, [revealOpen])
+
+  return (
+    <div ref={wrapRef} className="relative overflow-hidden rounded-xl">
+      {/* Tachito rojo — por encima, anclado a la izquierda, crece con el swipe. */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onRemove() }}
+        aria-hidden={!revealOpen}
+        tabIndex={revealOpen ? 0 : -1}
+        title="Sacar de la sesión"
+        className="absolute top-0 left-0 bottom-0 z-10 flex items-center justify-center bg-red-600 active:bg-red-700 text-white overflow-hidden rounded-l-xl"
+        style={{ width: revealW, transition: dragging ? 'none' : 'width 0.18s ease-out', pointerEvents: revealW > 6 ? 'auto' : 'none' }}
+      >
+        <Trash2 className="w-5 h-5 shrink-0" />
+      </button>
+
+      <button
+        onClick={() => { if (revealOpen) { setRevealW(0); return } onSelect() }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        style={{ touchAction: 'pan-y' }}
+        className={`w-full text-left rounded-xl border p-3 transition-all ${
+          isCurrent
+            ? 'bg-amber-500/10 border-amber-500 shadow-[0_0_0_2px_rgba(245,158,11,0.2)]'
+            : 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-600'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <div className="flex items-start gap-2.5 flex-1 min-w-0">
+            {/* Status icon */}
+            <div className={`shrink-0 mt-0.5 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+              hasReps
+                ? 'bg-emerald-500/20 text-emerald-400'
+                : isCurrent
+                  ? 'bg-amber-500/30 text-amber-300'
+                  : 'bg-zinc-800 text-zinc-500'
+            }`}>
+              {hasReps ? '✓' : idx + 1}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-white truncate">{ex.name}</p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-[10px] text-zinc-500 font-mono">{ex.muscleGroup}</span>
+                {target && (
+                  <span className="text-[10px] text-zinc-500 font-mono">
+                    · target {target.targetSets}×{target.targetReps}{target.targetWeight ? ` · ${target.targetWeight}` : ''}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          {isCurrent && (
+            <span className="shrink-0 text-[9px] font-mono uppercase tracking-wider text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded">
+              actual
+            </span>
+          )}
+        </div>
+
+        {ex.sets.length === 0 ? (
+          <p className="text-[11px] italic text-zinc-600 pl-8">
+            {isCurrent
+              ? <>↳ Decile al chat: <span className="text-amber-300/80">&quot;hice 80kg 8 reps&quot;</span></>
+              : 'Sin series cargadas'}
+          </p>
+        ) : (
+          <div className="pl-8 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
+            {ex.sets.map((set, i) => (
+              <div key={set.id} className="bg-zinc-900 border border-zinc-800 rounded-md px-2 py-1 text-xs">
+                <span className="text-zinc-500 mr-1">#{i + 1}</span>
+                <span className="text-zinc-200 font-semibold tabular-nums">{set.weight}{set.unit}</span>
+                <span className="text-zinc-500 mx-0.5">×</span>
+                <span className="text-zinc-300 tabular-nums">{set.reps}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </button>
+    </div>
   )
 }
 
@@ -1045,7 +1128,7 @@ function RoutineRow({ routine, expanded, onToggle, onUpdate, onAddExercise, onRe
 // ─── Session History ──────────────────────────────────────────────────────────
 
 function SessionHistory() {
-  const { sessions, deleteSession } = useGymStore()
+  const { sessions, deleteSession, reactivateSession, activeSession } = useGymStore()
 
   if (sessions.length === 0) {
     return null
@@ -1056,14 +1139,33 @@ function SessionHistory() {
       <h2 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3">Historial · {sessions.length} sesiones</h2>
       <div className="space-y-2">
         {sessions.slice(0, 20).map((s) => (
-          <SessionRow key={s.id} session={s} onDelete={() => { if (confirm('¿Eliminar sesión?')) deleteSession(s.id) }} />
+          <SessionRow
+            key={s.id}
+            session={s}
+            canReactivate={!activeSession}
+            onReactivate={() => {
+              if (activeSession) {
+                alert('Ya hay una sesión en curso. Terminala o cancelala antes de reactivar otra.')
+                return
+              }
+              if (confirm('¿Reactivar esta sesión? Vuelve a estar en curso para seguir cargando series, y sale del historial hasta que la finalices de nuevo.')) {
+                reactivateSession(s.id)
+              }
+            }}
+            onDelete={() => { if (confirm('¿Eliminar sesión?')) deleteSession(s.id) }}
+          />
         ))}
       </div>
     </section>
   )
 }
 
-function SessionRow({ session, onDelete }: { session: WorkoutSession; onDelete: () => void }) {
+function SessionRow({ session, onDelete, onReactivate, canReactivate }: {
+  session: WorkoutSession
+  onDelete: () => void
+  onReactivate: () => void
+  canReactivate: boolean
+}) {
   const [expanded, setExpanded] = useState(false)
   const totalSets = session.exercises.reduce((sum, e) => sum + e.sets.length, 0)
   const totalVolume = session.exercises.reduce(
@@ -1088,8 +1190,17 @@ function SessionRow({ session, onDelete }: { session: WorkoutSession; onDelete: 
             {duration && <span><Clock className="w-2.5 h-2.5 inline" /> {duration}min</span>}
           </div>
         </div>
+        {/* Reactivar — visible en mobile (sin hover). Por si finalizaste la
+            sesión sin querer y querés seguir cargando series. */}
+        {canReactivate && (
+          <button onClick={(e) => { e.stopPropagation(); onReactivate() }}
+            title="Reactivar esta sesión (volver a ponerla en curso)"
+            className="text-zinc-500 hover:text-amber-400 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
+            <Play className="w-3.5 h-3.5" />
+          </button>
+        )}
         <button onClick={(e) => { e.stopPropagation(); onDelete() }}
-          className="text-zinc-700 hover:text-red-400 opacity-0 group-hover:opacity-100">
+          className="text-zinc-700 hover:text-red-400 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
           <Trash2 className="w-3.5 h-3.5" />
         </button>
         {expanded ? <ChevronDown className="w-4 h-4 text-zinc-500" /> : <ChevronRight className="w-4 h-4 text-zinc-500" />}

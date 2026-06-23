@@ -201,8 +201,10 @@ export function ChatBox() {
 
   const visibleMessages = messages.slice(-50)
 
+  // En mobile (<sm) el sidebar es un drawer, así que el chat ocupa TODO el
+  // ancho (left-0). En desktop se corre a la derecha del sidebar fijo.
   return (
-    <div className="fixed bottom-0 right-0 z-30 flex flex-col" style={{ left: 'var(--sidebar-width, 220px)' }}>
+    <div className="fixed bottom-0 right-0 left-0 sm:left-[var(--sidebar-width,220px)] z-30 flex flex-col">
       {/* Chat panel */}
       <AnimatePresence>
         {chatOpen && (
