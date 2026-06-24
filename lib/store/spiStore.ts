@@ -535,6 +535,15 @@ export const useSPIStore = create<SPIState>()(
             }
           ),
         }))
+        // Si la sesión YA está cerrada, materializá la tarea de una en el
+        // task manager (replica lo que hace el cierre con todas las tareas).
+        // Si no, quedaría como SPITask sin `linkedTaskId` → no aparece en el
+        // proyecto SPI ni como checkbox en Prioridades del Panel. En sesiones
+        // ABIERTAS no se toca: se pushean todas juntas al cerrar.
+        const sess = get().sessions.find((s) => s.id === sessionId)
+        if (sess?.closedAt && !task.linkedTaskId) {
+          get().pushTaskToManager(sessionId, id)
+        }
         return id
       },
 

@@ -7,6 +7,8 @@ import { useTaskSnapshotsStore } from '@/lib/store/taskSnapshotsStore'
 import { useTranslation } from '@/hooks/useTranslation'
 import { Task, Project } from '@/types'
 import { TaskCard } from './TaskCard'
+import { RecurringSeriesRow } from './RecurringSeriesRow'
+import { groupRecurringSeries } from '@/lib/tasks/groupRecurring'
 import { TaskDetail } from './TaskDetail'
 import { BreakdownModal } from './BreakdownModal'
 import {
@@ -1306,15 +1308,29 @@ export function TasksPage() {
                   <p>{t('tasks.noTasks')}</p>
                 </div>
               ) : (
-                displayedTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    project={activeProject}
-                    onClick={() => setSelectedTask(task)}
-                    subtaskSortMode={sortMode}
-                  />
-                ))
+                (() => {
+                  const renderTask = (task: Task) => (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      project={activeProject}
+                      onClick={() => setSelectedTask(task)}
+                      subtaskSortMode={sortMode}
+                    />
+                  )
+                  return groupRecurringSeries(displayedTasks).map((row) =>
+                    row.kind === 'single'
+                      ? renderTask(row.task)
+                      : <RecurringSeriesRow
+                          key={row.headId}
+                          headId={row.headId}
+                          mother={row.mother}
+                          instances={row.instances}
+                          onOpenMother={setSelectedTask}
+                          renderInstance={renderTask}
+                        />
+                  )
+                })()
               )}
               {/* Bottom inline add — mirrors the per-project section pattern
                   used in the All-Projects view. When the user taps the top
@@ -1453,15 +1469,29 @@ export function TasksPage() {
                           )
                         ) : (
                           <>
-                            {projTasks.map((task) => (
-                              <TaskCard
-                                key={task.id}
-                                task={task}
-                                project={proj}
-                                onClick={() => setSelectedTask(task)}
-                                subtaskSortMode={sortMode}
-                              />
-                            ))}
+                            {(() => {
+                              const renderTask = (task: Task) => (
+                                <TaskCard
+                                  key={task.id}
+                                  task={task}
+                                  project={proj}
+                                  onClick={() => setSelectedTask(task)}
+                                  subtaskSortMode={sortMode}
+                                />
+                              )
+                              return groupRecurringSeries(projTasks).map((row) =>
+                                row.kind === 'single'
+                                  ? renderTask(row.task)
+                                  : <RecurringSeriesRow
+                                      key={row.headId}
+                                      headId={row.headId}
+                                      mother={row.mother}
+                                      instances={row.instances}
+                                      onOpenMother={setSelectedTask}
+                                      renderInstance={renderTask}
+                                    />
+                              )
+                            })()}
                             {/* The "add new task" affordance lives at the
                                 BOTTOM of each project's list — matches where
                                 the task actually ends up after creation.
@@ -2128,15 +2158,29 @@ function KanbanBoard({ project, tasks, sortMode, onTaskClick }: { project: Proje
                   {colTasks.length === 0 ? (
                     <p className="text-[10px] text-zinc-700 text-center py-4 italic">drop here</p>
                   ) : (
-                    colTasks.map((task) => (
-                      <div key={task.id}
-                        draggable
-                        onDragStart={() => setDragId(task.id)}
-                        onDragEnd={() => setDragId(null)}
-                        style={{ opacity: dragId === task.id ? 0.4 : 1, cursor: 'grab' }}>
-                        <TaskCard task={task} project={project} onClick={() => onTaskClick(task)} subtaskSortMode={sortMode} />
-                      </div>
-                    ))
+                    (() => {
+                      const renderTask = (task: Task) => (
+                        <div key={task.id}
+                          draggable
+                          onDragStart={() => setDragId(task.id)}
+                          onDragEnd={() => setDragId(null)}
+                          style={{ opacity: dragId === task.id ? 0.4 : 1, cursor: 'grab' }}>
+                          <TaskCard task={task} project={project} onClick={() => onTaskClick(task)} subtaskSortMode={sortMode} />
+                        </div>
+                      )
+                      return groupRecurringSeries(colTasks).map((row) =>
+                        row.kind === 'single'
+                          ? renderTask(row.task)
+                          : <RecurringSeriesRow
+                              key={row.headId}
+                              headId={row.headId}
+                              mother={row.mother}
+                              instances={row.instances}
+                              onOpenMother={onTaskClick}
+                              renderInstance={renderTask}
+                            />
+                      )
+                    })()
                   )}
                 </div>
               </div>
@@ -2255,19 +2299,33 @@ function AllProjectsKanban({ projects, tasks, sortMode, onTaskClick }: { project
                   {colTasks.length === 0 ? (
                     <p className="text-[10px] text-zinc-700 text-center py-4 italic">drop here</p>
                   ) : (
-                    colTasks.map((task) => {
-                      const proj = projects.find((p) => p.id === task.projectId)
-                      if (!proj) return null
-                      return (
-                        <div key={task.id}
-                          draggable
-                          onDragStart={() => setDragId(task.id)}
-                          onDragEnd={() => setDragId(null)}
-                          style={{ opacity: dragId === task.id ? 0.4 : 1, cursor: 'grab' }}>
-                          <TaskCard task={task} project={proj} onClick={() => onTaskClick(task)} showProjectBadge subtaskSortMode={sortMode} />
-                        </div>
+                    (() => {
+                      const renderTask = (task: Task) => {
+                        const proj = projects.find((p) => p.id === task.projectId)
+                        if (!proj) return null
+                        return (
+                          <div key={task.id}
+                            draggable
+                            onDragStart={() => setDragId(task.id)}
+                            onDragEnd={() => setDragId(null)}
+                            style={{ opacity: dragId === task.id ? 0.4 : 1, cursor: 'grab' }}>
+                            <TaskCard task={task} project={proj} onClick={() => onTaskClick(task)} showProjectBadge subtaskSortMode={sortMode} />
+                          </div>
+                        )
+                      }
+                      return groupRecurringSeries(colTasks).map((row) =>
+                        row.kind === 'single'
+                          ? renderTask(row.task)
+                          : <RecurringSeriesRow
+                              key={row.headId}
+                              headId={row.headId}
+                              mother={row.mother}
+                              instances={row.instances}
+                              onOpenMother={onTaskClick}
+                              renderInstance={renderTask}
+                            />
                       )
-                    })
+                    })()
                   )}
                 </div>
               </div>
