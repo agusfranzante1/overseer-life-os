@@ -181,6 +181,12 @@ interface SPIState {
   updateTask: (sessionId: string, taskId: string, patch: Partial<SPITask>) => void
   removeTask: (sessionId: string, taskId: string) => void
   reorderTasks: (sessionId: string, orderedIds: string[]) => void
+  /** Reconcilia las INSTANCIAS recurrentes de tareas de origen SPI dentro
+   *  de la sesión de la semana que les corresponde (por su dueDate),
+   *  heredando ⭐/⚡ de la tarea original. Idempotente (dedup por
+   *  linkedTaskId). Solo adjunta a sesiones que YA existen. Devuelve el
+   *  número de SPITasks creadas. */
+  reconcileRecurringSpiTasks: () => number
 
   // ─── Convenience selectors (not stored) ───────────────────────────
   getActiveSession: () => SPISession | null
@@ -565,6 +571,72 @@ export const useSPIStore = create<SPIState>()(
             return { ...sess, tasks: next, updatedAt: new Date().toISOString() }
           }),
         })),
+
+      reconcileRecurringSpiTasks: () => {
+        const allTasks = useTasksStore.getState().tasks
+        const { sessions } = get()
+
+        // Map linkedTaskId → SPITask (todas las sesiones). Sirve para
+        // (a) dedup —saber qué tareas globales ya están en algún listado— y
+        // (b) heredar ⭐/⚡ de la tarea ORIGINAL de la cadena (recurringHeadId).
+        const spiTaskByLinkedId = new Map<string, SPITask>()
+        for (const sess of sessions) {
+          for (const st of sess.tasks ?? []) {
+            if (st.linkedTaskId) spiTaskByLinkedId.set(st.linkedTaskId, st)
+          }
+        }
+
+        // sessionId → SPITasks nuevas a agregar.
+        const additions = new Map<string, SPITask[]>()
+
+        for (const t of Object.values(allTasks)) {
+          if (!t.recurringHeadId) continue           // no es instancia recurrente
+          if (t.archivedAt || !t.dueDate) continue
+          if (spiTaskByLinkedId.has(t.id)) continue  // ya está en algún listado
+          const source = spiTaskByLinkedId.get(t.recurringHeadId)
+          if (!source) continue                      // la cadena no nació en el SPI
+
+          // Sábado-ancla de la semana SPI de la instancia, por su dueDate.
+          const [y, m, d] = t.dueDate.split('-').map(Number)
+          const anchor = activeWeekAnchorYmd(new Date(y, m - 1, d, 12, 0, 0))
+          const session = sessions.find((s) => s.weekStartDate === anchor)
+          if (!session) continue                     // adjuntar solo si la sesión existe
+
+          const newTask: SPITask = {
+            // id determinístico → dos devices no duplican la misma instancia.
+            id: `rec_${t.id}`,
+            title: t.title,
+            important: !!source.important,
+            priority: !!source.priority,
+            whyPurpose: source.whyPurpose,
+            dueDate: t.dueDate,
+            linkedTaskId: t.id,
+          }
+          const arr = additions.get(session.id) ?? []
+          arr.push(newTask)
+          additions.set(session.id, arr)
+          // marcar como visto para no duplicar dentro de la misma corrida.
+          spiTaskByLinkedId.set(t.id, newTask)
+        }
+
+        if (additions.size === 0) return 0
+        let count = 0
+        set((s) => ({
+          sessions: s.sessions.map((sess) => {
+            const add = additions.get(sess.id)
+            if (!add || add.length === 0) return sess
+            // Re-chequeo de dedup contra el estado actual del listado.
+            const existing = new Set(
+              (sess.tasks ?? []).map((x) => x.linkedTaskId).filter(Boolean) as string[]
+            )
+            const fresh = add.filter((x) => x.linkedTaskId && !existing.has(x.linkedTaskId))
+            if (fresh.length === 0) return sess
+            count += fresh.length
+            return { ...sess, tasks: [...sess.tasks, ...fresh], updatedAt: new Date().toISOString() }
+          }),
+        }))
+        return count
+      },
 
       getActiveSession: () => {
         const { sessions, activeSessionId } = get()

@@ -6,6 +6,7 @@ import { Menu, AlertTriangle, X as XIcon } from 'lucide-react'
 import { useAppStore } from '@/lib/store/appStore'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useWalletStore } from '@/lib/store/walletStore'
+import { useSPIStore } from '@/lib/store/spiStore'
 import { Sidebar } from './Sidebar'
 import { TitleUpdater } from './TitleUpdater'
 import { ThemeStyleInjector } from './ThemeStyleInjector'
@@ -96,6 +97,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const migrateRecurringHeads = useTasksStore((s) => s.migrateRecurringHeads)
   const ensureWaitingStatusInAllProjects = useTasksStore((s) => s.ensureWaitingStatusInAllProjects)
   const processRecurringExpenses = useWalletStore((s) => s.processRecurringExpenses)
+  const reconcileRecurringSpiTasks = useSPIStore((s) => s.reconcileRecurringSpiTasks)
   const sidebarWidth = sidebarCollapsed ? 64 : 220
 
   useSupabaseSync()
@@ -124,14 +126,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     ensureWaitingStatusInAllProjects()
     migrateRecurringHeads()
+    reconcileRecurringSpiTasks()
     const late = setTimeout(() => {
       ensureWaitingStatusInAllProjects()
       // Re-correr post sync de Supabase: las series viejas pulled del
-      // backend también necesitan el backfill de recurringHeadId.
+      // backend también necesitan el backfill de recurringHeadId. Y las
+      // sesiones SPI pulled recién ahí pueden recibir sus instancias.
       migrateRecurringHeads()
+      reconcileRecurringSpiTasks()
     }, 10_000)
     return () => clearTimeout(late)
-  }, [ensureWaitingStatusInAllProjects, migrateRecurringHeads])
+  }, [ensureWaitingStatusInAllProjects, migrateRecurringHeads, reconcileRecurringSpiTasks])
 
   // Auto-purge completed tasks. Three triggers, layered for robustness:
   //   1. On mount (immediately) — covers most refreshes/visits
@@ -167,6 +172,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         new Date(), timezone, spawnAdvanceDow, spawnAdvanceHour,
       )
       ensureRecurringSpawns(effectiveTodayKey)
+      // Tras spawnear instancias recurrentes, adjuntá las que sean de origen
+      // SPI al listado de la sesión de su semana (heredando ⭐/⚡).
+      reconcileRecurringSpiTasks()
     }
 
     // Trigger #1 — immediately on mount.
@@ -220,7 +228,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if (midnightTimer) clearTimeout(midnightTimer)
       clearInterval(safetyInterval)
     }
-  }, [timezone, autoPurgeCompletedTasks, archiveCompletedBefore, ensureRecurringSpawns, spawnAdvanceDow, spawnAdvanceHour])
+  }, [timezone, autoPurgeCompletedTasks, archiveCompletedBefore, ensureRecurringSpawns, reconcileRecurringSpiTasks, spawnAdvanceDow, spawnAdvanceHour])
 
   // Process recurring wallet expenses (suscripciones / pagos recurrentes).
   // Same pattern as task auto-purge: run on mount + 10s delayed (post-Supabase
