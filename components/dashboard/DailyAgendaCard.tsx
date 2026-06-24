@@ -15,6 +15,11 @@ interface AgendaBlock {
   title: string
   /** ISO start — solo en bloques timeados. */
   start?: string
+  /** Minuto del día (hora local mostrada) — clave de orden. Ordenamos por
+   *  ESTO y no por el instante absoluto: la agenda es de UN día, y los
+   *  eventos GCal pueden tener una fecha absoluta corrida por timezone que
+   *  rompía el orden por epoch aunque la hora mostrada fuera correcta. */
+  mins?: number
   color: string
   done: boolean
   /** Si viene de una task global → su id (permite completar). Eventos GCal no. */
@@ -55,8 +60,14 @@ export function DailyAgendaCard() {
       if (ev.start.slice(0, 10) !== todayKey) continue
       const color = resolveEventColor(ev, calBg.get(ev.calendarId))
       const block: AgendaBlock = { id: ev.id, title: ev.summary || '(sin título)', color, done: false }
-      if (ev.allDay) untimed.push(block)
-      else timed.push({ ...block, start: ev.start })
+      if (ev.allDay) {
+        untimed.push(block)
+      } else {
+        // mins = hora local mostrada (misma base que fmtTime), para ordenar
+        // por hora-del-día y no por instante absoluto.
+        const dt = new Date(ev.start)
+        timed.push({ ...block, start: ev.start, mins: dt.getHours() * 60 + dt.getMinutes() })
+      }
     }
 
     for (const t of Object.values(tasks)) {
@@ -67,17 +78,17 @@ export function DailyAgendaCard() {
         const [y, m, d] = t.dueDate.split('-').map(Number)
         const [hh, mm] = t.dueTime.split(':').map(Number)
         const start = new Date(y, m - 1, d, hh, mm, 0).toISOString()
-        timed.push({ id: `task:${t.id}`, title: t.title, start, color: TASK_ACCENT, done, taskId: t.id })
+        timed.push({ id: `task:${t.id}`, title: t.title, start, mins: hh * 60 + mm, color: TASK_ACCENT, done, taskId: t.id })
       } else {
         untimed.push({ id: `task:${t.id}`, title: t.title, color: TASK_ACCENT, done, taskId: t.id })
       }
     }
 
-    // Ordenar por el INSTANTE real, no por string: los eventos GCal traen
-    // el ISO con offset (-03:00) y las tareas con Z, así que comparar como
-    // texto rompía el orden (mezclaba la mañana con la noche). getTime()
-    // normaliza ambos al mismo epoch.
-    timed.sort((a, b) => new Date(a.start ?? 0).getTime() - new Date(b.start ?? 0).getTime())
+    // Ordenar por HORA DEL DÍA mostrada (mins), no por instante absoluto:
+    // la agenda es de un solo día y los eventos GCal pueden tener la fecha
+    // absoluta corrida por timezone, lo que rompía el orden por epoch aunque
+    // la hora mostrada fuera la correcta.
+    timed.sort((a, b) => (a.mins ?? 0) - (b.mins ?? 0))
     return { timed, untimed }
   }, [gcalEvents, calendars, tasks, todayKey])
 
