@@ -311,20 +311,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen bg-zinc-950 overflow-hidden">
-      {/* Watermark del ojo de Overseer — capa fija a pantalla completa,
-          centrada, con baja opacidad. Vive en z-0 (por encima del
-          bg-zinc-950 del contenedor pero por debajo del sidebar (z-20+) y
-          del <main> (z-10)). pointer-events-none para no interceptar
-          clicks. Se ve en las zonas transparentes del contenido. */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 z-0 bg-center bg-no-repeat"
-        style={{
-          backgroundImage: 'url(/eye-v3.png)',
-          backgroundSize: 'min(72vw, 72vh)',
-          opacity: 0.05,
-        }}
-      />
       {/* Inyecta los overrides de color custom (Configuración → Apariencia).
           Renderiza un <style> global o null si no hay customización. */}
       <ThemeStyleInjector />
@@ -367,7 +353,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <motion.main
         animate={{ marginLeft: 0 }}
-        className="relative z-10 flex-1 flex flex-col overflow-hidden min-w-0"
+        className="flex-1 flex flex-col overflow-hidden min-w-0"
         style={{
           '--sidebar-width': `${sidebarWidth}px`,
         } as React.CSSProperties}
