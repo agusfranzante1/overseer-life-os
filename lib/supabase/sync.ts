@@ -1514,7 +1514,7 @@ async function pushLab() {
   if (!state.userId) return
   const sb = getSupabaseBrowser()
   const uid = state.userId!
-  const { sessions, beliefs } = useLabStore.getState()
+  const { sessions, beliefs, customExercises, customCategories } = useLabStore.getState()
 
   // ─── Sessions ──
   const rows = sessions.map((sess) => ({
@@ -1554,6 +1554,23 @@ async function pushLab() {
     }
   }
   await syncDeletes(sb, uid, 'lab_beliefs', beliefRows.map((r) => r.id), 'lab:beliefs')
+
+  // ─── Config (ejercicios + categorías custom) — singleton ──
+  {
+    const r = await sb.from('lab_config').upsert(
+      {
+        user_id: uid,
+        custom_exercises: customExercises,
+        custom_categories: customCategories,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    )
+    if (r.error) {
+      reportSyncError(`lab_config upsert failed (¿corriste migration_lab_config.sql?): ${r.error.message}`)
+      throw r.error
+    }
+  }
   markSynced('lab')
 }
 
@@ -1564,13 +1581,27 @@ async function pullLab(): Promise<boolean> {
   const sb = getSupabaseBrowser()
   const uid = state.userId!
 
-  // Run both in parallel — they're independent tables.
-  const [sessionRes, beliefRes] = await Promise.all([
+  // Run in parallel — independent tables.
+  const [sessionRes, beliefRes, cfgRes] = await Promise.all([
     sb.from('lab_sessions').select('*').eq('user_id', uid).order('updated_at', { ascending: false }),
     sb.from('lab_beliefs').select('*').eq('user_id', uid).order('updated_at', { ascending: false }),
+    sb.from('lab_config').select('*').eq('user_id', uid).maybeSingle(),
   ])
 
   if (sessionRes.error) { console.error('Lab sessions pull failed', sessionRes.error); return false }
+
+  // Config singleton (customs) — tabla opcional: si falta la migración,
+  // warneamos y mantenemos los customs locales intactos. Si la fila existe,
+  // pisamos (LWW a nivel config, igual que gym/food).
+  let customExercises: import('@/lib/lab/types').LabExercise[] | undefined
+  let customCategories: import('@/lib/lab/types').LabCategory[] | undefined
+  if (cfgRes.error) {
+    console.warn('Lab config pull failed (run migration_lab_config.sql):', cfgRes.error)
+  } else if (cfgRes.data) {
+    const c = cfgRes.data as Row
+    customExercises = (c.custom_exercises as import('@/lib/lab/types').LabExercise[]) ?? []
+    customCategories = (c.custom_categories as import('@/lib/lab/types').LabCategory[]) ?? []
+  }
   // Beliefs table is optional — if the migration isn't run yet, we get an
   // error but don't fail the whole pull. Just warn and continue with empty.
   let beliefs: import('@/lib/lab/types').LabBelief[] = []
@@ -1599,7 +1630,8 @@ async function pullLab(): Promise<boolean> {
 
   const hasSessions = (sessionRes.data?.length ?? 0) > 0
   const hasBeliefs = beliefs.length > 0
-  if (!hasSessions && !hasBeliefs) { markSynced('lab'); return false }
+  const hasCustoms = customExercises !== undefined || customCategories !== undefined
+  if (!hasSessions && !hasBeliefs && !hasCustoms) { markSynced('lab'); return false }
 
   type LabRow = { payload: unknown }
   const sanitize = (raw: unknown): import('@/lib/lab/types').LabSession => {
@@ -1650,7 +1682,13 @@ async function pullLab(): Promise<boolean> {
       })
   if (!beliefRes.error) setBaseline('lab:beliefs', beliefs.map((b) => b.id))
 
-  useLabStore.setState({ sessions: mergedSessions, beliefs: mergedBeliefs })
+  useLabStore.setState({
+    sessions: mergedSessions,
+    beliefs: mergedBeliefs,
+    // Solo pisar customs si la fila remota existía (si no, mantener locales).
+    ...(customExercises !== undefined ? { customExercises } : {}),
+    ...(customCategories !== undefined ? { customCategories } : {}),
+  })
   markSynced('lab')
   return true
   } finally {
@@ -1863,7 +1901,7 @@ async function pushGym() {
   if (!state.userId) return
   const sb = getSupabaseBrowser()
   const uid = state.userId!
-  const { weightEntries, gymType, phase, weightGoalKg, routines, sessions } = useGymStore.getState()
+  const { weightEntries, gymType, phase, weightGoalKg, trainingPlan, routines, sessions } = useGymStore.getState()
 
   // Weight entries
   const weightRows = weightEntries.map((e) => ({
@@ -1877,16 +1915,23 @@ async function pushGym() {
   await syncDeletes(sb, uid, 'gym_weight_entries', weightRows.map((r) => r.id), 'gym:weights')
 
   // Config (singleton)
-  await sb.from('gym_config').upsert(
-    {
-      user_id: uid,
-      gym_type: gymType,
-      phase,
-      weight_goal_kg: weightGoalKg,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id' }
-  )
+  {
+    const r = await sb.from('gym_config').upsert(
+      {
+        user_id: uid,
+        gym_type: gymType,
+        phase,
+        weight_goal_kg: weightGoalKg,
+        training_plan: trainingPlan,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    )
+    // Si falla por columna inexistente, casi seguro falta correr
+    // migration_gym_training_plan.sql. Antes este upsert tragaba el error
+    // en silencio → la config de gym no sincronizaba sin feedback.
+    if (r.error) { reportSyncError(`gym_config upsert failed (¿corriste migration_gym_training_plan.sql?): ${r.error.message}`); throw r.error }
+  }
 
   // Routines (nested exercises as JSONB)
   const routineRows = routines.map((r) => ({
@@ -1957,6 +2002,8 @@ async function pullGym(): Promise<boolean> {
     patch.weightGoalKg = c.weight_goal_kg !== null && c.weight_goal_kg !== undefined
       ? Number(c.weight_goal_kg)
       : null
+    // Distribución semanal — singleton LWW como el resto del config.
+    patch.trainingPlan = (c.training_plan as import('@/lib/store/gymStore').WeeklyTrainingPlan) ?? {}
   }
 
   const remoteWeights: Weight[] = (weightRes.data ?? []).map((e: Row) => ({
@@ -2202,12 +2249,12 @@ async function pushFood() {
   if (!state.userId) return
   const sb = getSupabaseBrowser()
   const uid = state.userId!
-  const { stages, shopping, fixedCosts, currentStageId, notes } = useFoodStore.getState()
+  const { stages, shopping, fixedCosts, foods, currentStageId, notes } = useFoodStore.getState()
 
   const r = await sb.from('food_data').upsert(
     {
       user_id: uid,
-      stages, shopping, fixed_costs: fixedCosts,
+      stages, shopping, fixed_costs: fixedCosts, foods,
       current_stage_id: currentStageId || null,
       notes: notes ?? '',
       updated_at: new Date().toISOString(),
@@ -2237,6 +2284,7 @@ async function pullFood(): Promise<boolean> {
     stages: (d.stages as import('@/lib/store/foodStore').Stage[]) ?? [],
     shopping: (d.shopping as import('@/lib/store/foodStore').ShoppingCategory[]) ?? [],
     fixedCosts: (d.fixed_costs as import('@/lib/store/foodStore').FixedCost[]) ?? [],
+    foods: (d.foods as import('@/lib/store/foodStore').FoodEntry[]) ?? [],
     currentStageId: (d.current_stage_id as string) ?? '',
     notes: (d.notes as string) ?? '',
   })

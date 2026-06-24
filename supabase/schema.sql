@@ -243,6 +243,7 @@ create table if not exists public.gym_config (
   phase text default 'maintenance',
   current_exercise_name text,
   active_session jsonb,
+  training_plan jsonb not null default '{}'::jsonb,
   updated_at timestamptz default now()
 );
 alter table public.gym_config enable row level security;
@@ -379,6 +380,7 @@ create table if not exists public.food_data (
   current_stage_id text,
   shopping jsonb not null default '[]'::jsonb,
   fixed_costs jsonb not null default '[]'::jsonb,
+  foods jsonb not null default '[]'::jsonb,
   notes text not null default '',
   updated_at timestamptz default now()
 );
