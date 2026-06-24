@@ -73,7 +73,11 @@ export function DailyAgendaCard() {
       }
     }
 
-    timed.sort((a, b) => (a.start ?? '').localeCompare(b.start ?? ''))
+    // Ordenar por el INSTANTE real, no por string: los eventos GCal traen
+    // el ISO con offset (-03:00) y las tareas con Z, así que comparar como
+    // texto rompía el orden (mezclaba la mañana con la noche). getTime()
+    // normaliza ambos al mismo epoch.
+    timed.sort((a, b) => new Date(a.start ?? 0).getTime() - new Date(b.start ?? 0).getTime())
     return { timed, untimed }
   }, [gcalEvents, calendars, tasks, todayKey])
 
