@@ -6,7 +6,7 @@
 // caches get purged on activate.
 // ===========================================================================
 
-const CACHE_NAME = 'overseer-v1'
+const CACHE_NAME = 'overseer-v2'
 
 // On install — pre-cache nothing for now (we want network-first behavior so
 // edits push live without stale cache fights). Activate immediately so a
