@@ -8,7 +8,7 @@ import { useDailyPriorities } from '@/lib/dashboard/priorities'
  *  que vencen hoy. Completarlas desbloquea la vista diaria (DailyAgendaCard).
  *  El checkbox es two-way: togglea la tarea real vía `completeTask`. */
 export function DailyPriorities() {
-  const { items, hasPriorities, allDone, doneCount } = useDailyPriorities()
+  const { items, hasPriorities, allDone, doneCount, unlinkedCount } = useDailyPriorities()
   const completeTask = useTasksStore((s) => s.completeTask)
 
   return (
@@ -31,11 +31,19 @@ export function DailyPriorities() {
       </div>
 
       {!hasPriorities ? (
-        <p className="text-xs text-zinc-500 leading-relaxed">
-          No marcaste prioridades para hoy. Andá al <span className="text-violet-400 font-medium">SPI</span> y
-          tocá el <Zap className="w-3 h-3 inline text-violet-400" /> en las tareas que mueven la aguja —
-          aparecerán acá como checkbox y desbloquearán tu día. Por ahora, tu día está libre.
-        </p>
+        unlinkedCount > 0 ? (
+          <p className="text-xs text-amber-300/90 leading-relaxed">
+            Marcaste {unlinkedCount} {unlinkedCount === 1 ? 'prioridad' : 'prioridades'} con <Zap className="w-3 h-3 inline text-violet-400" />,
+            pero todavía no se materializaron en el task manager. <span className="text-amber-200 font-medium">Cerrá la sesión del SPI</span> (o
+            pusheá la tarea con la flecha) para que aparezcan acá como checkbox.
+          </p>
+        ) : (
+          <p className="text-xs text-zinc-500 leading-relaxed">
+            No marcaste prioridades para hoy. Andá al <span className="text-violet-400 font-medium">SPI</span> y
+            tocá el <Zap className="w-3 h-3 inline text-violet-400" /> en las tareas que mueven la aguja —
+            aparecerán acá como checkbox y desbloquearán tu día. Por ahora, tu día está libre.
+          </p>
+        )
       ) : (
         <>
           {/* Barra de progreso */}
