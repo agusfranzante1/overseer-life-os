@@ -1,12 +1,55 @@
 'use client'
-import type { Subtask } from '@/types'
+import type { Subtask, Task, Project } from '@/types'
 import type { ContentStageId, ContentItem, ContentProfile, ContentCampaign } from '@/types/content'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useContentStore } from '@/lib/store/contentStore'
+import { DEFAULT_STATUSES } from '@/lib/utils/constants'
 
-const CS_KEY = 'content-root' as const
 const CS_NAME = 'Content Strategy'
 const SUB_PREFIX = 'cs_'
+/** Id FIJO del proyecto "Content Strategy". Determinístico para que todos los
+ *  dispositivos usen el MISMO proyecto y las tareas madre no apunten a un id
+ *  que no existe en otro device (evita FK 23503). */
+const CS_PROJ_ID = 'proj_content_root'
+
+/** Asegura el proyecto "Content Strategy" con id fijo, fusionando cualquier
+ *  proyecto de contenido viejo (root con id random de versiones previas, o
+ *  sub-proyectos v1 `type:'content'`) y limpiando sus tareas huérfanas. */
+function ensureCsProject(): string {
+  useTasksStore.setState((s) => {
+    const projects = { ...s.projects }
+    const tasks = { ...s.tasks }
+    const now = new Date().toISOString()
+
+    if (!projects[CS_PROJ_ID]) {
+      projects[CS_PROJ_ID] = {
+        id: CS_PROJ_ID, name: CS_NAME, color: '#d946ef', icon: '🎬',
+        statuses: DEFAULT_STATUSES, taskIds: [], createdAt: now, archived: false,
+        isSystemProject: true, systemProjectKey: 'content-root',
+      } as Project
+    }
+    const keepIds = new Set<string>(projects[CS_PROJ_ID].taskIds ?? [])
+
+    for (const p of Object.values(projects)) {
+      if (p.id === CS_PROJ_ID) continue
+      const isOldRoot = p.systemProjectKey === 'content-root'
+      const isV1Sub = p.type === 'content'
+      if (!isOldRoot && !isV1Sub) continue
+      for (const t of Object.values(tasks)) {
+        if (t.projectId !== p.id) continue
+        if (isOldRoot) { tasks[t.id] = { ...t, projectId: CS_PROJ_ID }; keepIds.add(t.id) }
+        else { delete tasks[t.id] }   // tarea espejo v1 → ya no se usa
+      }
+      delete projects[p.id]
+    }
+    projects[CS_PROJ_ID] = {
+      ...projects[CS_PROJ_ID],
+      taskIds: Array.from(keepIds).filter((id) => !!tasks[id]),
+    }
+    return { projects, tasks }
+  })
+  return CS_PROJ_ID
+}
 
 /** Etiqueta corta de la etapa, usada como prefijo del título de la subtarea. */
 export const CS_STAGE_LABEL: Record<ContentStageId, string> = {
@@ -40,38 +83,62 @@ export function reconcileContentTasks(): void {
   const realProfiles = profiles.filter((p) => profileIsReal(p, items, campaigns))
   if (realProfiles.length === 0) return
 
-  // 1. Proyecto único "Content Strategy".
-  const projId = useTasksStore.getState().ensureSystemProject({
-    systemProjectKey: CS_KEY, name: CS_NAME, color: '#d946ef', icon: '🎬',
-  })
+  // 1. Proyecto único "Content Strategy" (id fijo + limpieza de viejos).
+  const projId = ensureCsProject()
   const firstStatus = useTasksStore.getState().projects[projId]?.statuses[0]?.label ?? 'To Do'
 
-  // 2. Tarea madre por perfil (find-or-create + sync de título).
+  // 2. Tarea madre por perfil con id DETERMINÍSTICO `csmom_<profileId>`. Es
+  //    clave que sea estable cross-device: si cada device le pusiera un id
+  //    random, la misma subtarea `cs_<itemId>` quedaría bajo dos madres
+  //    distintas y el push de subtareas duplicaría el id (Postgres 21000).
   const motherByProfile = new Map<string, string>()
   const profilePatches: Record<string, Partial<ContentProfile>> = {}
   for (const profile of realProfiles) {
-    const fresh = useTasksStore.getState()
-    let motherId = profile.linkedTaskId && fresh.tasks[profile.linkedTaskId] ? profile.linkedTaskId : undefined
-    if (!motherId) {
-      motherId = fresh.addTask({
-        title: profile.name, projectId: projId, status: firstStatus,
-        priority: 'medium', importance: 'medium', subtasks: [],
-      })
-      profilePatches[profile.id] = { linkedTaskId: motherId }
-    } else if (fresh.tasks[motherId]!.title !== profile.name) {
-      const mid = motherId
-      useTasksStore.setState((s) => {
-        const t = s.tasks[mid]
-        if (!t) return s
-        return { tasks: { ...s.tasks, [mid]: { ...t, title: profile.name, updatedAt: new Date().toISOString() } } }
-      })
-    }
+    const motherId = `csmom_${profile.id}`
     motherByProfile.set(profile.id, motherId)
+    useTasksStore.setState((s) => {
+      const proj = s.projects[projId]
+      if (!proj) return s
+      const now = new Date().toISOString()
+      const existing = s.tasks[motherId]
+      if (!existing) {
+        const t: Task = {
+          id: motherId, projectId: projId, title: profile.name,
+          status: firstStatus, priority: 'medium', importance: 'medium',
+          subtasks: [], createdAt: now, updatedAt: now,
+        }
+        return {
+          tasks: { ...s.tasks, [motherId]: t },
+          projects: { ...s.projects, [projId]: { ...proj, taskIds: Array.from(new Set([...(proj.taskIds ?? []), motherId])) } },
+        }
+      }
+      const needsTitle = existing.title !== profile.name
+      const needsProj = existing.projectId !== projId
+      const inList = (proj.taskIds ?? []).includes(motherId)
+      if (!needsTitle && !needsProj && inList) return s
+      return {
+        tasks: { ...s.tasks, [motherId]: { ...existing, title: profile.name, projectId: projId, updatedAt: now } },
+        projects: inList ? s.projects : { ...s.projects, [projId]: { ...proj, taskIds: [...(proj.taskIds ?? []), motherId] } },
+      }
+    })
+    if (profile.linkedTaskId !== motherId) profilePatches[profile.id] = { linkedTaskId: motherId }
   }
   if (Object.keys(profilePatches).length > 0) {
     useContentStore.setState((s) => ({
       profiles: s.profiles.map((p) => profilePatches[p.id] ? { ...p, ...profilePatches[p.id] } : p),
     }))
+  }
+
+  // Limpieza de madres VIEJAS (id random, pre-fix) que tienen subtareas de
+  // contenido pero no son `csmom_` → stale duplicadas. Las borramos; sus
+  // piezas se re-materializan bajo la madre determinística más abajo.
+  {
+    const fresh = useTasksStore.getState()
+    const inProj = Object.values(fresh.tasks).filter((t) => t.projectId === projId)
+    for (const t of inProj) {
+      if (t.id.startsWith('csmom_')) continue
+      if ((t.subtasks ?? []).some((st) => st.id.startsWith('cs_'))) fresh.deleteTask(t.id)
+    }
   }
 
   // 3. Subtarea `cs_<itemId>` por pieza, agrupadas por tarea madre.

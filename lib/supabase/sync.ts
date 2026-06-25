@@ -424,16 +424,38 @@ async function pushTasks() {
     }))
   )
 
-  if (projectRows.length > 0) {
-    const r = await sb.from('projects').upsert(projectRows)
+  // Dedup defensivo por id ANTES de cada upsert: si por algún bug dos filas
+  // comparten id en el mismo batch (ej. la misma subtarea de contenido
+  // `cs_<itemId>` quedó bajo dos tareas madre distintas en dos devices),
+  // Postgres tira `ON CONFLICT ... cannot affect row a second time` (21000)
+  // y se cae TODO el push. Nos quedamos con la primera aparición.
+  const dedupById = <T extends { id: string }>(rows: T[]): T[] => {
+    const seen = new Set<string>()
+    return rows.filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)))
+  }
+  const projectRowsU = dedupById(projectRows)
+  const taskRowsU = dedupById(taskRows)
+  const subtaskRowsU = dedupById(subtaskRows)
+
+  // Filtro de HUÉRFANOS para no violar las foreign keys (23503):
+  //   - una tarea cuyo `project_id` no existe localmente (proyecto borrado en
+  //     otra versión/device) no se puede insertar → la dejamos afuera.
+  //   - una subtarea cuya tarea madre quedó afuera, idem.
+  const validProjectIds = new Set(projectRowsU.map((p) => p.id))
+  const taskRowsValid = taskRowsU.filter((t) => validProjectIds.has(t.project_id))
+  const validTaskIds = new Set(taskRowsValid.map((t) => t.id))
+  const subtaskRowsValid = subtaskRowsU.filter((st) => validTaskIds.has(st.task_id))
+
+  if (projectRowsU.length > 0) {
+    const r = await sb.from('projects').upsert(projectRowsU)
     if (r.error) { reportSyncError(`projects upsert failed: ${r.error.message}`); throw r.error }
   }
-  if (taskRows.length > 0) {
-    const r = await sb.from('tasks').upsert(taskRows)
+  if (taskRowsValid.length > 0) {
+    const r = await sb.from('tasks').upsert(taskRowsValid)
     if (r.error) { reportSyncError(`tasks upsert failed: ${r.error.message}`); throw r.error }
   }
-  if (subtaskRows.length > 0) {
-    const r = await sb.from('subtasks').upsert(subtaskRows)
+  if (subtaskRowsValid.length > 0) {
+    const r = await sb.from('subtasks').upsert(subtaskRowsValid)
     if (r.error) {
       reportSyncError(`subtasks upsert failed: ${r.error.message}. ¿Falta correr migration_subtasks_completion_fields.sql?`)
       throw r.error
