@@ -105,6 +105,11 @@ export interface ContentProfile {
   /** Baúl — caja de texto libre por perfil para guardar links de videos,
    *  referencias, ideas y cosas importantes del canal. Opcional. */
   baul?: string
+  /** Tarea MADRE espejo en el proyecto "Content Strategy" del task manager.
+   *  Cada pieza del pipeline del perfil se refleja como SUBTAREA de esta
+   *  tarea (id de subtarea = `cs_<itemId>`). Vive en el payload JSONB del
+   *  perfil → no requiere migración. */
+  linkedTaskId?: string
   createdAt: string
 }
 

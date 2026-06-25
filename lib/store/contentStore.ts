@@ -33,6 +33,14 @@ function genId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`
 }
 
+/** Refleja Content Strategy → task manager (perfiles=proyectos, items=tareas).
+ *  Dynamic import para no crear un ciclo estático entre los stores. */
+function reflectToTasks(): void {
+  import('@/lib/content/contentTasks')
+    .then((m) => m.reconcileContentTasks())
+    .catch(() => { /* noop */ })
+}
+
 interface State {
   /** Perfiles del user. Siempre hay al menos uno tras la migración. */
   profiles: ContentProfile[]
@@ -130,13 +138,20 @@ export const useContentStore = create<State & Actions>()(
             createdAt: new Date().toISOString(),
           }
           set((s) => ({ profiles: [...s.profiles, profile], currentProfileId: id }))
+          reflectToTasks()
           return id
         },
-        updateProfile: (id, patch) =>
-          set((s) => ({ profiles: s.profiles.map((p) => (p.id === id ? { ...p, ...patch } : p)) })),
-        removeProfile: (id) =>
+        updateProfile: (id, patch) => {
+          set((s) => ({ profiles: s.profiles.map((p) => (p.id === id ? { ...p, ...patch } : p)) }))
+          reflectToTasks()
+        },
+        removeProfile: (id) => {
+          if (get().profiles.length <= 1) return   // siempre dejá uno
+          // Borrar la tarea madre del perfil (con sus subtareas de contenido).
+          import('@/lib/content/contentTasks')
+            .then((m) => m.deleteProfileMother(id))
+            .catch(() => { /* noop */ })
           set((s) => {
-            if (s.profiles.length <= 1) return s   // siempre dejá uno
             const next = s.profiles.filter((p) => p.id !== id)
             const newCurrent = s.currentProfileId === id ? next[0].id : s.currentProfileId
             return {
@@ -146,7 +161,8 @@ export const useContentStore = create<State & Actions>()(
               items: s.items.filter((it) => it.profileId !== id),
               campaigns: s.campaigns.filter((c) => c.profileId !== id),
             }
-          }),
+          })
+        },
 
         // ── Estilo visual ──────────────────────────────────────────────────
         // Helper: aplica `fn` a UN perfil. visualStyle arranca [] si no existe.
@@ -330,22 +346,33 @@ export const useContentStore = create<State & Actions>()(
           const id = genId('item')
           const now = new Date().toISOString()
           set((s) => ({ items: [...s.items, { ...i, id, createdAt: now, updatedAt: now }] }))
+          reflectToTasks()
           return id
         },
-        updateItem: (id, patch) =>
+        updateItem: (id, patch) => {
           set((s) => ({
             items: s.items.map((it) =>
               it.id === id ? { ...it, ...patch, updatedAt: new Date().toISOString() } : it,
             ),
-          })),
-        removeItem: (id) =>
-          set((s) => ({ items: s.items.filter((it) => it.id !== id) })),
-        setItemStage: (id, stage) =>
+          }))
+          reflectToTasks()
+        },
+        removeItem: (id) => {
+          // Borrar la tarea espejo ANTES de sacar el item (necesita su linkedTaskId).
+          const item = get().items.find((it) => it.id === id)
+          import('@/lib/content/contentTasks')
+            .then((m) => m.deleteItemSubtask(item))
+            .catch(() => { /* noop */ })
+          set((s) => ({ items: s.items.filter((it) => it.id !== id) }))
+        },
+        setItemStage: (id, stage) => {
           set((s) => ({
             items: s.items.map((it) =>
               it.id === id ? { ...it, stage, updatedAt: new Date().toISOString() } : it,
             ),
-          })),
+          }))
+          reflectToTasks()
+        },
         setItemStoryStage: (id, storyStage) =>
           set((s) => ({
             items: s.items.map((it) =>

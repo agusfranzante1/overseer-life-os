@@ -503,7 +503,7 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
     createdAt: p.created_at as string,
     archived: !!p.archived,
     isSystemProject: !!(p.is_system_project as boolean),
-    systemProjectKey: (p.system_project_key as 'spi' | null) ?? undefined,
+    systemProjectKey: (p.system_project_key as 'spi' | 'content-root' | null) ?? undefined,
     type:            (p.type              as 'standard' | 'subject' | 'content' | null) ?? undefined,
     subjectMeta:     (p.subject_meta      as import('@/types').SubjectMeta | null) ?? undefined,
     contentMeta:     (p.content_meta      as import('@/types').ContentMeta | null) ?? undefined,

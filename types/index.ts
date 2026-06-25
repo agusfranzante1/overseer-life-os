@@ -186,8 +186,11 @@ export interface Project {
    *  and a small "sistema" badge is shown. */
   isSystemProject?: boolean
   /** Optional key identifying which system owns this project. Used for
-   *  auto-recreate logic and badge labels. Currently: 'spi'. */
-  systemProjectKey?: 'spi'
+   *  auto-recreate logic and badge labels.
+   *   - 'spi': proyecto del SPI.
+   *   - 'content-root': proyecto RAÍZ "Content Strategy" que agrupa los
+   *     sub-proyectos de cada perfil de contenido. */
+  systemProjectKey?: 'spi' | 'content-root'
   /** Tipo de proyecto — discriminator opcional para vistas especializadas:
    *   - 'standard' (o undefined): proyecto regular del task manager.
    *   - 'subject': MATERIA del sistema de estudio. Renderea en /estudio

@@ -30,7 +30,7 @@ interface TasksState {
   /** Finds an existing system project by its systemProjectKey (e.g. 'spi'),
    *  or creates one if it doesn't exist. Returns the project id. Idempotent
    *  — safe to call on every SPI page mount. */
-  ensureSystemProject: (args: { systemProjectKey: 'spi'; name: string; color: string; icon?: string }) => string
+  ensureSystemProject: (args: { systemProjectKey: 'spi' | 'content-root'; name: string; color: string; icon?: string }) => string
   setSelectedProject: (id: string | null) => void
   addStatusToProject: (projectId: string, status: Omit<CustomStatus, 'id'>) => void
   removeStatusFromProject: (projectId: string, statusId: string) => void
@@ -1615,7 +1615,7 @@ export const useTasksStore = create<TasksState>()(
         })
       },
 
-      updateSubtask: (taskId, subtaskId, patch) =>
+      updateSubtask: (taskId, subtaskId, patch) => {
         set((s) => {
           const task = s.tasks[taskId]
           const proj = s.projects[task?.projectId]
@@ -1651,9 +1651,21 @@ export const useTasksStore = create<TasksState>()(
             },
           },
           }
-        }),
+        })
+        // Content Strategy: reflejar el completado de una subtarea de
+        // contenido en la etapa de la pieza (cubre el cambio de estado desde
+        // el detalle, que puede flipear `completed`).
+        if (subtaskId.startsWith('cs_')) {
+          const sub = get().tasks[taskId]?.subtasks.find((st) => st.id === subtaskId)
+          if (sub) {
+            import('@/lib/content/contentTasks')
+              .then((m) => m.syncSubtaskCompletionToItem(subtaskId, !!sub.completed))
+              .catch(() => { /* noop */ })
+          }
+        }
+      },
 
-      toggleSubtask: (taskId, subtaskId) =>
+      toggleSubtask: (taskId, subtaskId) => {
         set((s) => {
           // Toggling completed should also flip the status chip between
           // "done-ish" and the first non-done status, so the visual stays
@@ -1736,7 +1748,19 @@ export const useTasksStore = create<TasksState>()(
               },
             },
           }
-        }),
+        })
+        // Content Strategy: si es una subtarea de contenido (`cs_<itemId>`),
+        // reflejar el completado en la etapa de la pieza (completar →
+        // Publicado; des-completar → Agendado). Dynamic import → sin ciclo.
+        if (subtaskId.startsWith('cs_')) {
+          const sub = get().tasks[taskId]?.subtasks.find((st) => st.id === subtaskId)
+          if (sub) {
+            import('@/lib/content/contentTasks')
+              .then((m) => m.syncSubtaskCompletionToItem(subtaskId, !!sub.completed))
+              .catch(() => { /* noop */ })
+          }
+        }
+      },
 
       deleteSubtask: (taskId, subtaskId) =>
         set((s) => {

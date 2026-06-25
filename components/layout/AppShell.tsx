@@ -7,6 +7,7 @@ import { useAppStore } from '@/lib/store/appStore'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useWalletStore } from '@/lib/store/walletStore'
 import { useSPIStore } from '@/lib/store/spiStore'
+import { reconcileContentTasks } from '@/lib/content/contentTasks'
 import { Sidebar } from './Sidebar'
 import { TitleUpdater } from './TitleUpdater'
 import { ThemeStyleInjector } from './ThemeStyleInjector'
@@ -127,13 +128,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     ensureWaitingStatusInAllProjects()
     migrateRecurringHeads()
     reconcileRecurringSpiTasks()
+    reconcileContentTasks()
     const late = setTimeout(() => {
       ensureWaitingStatusInAllProjects()
       // Re-correr post sync de Supabase: las series viejas pulled del
       // backend también necesitan el backfill de recurringHeadId. Y las
-      // sesiones SPI pulled recién ahí pueden recibir sus instancias.
+      // sesiones SPI / items de contenido pulled recién ahí pueden
+      // materializar sus tareas.
       migrateRecurringHeads()
       reconcileRecurringSpiTasks()
+      reconcileContentTasks()
     }, 10_000)
     return () => clearTimeout(late)
   }, [ensureWaitingStatusInAllProjects, migrateRecurringHeads, reconcileRecurringSpiTasks])
@@ -175,6 +179,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       // Tras spawnear instancias recurrentes, adjuntá las que sean de origen
       // SPI al listado de la sesión de su semana (heredando ⭐/⚡).
       reconcileRecurringSpiTasks()
+      // Reflejar Content Strategy → task manager (perfiles=proyectos, items=tareas).
+      reconcileContentTasks()
     }
 
     // Trigger #1 — immediately on mount.
