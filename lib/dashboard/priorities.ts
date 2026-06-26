@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { useSPIStore } from '@/lib/store/spiStore'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useAppStore } from '@/lib/store/appStore'
-import { todayKeyInTz } from '@/lib/utils/dateInTz'
+import { todayKeyInTz, dateKeyInTz } from '@/lib/utils/dateInTz'
 import type { SPITask } from '@/lib/spi/types'
 import type { Task } from '@/types'
 
@@ -57,6 +57,11 @@ export function useDailyPriorities(): DailyPrioritiesResult {
         if (!task || task.archivedAt) continue
         // Activa para hoy: sin fecha, hoy, o vencida. Las futuras se omiten.
         if (task.dueDate && task.dueDate > todayKey) continue
+        // No arrastrar instancias COMPLETADAS de días anteriores (ej. tareas
+        // recurrentes que completaste ayer): una prioridad completada solo se
+        // muestra si la completaste HOY (queda tildada por el día). Así, con
+        // recurrencias estilo hábito, solo ves la instancia de hoy.
+        if (task.completedAt && dateKeyInTz(new Date(task.completedAt), timezone) !== todayKey) continue
         seen.add(st.linkedTaskId)
         items.push({ spiTask: st, task })
       }
