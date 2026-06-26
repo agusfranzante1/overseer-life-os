@@ -91,6 +91,9 @@ export interface ContentProfile {
   name: string
   /** Color de identidad — usado para chips y bordes. */
   color: string
+  /** Medalla de prioridad del perfil → define la prioridad de su tarea madre
+   *  en el task manager: oro = alta, bronce = media, plata = baja. */
+  medal?: 'gold' | 'silver' | 'bronze'
   /** Emoji o ícono para identificar el perfil de un vistazo. */
   icon?: string
   /** ADN específico de este perfil (audiencia, pilares, etc). */
@@ -111,6 +114,11 @@ export interface ContentProfile {
    *  perfil → no requiere migración. */
   linkedTaskId?: string
   createdAt: string
+  /** Timestamp de la última edición del perfil. Lo usa el sync para resolver
+   *  conflictos con LWW (última edición gana) — sin esto el merge usaba
+   *  "gana el remoto" y una edición local sin pushear (ej. el Baúl) la podía
+   *  pisar un perfil remoto más viejo. Opcional para back-compat. */
+  updatedAt?: string
 }
 
 /** Una imagen de referencia dentro de una categoría de estilo visual. El

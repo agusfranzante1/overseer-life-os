@@ -2649,7 +2649,12 @@ async function pullContent(): Promise<boolean> {
   })
   let mergedProfiles = mergeById<ContentProfileT>({
     local: local.profiles, remote: remoteProfiles, baseline: getBaseline('content:profiles'),
-    getId: (x) => x.id, tombstones: tombs.get('content_profiles'),
+    getId: (x) => x.id,
+    // LWW: la última edición gana. Sin esto el merge usaba "gana el remoto" y
+    // una edición local sin pushear (ej. el Baúl) la podía pisar un remoto
+    // más viejo. Fallback a createdAt para perfiles sin updatedAt (legacy).
+    getUpdatedAt: (x) => x.updatedAt ?? x.createdAt ?? '',
+    tombstones: tombs.get('content_profiles'),
   })
 
   // Dedup del perfil-seed: si vino al menos un perfil remoto, dropeamos los

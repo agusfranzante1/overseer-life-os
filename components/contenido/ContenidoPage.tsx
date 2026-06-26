@@ -383,6 +383,11 @@ function ProfileBar({
               }}
             >
               <span>{p.icon ?? '·'}</span>{p.name}
+              {p.medal && (
+                <span title={p.medal === 'gold' ? 'Prioridad alta' : p.medal === 'bronze' ? 'Prioridad media' : 'Prioridad baja'}>
+                  {p.medal === 'gold' ? '🥇' : p.medal === 'bronze' ? '🥉' : '🥈'}
+                </span>
+              )}
             </button>
             {p.id === currentProfileId && (
               <button
@@ -407,8 +412,9 @@ function ProfileBar({
       <AnimatePresence>
         {creating && (
           <ProfileModal
-            onSave={(name, color, icon, networks) => {
-              addProfile({ name, color, icon, networks })
+            onSave={(name, color, icon, networks, medal) => {
+              const id = addProfile({ name, color, icon, networks })
+              if (medal) updateProfile(id, { medal })
               setCreating(false)
             }}
             onClose={() => setCreating(false)}
@@ -417,8 +423,8 @@ function ProfileBar({
         {editing && (
           <ProfileModal
             profile={editing}
-            onSave={(name, color, icon, networks) => {
-              updateProfile(editing.id, { name, color, icon, networks })
+            onSave={(name, color, icon, networks, medal) => {
+              updateProfile(editing.id, { name, color, icon, networks, medal })
               setEditing(null)
             }}
             onDelete={profiles.length > 1 ? () => {
@@ -439,7 +445,7 @@ function ProfileModal({
   profile, onSave, onDelete, onClose,
 }: {
   profile?: ContentProfile
-  onSave: (name: string, color: string, icon: string, networks: ContentNetwork[]) => void
+  onSave: (name: string, color: string, icon: string, networks: ContentNetwork[], medal: ContentProfile['medal']) => void
   onDelete?: () => void
   onClose: () => void
 }) {
@@ -447,6 +453,15 @@ function ProfileModal({
   const [color, setColor] = useState(profile?.color ?? '#a855f7')
   const [icon, setIcon] = useState(profile?.icon ?? '🧑‍🎨')
   const [networks, setNetworks] = useState<ContentNetwork[]>(profile?.networks ?? ['instagram'])
+  const [medal, setMedal] = useState<ContentProfile['medal']>(profile?.medal)
+
+  // Opciones de medalla → prioridad en el task manager.
+  const MEDALS: { id: ContentProfile['medal']; emoji: string; label: string }[] = [
+    { id: undefined, emoji: '—',  label: 'Sin medalla' },
+    { id: 'gold',    emoji: '🥇', label: 'Oro · alta' },
+    { id: 'bronze',  emoji: '🥉', label: 'Bronce · media' },
+    { id: 'silver',  emoji: '🥈', label: 'Plata · baja' },
+  ]
 
   const toggleNetwork = (n: ContentNetwork) => {
     setNetworks((arr) => arr.includes(n) ? arr.filter((x) => x !== n) : [...arr, n])
@@ -479,6 +494,24 @@ function ProfileModal({
                 className="w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-2.5 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-violet-500" />
             </FormField>
           </div>
+          <FormField label="Medalla (prioridad en task manager)">
+            <div className="flex gap-1.5 flex-wrap">
+              {MEDALS.map((m) => {
+                const active = medal === m.id
+                return (
+                  <button key={m.label} onClick={() => setMedal(m.id)}
+                    className="px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors flex items-center gap-1"
+                    style={{
+                      background: active ? 'rgba(245,200,66,0.14)' : 'transparent',
+                      borderColor: active ? 'rgba(245,200,66,0.55)' : 'rgba(255,255,255,0.10)',
+                      color: active ? '#f5c842' : '#71717a',
+                    }}>
+                    <span>{m.emoji}</span>{m.label}
+                  </button>
+                )
+              })}
+            </div>
+          </FormField>
           <FormField label="Redes activas">
             <div className="flex gap-1.5 flex-wrap">
               {ALL_NETWORKS.map((n) => {
@@ -508,7 +541,7 @@ function ProfileModal({
           <button onClick={onClose} className="ml-auto px-3 py-2 rounded-lg bg-zinc-800 hover:bg-white/[0.08] text-zinc-300 text-xs font-semibold transition-colors">
             Cancelar
           </button>
-          <button onClick={() => { if (!name.trim()) return; onSave(name.trim(), color, icon, networks) }}
+          <button onClick={() => { if (!name.trim()) return; onSave(name.trim(), color, icon, networks, medal) }}
             className="px-3 py-2 rounded-lg bg-violet-500/20 border border-violet-500/40 hover:bg-violet-500/30 text-violet-200 text-xs font-bold transition-colors">
             Guardar
           </button>

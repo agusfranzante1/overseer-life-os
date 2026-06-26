@@ -111,6 +111,7 @@ function makeDefaultProfile(brandDNA?: ContentBrandDNA): ContentProfile {
     brandDNA: brandDNA ?? EMPTY_BRAND_DNA,
     networks: ['instagram', 'tiktok', 'youtube'],
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   }
 }
 
@@ -136,13 +137,14 @@ export const useContentStore = create<State & Actions>()(
             brandDNA: { ...EMPTY_BRAND_DNA, pillars: DEFAULT_PILLARS.map((x) => ({ ...x, id: genId('pillar') })) },
             networks: p.networks ?? ['instagram'],
             createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
           }
           set((s) => ({ profiles: [...s.profiles, profile], currentProfileId: id }))
           reflectToTasks()
           return id
         },
         updateProfile: (id, patch) => {
-          set((s) => ({ profiles: s.profiles.map((p) => (p.id === id ? { ...p, ...patch } : p)) }))
+          set((s) => ({ profiles: s.profiles.map((p) => (p.id === id ? { ...p, ...patch, updatedAt: new Date().toISOString() } : p)) }))
           reflectToTasks()
         },
         removeProfile: (id) => {

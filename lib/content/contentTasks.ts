@@ -1,5 +1,5 @@
 'use client'
-import type { Subtask, Task, Project } from '@/types'
+import type { Subtask, Task, Project, Priority } from '@/types'
 import type { ContentStageId, ContentItem, ContentProfile, ContentCampaign } from '@/types/content'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useContentStore } from '@/lib/store/contentStore'
@@ -7,6 +7,12 @@ import { DEFAULT_STATUSES } from '@/lib/utils/constants'
 
 const CS_NAME = 'Content Strategy'
 const SUB_PREFIX = 'cs_'
+
+/** Medalla del perfil → prioridad de su tarea madre en el task manager.
+ *  oro = alta, bronce = media, plata = baja (sin medalla → media). */
+function medalPriority(medal: ContentProfile['medal']): Priority {
+  return medal === 'gold' ? 'high' : medal === 'silver' ? 'low' : 'medium'
+}
 /** Id FIJO del proyecto "Content Strategy". Determinístico para que todos los
  *  dispositivos usen el MISMO proyecto y las tareas madre no apunten a un id
  *  que no existe en otro device (evita FK 23503). */
@@ -100,11 +106,12 @@ export function reconcileContentTasks(): void {
       const proj = s.projects[projId]
       if (!proj) return s
       const now = new Date().toISOString()
+      const prio = medalPriority(profile.medal)
       const existing = s.tasks[motherId]
       if (!existing) {
         const t: Task = {
           id: motherId, projectId: projId, title: profile.name,
-          status: firstStatus, priority: 'medium', importance: 'medium',
+          status: firstStatus, priority: prio, importance: 'medium',
           subtasks: [], createdAt: now, updatedAt: now,
         }
         return {
@@ -114,10 +121,11 @@ export function reconcileContentTasks(): void {
       }
       const needsTitle = existing.title !== profile.name
       const needsProj = existing.projectId !== projId
+      const needsPrio = existing.priority !== prio
       const inList = (proj.taskIds ?? []).includes(motherId)
-      if (!needsTitle && !needsProj && inList) return s
+      if (!needsTitle && !needsProj && !needsPrio && inList) return s
       return {
-        tasks: { ...s.tasks, [motherId]: { ...existing, title: profile.name, projectId: projId, updatedAt: now } },
+        tasks: { ...s.tasks, [motherId]: { ...existing, title: profile.name, projectId: projId, priority: prio, updatedAt: now } },
         projects: inList ? s.projects : { ...s.projects, [projId]: { ...proj, taskIds: [...(proj.taskIds ?? []), motherId] } },
       }
     })
