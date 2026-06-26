@@ -129,15 +129,40 @@ export function reconcileContentTasks(): void {
     }))
   }
 
-  // Limpieza de madres VIEJAS (id random, pre-fix) que tienen subtareas de
-  // contenido pero no son `csmom_` → stale duplicadas. Las borramos; sus
-  // piezas se re-materializan bajo la madre determinística más abajo.
+  // Consolidación de DUPLICADOS: cualquier tarea madre de contenido con id no
+  // determinístico (creada por versiones previas, incluso VACÍA) se fusiona en
+  // la `csmom_<profileId>` correcta y se borra. Se la reconoce por su título
+  // (= nombre del perfil) o por tener subtareas de pieza (`cs_`). Las subtareas
+  // que el usuario agregó a mano se mueven a la madre buena (no se pierden).
   {
     const fresh = useTasksStore.getState()
+    const validMomIds = new Set(motherByProfile.values())
+    const profileIdByName = new Map(realProfiles.map((p) => [p.name, p.id]))
+    const itemsById = new Map(items.map((it) => [it.id, it]))
     const inProj = Object.values(fresh.tasks).filter((t) => t.projectId === projId)
+    const moves: Array<{ target: string; userSubs: Subtask[]; deleteId: string }> = []
     for (const t of inProj) {
-      if (t.id.startsWith('csmom_')) continue
-      if ((t.subtasks ?? []).some((st) => st.id.startsWith('cs_'))) fresh.deleteTask(t.id)
+      if (validMomIds.has(t.id)) continue
+      const csSub = (t.subtasks ?? []).find((st) => st.id.startsWith(SUB_PREFIX))
+      let profileId = profileIdByName.get(t.title)
+      if (!profileId && csSub) profileId = itemsById.get(csSub.id.slice(SUB_PREFIX.length))?.profileId
+      if (!profileId) continue   // no es una madre de contenido → no tocar
+      const target = motherByProfile.get(profileId)
+      if (!target || target === t.id) continue
+      moves.push({ target, userSubs: (t.subtasks ?? []).filter((st) => !st.id.startsWith(SUB_PREFIX)), deleteId: t.id })
+    }
+    if (moves.length > 0) {
+      useTasksStore.setState((s) => {
+        const tasks = { ...s.tasks }
+        for (const mv of moves) {
+          const tgt = tasks[mv.target]
+          if (tgt && mv.userSubs.length > 0) {
+            tasks[mv.target] = { ...tgt, subtasks: [...(tgt.subtasks ?? []), ...mv.userSubs], updatedAt: new Date().toISOString() }
+          }
+        }
+        return { tasks }
+      })
+      for (const mv of moves) useTasksStore.getState().deleteTask(mv.deleteId)
     }
   }
 
