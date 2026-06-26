@@ -45,27 +45,38 @@ export function useDailyPriorities(): DailyPrioritiesResult {
 
   return useMemo(() => {
     const todayKey = todayKeyInTz(timezone)
-    const seen = new Set<string>()
-    const items: DailyPriorityItem[] = []
+    const seenTask = new Set<string>()
+    // Dedup por SERIE recurrente (no por tarea): una tarea recurrente puede
+    // tener varias instancias activas hoy (la madre + una hija del mismo día,
+    // ambas marcadas ⚡). Mostramos UNA sola por serie, quedándonos con la más
+    // relevante: hoy+pendiente > hoy+completada > vencida/sin fecha+pendiente.
+    const rankOf = (t: Task): number => {
+      const done = !!t.completedAt
+      if (t.dueDate === todayKey) return done ? 2 : 3
+      return done ? 0 : 1
+    }
+    const bySeries = new Map<string, { item: DailyPriorityItem; rank: number }>()
     let unlinkedCount = 0
     for (const session of sessions) {
       for (const st of session.tasks ?? []) {
         if (!st.priority) continue
         if (!st.linkedTaskId) { unlinkedCount++; continue }
-        if (seen.has(st.linkedTaskId)) continue
+        if (seenTask.has(st.linkedTaskId)) continue
         const task = tasks[st.linkedTaskId]
         if (!task || task.archivedAt) continue
         // Activa para hoy: sin fecha, hoy, o vencida. Las futuras se omiten.
         if (task.dueDate && task.dueDate > todayKey) continue
-        // No arrastrar instancias COMPLETADAS de días anteriores (ej. tareas
-        // recurrentes que completaste ayer): una prioridad completada solo se
-        // muestra si la completaste HOY (queda tildada por el día). Así, con
-        // recurrencias estilo hábito, solo ves la instancia de hoy.
+        // No arrastrar instancias COMPLETADAS de días anteriores (recurrentes
+        // que completaste ayer): una completada solo se muestra si fue HOY.
         if (task.completedAt && dateKeyInTz(new Date(task.completedAt), timezone) !== todayKey) continue
-        seen.add(st.linkedTaskId)
-        items.push({ spiTask: st, task })
+        seenTask.add(st.linkedTaskId)
+        const seriesKey = task.recurringHeadId ?? task.id
+        const rank = rankOf(task)
+        const existing = bySeries.get(seriesKey)
+        if (!existing || rank > existing.rank) bySeries.set(seriesKey, { item: { spiTask: st, task }, rank })
       }
     }
+    const items = [...bySeries.values()].map((v) => v.item)
     const doneCount = items.filter((i) => !!i.task.completedAt).length
     const hasPriorities = items.length > 0
     const allDone = hasPriorities && doneCount === items.length
