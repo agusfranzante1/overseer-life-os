@@ -30,6 +30,10 @@ export interface MindMapNode {
    *  with maps created before this field existed. The user can bump it from
    *  the toolbar; auto-grow logic factors it into the measured height. */
   fontSize?: number
+  /** Si está seteado, este nodo está VINCULADO a otro mapa mental. Se muestra
+   *  un botón 🔗 que, al clickear, abre ese mapa. Se setea escribiendo `@` en
+   *  el texto del nodo y eligiendo un mapa del menú. */
+  linkedMapId?: string
 }
 
 /** Visual shape used to render the connector between two nodes.

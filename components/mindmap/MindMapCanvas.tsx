@@ -1,6 +1,6 @@
 'use client'
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
-import { Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight, ZoomIn, ZoomOut, Square, Circle, Type, Copy } from 'lucide-react'
+import { Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight, ZoomIn, ZoomOut, Square, Circle, Type, Copy, Link2 } from 'lucide-react'
 import {
   useMindMapStore, NODE_PALETTE,
   type MindMapNode, type MindMapEdge, type MindMapEdgeShape, type MindMapNodeShape,
@@ -36,8 +36,10 @@ const NODE_MIN_HEIGHT = 48
  *   - Select an edge → toolbar shows 3 shape buttons
  *   - straight | curved | orthogonal
  *   - Break points render as small circles on the selected edge */
-export function MindMapCanvas({ mapId }: { mapId: string }) {
+export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?: (mapId: string) => void }) {
   const map = useMindMapStore((s) => s.maps.find((m) => m.id === mapId)) ?? null
+  // Lista de mapas para el picker del `@` (vincular un nodo a otro mapa).
+  const allMaps = useMindMapStore((s) => s.maps)
   const addNode = useMindMapStore((s) => s.addNode)
   const updateNode = useMindMapStore((s) => s.updateNode)
   const removeNode = useMindMapStore((s) => s.removeNode)
@@ -1055,6 +1057,10 @@ export function MindMapCanvas({ mapId }: { mapId: string }) {
                 }}
                 onTextChange={(text) => updateNode(mapId, node.id, { text })}
                 onEndEdit={() => setEditingNodeId(null)}
+                allMaps={allMaps}
+                currentMapId={mapId}
+                onLinkMap={(linkedMapId) => updateNode(mapId, node.id, { linkedMapId })}
+                onOpenMap={onOpenMap}
                 onHover={(hover) => setHoveredNodeId(hover ? node.id : (h) => (h === node.id ? null : h) as null)}
                 onStartConnect={() => startDrawingFrom(node)}
                 onConnectorMove={handleConnectorMove}
@@ -1387,6 +1393,7 @@ function NodeBox({
   node, pan, selected, drawingMode, editing, showPlus,
   onPointerDown, onResizeStart, onAutoGrowHeight, onDuplicate, onClick, onDoubleClick, onTextChange, onEndEdit,
   onHover, onStartConnect, onConnectorMove, onConnectorDrop,
+  allMaps, currentMapId, onLinkMap, onOpenMap,
 }: {
   node: MindMapNode
   pan: { x: number; y: number }
@@ -1394,6 +1401,13 @@ function NodeBox({
   drawingMode: boolean
   editing: boolean
   showPlus: boolean
+  /** Mapas disponibles para vincular (picker del `@`). */
+  allMaps: { id: string; title: string }[]
+  currentMapId: string
+  /** Setea (o limpia) el mapa vinculado de este nodo. */
+  onLinkMap: (linkedMapId: string) => void
+  /** Abre el mapa vinculado (navegación). */
+  onOpenMap?: (mapId: string) => void
   onPointerDown: (e: React.PointerEvent) => void
   /** Fired when the user grabs the bottom-right corner handle to resize.
    *  The parent owns the pointer-capture + delta math; this just kicks it off. */
@@ -1425,6 +1439,40 @@ function NodeBox({
 
   const [draft, setDraft] = useState(node.text)
   useEffect(() => { setDraft(node.text) }, [node.text, editing])
+
+  // ── Mención `@` para vincular otro mapa ──────────────────────────────
+  // {query, at} cuando hay una mención activa en el textarea; null si no.
+  const [mention, setMention] = useState<{ query: string; at: number } | null>(null)
+  const linkedMap = node.linkedMapId ? allMaps.find((m) => m.id === node.linkedMapId) : undefined
+
+  // Mención activa = el último `@` al inicio o tras un espacio, sin espacio
+  // entre el `@` y el cursor (así `mail@x` o `@user ` no la disparan).
+  const detectMention = (text: string, cursor: number) => {
+    const upto = text.slice(0, cursor)
+    const at = upto.lastIndexOf('@')
+    if (at < 0) return null
+    const before = at === 0 ? ' ' : upto[at - 1]
+    if (!/\s/.test(before)) return null
+    const query = upto.slice(at + 1)
+    if (/\s/.test(query)) return null
+    return { query, at }
+  }
+  const handleDraftChange = (value: string, cursor: number) => {
+    setDraft(value)
+    setMention(detectMention(value, cursor))
+  }
+  const filteredMaps = mention
+    ? allMaps.filter((m) => m.id !== currentMapId && m.title.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 6)
+    : []
+  const linkToMap = (m: { id: string; title: string }) => {
+    if (!mention) return
+    const next = (draft.slice(0, mention.at) + draft.slice(mention.at + 1 + mention.query.length)).trim()
+    const finalText = next || m.title
+    setDraft(finalText)
+    onTextChange(finalText)
+    onLinkMap(m.id)
+    setMention(null)
+  }
 
   // Auto-fit height: la altura del nodo SIGUE al contenido — crece al
   // tipear, decrece al borrar. Antes solo crecía (la idea original era
@@ -1510,13 +1558,19 @@ function NodeBox({
             autoFocus
             value={draft}
             placeholder="Idea"
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => handleDraftChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
             onBlur={() => { onTextChange(draft); onEndEdit() }}
             onKeyDown={(e) => {
               e.stopPropagation()
-              if (e.key === 'Escape') { setDraft(node.text); onEndEdit() }
+              if (e.key === 'Escape') {
+                // Si el menú de `@` está abierto, lo cerramos primero.
+                if (mention) { setMention(null); return }
+                setDraft(node.text); onEndEdit(); return
+              }
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
+                // Con el menú abierto + un mapa que matchea, Enter vincula.
+                if (mention && filteredMaps.length > 0) { linkToMap(filteredMaps[0]); return }
                 onTextChange(draft)
                 onEndEdit()
               }
@@ -1578,7 +1632,53 @@ function NodeBox({
             <Copy className="w-3 h-3" strokeWidth={2.5} />
           </button>
         )}
+
+        {/* 🔗 Mapa vinculado — botón arriba-izquierda. Click abre el otro mapa.
+            Si el mapa destino fue borrado, queda gris/inactivo. */}
+        {node.linkedMapId && !editing && (
+          <button
+            onPointerDown={(e) => { e.stopPropagation(); e.preventDefault() }}
+            onClick={(e) => { e.stopPropagation(); if (linkedMap && onOpenMap && node.linkedMapId) onOpenMap(node.linkedMapId) }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            title={linkedMap ? `Abrir mapa "${linkedMap.title}"` : 'Mapa vinculado no encontrado'}
+            className="absolute -top-2 -left-2 w-6 h-6 rounded-full border-2 bg-zinc-900 flex items-center justify-center shadow-lg transition-transform hover:scale-110 active:scale-95 z-[6]"
+            style={{ borderColor: linkedMap ? color : '#52525b', color: linkedMap ? color : '#52525b', touchAction: 'none' }}
+          >
+            <Link2 className="w-3 h-3" strokeWidth={2.5} />
+          </button>
+        )}
       </div>
+
+      {/* Menú del `@` — vincular a otro mapa o seguir como texto. Anclado
+          debajo del nodo. `onPointerDown preventDefault` evita robar el focus
+          del textarea (si no, el blur cerraría la edición antes del click). */}
+      {editing && mention && (
+        <div
+          onPointerDown={(e) => e.preventDefault()}
+          className="absolute z-30 rounded-xl border border-white/[0.12] bg-zinc-900/95 backdrop-blur shadow-2xl py-1 overflow-hidden"
+          style={{ left: node.x + pan.x, top: node.y + pan.y + node.height + 6, width: Math.max(node.width, 200) }}
+        >
+          <div className="px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">Vincular un mapa</div>
+          {filteredMaps.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => linkToMap(m)}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-xs text-zinc-200 hover:bg-indigo-500/15 transition-colors"
+            >
+              <Link2 className="w-3 h-3 shrink-0 text-indigo-400" /> <span className="truncate">{m.title || '(sin título)'}</span>
+            </button>
+          ))}
+          {filteredMaps.length === 0 && (
+            <div className="px-2.5 py-1.5 text-[11px] text-zinc-600 italic">Ningún mapa coincide</div>
+          )}
+          <button
+            onClick={() => setMention(null)}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-xs text-zinc-400 hover:bg-white/[0.05] border-t border-white/[0.06] transition-colors"
+          >
+            <span className="font-bold text-[13px] leading-none">Aa</span> Solo texto (dejar el @)
+          </button>
+        </div>
+      )}
 
       {/* "+" connector handle. Floats at the node's bottom-center, OVERLAPPING
           the node's bottom edge (top half is over the node, bottom half pokes

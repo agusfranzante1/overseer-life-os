@@ -49,7 +49,7 @@ export function MindMapsPage() {
           </div>
         </div>
         <div className="flex-1 min-h-0">
-          <MindMapCanvas mapId={activeMap.id} />
+          <MindMapCanvas mapId={activeMap.id} onOpenMap={(id) => setActiveId(id)} />
         </div>
       </div>
     )
