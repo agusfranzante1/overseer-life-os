@@ -8,7 +8,7 @@ import {
   Globe, WalletCards, Activity, Dumbbell, Utensils, HeartPulse, Menu,
   TrendingUp, GripVertical, Check, RotateCcw, Settings2, Cog, LogOut,
   Clock, Search, X as XIcon, Infinity as InfinityIcon, Telescope, FlaskConical,
-  Network, ChevronUp, ChevronDown, Target, GraduationCap, Sparkles,
+  Network, ChevronUp, ChevronDown, ChevronRight, Target, GraduationCap, Sparkles,
   Sun, Moon,
 } from 'lucide-react'
 import { listTimezones, formatTzOffset, detectTimezone } from '@/lib/utils/dateInTz'
@@ -455,12 +455,12 @@ export function Sidebar({
           aria-expanded={footerOpen}
           className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2 rounded-xl text-[13px] transition-colors ${footerOpen ? 'text-white' : 'text-zinc-500 hover:text-white'}`}
         >
-          <Settings2 className="w-4 h-4 shrink-0" />
+          {/* Flecha de disclosure: ▶ colapsado, ▼ expandido. */}
+          {footerOpen
+            ? <ChevronDown className="w-4 h-4 shrink-0" />
+            : <ChevronRight className="w-4 h-4 shrink-0" />}
           {showLabels && (
-            <>
-              <span className="text-sm font-medium whitespace-nowrap flex-1 text-left">Opciones</span>
-              {footerOpen ? <ChevronUp className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
-            </>
+            <span className="text-sm font-medium whitespace-nowrap flex-1 text-left">Opciones</span>
           )}
         </motion.button>
 
