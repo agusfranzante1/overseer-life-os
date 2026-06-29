@@ -40,6 +40,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   const map = useMindMapStore((s) => s.maps.find((m) => m.id === mapId)) ?? null
   // Lista de mapas para el picker del `@` (vincular un nodo a otro mapa).
   const allMaps = useMindMapStore((s) => s.maps)
+  const createMap = useMindMapStore((s) => s.createMap)
   const addNode = useMindMapStore((s) => s.addNode)
   const updateNode = useMindMapStore((s) => s.updateNode)
   const removeNode = useMindMapStore((s) => s.removeNode)
@@ -1060,6 +1061,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
                 allMaps={allMaps}
                 currentMapId={mapId}
                 onLinkMap={(linkedMapId) => updateNode(mapId, node.id, { linkedMapId })}
+                onCreateMap={(title) => createMap(title)}
                 onOpenMap={onOpenMap}
                 onHover={(hover) => setHoveredNodeId(hover ? node.id : (h) => (h === node.id ? null : h) as null)}
                 onStartConnect={() => startDrawingFrom(node)}
@@ -1393,7 +1395,7 @@ function NodeBox({
   node, pan, selected, drawingMode, editing, showPlus,
   onPointerDown, onResizeStart, onAutoGrowHeight, onDuplicate, onClick, onDoubleClick, onTextChange, onEndEdit,
   onHover, onStartConnect, onConnectorMove, onConnectorDrop,
-  allMaps, currentMapId, onLinkMap, onOpenMap,
+  allMaps, currentMapId, onLinkMap, onCreateMap, onOpenMap,
 }: {
   node: MindMapNode
   pan: { x: number; y: number }
@@ -1406,6 +1408,8 @@ function NodeBox({
   currentMapId: string
   /** Setea (o limpia) el mapa vinculado de este nodo. */
   onLinkMap: (linkedMapId: string) => void
+  /** Crea un mapa nuevo con ese título y devuelve su id. */
+  onCreateMap: (title: string) => string
   /** Abre el mapa vinculado (navegación). */
   onOpenMap?: (mapId: string) => void
   onPointerDown: (e: React.PointerEvent) => void
@@ -1464,14 +1468,19 @@ function NodeBox({
   const filteredMaps = mention
     ? allMaps.filter((m) => m.id !== currentMapId && m.title.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 6)
     : []
-  const linkToMap = (m: { id: string; title: string }) => {
+  const applyLink = (linkedMapId: string, fallbackTitle: string) => {
     if (!mention) return
     const next = (draft.slice(0, mention.at) + draft.slice(mention.at + 1 + mention.query.length)).trim()
-    const finalText = next || m.title
+    const finalText = next || fallbackTitle
     setDraft(finalText)
     onTextChange(finalText)
-    onLinkMap(m.id)
+    onLinkMap(linkedMapId)
     setMention(null)
+  }
+  const linkToMap = (m: { id: string; title: string }) => applyLink(m.id, m.title)
+  const createAndLink = (title: string) => {
+    const t = title.trim() || 'Nuevo mapa'
+    applyLink(onCreateMap(t), t)
   }
 
   // Auto-fit height: la altura del nodo SIGUE al contenido — crece al
@@ -1677,6 +1686,14 @@ function NodeBox({
           >
             <span className="font-bold text-[13px] leading-none">Aa</span> Solo texto (dejar el @)
           </button>
+          {mention.query.trim() && (
+            <button
+              onClick={() => createAndLink(mention.query)}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-xs text-emerald-300 hover:bg-emerald-500/15 border-t border-white/[0.06] transition-colors"
+            >
+              <Plus className="w-3 h-3 shrink-0" /> Crear mapa «<span className="truncate">{mention.query.trim()}</span>»
+            </button>
+          )}
         </div>
       )}
 
