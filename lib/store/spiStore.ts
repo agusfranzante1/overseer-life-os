@@ -115,6 +115,11 @@ interface SPIState {
    *  as active. If a session for that Saturday already exists, it is
    *  returned instead — we don't duplicate per week. */
   createOrOpenCurrentWeek: () => string
+  /** Asegura (find-or-create) la sesión cuyo `weekStartDate` es el dado y
+   *  devuelve su id. Usado por el Panel para escribir la reflexión/mood
+   *  diarios en la sesión de la SEMANA ACTIVA (activeWeekAnchorYmd) sin
+   *  cambiar la sesión activa de edición. No spamea: solo crea si no existe. */
+  ensureWeekSession: (weekStartDate: string) => string
   setActiveSession: (id: string | null) => void
   /** Closes the session: stamps closedAt, computes the score, stores
    *  mood/notes, AND pushes each task into the SPI project in the task
@@ -268,6 +273,16 @@ export const useSPIStore = create<SPIState>()(
           sessions: [fresh, ...s.sessions],
           activeSessionId: fresh.id,
         }))
+        return fresh.id
+      },
+
+      ensureWeekSession: (weekStartDate) => {
+        const existing = get().sessions.find((s) => s.weekStartDate === weekStartDate)
+        if (existing) return existing.id
+        const fresh = emptySession(get().template, weekStartDate)
+        // NO cambiamos `activeSessionId` (no es la ritual de planeación, es
+        // solo el contenedor de la reflexión diaria de la semana en curso).
+        set((s) => ({ sessions: [fresh, ...s.sessions] }))
         return fresh.id
       },
 

@@ -6,6 +6,7 @@ import { getSupabaseBrowser } from '@/lib/supabase/client'
 import { MetricsPanel } from './MetricsPanel'
 import { IdealScheduleCard } from './IdealScheduleCard'
 import { DailyPriorities } from './DailyPriorities'
+import { DailyReflection } from './DailyReflection'
 import { DailyAgendaCard } from './DailyAgendaCard'
 import { format } from 'date-fns'
 import { GripVertical, LayoutGrid, RotateCcw, Check, Eye, EyeOff } from 'lucide-react'
@@ -48,6 +49,11 @@ const WIDGETS: WidgetDef[] = [
     id: 'daily-priorities',
     label: '⚡ Prioridades de hoy',
     render: () => <DailyPriorities />,
+  },
+  {
+    id: 'daily-reflection',
+    label: '✨ Reflexión + mood del día',
+    render: () => <DailyReflection />,
   },
   {
     id: 'daily-view',
