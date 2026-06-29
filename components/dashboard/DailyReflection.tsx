@@ -1,10 +1,9 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Sparkles, Pencil, Check } from 'lucide-react'
+import { Sparkles, Pencil } from 'lucide-react'
 import { useSPIStore, activeWeekAnchorYmd } from '@/lib/store/spiStore'
 import { useAppStore } from '@/lib/store/appStore'
 
-const PROMPT_KEY = 'overseer-daily-reflection-prompt'
 const DEFAULT_PROMPT = '¿Por qué te vas a felicitar hoy, sabiendo el final de la película?'
 /** Día (JS getDay 0=Dom) → sufijo del campo `felicitar_<día>` del template SPI
  *  (sección autoconcepto). Sin acentos, igual que las keys del template. */
@@ -31,6 +30,8 @@ function dayIndexInTz(tz: string): number {
  *  bueno + el mood de cada día. */
 export function DailyReflection() {
   const timezone = useAppStore((s) => s.timezone)
+  const storedPrompt = useAppStore((s) => s.dailyReflectionPrompt)
+  const setStoredPrompt = useAppStore((s) => s.setDailyReflectionPrompt)
   const sessions = useSPIStore((s) => s.sessions)
   const ensureWeekSession = useSPIStore((s) => s.ensureWeekSession)
   const updateValue = useSPIStore((s) => s.updateValue)
@@ -43,14 +44,16 @@ export function DailyReflection() {
   const savedFelic = session?.values?.autoconcepto?.[fieldKey] ?? ''
   const savedMood = session?.values?.dailyMood?.[dayName] ?? ''
 
-  // Prompt editable (por dispositivo, en localStorage).
-  const [prompt, setPrompt] = useState(DEFAULT_PROMPT)
+  // Prompt editable — sincronizado multi-device vía appPrefs (app_preferences).
+  // Vacío en el store = usar el DEFAULT_PROMPT. Antes vivía en localStorage
+  // (por-device); ahora viaja con el resto de las prefs del usuario.
+  const prompt = storedPrompt || DEFAULT_PROMPT
   const [editingPrompt, setEditingPrompt] = useState(false)
-  useEffect(() => { try { setPrompt(localStorage.getItem(PROMPT_KEY) || DEFAULT_PROMPT) } catch { /* noop */ } }, [])
   const savePrompt = (v: string) => {
-    const t = v.trim() || DEFAULT_PROMPT
-    setPrompt(t)
-    try { localStorage.setItem(PROMPT_KEY, t) } catch { /* noop */ }
+    const t = v.trim()
+    // Guardamos '' cuando coincide con el default, así no llenamos el payload
+    // con el texto por defecto y cualquier cambio futuro del default se propaga.
+    setStoredPrompt(t === DEFAULT_PROMPT ? '' : t)
     setEditingPrompt(false)
   }
 

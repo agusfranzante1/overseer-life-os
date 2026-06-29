@@ -172,6 +172,13 @@ export interface AppState {
   contenidoTabOrder: string[]
   setContenidoTabOrder: (keys: string[]) => void
 
+  // Frase/pregunta editable de la Reflexión diaria del Panel (persisted +
+  // synced multi-device vía appPrefs). Vacío = usar el prompt default que
+  // define el componente. El mood y la respuesta del día ya viven en la
+  // sesión SPI de la semana; esto sincroniza solo la pregunta.
+  dailyReflectionPrompt: string
+  setDailyReflectionPrompt: (v: string) => void
+
   // AI provider settings (persisted)
   aiProvider: 'off' | 'ollama' | 'anthropic'
   anthropicApiKey: string
@@ -328,6 +335,9 @@ export const useAppStore = create<AppState>()(
       setNavOrder: (keys) => set({ navOrder: keys }),
       contenidoTabOrder: [],  // empty = use default tab order
       setContenidoTabOrder: (keys) => set({ contenidoTabOrder: keys }),
+
+      dailyReflectionPrompt: '',  // empty = use component's DEFAULT_PROMPT
+      setDailyReflectionPrompt: (v) => set({ dailyReflectionPrompt: v }),
 
       aiProvider: 'off',
       anthropicApiKey: '',
