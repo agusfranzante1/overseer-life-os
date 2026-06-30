@@ -170,6 +170,45 @@ export function MindMapThumbnail({
           // when the thumbnail shrinks. ~12-14 in content coords ends up
           // perfectly legible at thumbnail scale.
           const fontSize = Math.max(10, Math.min(14, node.height * 0.22))
+          const rx = Math.min(12, node.height / 4)
+          // Nodo imagen — miniatura recortada a los bordes redondeados (o al
+          // círculo). Reusamos foreignObject (como el texto) para un <img>
+          // con object-fit, en vez de la caja de color.
+          if (node.imageUrl) {
+            return (
+              <g key={node.id}>
+                <rect
+                  x={node.x} y={node.y}
+                  width={node.width} height={node.height}
+                  rx={node.shape === 'circle' ? node.height / 2 : rx}
+                  fill={color}
+                  opacity={hover ? 0.18 : 0.08}
+                  filter={`url(#${gridId})`}
+                  style={{ transition: 'opacity 0.2s' }}
+                />
+                <foreignObject
+                  x={node.x} y={node.y}
+                  width={node.width} height={node.height}
+                  style={{ pointerEvents: 'none' }}
+                >
+                  <div
+                    style={{
+                      width: '100%', height: '100%', overflow: 'hidden',
+                      borderRadius: node.shape === 'circle' ? '50%' : `${rx}px`,
+                      border: `${2 * strokeFactor}px solid ${color}${hover ? 'FF' : 'BB'}`,
+                    } as React.CSSProperties}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={node.imageUrl}
+                      alt=""
+                      style={{ width: '100%', height: '100%', objectFit: node.imageFit ?? 'cover', display: 'block' }}
+                    />
+                  </div>
+                </foreignObject>
+              </g>
+            )
+          }
           return (
             <g key={node.id}>
               {/* Subtle glow halo — fades out without hover */}

@@ -1,6 +1,7 @@
 'use client'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { deleteMindmapImage } from '@/lib/mindmap/imageUpload'
 
 function genId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
@@ -34,6 +35,17 @@ export interface MindMapNode {
    *  un botón 🔗 que, al clickear, abre ese mapa. Se setea escribiendo `@` en
    *  el texto del nodo y eligiendo un mapa del menú. */
   linkedMapId?: string
+  /** URL pública de una imagen (bucket `mindmap-images`). Cuando está seteada,
+   *  el nodo se renderiza como "nodo imagen": la foto llena la caja, clipeada
+   *  a los bordes redondeados (o al círculo si shape==='circle'). El texto se
+   *  oculta. Sigue siendo movible/redimensionable como cualquier nodo. */
+  imageUrl?: string
+  /** Path del objeto en Storage (<userId>/<mapId>/<imageId>.<ext>). Lo
+   *  guardamos para poder borrar el archivo cuando se borra el nodo. */
+  imagePath?: string
+  /** Cómo encaja la imagen en la caja. 'cover' (default) llena y recorta;
+   *  'contain' muestra la imagen completa con posible letterbox. */
+  imageFit?: 'cover' | 'contain'
 }
 
 /** Visual shape used to render the connector between two nodes.
@@ -96,7 +108,12 @@ interface MindMapState {
   deleteMap: (mapId: string) => void
 
   // Node CRUD
-  addNode: (mapId: string, args: { x: number; y: number; text?: string; color?: string }) => string
+  addNode: (mapId: string, args: {
+    x: number; y: number; text?: string; color?: string
+    // Opcionales para "nodos imagen" — cuando se crean desde una subida.
+    width?: number; height?: number
+    imageUrl?: string; imagePath?: string; imageFit?: 'cover' | 'contain'
+  }) => string
   updateNode: (mapId: string, nodeId: string, patch: Partial<Omit<MindMapNode, 'id'>>) => void
   removeNode: (mapId: string, nodeId: string) => void
   /** Duplicate a node — copy text, color, shape, dimensions, fontSize. The
@@ -177,13 +194,18 @@ export const useMindMapStore = create<MindMapState>()(
             const newNode: MindMapNode = {
               id: nodeId,
               x: args.x, y: args.y,
-              width: NODE_DEFAULT_WIDTH, height: NODE_DEFAULT_HEIGHT,
+              width: args.width ?? NODE_DEFAULT_WIDTH,
+              height: args.height ?? NODE_DEFAULT_HEIGHT,
               // Default to empty. The view renders "Idea" as a placeholder
               // when text is empty so the box doesn't look broken, but the
               // edit textarea opens BLANK — no need for the user to delete
               // the literal word "Idea" before typing their actual idea.
               text: args.text ?? '',
               color: args.color,
+              // Campos de "nodo imagen" — solo presentes si se creó desde una subida.
+              ...(args.imageUrl ? { imageUrl: args.imageUrl } : {}),
+              ...(args.imagePath ? { imagePath: args.imagePath } : {}),
+              ...(args.imageFit ? { imageFit: args.imageFit } : {}),
             }
             return touch({ ...m, nodes: [...m.nodes, newNode] })
           }),
@@ -219,17 +241,37 @@ export const useMindMapStore = create<MindMapState>()(
         return newId
       },
 
-      removeNode: (mapId, nodeId) => set((s) => ({
-        maps: s.maps.map((m) => {
-          if (m.id !== mapId) return m
-          return touch({
-            ...m,
-            nodes: m.nodes.filter((n) => n.id !== nodeId),
-            // Cascade: any edge that touches this node dies too.
-            edges: m.edges.filter((e) => e.fromNodeId !== nodeId && e.toNodeId !== nodeId),
-          })
-        }),
-      })),
+      removeNode: (mapId, nodeId) => {
+        // Si el nodo borrado es un "nodo imagen", limpiamos su archivo del
+        // bucket (best-effort, fire-and-forget). Lo hacemos acá —y no en cada
+        // call site— porque removeNode es el único punto por el que pasa todo
+        // borrado de nodos (tecla Supr, toolbar, etc.).
+        //
+        // Guard contra duplicados: Duplicar / copiar-pegar generan nodos que
+        // COMPARTEN el mismo imagePath (apuntan al mismo objeto en Storage).
+        // Solo borramos el archivo si NINGÚN otro nodo (en ningún mapa) lo
+        // sigue usando — si no, romperíamos la imagen de las copias.
+        const allMaps = get().maps
+        const node = allMaps.find((m) => m.id === mapId)?.nodes.find((n) => n.id === nodeId)
+        if (node?.imagePath) {
+          const path = node.imagePath
+          const stillUsedElsewhere = allMaps.some((m) =>
+            m.nodes.some((n) => !(m.id === mapId && n.id === nodeId) && n.imagePath === path)
+          )
+          if (!stillUsedElsewhere) void deleteMindmapImage(path)
+        }
+        set((s) => ({
+          maps: s.maps.map((m) => {
+            if (m.id !== mapId) return m
+            return touch({
+              ...m,
+              nodes: m.nodes.filter((n) => n.id !== nodeId),
+              // Cascade: any edge that touches this node dies too.
+              edges: m.edges.filter((e) => e.fromNodeId !== nodeId && e.toNodeId !== nodeId),
+            })
+          }),
+        }))
+      },
 
       pasteSubgraph: (mapId, payload, offset = { dx: 40, dy: 40 }) => {
         const srcNodes = Array.isArray(payload?.nodes) ? payload.nodes : []

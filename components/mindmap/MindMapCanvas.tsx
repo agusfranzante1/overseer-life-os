@@ -1,10 +1,11 @@
 'use client'
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
-import { Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight, ZoomIn, ZoomOut, Square, Circle, Type, Copy, Link2 } from 'lucide-react'
+import { Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight, ZoomIn, ZoomOut, Square, Circle, Type, Copy, Link2, Image as ImageIcon, Loader2 } from 'lucide-react'
 import {
   useMindMapStore, NODE_PALETTE,
   type MindMapNode, type MindMapEdge, type MindMapEdgeShape, type MindMapNodeShape,
 } from '@/lib/store/mindmapStore'
+import { uploadMindmapImage } from '@/lib/mindmap/imageUpload'
 import {
   buildEdgePath, computeEdgeEndpoints, computeDrawingEndpoints, computeEdgeBreakpoints,
 } from './edgeGeometry'
@@ -23,6 +24,10 @@ const NODE_TEXT_PADDING_X = 16
  *  this are unreadable and tend to be unselectable on touch. */
 const NODE_MIN_WIDTH = 80
 const NODE_MIN_HEIGHT = 48
+/** Lado máximo (px de content) con el que arranca un nodo imagen recién
+ *  subido. La caja se escala manteniendo el aspect ratio de la imagen para
+ *  que entre cómoda en pantalla; después el usuario la redimensiona a gusto. */
+const IMAGE_NODE_MAX_START = 260
 
 /** Full mind-map editor for a single map.
  *
@@ -121,6 +126,9 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
   // Feedback efímero al copiar (Ctrl+C) — muestra "Copiado N nodos" un rato.
   const [copyFlash, setCopyFlash] = useState<string | null>(null)
+  // Subida de imagen en curso — bloquea doble-subida y muestra un chip "Subiendo…".
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const imageInputRef = useRef<HTMLInputElement | null>(null)
 
   // Drawing mode: an in-progress edge that follows the cursor. While
   // `drawingFromId` is non-null, the canvas tracks the cursor position
@@ -353,6 +361,46 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     }
   }
 
+  // ── Subir una imagen → crear un "nodo imagen" centrado en el viewport ──
+  // Sube el archivo a Supabase Storage (no base64 — ver imageUpload.ts) y crea
+  // un nodo cuya caja arranca con el aspect ratio de la imagen. Después es
+  // movible/redimensionable como cualquier nodo.
+  const handleImageFile = async (file: File) => {
+    if (!file || uploadingImage) return
+    setUploadingImage(true)
+    try {
+      const { url, path, width, height } = await uploadMindmapImage(file, mapId)
+      // Dimensiones iniciales de la caja: escalar manteniendo el ratio para
+      // que el lado mayor sea IMAGE_NODE_MAX_START. Si no pudimos medir la
+      // imagen (compresión falló), usamos un 4:3 razonable.
+      let w = IMAGE_NODE_MAX_START
+      let h = Math.round(IMAGE_NODE_MAX_START * 0.72)
+      if (width > 0 && height > 0) {
+        const scale = Math.min(1, IMAGE_NODE_MAX_START / Math.max(width, height))
+        w = Math.max(NODE_MIN_WIDTH, Math.round(width * scale))
+        h = Math.max(NODE_MIN_HEIGHT, Math.round(height * scale))
+      }
+      // Centro del viewport en coords de content (respeta pan + zoom).
+      const rect = canvasRef.current?.getBoundingClientRect()
+      const center = rect
+        ? screenToContent(rect.left + rect.width / 2, rect.top + rect.height / 2)
+        : null
+      const cx = center?.x ?? 0
+      const cy = center?.y ?? 0
+      const id = addNode(mapId, {
+        x: cx - w / 2, y: cy - h / 2, width: w, height: h,
+        imageUrl: url, imagePath: path, imageFit: 'cover',
+      })
+      selectOnlyNode(id)
+      setCopyFlash('Imagen agregada')
+      setTimeout(() => setCopyFlash(null), 1500)
+    } catch {
+      // uploadMindmapImage ya disparó el toast con el detalle del error.
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
   // ── Empty-canvas pointer-down ──
   const onCanvasPointerDown = (e: React.PointerEvent) => {
     if (e.target !== e.currentTarget) return
@@ -571,6 +619,10 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     const startW = node.width
     const startH = node.height
     const isCircle = node.shape === 'circle'
+    // Los nodos imagen (no-círculo) conservan su aspect ratio al redimensionar
+    // para que la foto nunca se deforme. El círculo ya fuerza 1:1 más abajo.
+    const isAspectLocked = !!node.imageUrl && !isCircle
+    const aspect = startH > 0 ? startW / startH : 1
     const pointerId = e.pointerId
     const el = e.currentTarget as HTMLElement
 
@@ -588,6 +640,14 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
         const delta = (dx + dy) / 2
         const size = Math.max(NODE_MIN_WIDTH, Math.max(NODE_MIN_HEIGHT, startW + delta))
         updateNode(mapId, node.id, { width: size, height: size })
+      } else if (isAspectLocked) {
+        // El ancho manda; la altura se deriva del aspect. Si la altura cae
+        // por debajo del mínimo, invertimos (la altura manda) para no romper
+        // la proporción contra el piso de tamaño.
+        let w = Math.max(NODE_MIN_WIDTH, startW + dx)
+        let h = w / aspect
+        if (h < NODE_MIN_HEIGHT) { h = NODE_MIN_HEIGHT; w = h * aspect }
+        updateNode(mapId, node.id, { width: Math.round(w), height: Math.round(h) })
       } else {
         const w = Math.max(NODE_MIN_WIDTH, startW + dx)
         const h = Math.max(NODE_MIN_HEIGHT, startH + dy)
@@ -768,6 +828,8 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
           selectOnlyNode(id)
           setEditingNodeId(id)
         }}
+        onAddImage={() => imageInputRef.current?.click()}
+        uploadingImage={uploadingImage}
         onResetPan={() => { setPan({ x: 0, y: 0 }); setZoom(1) }}
         zoom={zoom}
         onZoomIn={() => {
@@ -1053,6 +1115,9 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
                 }}
                 onClick={(modifierKey) => handleNodeClick(node.id, { multi: modifierKey })}
                 onDoubleClick={() => {
+                  // Los nodos imagen no tienen texto editable — doble-click
+                  // solo selecciona (no abre textarea).
+                  if (node.imageUrl) { selectOnlyNode(node.id); return }
                   setEditingNodeId(node.id)
                   selectOnlyNode(node.id)
                 }}
@@ -1098,6 +1163,28 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
           )
         })()}
 
+        {/* Input oculto para subir imágenes — lo dispara el botón "Imagen" de
+            la toolbar. Reseteamos value tras elegir para poder re-subir el
+            mismo archivo. */}
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (file) void handleImageFile(file)
+            e.target.value = ''
+          }}
+        />
+
+        {/* Chip "Subiendo imagen…" mientras corre la subida. */}
+        {uploadingImage && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-40 px-3 py-1.5 rounded-lg bg-indigo-500/20 border border-indigo-500/50 text-indigo-200 text-xs font-semibold shadow-lg pointer-events-none flex items-center gap-2">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Subiendo imagen…
+          </div>
+        )}
+
         {/* Feedback efímero de copiar/pegar (Ctrl+C / Ctrl+V). */}
         {copyFlash && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 z-40 px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/50 text-emerald-200 text-xs font-semibold shadow-lg pointer-events-none">
@@ -1142,7 +1229,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
 
 function Toolbar({
   selectedNode, selectedEdge,
-  onChangeNodeColor, onChangeNodeShape, onChangeNodeFontSize, onChangeEdgeShape, onDeleteSelection, onAddNode, onResetPan,
+  onChangeNodeColor, onChangeNodeShape, onChangeNodeFontSize, onChangeEdgeShape, onDeleteSelection, onAddNode, onAddImage, uploadingImage, onResetPan,
   zoom, onZoomIn, onZoomOut,
 }: {
   selectedNode: MindMapNode | null
@@ -1153,6 +1240,8 @@ function Toolbar({
   onChangeEdgeShape: (shape: MindMapEdgeShape) => void
   onDeleteSelection: () => void
   onAddNode: () => void
+  onAddImage: () => void
+  uploadingImage: boolean
   onResetPan: () => void
   zoom: number
   onZoomIn: () => void
@@ -1166,6 +1255,14 @@ function Toolbar({
         className="text-xs text-zinc-300 hover:text-indigo-300 active:bg-zinc-800 px-2.5 py-1.5 rounded-lg hover:bg-zinc-800 transition-colors flex items-center gap-1.5"
       >
         <Plus className="w-3.5 h-3.5" /> Nodo
+      </button>
+      <button
+        onClick={onAddImage}
+        disabled={uploadingImage}
+        title="Agregar una imagen al mapa"
+        className="text-xs text-zinc-300 hover:text-indigo-300 active:bg-zinc-800 px-2.5 py-1.5 rounded-lg hover:bg-zinc-800 transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-wait"
+      >
+        {uploadingImage ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />} Imagen
       </button>
       <button
         onClick={onResetPan}
@@ -1440,6 +1537,9 @@ function NodeBox({
   const color = node.color ?? DEFAULT_NODE_COLOR
   const borderColor = selected ? color : color + '70'
   const fontSize = node.fontSize ?? DEFAULT_FONT_SIZE
+  // "Nodo imagen": tiene foto → se renderiza la imagen en vez del texto, y el
+  // auto-grow de altura (que mide el texto) queda desactivado.
+  const isImage = !!node.imageUrl
 
   const [draft, setDraft] = useState(node.text)
   useEffect(() => { setDraft(node.text) }, [node.text, editing])
@@ -1501,6 +1601,7 @@ function NodeBox({
   useEffect(() => { onAutoGrowHeightRef.current = onAutoGrowHeight }, [onAutoGrowHeight])
 
   useLayoutEffect(() => {
+    if (isImage) return  // los nodos imagen no auto-crecen por texto
     if (!editing) return
     const ta = textareaRef.current
     if (!ta) return
@@ -1525,6 +1626,7 @@ function NodeBox({
   // h-full, que devolvería siempre la altura actual del box).
   const viewMeasureRef = useRef<HTMLDivElement | null>(null)
   useLayoutEffect(() => {
+    if (isImage) return  // altura controlada por el resize con aspect lock
     if (editing) return
     const el = viewMeasureRef.current
     if (!el) return
@@ -1561,7 +1663,26 @@ function NodeBox({
           touchAction: 'none',
         }}
       >
-        {editing ? (
+        {isImage ? (
+          // Imagen clipeada a los bordes redondeados (o al círculo). El
+          // wrapper absolute inset-0 + overflow-hidden recorta la foto SIN
+          // tapar los handles externos (resize / duplicar / "+"), que viven
+          // fuera de la caja con offsets negativos.
+          <div
+            className={`absolute inset-0 overflow-hidden ${
+              node.shape === 'circle' ? 'rounded-full' : 'rounded-2xl'
+            }`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={node.imageUrl}
+              alt=""
+              draggable={false}
+              className="w-full h-full select-none pointer-events-none"
+              style={{ objectFit: node.imageFit ?? 'cover' }}
+            />
+          </div>
+        ) : editing ? (
           <textarea
             ref={textareaRef}
             autoFocus
