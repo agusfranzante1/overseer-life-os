@@ -56,6 +56,15 @@ export interface MindMapNode {
  *                     could be added later as a sub-variant. */
 export type MindMapEdgeShape = 'straight' | 'curved' | 'orthogonal'
 
+/** Modo de alineación de un conjunto de nodos, relativo a la bounding box de
+ *  la selección (estilo Figma):
+ *   - horizontal: 'left' | 'hcenter' | 'right' → comparten borde/centro en X
+ *   - vertical:   'top'  | 'vcenter' | 'bottom' → comparten borde/centro en Y */
+export type MindMapAlignMode = 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom'
+
+/** Eje de distribución — reparte los nodos con espacios iguales entre sí. */
+export type MindMapDistributeAxis = 'horizontal' | 'vertical'
+
 export interface MindMapEdge {
   id: string
   fromNodeId: string
@@ -151,6 +160,12 @@ interface MindMapState {
   /** Change the text size of a node, in pixels. Pass `undefined` to reset
    *  to the default (14px). */
   setNodeFontSize: (mapId: string, nodeId: string, fontSize: number | undefined) => void
+  /** Alinea los nodos indicados respecto a la bounding box de la selección
+   *  (izquierda/centro/derecha en X; arriba/medio/abajo en Y). Necesita 2+. */
+  alignNodes: (mapId: string, nodeIds: string[], mode: MindMapAlignMode) => void
+  /** Distribuye los nodos con espacios iguales entre sí a lo largo del eje.
+   *  Los extremos quedan fijos; se reacomodan los del medio. Necesita 3+. */
+  distributeNodes: (mapId: string, nodeIds: string[], axis: MindMapDistributeAxis) => void
 
   // Selectors
   getMap: (mapId: string) => MindMap | null
@@ -409,6 +424,68 @@ export const useMindMapStore = create<MindMapState>()(
             return { ...n, shape }
           }),
         })),
+      })),
+
+      alignNodes: (mapId, nodeIds, mode) => set((s) => ({
+        maps: s.maps.map((m) => {
+          if (m.id !== mapId) return m
+          const idset = new Set(nodeIds)
+          const sel = m.nodes.filter((n) => idset.has(n.id))
+          if (sel.length < 2) return m
+          // Bounding box de la selección — la referencia de alineación.
+          const minX = Math.min(...sel.map((n) => n.x))
+          const maxRight = Math.max(...sel.map((n) => n.x + n.width))
+          const minY = Math.min(...sel.map((n) => n.y))
+          const maxBottom = Math.max(...sel.map((n) => n.y + n.height))
+          const cx = (minX + maxRight) / 2
+          const cy = (minY + maxBottom) / 2
+          return touch({
+            ...m,
+            nodes: m.nodes.map((n) => {
+              if (!idset.has(n.id)) return n
+              switch (mode) {
+                case 'left':    return { ...n, x: minX }
+                case 'right':   return { ...n, x: maxRight - n.width }
+                case 'hcenter': return { ...n, x: cx - n.width / 2 }
+                case 'top':     return { ...n, y: minY }
+                case 'bottom':  return { ...n, y: maxBottom - n.height }
+                case 'vcenter': return { ...n, y: cy - n.height / 2 }
+                default:        return n
+              }
+            }),
+          })
+        }),
+      })),
+
+      distributeNodes: (mapId, nodeIds, axis) => set((s) => ({
+        maps: s.maps.map((m) => {
+          if (m.id !== mapId) return m
+          const idset = new Set(nodeIds)
+          const sel = m.nodes.filter((n) => idset.has(n.id))
+          if (sel.length < 3) return m  // con 2 no hay "medio" que repartir
+          const horiz = axis === 'horizontal'
+          // Orden por posición a lo largo del eje; extremos fijos, gap uniforme.
+          const sorted = [...sel].sort((a, b) => (horiz ? a.x - b.x : a.y - b.y))
+          const start = horiz ? sorted[0].x : sorted[0].y
+          const end = horiz
+            ? Math.max(...sorted.map((n) => n.x + n.width))
+            : Math.max(...sorted.map((n) => n.y + n.height))
+          const totalSize = sorted.reduce((sum, n) => sum + (horiz ? n.width : n.height), 0)
+          const gap = (end - start - totalSize) / (sorted.length - 1)
+          const newPos = new Map<string, number>()
+          let cursor = start
+          for (const n of sorted) {
+            newPos.set(n.id, cursor)
+            cursor += (horiz ? n.width : n.height) + gap
+          }
+          return touch({
+            ...m,
+            nodes: m.nodes.map((n) => {
+              if (!newPos.has(n.id)) return n
+              return horiz ? { ...n, x: newPos.get(n.id)! } : { ...n, y: newPos.get(n.id)! }
+            }),
+          })
+        }),
       })),
 
       getMap: (mapId) => get().maps.find((m) => m.id === mapId) ?? null,

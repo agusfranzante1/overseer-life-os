@@ -108,6 +108,11 @@ export interface ContentProfile {
   /** Baúl — caja de texto libre por perfil para guardar links de videos,
    *  referencias, ideas y cosas importantes del canal. Opcional. */
   baul?: string
+  /** Orientación — una línea corta que define el norte del canal ("este es
+   *  más orientado a X"). Se edita desde la vista Panorama y ayuda a distinguir
+   *  y acomodar los perfiles de un vistazo. Opcional; sin migración (viaja en
+   *  el payload JSONB del perfil, igual que `baul`). */
+  orientation?: string
   /** Tarea MADRE espejo en el proyecto "Content Strategy" del task manager.
    *  Cada pieza del pipeline del perfil se refleja como SUBTAREA de esta
    *  tarea (id de subtarea = `cs_<itemId>`). Vive en el payload JSONB del

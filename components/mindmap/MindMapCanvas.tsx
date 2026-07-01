@@ -1,9 +1,15 @@
 'use client'
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
-import { Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight, ZoomIn, ZoomOut, Square, Circle, Type, Copy, Link2, Image as ImageIcon, Loader2 } from 'lucide-react'
+import {
+  Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight, ZoomIn, ZoomOut, Square, Circle, Type, Copy, Link2, Image as ImageIcon, Loader2,
+  AlignStartVertical, AlignCenterVertical, AlignEndVertical,
+  AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
+  AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter,
+} from 'lucide-react'
 import {
   useMindMapStore, NODE_PALETTE,
   type MindMapNode, type MindMapEdge, type MindMapEdgeShape, type MindMapNodeShape,
+  type MindMapAlignMode, type MindMapDistributeAxis,
 } from '@/lib/store/mindmapStore'
 import { uploadMindmapImage } from '@/lib/mindmap/imageUpload'
 import {
@@ -56,6 +62,8 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   const setEdgeAnchor = useMindMapStore((s) => s.setEdgeAnchor)
   const setNodeShape = useMindMapStore((s) => s.setNodeShape)
   const setNodeFontSize = useMindMapStore((s) => s.setNodeFontSize)
+  const alignNodes = useMindMapStore((s) => s.alignNodes)
+  const distributeNodes = useMindMapStore((s) => s.distributeNodes)
   const duplicateNode = useMindMapStore((s) => s.duplicateNode)
   const pasteSubgraph = useMindMapStore((s) => s.pasteSubgraph)
 
@@ -795,6 +803,10 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
       <Toolbar
         selectedNode={selectedNode}
         selectedEdge={selectedEdge}
+        selectedNodeCount={selectedNodeIds.length}
+        selectedNodesColor={map.nodes.find((n) => n.id === selectedNodeIds[0])?.color ?? DEFAULT_NODE_COLOR}
+        onAlign={(mode) => alignNodes(mapId, selectedNodeIds, mode)}
+        onDistribute={(axis) => distributeNodes(mapId, selectedNodeIds, axis)}
         onChangeNodeColor={(color) => {
           // Aplica color a TODOS los nodos seleccionados (1 o N).
           for (const id of selectedNodeIds) updateNode(mapId, id, { color })
@@ -1228,16 +1240,23 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
 // ─── Toolbar ─────────────────────────────────────────────────────────────────
 
 function Toolbar({
-  selectedNode, selectedEdge,
-  onChangeNodeColor, onChangeNodeShape, onChangeNodeFontSize, onChangeEdgeShape, onDeleteSelection, onAddNode, onAddImage, uploadingImage, onResetPan,
+  selectedNode, selectedEdge, selectedNodeCount, selectedNodesColor,
+  onChangeNodeColor, onChangeNodeShape, onChangeNodeFontSize, onChangeEdgeShape, onAlign, onDistribute, onDeleteSelection, onAddNode, onAddImage, uploadingImage, onResetPan,
   zoom, onZoomIn, onZoomOut,
 }: {
   selectedNode: MindMapNode | null
   selectedEdge: { id: string; shape?: MindMapEdgeShape } | null
+  /** Cuántos nodos hay seleccionados — con 2+ aparece alinear + color. */
+  selectedNodeCount: number
+  /** Color del primer nodo seleccionado — solo para el swatch del picker en
+   *  multi-selección (no hay un "color único" cuando son varios distintos). */
+  selectedNodesColor: string
   onChangeNodeColor: (color: string) => void
   onChangeNodeShape: (shape: MindMapNodeShape) => void
   onChangeNodeFontSize: (fontSize: number | undefined) => void
   onChangeEdgeShape: (shape: MindMapEdgeShape) => void
+  onAlign: (mode: MindMapAlignMode) => void
+  onDistribute: (axis: MindMapDistributeAxis) => void
   onDeleteSelection: () => void
   onAddNode: () => void
   onAddImage: () => void
@@ -1334,6 +1353,77 @@ function Toolbar({
           </button>
         </>
       )}
+
+      {/* Multi-selección (2+ nodos): color de todos a la vez + alinear/espaciar. */}
+      {selectedNodeCount >= 2 && (
+        <>
+          <div className="w-px h-5 bg-zinc-800 mx-1" />
+          <ColorPickerInline currentColor={selectedNodesColor} onChange={onChangeNodeColor} />
+          <AlignControls count={selectedNodeCount} onAlign={onAlign} onDistribute={onDistribute} />
+          <button
+            onClick={onDeleteSelection}
+            title="Borrar selección (o Delete)"
+            className="text-zinc-500 hover:text-red-400 hover:bg-red-500/10 active:bg-red-500/20 p-1.5 rounded-lg transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** Grupo de botones de alineación / distribución, visible cuando hay 2+ nodos
+ *  seleccionados. Alinea respecto a la bounding box de la selección. La
+ *  distribución necesita 3+ (con 2 no hay "medio" que repartir → deshabilitada). */
+function AlignControls({
+  count, onAlign, onDistribute,
+}: {
+  count: number
+  onAlign: (mode: MindMapAlignMode) => void
+  onDistribute: (axis: MindMapDistributeAxis) => void
+}) {
+  const alignButtons: { mode: MindMapAlignMode; label: string; Icon: typeof AlignStartVertical }[] = [
+    { mode: 'left',    label: 'Alinear a la izquierda',  Icon: AlignStartVertical },
+    { mode: 'hcenter', label: 'Centrar horizontalmente',  Icon: AlignCenterVertical },
+    { mode: 'right',   label: 'Alinear a la derecha',     Icon: AlignEndVertical },
+    { mode: 'top',     label: 'Alinear arriba',           Icon: AlignStartHorizontal },
+    { mode: 'vcenter', label: 'Centrar verticalmente',    Icon: AlignCenterHorizontal },
+    { mode: 'bottom',  label: 'Alinear abajo',            Icon: AlignEndHorizontal },
+  ]
+  const canDistribute = count >= 3
+  return (
+    <div className="flex items-center gap-0.5 bg-zinc-950/60 border border-zinc-800 rounded-lg p-0.5">
+      {alignButtons.map(({ mode, label, Icon }) => (
+        <button
+          key={mode}
+          onClick={() => onAlign(mode)}
+          title={label}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="px-1.5 py-1 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 active:bg-zinc-800 transition-colors"
+        >
+          <Icon className="w-3.5 h-3.5" />
+        </button>
+      ))}
+      <div className="w-px h-4 bg-zinc-800 mx-0.5" />
+      <button
+        onClick={() => canDistribute && onDistribute('horizontal')}
+        disabled={!canDistribute}
+        title={canDistribute ? 'Espaciar uniformemente en horizontal' : 'Espaciar uniformemente necesita 3+ nodos'}
+        onPointerDown={(e) => e.stopPropagation()}
+        className="px-1.5 py-1 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 active:bg-zinc-800 transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-400"
+      >
+        <AlignHorizontalDistributeCenter className="w-3.5 h-3.5" />
+      </button>
+      <button
+        onClick={() => canDistribute && onDistribute('vertical')}
+        disabled={!canDistribute}
+        title={canDistribute ? 'Espaciar uniformemente en vertical' : 'Espaciar uniformemente necesita 3+ nodos'}
+        onPointerDown={(e) => e.stopPropagation()}
+        className="px-1.5 py-1 rounded-md text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 active:bg-zinc-800 transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-400"
+      >
+        <AlignVerticalDistributeCenter className="w-3.5 h-3.5" />
+      </button>
     </div>
   )
 }

@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Sparkles, Target, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Plus, Trash2, X, BookOpen, Layers, Zap, Pencil, Send, Check,
-  Image as ImageIcon, Upload, Loader2, Archive,
+  Image as ImageIcon, Upload, Loader2, Archive, LayoutGrid, ArrowRight,
 } from 'lucide-react'
 import { useContentStore, buildAIContentPrompt } from '@/lib/store/contentStore'
 import { useAppStore } from '@/lib/store/appStore'
@@ -19,7 +19,7 @@ import type {
 } from '@/types/content'
 import { uploadVisualImage, deleteVisualImage } from '@/lib/content/visualUpload'
 
-type Tab = 'estrategia' | 'mes' | 'calendario' | 'pipeline' | 'estilo' | 'baul'
+type Tab = 'panorama' | 'estrategia' | 'mes' | 'calendario' | 'pipeline' | 'estilo' | 'baul'
 
 const ALL_NETWORKS: ContentNetwork[] = [
   'instagram', 'tiktok', 'youtube', 'linkedin', 'x',
@@ -54,6 +54,7 @@ function writeLS(key: string, value: string) {
 // Definición (label + icono) de cada tab. El ORDEN visual lo decide el user
 // (drag-and-drop, persistido en LS_TAB_ORDER); acá solo está el default.
 const TAB_DEFS: { key: Tab; label: string; icon: React.ReactNode }[] = [
+  { key: 'panorama',    label: 'Panorama',       icon: <LayoutGrid className="w-3.5 h-3.5" /> },
   { key: 'estrategia',  label: 'ADN de marca',   icon: <Target className="w-3.5 h-3.5" /> },
   { key: 'mes',         label: 'Mes en curso',   icon: <BookOpen className="w-3.5 h-3.5" /> },
   { key: 'calendario',  label: 'Calendario',     icon: <CalendarIcon className="w-3.5 h-3.5" /> },
@@ -82,6 +83,9 @@ function sanitizeTabOrder(saved: readonly unknown[] | null | undefined): Tab[] {
 export function ContenidoPage() {
   const [tab, setTabState] = useState<Tab>(() => readLS<Tab>(LS_TAB, 'estrategia'))
   const setTab = (t: Tab) => { setTabState(t); writeLS(LS_TAB, t) }
+  const setCurrentProfile = useContentStore((s) => s.setCurrentProfile)
+  // Abrir un canal desde el Panorama: lo pone activo y salta al ADN para editarlo.
+  const openProfile = (id: string) => { setCurrentProfile(id); setTab('estrategia') }
   const [editingItem, setEditingItem] = useState<ContentItem | null>(null)
   const [creatingForDay, setCreatingForDay] = useState<string | null>(null)
   const [networkFilter, setNetworkFilterState] = useState<ContentNetwork | 'all'>(() => readLS<ContentNetwork | 'all'>(LS_NETWORK_FILTER, 'all'))
@@ -115,13 +119,20 @@ export function ContenidoPage() {
         currentMonth={currentMonth} setCurrentMonth={setCurrentMonth}
         networkFilter={networkFilter} setNetworkFilter={setNetworkFilter}
       />
-      <ProfileBar
-        showAllToggle={tab === 'calendario' || tab === 'pipeline'}
-        profileFilter={profileFilter}
-        setProfileFilter={setProfileFilter}
-      />
+      {tab !== 'panorama' && (
+        <ProfileBar
+          showAllToggle={tab === 'calendario' || tab === 'pipeline'}
+          profileFilter={profileFilter}
+          setProfileFilter={setProfileFilter}
+        />
+      )}
 
       <AnimatePresence mode="wait">
+        {tab === 'panorama' && (
+          <motion.div key="t0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <PanoramaTab onOpenProfile={openProfile} />
+          </motion.div>
+        )}
         {tab === 'estrategia' && (
           <motion.div key="t1" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <EstrategiaTab />
@@ -2128,6 +2139,249 @@ function KnowledgeMapField({
 // referencias, ideas y cosas importantes del canal que quieras guardar.
 // Se guarda en el perfil (sincroniza multi-device por payload, sin migración).
 // ───────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────
+// PANORAMA — todos los canales de un vistazo (resumen + orientación)
+// ───────────────────────────────────────────────────────────────────
+
+/** Arma una "esencia" scaneable del canal a partir del ADN ya cargado:
+ *  audiencia → problema → diferencial (o deseo si falta el diferencial),
+ *  salteando lo que esté vacío. Devuelve [] si no hay nada cargado. */
+function buildEssenceBits(dna: ContentProfile['brandDNA']): string[] {
+  const clean = (s?: string) => (s ?? '').trim()
+  const bits: string[] = []
+  const audience = clean(dna.audience)
+  const problem = clean(dna.problem)
+  const differential = clean(dna.differential)
+  const desire = clean(dna.desire)
+  if (audience) bits.push(`Para ${audience}`)
+  if (problem) bits.push(problem)
+  if (differential) bits.push(differential)
+  else if (desire) bits.push(desire)
+  return bits
+}
+
+/** Etiqueta relativa corta de última actividad ("hoy", "hace 3d", …). */
+function relativeShort(ms: number): string {
+  if (!ms || Number.isNaN(ms)) return '—'
+  const diff = Date.now() - ms
+  const day = 86400000
+  if (diff < day) return 'hoy'
+  const d = Math.floor(diff / day)
+  if (d < 7) return `hace ${d}d`
+  if (d < 30) return `hace ${Math.floor(d / 7)}sem`
+  if (d < 365) return `hace ${Math.floor(d / 30)}mes`
+  return `hace ${Math.floor(d / 365)}a`
+}
+
+function medalEmoji(medal?: 'gold' | 'silver' | 'bronze'): string | null {
+  if (medal === 'gold') return '🥇'
+  if (medal === 'bronze') return '🥉'
+  if (medal === 'silver') return '🥈'
+  return null
+}
+
+interface ProfileStats {
+  total: number
+  published: number
+  pipeline: number
+  campaigns: number
+  lastActivity: number  // ms epoch (0 si no hay)
+}
+
+function PanoramaTab({ onOpenProfile }: { onOpenProfile: (id: string) => void }) {
+  const profiles = useContentStore((s) => s.profiles)
+  const items = useContentStore((s) => s.items)
+  const campaigns = useContentStore((s) => s.campaigns)
+
+  // Un solo pase por items/campaigns → stats por perfil (evita filtrar N veces).
+  const statsByProfile = useMemo(() => {
+    const map = new Map<string, ProfileStats>()
+    for (const p of profiles) {
+      const seed = Date.parse(p.updatedAt ?? p.createdAt ?? '')
+      map.set(p.id, { total: 0, published: 0, pipeline: 0, campaigns: 0, lastActivity: Number.isNaN(seed) ? 0 : seed })
+    }
+    for (const it of items) {
+      const st = map.get(it.profileId)
+      if (!st) continue
+      st.total++
+      if (it.stage === 'published') st.published++
+      else st.pipeline++
+      const t = Date.parse(it.updatedAt ?? it.createdAt ?? '')
+      if (!Number.isNaN(t) && t > st.lastActivity) st.lastActivity = t
+    }
+    for (const c of campaigns) {
+      const st = map.get(c.profileId)
+      if (st) st.campaigns++
+    }
+    return map
+  }, [profiles, items, campaigns])
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-zinc-500">
+        Todos tus canales de un vistazo — de qué se trata cada uno, sus pilares y su estado.
+        Tocá <span className="text-zinc-300">Abrir</span> para editar su ADN, o escribí la
+        {' '}<span className="text-zinc-300">orientación</span> ahí mismo para acomodarlos.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {profiles.map((p) => (
+          <ProfileOverviewCard
+            key={p.id}
+            profile={p}
+            stats={statsByProfile.get(p.id) ?? { total: 0, published: 0, pipeline: 0, campaigns: 0, lastActivity: 0 }}
+            onOpen={() => onOpenProfile(p.id)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ProfileOverviewCard({ profile, stats, onOpen }: {
+  profile: ContentProfile
+  stats: ProfileStats
+  onOpen: () => void
+}) {
+  const updateProfile = useContentStore((s) => s.updateProfile)
+  const dna = profile.brandDNA
+  const color = profile.color
+  const essence = buildEssenceBits(dna)
+  const pillars = [...dna.pillars].sort((a, b) => a.order - b.order)
+  // Primeras imágenes del mood board (a lo ancho de todas sus categorías).
+  const moodImages = (profile.visualStyle ?? []).flatMap((c) => c.images).slice(0, 4)
+  const medal = medalEmoji(profile.medal)
+
+  // Orientación — inline edit (click-to-edit, guarda en blur/Enter). El draft
+  // se siembra al ABRIR el editor (no con un effect) — mientras no editás se
+  // muestra `profile.orientation` directo, así que el draft solo vive durante
+  // la edición y no necesita sincronizarse con cambios externos.
+  const [editingOrient, setEditingOrient] = useState(false)
+  const [draft, setDraft] = useState('')
+  const startEditOrient = () => { setDraft(profile.orientation ?? ''); setEditingOrient(true) }
+  const saveOrient = () => {
+    const v = draft.trim()
+    if (v !== (profile.orientation ?? '')) updateProfile(profile.id, { orientation: v || undefined })
+    setEditingOrient(false)
+  }
+
+  return (
+    <div
+      className="relative rounded-2xl border bg-white/[0.02] p-4 pt-5 flex flex-col gap-3 transition-colors hover:bg-white/[0.04] overflow-hidden"
+      style={{ borderColor: `${color}40` }}
+    >
+      {/* Barra de acento superior */}
+      <div className="absolute inset-x-0 top-0 h-1" style={{ background: color }} />
+
+      {/* Identidad */}
+      <div className="flex items-start gap-2.5">
+        <div
+          className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0"
+          style={{ background: `${color}20`, border: `1px solid ${color}50` }}
+        >
+          {profile.icon ?? '·'}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <button onClick={onOpen} className="font-bold text-white truncate hover:text-violet-200 transition-colors">
+              {profile.name}
+            </button>
+            {medal && <span className="text-sm shrink-0">{medal}</span>}
+          </div>
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap text-[11px] text-zinc-500">
+            <span className="flex items-center gap-1">
+              {profile.networks.slice(0, 6).map((n) => (
+                <span key={n} title={NETWORK_META[n].label}>{NETWORK_META[n].icon}</span>
+              ))}
+              {profile.networks.length === 0 && <span className="italic text-zinc-600">sin redes</span>}
+            </span>
+            <span className="text-zinc-700">·</span>
+            <span title="Última actividad">{relativeShort(stats.lastActivity)}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Mood board — primeras imágenes de referencia */}
+      {moodImages.length > 0 && (
+        <div className="flex gap-1.5">
+          {moodImages.map((img) => (
+            <div key={img.id} className="w-12 h-12 rounded-lg overflow-hidden border border-white/[0.08] shrink-0 bg-zinc-900">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={img.url} alt="" className="w-full h-full object-cover" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Esencia — resumen auto desde el ADN */}
+      {essence.length > 0 ? (
+        <p
+          className="text-xs text-zinc-300 leading-relaxed"
+          style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+        >
+          {essence.join('  ·  ')}
+        </p>
+      ) : (
+        <p className="text-[11px] text-zinc-600 italic">Sin ADN cargado — abrí el canal y completá la Estrategia.</p>
+      )}
+
+      {/* Orientación editable */}
+      <div className="rounded-lg border border-dashed p-2" style={{ borderColor: `${color}30` }}>
+        <div className="flex items-center gap-1.5 mb-1">
+          <Target className="w-3 h-3" style={{ color }} />
+          <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color }}>Orientación</span>
+        </div>
+        {editingOrient ? (
+          <input
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={saveOrient}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveOrient()
+              if (e.key === 'Escape') setEditingOrient(false)
+            }}
+            placeholder="Ej.: más técnico, para founders early-stage"
+            className="w-full bg-zinc-900 border border-white/[0.10] rounded-md px-2 py-1 text-xs text-zinc-100 focus:outline-none focus:border-violet-500"
+          />
+        ) : (
+          <button onClick={startEditOrient} className="text-left w-full text-xs group inline-flex items-start gap-1.5">
+            {profile.orientation
+              ? <span className="text-zinc-200">{profile.orientation}</span>
+              : <span className="text-zinc-600 italic">Definí el norte de este canal…</span>}
+            <Pencil className="w-3 h-3 text-zinc-600 group-hover:text-violet-300 shrink-0 mt-0.5 transition-colors" />
+          </button>
+        )}
+      </div>
+
+      {/* Pilares */}
+      {pillars.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {pillars.map((pl) => (
+            <span
+              key={pl.id}
+              className="text-[10px] font-semibold rounded px-1.5 py-0.5"
+              style={{ background: `${pl.color}20`, color: pl.color }}
+            >
+              {pl.label}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Números + abrir */}
+      <div className="flex items-center gap-3 mt-auto pt-2 border-t border-white/[0.06] text-[11px] text-zinc-500">
+        <span title="Piezas totales"><span className="text-zinc-200 font-semibold">{stats.total}</span> piezas</span>
+        <span title="Publicadas"><span className="text-emerald-400 font-semibold">{stats.published}</span> pub</span>
+        <span title="En pipeline"><span className="text-amber-400 font-semibold">{stats.pipeline}</span> pipe</span>
+        <span title="Campañas"><span className="text-zinc-200 font-semibold">{stats.campaigns}</span> camp</span>
+        <button onClick={onOpen} className="ml-auto inline-flex items-center gap-1 text-violet-300 hover:text-violet-200 font-semibold transition-colors">
+          Abrir <ArrowRight className="w-3 h-3" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function BaulTab() {
   const currentProfileId = useContentStore((s) => s.currentProfileId)
   const profile = useContentStore((s) => s.profiles.find((p) => p.id === s.currentProfileId))
