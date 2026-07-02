@@ -9,9 +9,10 @@ import {
   TrendingUp, Building2, BarChart3, BookOpen, AlertOctagon, LayoutDashboard,
   Plus, Trash2, X, Check, ChevronDown, ChevronRight, AlertTriangle,
   DollarSign, Wallet, Trophy, Heart, Shield, FlaskConical, CalendarDays, BookText,
-  TrendingDown, Rocket, Target, Users, Layers,
+  TrendingDown, Rocket, Target, Users, Layers, Sheet,
 } from 'lucide-react'
 import { ScalingTab } from './ScalingTab'
+import { BacktestTab } from './BacktestTab'
 import {
   useTradingStore, getAccountStats, getStrategyStats, ERROR_TYPE_LABELS,
   MOOD_LABELS, MILESTONES, checkMilestones, projectDaysToPayout,
@@ -25,7 +26,7 @@ import {
 import { useTranslation } from '@/hooks/useTranslation'
 
 type Tab =
-  | 'resumen' | 'cuentas' | 'escalado' | 'empresas' | 'estrategias'
+  | 'resumen' | 'cuentas' | 'escalado' | 'empresas' | 'estrategias' | 'backtesting'
   | 'journal' | 'errores' | 'emocional' | 'logros'
   | 'riesgo' | 'laboratorio' | 'calendario' | 'glosario'
 
@@ -35,6 +36,7 @@ const TAB_META: Record<Tab, { Icon: typeof LayoutDashboard }> = {
   escalado:    { Icon: Rocket },
   empresas:    { Icon: Building2 },
   estrategias: { Icon: BarChart3 },
+  backtesting: { Icon: Sheet },
   journal:     { Icon: BookOpen },
   errores:     { Icon: AlertOctagon },
   emocional:   { Icon: Heart },
@@ -115,6 +117,7 @@ export function TradingPage() {
       {tab === 'escalado'    && <ScalingTab />}
       {tab === 'empresas'    && <EmpresasTab />}
       {tab === 'estrategias' && <EstrategiasTab period={period} />}
+      {tab === 'backtesting' && <BacktestTab />}
       {tab === 'journal'     && <JournalTab period={period} />}
       {tab === 'errores'     && <ErroresTab />}
       {tab === 'emocional'   && <EmocionalTab />}

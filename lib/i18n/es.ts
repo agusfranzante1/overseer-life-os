@@ -356,6 +356,7 @@ export const es: Translations = {
       escalado: 'Escalado',
       empresas: 'Empresas',
       estrategias: 'Estrategias',
+      backtesting: 'Backtesting',
       journal: 'Journal',
       errores: 'Errores',
       emocional: 'Emocional',

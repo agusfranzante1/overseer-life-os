@@ -357,6 +357,7 @@ export const en: Record<string, any> = {
       escalado: 'Scaling',
       empresas: 'Firms',
       estrategias: 'Strategies',
+      backtesting: 'Backtesting',
       journal: 'Journal',
       errores: 'Errors',
       emocional: 'Mood',

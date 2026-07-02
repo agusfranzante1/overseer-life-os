@@ -17,6 +17,7 @@ import { useMindMapStore } from '@/lib/store/mindmapStore'
 import { useKpisStore } from '@/lib/store/kpisStore'
 import { useStudyStore } from '@/lib/store/studyStore'
 import { useContentStore } from '@/lib/store/contentStore'
+import { useBacktestStore } from '@/lib/store/backtestStore'
 import {
   startPulling, endPulling,
   markModifiedIfNotPulling, markSynced, hasUnsyncedChanges,
@@ -45,6 +46,7 @@ interface SyncState {
   kpisInit: boolean
   studyInit: boolean
   contentInit: boolean
+  backtestInit: boolean
 }
 
 const state: SyncState = {
@@ -66,6 +68,7 @@ const state: SyncState = {
   kpisInit: false,
   studyInit: false,
   contentInit: false,
+  backtestInit: false,
 }
 
 // ─── Push timers (debounced per domain) ───────────────────────────────────────
@@ -86,6 +89,7 @@ let mindmapPushTimer: ReturnType<typeof setTimeout> | null = null
 let kpisPushTimer: ReturnType<typeof setTimeout> | null = null
 let studyPushTimer: ReturnType<typeof setTimeout> | null = null
 let contentPushTimer: ReturnType<typeof setTimeout> | null = null
+let backtestPushTimer: ReturnType<typeof setTimeout> | null = null
 
 // Registro de push debounceados que están en cola. Lo usa
 // flushAllPendingPushes() para forzar TODO a salir antes de que el
@@ -1793,6 +1797,86 @@ async function pullMindMaps(): Promise<boolean> {
   }
 }
 
+// ─── BACKTESTS (hojas de backtesting de trading) ─────────────────────────────
+// Mismo patrón que mindmaps: cada hoja (set) viaja como UN blob JSONB.
+// Merge: LWW por updatedAt + tombstones. Ver migration_trading_backtests.sql.
+
+async function pushBacktests() {
+  if (!state.userId) return
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { sets } = useBacktestStore.getState()
+
+  const rows = sets.map((x) => ({
+    id: x.id,
+    user_id: uid,
+    name: x.name,
+    created_at: x.createdAt,
+    updated_at: x.updatedAt,
+    payload: x,
+  }))
+
+  if (rows.length > 0) {
+    const r = await sb.from('trading_backtests').upsert(rows)
+    if (r.error) {
+      reportSyncError(`trading_backtests upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_trading_backtests.sql.`)
+      throw r.error
+    }
+  }
+  await syncDeletes(sb, uid, 'trading_backtests', rows.map((r) => r.id), 'backtests:sets')
+  markSynced('backtests')
+}
+
+async function pullBacktests(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('backtests')
+  try {
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('trading_backtests').select('*').eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+  if (res.error) {
+    console.error('Backtests pull failed (run migration_trading_backtests.sql?):', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) { markSynced('backtests'); return false }
+
+  type SetRow = { payload: unknown }
+  const sanitize = (raw: unknown): import('@/lib/store/backtestStore').BacktestSet => {
+    const p = (raw ?? {}) as Partial<import('@/lib/store/backtestStore').BacktestSet>
+    return {
+      id: p.id ?? '',
+      name: p.name ?? 'Hoja',
+      color: p.color ?? '#10b981',
+      strategyId: p.strategyId,
+      notes: p.notes,
+      columns: Array.isArray(p.columns) ? p.columns : [],
+      rows: Array.isArray(p.rows) ? p.rows : [],
+      createdAt: p.createdAt ?? new Date().toISOString(),
+      updatedAt: p.updatedAt ?? new Date().toISOString(),
+    }
+  }
+  const remoteSets: import('@/lib/store/backtestStore').BacktestSet[] =
+    (res.data ?? []).map((r: SetRow) => sanitize(r.payload))
+  const tombs = await fetchTombstones(sb, uid, ['trading_backtests'])
+  const mergedSets = mergeById<import('@/lib/store/backtestStore').BacktestSet>({
+    local: useBacktestStore.getState().sets,
+    remote: remoteSets,
+    baseline: getBaseline('backtests:sets'),
+    getId: (x) => x.id,
+    getUpdatedAt: (x) => x.updatedAt,
+    tombstones: tombs.get('trading_backtests'),
+  })
+  useBacktestStore.setState({ sets: mergedSets })
+  setBaseline('backtests:sets', remoteSets.map((x) => x.id))
+  markSynced('backtests')
+  return true
+  } finally {
+    endPulling('backtests')
+  }
+}
+
 // ─── APP PREFERENCES (sidebar nav order, language, timezone, schedule, etc.) ─
 //
 // Singleton row per user. The payload is a flexible JSONB blob that mirrors
@@ -2708,6 +2792,7 @@ function scheduleMindMaps()   { schedule(mindmapPushTimer,    pushMindMaps,   (t
 function scheduleKpis()       { schedule(kpisPushTimer,       pushKpis,       (t) => { kpisPushTimer = t }) }
 function scheduleStudy()      { schedule(studyPushTimer,      pushStudy,      (t) => { studyPushTimer = t }) }
 function scheduleContent()    { schedule(contentPushTimer,    pushContent,    (t) => { contentPushTimer = t }) }
+function scheduleBacktests()  { schedule(backtestPushTimer,   pushBacktests,  (t) => { backtestPushTimer = t }) }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
@@ -2899,6 +2984,16 @@ async function initAllDomains() {
     if (hasLocal) await pushMindMaps().catch((e) => console.error('Mindmaps post-pull push failed', e))
   }
 
+  // ─── Backtests (hojas de backtesting de trading) ──────────────────────
+  // Pull-first: LWW por updatedAt + tombstones (mismo patrón que mindmaps).
+  if (!state.backtestInit) {
+    state.backtestInit = true
+    const { sets } = useBacktestStore.getState()
+    const hasLocal = sets.length > 0
+    await pullBacktests()
+    if (hasLocal) await pushBacktests().catch((e) => console.error('Backtests post-pull push failed', e))
+  }
+
   // ─── KPIs (library de definiciones) ───────────────────────────────────
   // Sincroniza la library completa de KPIs entre devices. Las activaciones
   // por semana y los valores cargados viven dentro de SPI sessions, NO
@@ -2990,6 +3085,7 @@ export function useSupabaseSync() {
       useKpisStore.subscribe(() => { markModifiedIfNotPulling('kpis'); if (state.userId) scheduleKpis() })
       useStudyStore.subscribe(() => { markModifiedIfNotPulling('study'); if (state.userId) scheduleStudy() })
       useContentStore.subscribe(() => { markModifiedIfNotPulling('content'); if (state.userId) scheduleContent() })
+      useBacktestStore.subscribe(() => { markModifiedIfNotPulling('backtests'); if (state.userId) scheduleBacktests() })
     }
 
     // Auth state changes — when the user signs in *after* mount (e.g. from
@@ -3017,6 +3113,7 @@ export function useSupabaseSync() {
       state.kpisInit = false
       state.studyInit = false
       state.contentInit = false
+      state.backtestInit = false
       if (newId) {
         initAllDomains().catch((e) => console.error('Init after auth change failed', e))
       }
@@ -3066,6 +3163,7 @@ export function useSupabaseSync() {
       state.kpisInit = false
       state.studyInit = false
       state.contentInit = false
+      state.backtestInit = false
       try {
         await initAllDomains()
       } catch (e) {
@@ -3142,6 +3240,7 @@ export async function forceSyncAll(): Promise<void> {
   state.kpisInit = false
   state.studyInit = false
   state.contentInit = false
+  state.backtestInit = false
   await initAllDomains()
 }
 
@@ -3205,3 +3304,5 @@ export async function forceSyncStudy()    { await pushStudy() }
 export async function forcePullStudy()    { return pullStudy() }
 export async function forceSyncContent()  { await pushContent() }
 export async function forcePullContent()  { return pullContent() }
+export async function forceSyncBacktests() { await pushBacktests() }
+export async function forcePullBacktests() { return pullBacktests() }
