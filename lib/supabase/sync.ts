@@ -23,7 +23,7 @@ import {
   markModifiedIfNotPulling, markSynced, hasUnsyncedChanges,
   getBaseline, setBaseline,
 } from './syncTracking'
-import { mergeById, reconcileDeletes, mergeSpiSession, mergeProjectionPlan, mergeLabSession, mergeHabit, toMs } from './syncMerge'
+import { mergeById, reconcileDeletes, mergeSpiSession, mergeProjectionPlan, mergeLabSession, mergeHabit, mergeContentProfile, toMs } from './syncMerge'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
@@ -324,6 +324,9 @@ async function syncDeletes(
 
 async function pushTasks() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const { projects, tasks } = useTasksStore.getState()
 
@@ -477,7 +480,7 @@ async function pushTasks() {
   await syncDeletes(sb, state.userId!, 'subtasks', subtaskIds, 'tasks:subtasks')
   await syncDeletes(sb, state.userId!, 'tasks', taskIds, 'tasks:tasks')
   await syncDeletes(sb, state.userId!, 'projects', projectIds, 'tasks:projects')
-  markSynced('tasks')
+  markSynced('tasks', syncedAt)
 }
 
 async function pullTasks(): Promise<{ projects: number; tasks: number } | null> {
@@ -660,6 +663,9 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
 
 async function pushWallet() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const { currencies, wallets, transactions, distribution, deletedWallets, recurringExpenses } = useWalletStore.getState()
@@ -756,7 +762,7 @@ async function pushWallet() {
   await syncDeletes(sb, uid, 'wallet_recurring_expenses', recurringIds, 'wallet:recurring')
   // Currencies: PK natural = code.
   await syncDeletes(sb, uid, 'wallet_currencies', currencyCodes, 'wallet:currencies', 'code')
-  markSynced('wallet')
+  markSynced('wallet', syncedAt)
 }
 
 async function pullWallet(): Promise<boolean> {
@@ -910,6 +916,9 @@ async function pullWallet(): Promise<boolean> {
 
 async function pushTrading() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const { firms, accounts, strategies, trades, payouts, errors, emotional, scaling } = useTradingStore.getState()
@@ -998,7 +1007,7 @@ async function pushTrading() {
     reportSyncError(`trading_scaling_config upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_trading_scaling.sql.`)
     throw r.error
   }
-  markSynced('trading')
+  markSynced('trading', syncedAt)
 }
 
 async function pullTrading(): Promise<boolean> {
@@ -1162,6 +1171,9 @@ async function pullTrading(): Promise<boolean> {
 
 async function pushHabits() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const { habits } = useHabitsStore.getState()
@@ -1191,7 +1203,7 @@ async function pushHabits() {
     }
   }
   await syncDeletes(sb, uid, 'habits', rows.map((r) => r.id), 'habits:habits')
-  markSynced('habits')
+  markSynced('habits', syncedAt)
 }
 
 async function pullHabits(): Promise<boolean> {
@@ -1262,6 +1274,9 @@ async function pullHabits(): Promise<boolean> {
 
 async function pushSPI() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const { sessions, bitacoraEntries, template } = useSPIStore.getState()
@@ -1323,7 +1338,7 @@ async function pushSPI() {
     if (r.error) { reportSyncError(`spi_bitacora upsert failed: ${r.error.message}`); throw r.error }
   }
   await syncDeletes(sb, uid, 'spi_bitacora', bitRows.map((r) => r.id), 'spi:bitacora')
-  markSynced('spi')
+  markSynced('spi', syncedAt)
 }
 
 async function pullSPI(): Promise<boolean> {
@@ -1460,6 +1475,9 @@ async function pullSPI(): Promise<boolean> {
 
 async function pushProjection() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const { plans } = useProjectionStore.getState()
@@ -1480,7 +1498,7 @@ async function pushProjection() {
     if (r.error) { reportSyncError(`projection_plans upsert failed: ${r.error.message}`); throw r.error }
   }
   await syncDeletes(sb, uid, 'projection_plans', rows.map((r) => r.id), 'projection:plans')
-  markSynced('projection')
+  markSynced('projection', syncedAt)
 }
 
 async function pullProjection(): Promise<boolean> {
@@ -1538,6 +1556,9 @@ async function pullProjection(): Promise<boolean> {
 
 async function pushLab() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const { sessions, beliefs, customExercises, customCategories } = useLabStore.getState()
@@ -1597,7 +1618,7 @@ async function pushLab() {
       throw r.error
     }
   }
-  markSynced('lab')
+  markSynced('lab', syncedAt)
 }
 
 async function pullLab(): Promise<boolean> {
@@ -1726,6 +1747,9 @@ async function pullLab(): Promise<boolean> {
 
 async function pushMindMaps() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const { maps } = useMindMapStore.getState()
@@ -1747,7 +1771,7 @@ async function pushMindMaps() {
     }
   }
   await syncDeletes(sb, uid, 'mindmaps', rows.map((r) => r.id), 'mindmaps:maps')
-  markSynced('mindmaps')
+  markSynced('mindmaps', syncedAt)
 }
 
 async function pullMindMaps(): Promise<boolean> {
@@ -1803,6 +1827,9 @@ async function pullMindMaps(): Promise<boolean> {
 
 async function pushBacktests() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const { sets } = useBacktestStore.getState()
@@ -1824,7 +1851,7 @@ async function pushBacktests() {
     }
   }
   await syncDeletes(sb, uid, 'trading_backtests', rows.map((r) => r.id), 'backtests:sets')
-  markSynced('backtests')
+  markSynced('backtests', syncedAt)
 }
 
 async function pullBacktests(): Promise<boolean> {
@@ -1905,6 +1932,9 @@ type AppPrefsPayload = {
 
 async function pushAppPrefs() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const s = useAppStore.getState()
@@ -1965,7 +1995,7 @@ async function pushAppPrefs() {
     reportSyncError(`app_preferences upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_app_preferences.sql.`)
     throw r.error
   }
-  markSynced('appPrefs')
+  markSynced('appPrefs', syncedAt)
 }
 
 async function pullAppPrefs(): Promise<boolean> {
@@ -2008,6 +2038,9 @@ async function pullAppPrefs(): Promise<boolean> {
 
 async function pushGym() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const { weightEntries, gymType, phase, weightGoalKg, trainingPlan, routines, sessions } = useGymStore.getState()
@@ -2067,7 +2100,7 @@ async function pushGym() {
     if (r.error) { reportSyncError(`gym_sessions upsert failed: ${r.error.message}`); throw r.error }
   }
   await syncDeletes(sb, uid, 'gym_sessions', sessionRows.map((r) => r.id), 'gym:sessions')
-  markSynced('gym')
+  markSynced('gym', syncedAt)
 }
 
 async function pullGym(): Promise<boolean> {
@@ -2179,6 +2212,9 @@ const pullGymBasics = pullGym
 
 async function pushHealth() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const { snapshots, baseline } = useHealthStore.getState()
@@ -2210,7 +2246,7 @@ async function pushHealth() {
     { user_id: uid, sleep_goal_minutes: baseline.sleepGoalMinutes, updated_at: new Date().toISOString() },
     { onConflict: 'user_id' }
   )
-  markSynced('health')
+  markSynced('health', syncedAt)
 }
 
 async function pullHealth(): Promise<boolean> {
@@ -2289,6 +2325,9 @@ async function pullHealth(): Promise<boolean> {
 
 async function pushChat() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const { messages } = useChatStore.getState()
@@ -2303,7 +2342,7 @@ async function pushChat() {
     if (r.error) { reportSyncError(`chat_messages upsert failed: ${r.error.message}`); throw r.error }
   }
   await syncDeletes(sb, uid, 'chat_messages', rows.map((r) => r.id), 'chat:messages')
-  markSynced('chat')
+  markSynced('chat', syncedAt)
 }
 
 async function pullChat(): Promise<boolean> {
@@ -2356,6 +2395,9 @@ async function pullChat(): Promise<boolean> {
 
 async function pushFood() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const { stages, shopping, fixedCosts, foods, currentStageId, notes } = useFoodStore.getState()
@@ -2371,7 +2413,7 @@ async function pushFood() {
     { onConflict: 'user_id' }
   )
   if (r.error) { reportSyncError(`food_data upsert failed: ${r.error.message}`); throw r.error }
-  markSynced('food')
+  markSynced('food', syncedAt)
 }
 
 async function pullFood(): Promise<boolean> {
@@ -2417,6 +2459,9 @@ async function pullFood(): Promise<boolean> {
 
 async function pushKpis() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const { definitions } = useKpisStore.getState()
@@ -2437,7 +2482,7 @@ async function pushKpis() {
     }
   }
   await syncDeletes(sb, uid, 'kpis', rows.map((r) => r.id), 'kpis:definitions')
-  markSynced('kpis')
+  markSynced('kpis', syncedAt)
 }
 
 async function pullKpis(): Promise<boolean> {
@@ -2497,6 +2542,9 @@ async function pullKpis(): Promise<boolean> {
 
 async function pushStudy() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const { carreras, materias, parciales, temas } = useStudyStore.getState()
@@ -2536,7 +2584,7 @@ async function pushStudy() {
   await syncDeletes(sb, uid, 'study_parciales', parcialRows.map((r) => r.id), 'study:parciales')
   await syncDeletes(sb, uid, 'study_materias', materiaRows.map((r) => r.id), 'study:materias')
   await syncDeletes(sb, uid, 'study_carreras', carreraRows.map((r) => r.id), 'study:carreras')
-  markSynced('study')
+  markSynced('study', syncedAt)
 }
 
 async function pullStudy(): Promise<boolean> {
@@ -2665,6 +2713,9 @@ function profileHasContent(p: ContentProfileT, items: ContentItemT[], campaigns:
 
 async function pushContent() {
   if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
   const { profiles, campaigns, items } = useContentStore.getState()
@@ -2695,7 +2746,7 @@ async function pushContent() {
   await syncDeletes(sb, uid, 'content_items', itemRows.map((r) => r.id), 'content:items')
   await syncDeletes(sb, uid, 'content_campaigns', campaignRows.map((r) => r.id), 'content:campaigns')
   await syncDeletes(sb, uid, 'content_profiles', profileRows.map((r) => r.id), 'content:profiles')
-  markSynced('content')
+  markSynced('content', syncedAt)
 }
 
 async function pullContent(): Promise<boolean> {
@@ -2737,10 +2788,12 @@ async function pullContent(): Promise<boolean> {
   let mergedProfiles = mergeById<ContentProfileT>({
     local: local.profiles, remote: remoteProfiles, baseline: getBaseline('content:profiles'),
     getId: (x) => x.id,
-    // LWW: la última edición gana. Sin esto el merge usaba "gana el remoto" y
-    // una edición local sin pushear (ej. el Baúl) la podía pisar un remoto
-    // más viejo. Fallback a createdAt para perfiles sin updatedAt (legacy).
     getUpdatedAt: (x) => x.updatedAt ?? x.createdAt ?? '',
+    // Deep-merge campo-por-campo (ADN, pilares, estilo visual, baúl…) en vez
+    // de LWW de objeto entero: "Baúl editado en la PC" y "ADN editado en el
+    // celu" del MISMO perfil ya no se pisan entre sí. Además protege contra
+    // el clobber cuando el push-first falló y el remoto quedó viejo.
+    mergeItem: (l, r) => mergeContentProfile(l, r),
     tombstones: tombs.get('content_profiles'),
   })
 
@@ -3018,19 +3071,27 @@ async function initAllDomains() {
   }
 
   // ─── Contenido (Content Strategy) ─────────────────────────────────────
-  // Push-first-si-unsynced (perfiles sin updatedAt → protege ediciones locales
-  // de perfil/estilo visual). Seed inicial: si no había nada remoto y el
-  // baseline está vacío, subimos lo local para sembrar el cloud.
+  // Push-first-si-unsynced (protege ediciones locales pendientes). Seed
+  // inicial: si no había nada remoto y el baseline está vacío, subimos lo
+  // local para sembrar el cloud.
   if (!state.contentInit) {
     state.contentInit = true
     const { profiles, items, campaigns } = useContentStore.getState()
     const hasLocal = profiles.length > 0 || items.length > 0 || campaigns.length > 0
+    let pushFailed = false
     if (hasLocal && hasUnsyncedChanges('content')) {
-      await pushContent().catch((e) => console.error('Content initial push failed', e))
+      await pushContent().catch((e) => { pushFailed = true; console.error('Content initial push failed', e) })
     }
     const pulled = await pullContent()
     if (hasLocal && !pulled && getBaseline('content:profiles').size === 0) {
       await pushContent().catch((e) => console.error('Content seed push failed', e))
+    } else if (pushFailed) {
+      // El push-first falló (típico: red fría al reabrir la app en el celu).
+      // El merge del pull conservó las ediciones locales (LWW + deep-merge de
+      // perfil), pero quedaron SIN propagar y el markSynced del pull acaba de
+      // taparlas del tracking. Reintento ahora que la red probó estar viva
+      // (el pull funcionó) para que suban ya y no queden solo en este device.
+      await pushContent().catch((e) => console.error('Content retry push failed', e))
     }
   }
 }

@@ -33,6 +33,15 @@ function genId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`
 }
 
+/** Bump del updatedAt del perfil — TODA mutación del perfil debe pasar por acá.
+ *  El merge multi-device resuelve conflictos con LWW por updatedAt: sin este
+ *  bump, una edición local (ADN, pilares, estilo visual) EMPATA con la copia
+ *  remota vieja y el pull la pisa (en empate gana remoto). Este era el bug de
+ *  "cargo el ADN en el celular, reabro y desapareció". */
+function touchProfile(p: ContentProfile): ContentProfile {
+  return { ...p, updatedAt: new Date().toISOString() }
+}
+
 /** Refleja Content Strategy → task manager (perfiles=proyectos, items=tareas).
  *  Dynamic import para no crear un ciclo estático entre los stores. */
 function reflectToTasks(): void {
@@ -173,7 +182,7 @@ export const useContentStore = create<State & Actions>()(
           const cat: VisualStyleCategory = { id, name: name.trim() || 'Categoría', images: [], createdAt: new Date().toISOString() }
           set((s) => ({
             profiles: s.profiles.map((p) =>
-              p.id === profileId ? { ...p, visualStyle: [...(p.visualStyle ?? []), cat] } : p,
+              p.id === profileId ? touchProfile({ ...p, visualStyle: [...(p.visualStyle ?? []), cat] }) : p,
             ),
           }))
           return id
@@ -181,46 +190,46 @@ export const useContentStore = create<State & Actions>()(
         renameVisualCategory: (profileId, categoryId, name) =>
           set((s) => ({
             profiles: s.profiles.map((p) =>
-              p.id !== profileId ? p : {
+              p.id !== profileId ? p : touchProfile({
                 ...p,
                 visualStyle: (p.visualStyle ?? []).map((c) => c.id === categoryId ? { ...c, name: name.trim() || c.name } : c),
-              },
+              }),
             ),
           })),
         removeVisualCategory: (profileId, categoryId) =>
           set((s) => ({
             profiles: s.profiles.map((p) =>
-              p.id !== profileId ? p : { ...p, visualStyle: (p.visualStyle ?? []).filter((c) => c.id !== categoryId) },
+              p.id !== profileId ? p : touchProfile({ ...p, visualStyle: (p.visualStyle ?? []).filter((c) => c.id !== categoryId) }),
             ),
           })),
         addVisualImage: (profileId, categoryId, image) =>
           set((s) => ({
             profiles: s.profiles.map((p) =>
-              p.id !== profileId ? p : {
+              p.id !== profileId ? p : touchProfile({
                 ...p,
                 visualStyle: (p.visualStyle ?? []).map((c) => c.id === categoryId ? { ...c, images: [...c.images, image] } : c),
-              },
+              }),
             ),
           })),
         removeVisualImage: (profileId, categoryId, imageId) =>
           set((s) => ({
             profiles: s.profiles.map((p) =>
-              p.id !== profileId ? p : {
+              p.id !== profileId ? p : touchProfile({
                 ...p,
                 visualStyle: (p.visualStyle ?? []).map((c) => c.id !== categoryId ? c : { ...c, images: c.images.filter((img) => img.id !== imageId) }),
-              },
+              }),
             ),
           })),
         updateVisualImageCaption: (profileId, categoryId, imageId, caption) =>
           set((s) => ({
             profiles: s.profiles.map((p) =>
-              p.id !== profileId ? p : {
+              p.id !== profileId ? p : touchProfile({
                 ...p,
                 visualStyle: (p.visualStyle ?? []).map((c) => c.id !== categoryId ? c : {
                   ...c,
                   images: c.images.map((img) => img.id === imageId ? { ...img, caption: caption.trim() || undefined } : img),
                 }),
-              },
+              }),
             ),
           })),
 
@@ -228,7 +237,7 @@ export const useContentStore = create<State & Actions>()(
           set((s) => ({
             profiles: s.profiles.map((p) =>
               p.id === s.currentProfileId
-                ? { ...p, brandDNA: { ...p.brandDNA, ...patch } }
+                ? touchProfile({ ...p, brandDNA: { ...p.brandDNA, ...patch } })
                 : p,
             ),
           })),
@@ -236,7 +245,7 @@ export const useContentStore = create<State & Actions>()(
           set((s) => ({
             profiles: s.profiles.map((p) =>
               p.id === s.currentProfileId
-                ? { ...p, brandDNA: { ...p.brandDNA, pillars: DEFAULT_PILLARS.map((x) => ({ ...x, id: genId('pillar') })) } }
+                ? touchProfile({ ...p, brandDNA: { ...p.brandDNA, pillars: DEFAULT_PILLARS.map((x) => ({ ...x, id: genId('pillar') })) } })
                 : p,
             ),
           })),
@@ -245,7 +254,7 @@ export const useContentStore = create<State & Actions>()(
           set((s) => ({
             profiles: s.profiles.map((prof) =>
               prof.id === s.currentProfileId
-                ? {
+                ? touchProfile({
                     ...prof,
                     brandDNA: {
                       ...prof.brandDNA,
@@ -254,7 +263,7 @@ export const useContentStore = create<State & Actions>()(
                         { ...p, id: genId('pillar'), order: prof.brandDNA.pillars.length },
                       ],
                     },
-                  }
+                  })
                 : prof,
             ),
           })),
@@ -262,13 +271,13 @@ export const useContentStore = create<State & Actions>()(
           set((s) => ({
             profiles: s.profiles.map((prof) =>
               prof.id === s.currentProfileId
-                ? {
+                ? touchProfile({
                     ...prof,
                     brandDNA: {
                       ...prof.brandDNA,
                       pillars: prof.brandDNA.pillars.map((p) => (p.id === id ? { ...p, ...patch } : p)),
                     },
-                  }
+                  })
                 : prof,
             ),
           })),
@@ -276,13 +285,13 @@ export const useContentStore = create<State & Actions>()(
           set((s) => ({
             profiles: s.profiles.map((prof) =>
               prof.id === s.currentProfileId
-                ? {
+                ? touchProfile({
                     ...prof,
                     brandDNA: {
                       ...prof.brandDNA,
                       pillars: prof.brandDNA.pillars.filter((p) => p.id !== id),
                     },
-                  }
+                  })
                 : prof,
             ),
           })),

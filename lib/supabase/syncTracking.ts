@@ -110,11 +110,20 @@ export function markModifiedIfNotPulling(domain: string): void {
 }
 
 /** Llamado tras push exitoso O pull exitoso — local y remoto están en
- *  sync ahora. */
-export function markSynced(domain: string): void {
+ *  sync ahora.
+ *
+ *  `at` (opcional): timestamp ISO del momento en que se TOMÓ el snapshot que
+ *  se subió. Los push deben pasarlo (capturado al inicio, antes de leer
+ *  getState()): si el user edita MIENTRAS el push viaja (típico tipeando en
+ *  un textarea en el celu), esa edición tiene lastModified > snapshot y sigue
+ *  contando como "unsynced" → el próximo ciclo la pushea. Sin esto, el
+ *  markSynced del final estampaba "ahora" y la edición en vuelo quedaba
+ *  marcada como sincronizada sin haberse subido nunca → un pull posterior la
+ *  pisaba. Los pull no lo pasan (el estado post-merge recién se materializó). */
+export function markSynced(domain: string, at?: string): void {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(SYNCED_PREFIX + domain, new Date().toISOString())
+    localStorage.setItem(SYNCED_PREFIX + domain, at ?? new Date().toISOString())
   } catch { /* best-effort */ }
 }
 

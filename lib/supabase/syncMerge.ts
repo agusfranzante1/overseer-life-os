@@ -17,6 +17,7 @@ import type { SPISession, SPITask } from '@/lib/spi/types'
 import type { ProjectionPlan } from '@/lib/projection/types'
 import type { LabSession } from '@/lib/lab/types'
 import type { Habit } from '@/lib/store/habitsStore'
+import type { ContentProfile, ContentBrandDNA, VisualStyleCategory } from '@/types/content'
 
 // ─── mergeById: merge genérico de colecciones por id ────────────────────────
 
@@ -206,6 +207,69 @@ export function mergeHabit(local: Habit, remote: Habit): Habit {
     ...remote,
     completedDates: [...completed].sort(),
     skippedDates: [...skipped].sort(),
+  }
+}
+
+/** Deep-merge de un perfil de Content Strategy — mismo espíritu que
+ *  `mergeSpiSession`: en vez de LWW de objeto ENTERO (que hacía que "Baúl
+ *  editado en la PC" pisara "ADN editado en el celu" o viceversa), mergeamos
+ *  campo por campo:
+ *   - ADN: por campo string, no-vacío gana sobre vacío; ambos no-vacíos → el
+ *     perfil más reciente.
+ *   - Pilares: unión por id (nunca perder un pilar creado en otro device);
+ *     conflicto → versión del más reciente.
+ *   - Estilo visual: unión de categorías por id; adentro, unión de imágenes
+ *     por id (perder una foto subida es peor que resucitar una borrada).
+ *   - Baúl / orientación: no-vacío gana sobre vacío.
+ *   - Redes: unión.
+ *   - Escalares (nombre, color, icon, medalla): del más reciente.
+ *  Empate de updatedAt → gana LOCAL (conserva lo que este device está viendo;
+ *  el push posterior lo propaga). */
+export function mergeContentProfile(local: ContentProfile, remote: ContentProfile): ContentProfile {
+  const lu = local.updatedAt ?? local.createdAt ?? ''
+  const ru = remote.updatedAt ?? remote.createdAt ?? ''
+  const localNewer = lu >= ru
+  const base = localNewer ? local : remote
+  const other = localNewer ? remote : local
+
+  // ── ADN campo-por-campo ──
+  const dna: ContentBrandDNA = { ...(base.brandDNA ?? {}) } as ContentBrandDNA
+  const otherDna = (other.brandDNA ?? {}) as ContentBrandDNA
+  for (const key of Object.keys(otherDna) as (keyof ContentBrandDNA)[]) {
+    if (key === 'pillars') continue
+    const bv = dna[key]
+    const ov = otherDna[key]
+    if (typeof ov === 'string' && ov.trim() !== '' && (typeof bv !== 'string' || bv.trim() === '')) {
+      ;(dna as unknown as Record<string, unknown>)[key] = ov
+    }
+  }
+  const basePillars = base.brandDNA?.pillars ?? []
+  const basePillarIds = new Set(basePillars.map((p) => p.id))
+  dna.pillars = [...basePillars, ...(other.brandDNA?.pillars ?? []).filter((p) => !basePillarIds.has(p.id))]
+
+  // ── Estilo visual: unión por id (categorías e imágenes) ──
+  const mergedVisual: VisualStyleCategory[] = []
+  const otherCats = new Map((other.visualStyle ?? []).map((c) => [c.id, c]))
+  for (const c of base.visualStyle ?? []) {
+    const o = otherCats.get(c.id)
+    if (!o) { mergedVisual.push(c); continue }
+    otherCats.delete(c.id)
+    const imgIds = new Set((c.images ?? []).map((i) => i.id))
+    mergedVisual.push({ ...c, images: [...(c.images ?? []), ...(o.images ?? []).filter((i) => !imgIds.has(i.id))] })
+  }
+  mergedVisual.push(...otherCats.values())
+
+  const nonEmpty = (v?: string) => (typeof v === 'string' && v.trim() !== '' ? v : undefined)
+
+  return {
+    ...base,
+    brandDNA: dna,
+    visualStyle: mergedVisual.length > 0 ? mergedVisual : (base.visualStyle ?? other.visualStyle),
+    baul: nonEmpty(base.baul) ?? nonEmpty(other.baul) ?? base.baul,
+    orientation: nonEmpty(base.orientation) ?? nonEmpty(other.orientation) ?? base.orientation,
+    networks: [...new Set([...(base.networks ?? []), ...(other.networks ?? [])])],
+    linkedTaskId: base.linkedTaskId ?? other.linkedTaskId,
+    updatedAt: base.updatedAt ?? other.updatedAt,
   }
 }
 
