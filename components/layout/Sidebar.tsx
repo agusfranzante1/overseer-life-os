@@ -232,11 +232,11 @@ export function Sidebar({
       onTouchEnd={onTouchEnd}
       style={{
         ...(dragX !== 0 ? { transform: `translateX(${dragX}px)`, transition: 'none' } : {}),
-        // Mismo color base que el body — el sidebar NO tiene borde ni
-        // overlay. Se mezcla con el resto (como en el mockup del user).
-        // El padding lateral del main content define la separación
-        // visual, no un divisor. Flipea con el tema vía --app-bg.
+        // Mismo color base que el body — el sidebar se mezcla con el resto.
+        // La separación con el contenido es un HAIRLINE apenas visible en el
+        // borde derecho (inset shadow, no border → no suma al layout).
         background: 'var(--app-bg)',
+        boxShadow: 'inset -1px 0 0 rgba(var(--glass-tint), 0.05)',
       }}
       className={`
         flex flex-col h-screen shrink-0 overflow-hidden
@@ -283,7 +283,8 @@ export function Sidebar({
         </motion.button>
         {showLabels && (
           <>
-            <span className="font-semibold text-white text-[14px] tracking-[0.2em] uppercase whitespace-nowrap flex-1 truncate">
+            {/* Wordmark — display font + gradiente "metal pulido" */}
+            <span className="font-heading font-bold text-hero text-[15px] tracking-[0.28em] uppercase whitespace-nowrap flex-1 truncate">
               Overseer
             </span>
             <button
@@ -322,6 +323,13 @@ export function Sidebar({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Microlabel de sección — detalle "command deck" */}
+      {showLabels && !editMode && (
+        <p className="px-6 pb-1 text-[9px] font-mono uppercase tracking-[0.3em] text-zinc-600 select-none">
+          Menú
+        </p>
+      )}
 
       {/* Nav */}
       <nav className="flex-1 py-2 space-y-0.5 overflow-y-auto px-3">
@@ -406,34 +414,46 @@ export function Sidebar({
             >
               <motion.div
                 whileTap={{ scale: 0.97 }}
-                className={`relative flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2 rounded-xl cursor-pointer transition-all select-none ${
+                className={`relative flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2 rounded-xl cursor-pointer transition-colors select-none ${
                   active
-                    // Active: pill violeta del mockup — gradiente fuerte
-                    // tipo "selected room" en el smart home dashboard.
-                    // Texto blanco puro, sin glow externo.
                     ? 'text-white'
-                    // Inactive: SOLO texto + icono, sin background ni
-                    // border. Hover sube el texto a blanco pleno.
-                    : 'text-zinc-500 hover:text-white'
+                    // Inactive: texto + icono; hover con fondo apenas
+                    // perceptible para mejorar el affordance.
+                    : 'text-zinc-500 hover:text-white hover:bg-white/[0.03]'
                 }`}
-                style={active ? {
-                  // Pill del item activo — derivado de --app-accent para que
-                  // siga el color elegido en Configuración. Default indigo.
-                  background: 'linear-gradient(90deg, color-mix(in srgb, var(--app-accent) 25%, transparent), color-mix(in srgb, var(--app-accent) 14%, transparent))',
-                  boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--app-accent) 28%, transparent), inset 0 0 24px color-mix(in srgb, var(--app-accent) 18%, transparent)',
-                } : undefined}
               >
-                <Icon className="w-4 h-4 shrink-0" />
+                {/* Pill del item activo — motion.span con layoutId compartido:
+                    al navegar, framer-motion la DESLIZA físicamente de la
+                    sección anterior a la nueva (shared layout animation).
+                    Derivada de --app-accent para seguir el color elegido
+                    en Configuración. */}
+                {active && (
+                  <motion.span
+                    layoutId="sidebar-active-pill"
+                    transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                    className="absolute inset-0 rounded-xl"
+                    style={{
+                      background: 'linear-gradient(90deg, color-mix(in srgb, var(--app-accent) 25%, transparent), color-mix(in srgb, var(--app-accent) 14%, transparent))',
+                      boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--app-accent) 28%, transparent), inset 0 0 24px color-mix(in srgb, var(--app-accent) 18%, transparent)',
+                    }}
+                  />
+                )}
+                {/* Icono con glow del acento cuando está activo */}
+                <span
+                  className="relative z-10 shrink-0 flex"
+                  style={active ? { filter: 'drop-shadow(0 0 6px color-mix(in srgb, var(--app-accent) 65%, transparent))' } : undefined}
+                >
+                  <Icon className="w-4 h-4" />
+                </span>
                 {showLabels && (
-                  <span className="text-[13px] font-medium whitespace-nowrap flex-1">
+                  <span className="relative z-10 text-[13px] font-medium whitespace-nowrap flex-1">
                     {t(`nav.${key}`)}
                   </span>
                 )}
-                {/* Dot verde "on" — solo en el item activo, indicador
-                    de "sección encendida" como en el mockup. */}
+                {/* Dot verde "on" — indicador de "sección encendida". */}
                 {active && (
                   <span
-                    className={`shrink-0 w-1.5 h-1.5 rounded-full bg-emerald-400 ${showLabels ? '' : 'absolute top-1.5 right-1.5'}`}
+                    className={`z-10 shrink-0 w-1.5 h-1.5 rounded-full bg-emerald-400 ${showLabels ? 'relative' : 'absolute top-1.5 right-1.5'}`}
                     style={{ boxShadow: '0 0 6px rgba(52, 211, 153, 0.7)' }}
                   />
                 )}

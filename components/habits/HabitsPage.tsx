@@ -202,10 +202,21 @@ export function HabitsPage() {
       {/* Header — mockup style: título XXL con icon grande y subtítulo
           gris fino. Botones glass + gradient pink el principal. */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="space-y-1">
-          <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight leading-none flex items-center gap-3">
-            <Activity className="w-8 h-8 text-pink-400" />
-            {t('habits.title')}
+        <div className="space-y-1.5">
+          <h1 className="font-heading text-4xl md:text-5xl font-bold tracking-tight leading-none flex items-center gap-3.5">
+            {/* Badge del ícono — tile con gradiente + glow rosa, en vez del
+                ícono "desnudo". Ancla visual del header. */}
+            <span
+              className="shrink-0 w-12 h-12 md:w-14 md:h-14 rounded-2xl flex items-center justify-center"
+              style={{
+                background: 'linear-gradient(135deg, rgba(236, 72, 153, 0.22), rgba(217, 70, 239, 0.10))',
+                border: '1px solid rgba(236, 72, 153, 0.35)',
+                boxShadow: '0 0 28px -8px rgba(236, 72, 153, 0.55), inset 0 1px 0 rgba(255,255,255,0.10)',
+              }}
+            >
+              <Activity className="w-6 h-6 md:w-7 md:h-7 text-pink-400" />
+            </span>
+            <span className="text-hero pb-1">{t('habits.title')}</span>
           </h1>
           <p className="text-[13px] text-zinc-500">{t('habits.subtitle')}</p>
         </div>
@@ -724,14 +735,14 @@ export function HabitsPage() {
 function SummaryCard({ label, value, color, icon }: { label: string; value: string; color: string; icon?: React.ReactNode }) {
   return (
     <div
-      className="rounded-2xl p-5 transition-all hover:scale-[1.01]"
+      className="rounded-2xl p-5 transition-all duration-300 hover:-translate-y-0.5"
       style={{
         background: `
           radial-gradient(circle at 0% 0%, ${color}1f, transparent 50%),
           rgba(255, 255, 255, 0.025)
         `,
         border: '1px solid rgba(255, 255, 255, 0.08)',
-        boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0,0,0,0.2)',
+        boxShadow: `inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0,0,0,0.2), 0 12px 32px -24px ${color}66`,
       }}
     >
       <div className="flex items-center gap-2 mb-3">
@@ -752,7 +763,8 @@ function SummaryCard({ label, value, color, icon }: { label: string; value: stri
           {label}
         </p>
       </div>
-      <p className="text-3xl font-bold tracking-tight tabular-nums" style={{ color }}>{value}</p>
+      {/* Número hero en display font */}
+      <p className="font-heading text-[32px] leading-none font-bold tracking-tight tabular-nums" style={{ color }}>{value}</p>
     </div>
   )
 }
@@ -902,7 +914,7 @@ function StatChip({ label, value, color, highlight }: { label: string; value: st
     <div className={`rounded-2xl p-3 ${highlight ? 'bg-white/[0.03] border-2' : 'bg-white/[0.03]/70 border'}`}
       style={{ borderColor: highlight ? color : '#27272a' }}>
       <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">{label}</p>
-      <p className="text-2xl font-extrabold tabular-nums mt-0.5" style={{ color }}>{value}</p>
+      <p className="font-heading text-2xl font-bold tabular-nums mt-0.5" style={{ color }}>{value}</p>
     </div>
   )
 }

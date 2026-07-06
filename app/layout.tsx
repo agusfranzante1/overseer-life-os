@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { AppShell } from "@/components/layout/AppShell";
@@ -19,6 +19,15 @@ const jbMono = JetBrains_Mono({
   subsets: ["latin"],
   display: "swap",
   weight: ["400", "500", "700"],
+});
+
+// Space Grotesk — la voz DISPLAY de la app (títulos, números hero, wordmark).
+// Geométrica y técnica, le da la identidad "command deck" sobre el navy.
+// Variable font (300-700) → un solo archivo, todos los pesos.
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-display",
+  subsets: ["latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -67,7 +76,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jbMono.variable} dark`}
+      className={`${inter.variable} ${jbMono.variable} ${spaceGrotesk.variable} dark`}
       suppressHydrationWarning
     >
       <head>
@@ -82,10 +91,12 @@ export default function RootLayout({
           }}
         />
       </head>
-      {/* Superficie base — flipea con el tema vía --app-bg (ver globals.css). */}
+      {/* Superficie base — el color Y la aurora vienen de globals.css
+          (body { background-color + background-image }). OJO: no volver a
+          poner un `background` inline acá — el shorthand resetea el
+          background-image y mata la aurora. */}
       <body
         className="h-screen overflow-hidden"
-        style={{ background: 'var(--app-bg)' }}
         suppressHydrationWarning
       >
         <AppShell>{children}</AppShell>

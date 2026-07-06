@@ -102,6 +102,16 @@ export function DashboardPage() {
   const greeting = getGreeting(now.getHours())
   const dateStr = format(now, 'EEEE, MMMM d')
 
+  // Reloj en vivo — detalle "command center" del header. Arranca vacío en
+  // SSR/primer paint (sin mismatch de hidratación) y se llena en el effect.
+  const [clock, setClock] = useState('')
+  useEffect(() => {
+    const tick = () => setClock(format(new Date(), 'HH:mm'))
+    tick()
+    const id = setInterval(tick, 15_000)
+    return () => clearInterval(id)
+  }, [])
+
   // Nombre para personalizar el saludo ("Hi <name>" del mockup).
   // Lo levantamos del email de Supabase auth — Async + cache local así
   // no re-fetcheamos en cada render.
@@ -204,29 +214,46 @@ export function DashboardPage() {
         `,
       }}
     >
-      {/* Header — limpio: solo fecha + saludo chico a la izquierda y el
-          botón reordenar a la derecha. Sin chips de stats, sin Goal bar,
-          sin Day Type. */}
-      <div className="flex items-center justify-between gap-4">
+      {/* Header hero — fecha en mono microcaps con dot de acento, saludo
+          grande en display font con gradiente, y reloj en vivo a la
+          derecha. Vibe "command center" sin agregar ruido. */}
+      <div className="flex items-end justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-[12px] text-zinc-500 capitalize mb-0.5">{dateStr}</p>
-          <h1 className="text-xl font-semibold text-white tracking-tight truncate">
+          <p className="flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.25em] text-zinc-500 mb-1.5">
+            <span
+              className="w-1.5 h-1.5 rounded-full shrink-0"
+              style={{
+                background: 'var(--app-accent)',
+                boxShadow: '0 0 8px color-mix(in srgb, var(--app-accent) 80%, transparent)',
+              }}
+            />
+            {dateStr}
+          </p>
+          <h1 className="font-heading text-3xl md:text-4xl font-bold tracking-tight truncate text-hero pb-0.5">
             {greeting}, {displayName}
           </h1>
         </div>
-        {/* Botón reordenar — glass sutil */}
-        <button
-          onClick={() => setEditMode((v) => !v)}
-          title={editMode ? 'Salir del modo edición' : 'Reordenar widgets'}
-          className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-medium transition-colors ${
-            editMode
-              ? 'bg-indigo-500/20 border border-indigo-400/40 text-indigo-200'
-              : 'bg-white/[0.04] border border-white/[0.08] text-zinc-300 hover:text-white hover:bg-white/[0.06]'
-          }`}
-        >
-          {editMode ? <Check className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
-          {editMode ? 'Listo' : 'Reordenar'}
-        </button>
+        <div className="shrink-0 flex items-center gap-3">
+          {/* Reloj en vivo — display font, tabular. Vacío hasta montar. */}
+          {clock && (
+            <span className="hidden sm:block font-heading text-3xl font-light text-zinc-400 tabular-nums tracking-tight select-none">
+              {clock}
+            </span>
+          )}
+          {/* Botón reordenar — glass sutil */}
+          <button
+            onClick={() => setEditMode((v) => !v)}
+            title={editMode ? 'Salir del modo edición' : 'Reordenar widgets'}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-medium transition-colors ${
+              editMode
+                ? 'bg-indigo-500/20 border border-indigo-400/40 text-indigo-200'
+                : 'bg-white/[0.04] border border-white/[0.08] text-zinc-300 hover:text-white hover:bg-white/[0.06]'
+            }`}
+          >
+            {editMode ? <Check className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
+            {editMode ? 'Listo' : 'Reordenar'}
+          </button>
+        </div>
       </div>
 
       {/* Edit-mode toolbar */}
