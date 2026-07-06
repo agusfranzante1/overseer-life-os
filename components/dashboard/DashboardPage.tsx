@@ -209,8 +209,8 @@ export function DashboardPage() {
         // (que llevan sus propios glows de color) tiene que dejarlos
         // protagonizar.
         background: `
-          radial-gradient(900px 600px at 15% 0%, rgba(99, 102, 241, 0.06), transparent 55%),
-          radial-gradient(700px 500px at 100% 100%, rgba(139, 92, 246, 0.05), transparent 50%)
+          radial-gradient(900px 600px at 15% 0%, rgba(99, 102, 241, 0.13), transparent 55%),
+          radial-gradient(700px 500px at 100% 100%, rgba(139, 92, 246, 0.10), transparent 50%)
         `,
       }}
     >

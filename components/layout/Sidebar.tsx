@@ -232,11 +232,16 @@ export function Sidebar({
       onTouchEnd={onTouchEnd}
       style={{
         ...(dragX !== 0 ? { transform: `translateX(${dragX}px)`, transition: 'none' } : {}),
-        // Mismo color base que el body — el sidebar se mezcla con el resto.
-        // La separación con el contenido es un HAIRLINE apenas visible en el
-        // borde derecho (inset shadow, no border → no suma al layout).
-        background: 'var(--app-bg)',
-        boxShadow: 'inset -1px 0 0 rgba(var(--glass-tint), 0.05)',
+        // Superficie PROPIA del sidebar — panel glass diferenciado del body
+        // (antes era el mismo color y el sidebar "no existía" visualmente).
+        // Gradiente vertical sutil + tinte del acento arriba + borde derecho
+        // marcado. Se ve también colapsado como rail de íconos.
+        background: `
+          radial-gradient(320px 220px at 50% 0%, color-mix(in srgb, var(--app-accent) 10%, transparent), transparent 70%),
+          linear-gradient(180deg, rgba(var(--glass-tint), 0.045), rgba(var(--glass-tint), 0.015)),
+          var(--app-bg)
+        `,
+        boxShadow: 'inset -1px 0 0 rgba(var(--glass-tint), 0.10)',
       }}
       className={`
         flex flex-col h-screen shrink-0 overflow-hidden

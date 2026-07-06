@@ -270,8 +270,8 @@ html.theme-light .glass-tile:hover {
        cards. Posicionados lejos del sidebar (que pinta --app-bg plano)
        para que no se note la costura. */
     background-image:
-      radial-gradient(1100px 720px at 82% -8%, color-mix(in srgb, var(--app-accent) 7%, transparent), transparent 60%),
-      radial-gradient(900px 640px at 8% 112%, rgba(139, 92, 246, 0.05), transparent 55%);
+      radial-gradient(1100px 720px at 82% -8%, color-mix(in srgb, var(--app-accent) 16%, transparent), transparent 62%),
+      radial-gradient(900px 640px at 8% 112%, rgba(139, 92, 246, 0.11), transparent 58%);
     color: var(--app-fg) !important;
     font-family: var(--font-sans), Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     /* Inter tabular features para que los números se alineen en grids */
@@ -291,7 +291,7 @@ html.theme-light .glass-tile:hover {
     inset: 0;
     z-index: 2147483000;
     pointer-events: none;
-    opacity: 0.04;
+    opacity: 0.055;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
   }
   html.theme-light body::after {
@@ -353,16 +353,16 @@ html.theme-light .text-hero {
    visual base de TODAS las cards de la app (matchea los mockups
    con tiles oscuros + glow sutil). */
 .glass-tile {
-  background: rgba(var(--glass-tint), 0.025);
-  border: 1px solid rgba(var(--glass-tint), 0.08);
+  background: rgba(var(--glass-tint), 0.04);
+  border: 1px solid rgba(var(--glass-tint), 0.11);
   border-radius: 1.25rem;
   box-shadow:
-    inset 0 1px 0 rgba(var(--glass-tint), 0.04),
-    0 1px 2px rgba(0, 0, 0, 0.2);
+    inset 0 1px 0 rgba(var(--glass-tint), 0.07),
+    0 8px 24px -12px rgba(0, 0, 0, 0.5);
 }
 .glass-tile:hover {
-  border-color: rgba(var(--glass-tint), 0.14);
-  background: rgba(var(--glass-tint), 0.04);
+  border-color: rgba(var(--glass-tint), 0.18);
+  background: rgba(var(--glass-tint), 0.055);
 }
 /* Variante con glow de color — pasale --tile-glow al inline style:
    <div className="glass-tile glass-tile-glow" style={{ '--tile-glow': '#10b981' }}> */
