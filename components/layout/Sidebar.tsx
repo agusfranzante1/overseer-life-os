@@ -9,7 +9,7 @@ import {
   TrendingUp, GripVertical, Check, RotateCcw, Settings2, Cog, LogOut,
   Clock, Search, X as XIcon, Infinity as InfinityIcon, Telescope, FlaskConical,
   Network, ChevronUp, ChevronDown, ChevronRight, Target, GraduationCap, Sparkles,
-  Sun, Moon,
+  Sun, Moon, NotebookPen,
 } from 'lucide-react'
 import { listTimezones, formatTzOffset, detectTimezone } from '@/lib/utils/dateInTz'
 import Image from 'next/image'
@@ -30,6 +30,7 @@ const NAV_ITEMS: NavItem[] = [
   // El route /spi sigue vivo para backward-compat pero no aparece en el sidebar.
   { href: '/proyeccion', icon: InfinityIcon,    key: 'spi' },
   { href: '/laboratorio', icon: FlaskConical,    key: 'lab' },
+  { href: '/journal',     icon: NotebookPen,     key: 'journal' },
   { href: '/mapas',       icon: Network,         key: 'mindmaps' },
   { href: '/tasks',      icon: CheckSquare,     key: 'tasks' },
   { href: '/calendar',  icon: Calendar,        key: 'calendar' },

@@ -18,6 +18,7 @@ import { useKpisStore } from '@/lib/store/kpisStore'
 import { useStudyStore } from '@/lib/store/studyStore'
 import { useContentStore } from '@/lib/store/contentStore'
 import { useBacktestStore } from '@/lib/store/backtestStore'
+import { useJournalStore } from '@/lib/store/journalStore'
 import {
   startPulling, endPulling,
   markModifiedIfNotPulling, markSynced, hasUnsyncedChanges,
@@ -47,6 +48,7 @@ interface SyncState {
   studyInit: boolean
   contentInit: boolean
   backtestInit: boolean
+  journalInit: boolean
 }
 
 const state: SyncState = {
@@ -69,6 +71,7 @@ const state: SyncState = {
   studyInit: false,
   contentInit: false,
   backtestInit: false,
+  journalInit: false,
 }
 
 // ─── Push timers (debounced per domain) ───────────────────────────────────────
@@ -90,6 +93,7 @@ let kpisPushTimer: ReturnType<typeof setTimeout> | null = null
 let studyPushTimer: ReturnType<typeof setTimeout> | null = null
 let contentPushTimer: ReturnType<typeof setTimeout> | null = null
 let backtestPushTimer: ReturnType<typeof setTimeout> | null = null
+let journalPushTimer: ReturnType<typeof setTimeout> | null = null
 
 // Registro de push debounceados que están en cola. Lo usa
 // flushAllPendingPushes() para forzar TODO a salir antes de que el
@@ -1904,6 +1908,84 @@ async function pullBacktests(): Promise<boolean> {
   }
 }
 
+// ─── MY JOURNAL (diario de aprendizajes) ─────────────────────────────────────
+// Una fila por entrada. Merge: LWW por updatedAt + tombstones.
+// Ver migration_journal.sql.
+
+async function pushJournal() {
+  if (!state.userId) return
+  const syncedAt = new Date().toISOString()
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { entries } = useJournalStore.getState()
+
+  const rows = entries.map((e) => ({
+    id: e.id,
+    user_id: uid,
+    entry_date: e.date,
+    created_at: e.createdAt,
+    updated_at: e.updatedAt,
+    payload: e,
+  }))
+
+  if (rows.length > 0) {
+    const r = await sb.from('journal_entries').upsert(rows)
+    if (r.error) {
+      reportSyncError(`journal_entries upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_journal.sql.`)
+      throw r.error
+    }
+  }
+  await syncDeletes(sb, uid, 'journal_entries', rows.map((r) => r.id), 'journal:entries')
+  markSynced('journal', syncedAt)
+}
+
+async function pullJournal(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('journal')
+  try {
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('journal_entries').select('*').eq('user_id', uid)
+    .order('entry_date', { ascending: false })
+  if (res.error) {
+    console.error('Journal pull failed (run migration_journal.sql?):', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) { markSynced('journal'); return false }
+
+  type EntryRow = { payload: unknown }
+  const sanitize = (raw: unknown): import('@/lib/store/journalStore').JournalEntry => {
+    const p = (raw ?? {}) as Partial<import('@/lib/store/journalStore').JournalEntry>
+    return {
+      id: p.id ?? '',
+      date: p.date ?? new Date().toISOString().slice(0, 10),
+      title: p.title ?? '',
+      body: p.body ?? '',
+      createdAt: p.createdAt ?? new Date().toISOString(),
+      updatedAt: p.updatedAt ?? new Date().toISOString(),
+    }
+  }
+  const remoteEntries: import('@/lib/store/journalStore').JournalEntry[] =
+    (res.data ?? []).map((r: EntryRow) => sanitize(r.payload))
+  const tombs = await fetchTombstones(sb, uid, ['journal_entries'])
+  const mergedEntries = mergeById<import('@/lib/store/journalStore').JournalEntry>({
+    local: useJournalStore.getState().entries,
+    remote: remoteEntries,
+    baseline: getBaseline('journal:entries'),
+    getId: (x) => x.id,
+    getUpdatedAt: (x) => x.updatedAt,
+    tombstones: tombs.get('journal_entries'),
+  })
+  useJournalStore.setState({ entries: mergedEntries })
+  setBaseline('journal:entries', remoteEntries.map((x) => x.id))
+  markSynced('journal')
+  return true
+  } finally {
+    endPulling('journal')
+  }
+}
+
 // ─── APP PREFERENCES (sidebar nav order, language, timezone, schedule, etc.) ─
 //
 // Singleton row per user. The payload is a flexible JSONB blob that mirrors
@@ -2846,6 +2928,7 @@ function scheduleKpis()       { schedule(kpisPushTimer,       pushKpis,       (t
 function scheduleStudy()      { schedule(studyPushTimer,      pushStudy,      (t) => { studyPushTimer = t }) }
 function scheduleContent()    { schedule(contentPushTimer,    pushContent,    (t) => { contentPushTimer = t }) }
 function scheduleBacktests()  { schedule(backtestPushTimer,   pushBacktests,  (t) => { backtestPushTimer = t }) }
+function scheduleJournal()     { schedule(journalPushTimer,    pushJournal,    (t) => { journalPushTimer = t }) }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
@@ -3047,6 +3130,16 @@ async function initAllDomains() {
     if (hasLocal) await pushBacktests().catch((e) => console.error('Backtests post-pull push failed', e))
   }
 
+  // ─── My Journal ───────────────────────────────────────────────────────
+  // Pull-first: LWW por updatedAt + tombstones (mismo patrón que mindmaps).
+  if (!state.journalInit) {
+    state.journalInit = true
+    const { entries } = useJournalStore.getState()
+    const hasLocal = entries.length > 0
+    await pullJournal()
+    if (hasLocal) await pushJournal().catch((e) => console.error('Journal post-pull push failed', e))
+  }
+
   // ─── KPIs (library de definiciones) ───────────────────────────────────
   // Sincroniza la library completa de KPIs entre devices. Las activaciones
   // por semana y los valores cargados viven dentro de SPI sessions, NO
@@ -3147,6 +3240,7 @@ export function useSupabaseSync() {
       useStudyStore.subscribe(() => { markModifiedIfNotPulling('study'); if (state.userId) scheduleStudy() })
       useContentStore.subscribe(() => { markModifiedIfNotPulling('content'); if (state.userId) scheduleContent() })
       useBacktestStore.subscribe(() => { markModifiedIfNotPulling('backtests'); if (state.userId) scheduleBacktests() })
+      useJournalStore.subscribe(() => { markModifiedIfNotPulling('journal'); if (state.userId) scheduleJournal() })
     }
 
     // Auth state changes — when the user signs in *after* mount (e.g. from
@@ -3175,6 +3269,7 @@ export function useSupabaseSync() {
       state.studyInit = false
       state.contentInit = false
       state.backtestInit = false
+      state.journalInit = false
       if (newId) {
         initAllDomains().catch((e) => console.error('Init after auth change failed', e))
       }
@@ -3225,6 +3320,7 @@ export function useSupabaseSync() {
       state.studyInit = false
       state.contentInit = false
       state.backtestInit = false
+      state.journalInit = false
       try {
         await initAllDomains()
       } catch (e) {
@@ -3302,6 +3398,7 @@ export async function forceSyncAll(): Promise<void> {
   state.studyInit = false
   state.contentInit = false
   state.backtestInit = false
+  state.journalInit = false
   await initAllDomains()
 }
 
@@ -3367,3 +3464,5 @@ export async function forceSyncContent()  { await pushContent() }
 export async function forcePullContent()  { return pullContent() }
 export async function forceSyncBacktests() { await pushBacktests() }
 export async function forcePullBacktests() { return pullBacktests() }
+export async function forceSyncJournal()   { await pushJournal() }
+export async function forcePullJournal()   { return pullJournal() }

@@ -23,6 +23,7 @@ const ROUTE_TO_NAV: ReadonlyArray<readonly [string, string, string]> = [
   ['/proyeccion',  'spi',       '♾️'],
   ['/spi',         'spi',       '♾️'],   // legacy redirect — same nav key
   ['/laboratorio', 'lab',       '🧪'],
+  ['/journal',     'journal',   '📔'],
   ['/mapas',       'mindmaps',  '🕸️'],
   ['/tasks',       'tasks',     '✅'],
   ['/calendar',    'calendar',  '📅'],

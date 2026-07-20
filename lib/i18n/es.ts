@@ -6,6 +6,7 @@ export const es: Translations = {
     proyeccion: 'Proyección',
     spi: 'SPI',
     lab: 'Laboratorio',
+    journal: 'My Journal',
     mindmaps: 'Mapas Mentales',
     calendar: 'Calendario',
     tasks: 'Tareas',
