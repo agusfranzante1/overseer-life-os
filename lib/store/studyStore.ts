@@ -24,7 +24,7 @@ interface StudyState {
   deleteCarrera: (id: string) => void
 
   // ── Materia ──
-  addMateria: (args: { carreraId: string; name: string; icon?: string; color?: string; profesor?: string; codigo?: string; cuatrimestre?: string }) => string
+  addMateria: (args: { carreraId: string; name: string; icon?: string; color?: string; profesor?: string; codigo?: string; cuatrimestre?: string; mode?: 'checklist' | 'conceptos' }) => string
   updateMateria: (id: string, patch: Partial<Omit<Materia, 'id' | 'carreraId' | 'createdAt'>>) => void
   deleteMateria: (id: string) => void
 
@@ -83,11 +83,12 @@ export const useStudyStore = create<StudyState>()(
       }),
 
       // ── Materia ──────────────────────────────────────────────────────────
-      addMateria: ({ carreraId, name, icon, color, profesor, codigo, cuatrimestre }) => {
+      addMateria: ({ carreraId, name, icon, color, profesor, codigo, cuatrimestre, mode }) => {
         const id = genId()
         const ts = now()
         const m: Materia = {
           id, carreraId, name: name.trim(), icon, color, profesor, codigo, cuatrimestre,
+          ...(mode && mode !== 'checklist' ? { mode } : {}),
           sortOrder: get().materias.filter((x) => x.carreraId === carreraId).length,
           createdAt: ts, updatedAt: ts,
         }

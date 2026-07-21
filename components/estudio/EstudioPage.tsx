@@ -6,9 +6,11 @@ import {
   Pencil, Trash2, Calendar, X, BookOpen, Layers,
 } from 'lucide-react'
 import { useStudyStore } from '@/lib/store/studyStore'
+import { useConceptStore } from '@/lib/store/conceptStore'
 import { cleanupLegacySubjectProjects } from '@/lib/study/legacyCleanup'
 import { temaProgress, parcialProgress, aggregate } from '@/lib/study/progress'
 import type { Carrera, Materia, Parcial, Tema, StudyProgress } from '@/lib/study/types'
+import { ConceptMapCanvas } from './ConceptMapCanvas'
 
 // ─── Paletas ─────────────────────────────────────────────────────────────────
 
@@ -335,6 +337,25 @@ function MateriaDetail({ materia, onBack }: { materia: Materia; onBack: () => vo
   }
 
   const sub = [materia.codigo, materia.profesor, materia.cuatrimestre].filter(Boolean).join(' · ')
+  const isConceptos = materia.mode === 'conceptos'
+
+  // Modo conceptos: header + lienzo de conceptos (no parciales/temas).
+  if (isConceptos) {
+    return (
+      <div className="space-y-6">
+        <DetailHeader
+          onBack={onBack} icon={materia.icon ?? '🧠'} color={color} title={materia.name}
+          subtitle={sub || 'Base de conceptos — arrastrá, desplegá y agrupá por área.'}
+          onEdit={() => setShowEdit(true)}
+          onDelete={() => { if (confirm(`¿Eliminar la materia "${materia.name}"?\nBorra su mapa de conceptos.`)) { useConceptStore.getState().removeMap(materia.id); deleteMateria(materia.id); onBack() } }}
+        />
+        <ConceptMapCanvas materiaId={materia.id} accent={color} />
+        <AnimatePresence>
+          {showEdit && <EditMateriaModal materia={materia} onClose={() => setShowEdit(false)} />}
+        </AnimatePresence>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -604,7 +625,8 @@ function EntityCard({ color, icon, title, subtitle, prog, progLabel, footer, onC
 
 function DetailHeader({ onBack, icon, color, title, subtitle, prog, progLabel, onEdit, onDelete }: {
   onBack: () => void; icon: string; color: string; title: string; subtitle: string
-  prog: StudyProgress; progLabel: string; onEdit: () => void; onDelete: () => void
+  /** Progreso opcional — el modo conceptos no tiene barra de temas. */
+  prog?: StudyProgress; progLabel?: string; onEdit: () => void; onDelete: () => void
 }) {
   return (
     <div className="space-y-4">
@@ -628,14 +650,16 @@ function DetailHeader({ onBack, icon, color, title, subtitle, prog, progLabel, o
           </button>
         </div>
       </div>
-      {/* Barra de progreso del nivel */}
-      <div className="rounded-2xl p-4 space-y-2" style={{ background: 'var(--card-bg)', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-        <div className="flex items-center justify-between text-[12px]">
-          <span className="text-zinc-400">Progreso · {prog.done}/{prog.total} {progLabel}</span>
-          <span className="font-mono font-bold tabular-nums text-base" style={{ color }}>{prog.pct}%</span>
+      {/* Barra de progreso del nivel — solo si hay progreso (modo checklist). */}
+      {prog && (
+        <div className="rounded-2xl p-4 space-y-2" style={{ background: 'var(--card-bg)', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+          <div className="flex items-center justify-between text-[12px]">
+            <span className="text-zinc-400">Progreso · {prog.done}/{prog.total} {progLabel}</span>
+            <span className="font-mono font-bold tabular-nums text-base" style={{ color }}>{prog.pct}%</span>
+          </div>
+          <ProgressBar pct={prog.pct} color={color} height={6} />
         </div>
-        <ProgressBar pct={prog.pct} color={color} height={6} />
-      </div>
+      )}
     </div>
   )
 }
@@ -701,15 +725,36 @@ function CreateMateriaModal({ carreraId, onClose, onCreated }: { carreraId: stri
   const [profesor, setProfesor] = useState('')
   const [codigo, setCodigo] = useState('')
   const [cuatrimestre, setCuatrimestre] = useState('')
+  const [mode, setMode] = useState<'checklist' | 'conceptos'>('checklist')
   const create = () => {
     if (!name.trim()) return
-    onCreated(addMateria({ carreraId, name, icon, color, profesor: profesor.trim() || undefined, codigo: codigo.trim() || undefined, cuatrimestre: cuatrimestre.trim() || undefined }))
+    onCreated(addMateria({ carreraId, name, icon, color, mode, profesor: profesor.trim() || undefined, codigo: codigo.trim() || undefined, cuatrimestre: cuatrimestre.trim() || undefined }))
   }
   return (
     <ModalShell title="Nueva materia" onClose={onClose}
       footer={<><GhostBtn onClick={onClose}>Cancelar</GhostBtn><PrimaryBtn onClick={create} disabled={!name.trim()}>Crear materia</PrimaryBtn></>}>
       <div><label className={labelClass()}>Nombre de la materia *</label>
         <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Análisis Matemático II" className={fieldClass()} /></div>
+      {/* Modo de la materia */}
+      <div>
+        <label className={labelClass()}>Tipo de materia</label>
+        <div className="grid grid-cols-2 gap-2">
+          {([
+            { v: 'checklist' as const, t: 'Checklist', d: 'Parciales, temas y progreso' },
+            { v: 'conceptos' as const, t: 'Mapa de conceptos', d: 'Base visual por autor y área' },
+          ]).map((opt) => (
+            <button key={opt.v} type="button" onClick={() => setMode(opt.v)}
+              className="text-left rounded-xl p-3 transition-all"
+              style={{
+                background: mode === opt.v ? `${color}18` : 'var(--card-bg)',
+                border: `1px solid ${mode === opt.v ? color : 'rgba(255,255,255,0.10)'}`,
+              }}>
+              <p className="text-[13px] font-semibold" style={{ color: mode === opt.v ? '#fff' : '#d4d4d8' }}>{opt.t}</p>
+              <p className="text-[11px] text-zinc-500 leading-snug mt-0.5">{opt.d}</p>
+            </button>
+          ))}
+        </div>
+      </div>
       <div><label className={labelClass()}>Icono</label><IconPicker icons={MATERIA_ICONS} value={icon} onChange={setIcon} /></div>
       <div><label className={labelClass()}>Color</label><ColorPicker value={color} onChange={setColor} /></div>
       <div className="grid grid-cols-2 gap-3">

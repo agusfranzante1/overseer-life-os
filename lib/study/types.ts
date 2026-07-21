@@ -56,6 +56,11 @@ export interface Materia {
   profesor?: string
   codigo?: string
   cuatrimestre?: string
+  /** Modo de la materia:
+   *   - 'checklist' (default / undefined): Parcial › Tema › ítems (lo de hoy).
+   *   - 'conceptos': base de conocimiento visual (lienzo de conceptos por área,
+   *     ver lib/store/conceptStore.ts + ConceptMapCanvas). */
+  mode?: 'checklist' | 'conceptos'
   sortOrder: number
   createdAt: string
   updatedAt: string

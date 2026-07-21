@@ -19,6 +19,7 @@ import { useStudyStore } from '@/lib/store/studyStore'
 import { useContentStore } from '@/lib/store/contentStore'
 import { useBacktestStore } from '@/lib/store/backtestStore'
 import { useJournalStore } from '@/lib/store/journalStore'
+import { useConceptStore } from '@/lib/store/conceptStore'
 import {
   startPulling, endPulling,
   markModifiedIfNotPulling, markSynced, hasUnsyncedChanges,
@@ -49,6 +50,7 @@ interface SyncState {
   contentInit: boolean
   backtestInit: boolean
   journalInit: boolean
+  conceptInit: boolean
 }
 
 const state: SyncState = {
@@ -72,6 +74,7 @@ const state: SyncState = {
   contentInit: false,
   backtestInit: false,
   journalInit: false,
+  conceptInit: false,
 }
 
 // ─── Push timers (debounced per domain) ───────────────────────────────────────
@@ -94,6 +97,7 @@ let studyPushTimer: ReturnType<typeof setTimeout> | null = null
 let contentPushTimer: ReturnType<typeof setTimeout> | null = null
 let backtestPushTimer: ReturnType<typeof setTimeout> | null = null
 let journalPushTimer: ReturnType<typeof setTimeout> | null = null
+let conceptPushTimer: ReturnType<typeof setTimeout> | null = null
 
 // Registro de push debounceados que están en cola. Lo usa
 // flushAllPendingPushes() para forzar TODO a salir antes de que el
@@ -1986,6 +1990,82 @@ async function pullJournal(): Promise<boolean> {
   }
 }
 
+// ─── MAPAS DE CONCEPTOS (materias en modo 'conceptos') ───────────────────────
+// Una fila por mapa (id = materiaId). Merge: LWW por updatedAt + tombstones.
+// Ver migration_study_concepts.sql.
+
+async function pushConcepts() {
+  if (!state.userId) return
+  const syncedAt = new Date().toISOString()
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { maps } = useConceptStore.getState()
+
+  const rows = maps.map((m) => ({
+    id: m.materiaId,
+    user_id: uid,
+    created_at: m.createdAt,
+    updated_at: m.updatedAt,
+    payload: m,
+  }))
+
+  if (rows.length > 0) {
+    const r = await sb.from('study_concept_maps').upsert(rows)
+    if (r.error) {
+      reportSyncError(`study_concept_maps upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_study_concepts.sql.`)
+      throw r.error
+    }
+  }
+  await syncDeletes(sb, uid, 'study_concept_maps', rows.map((r) => r.id), 'concepts:maps')
+  markSynced('concepts', syncedAt)
+}
+
+async function pullConcepts(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('concepts')
+  try {
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('study_concept_maps').select('*').eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+  if (res.error) {
+    console.error('Concept maps pull failed (run migration_study_concepts.sql?):', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) { markSynced('concepts'); return false }
+
+  type MapRow = { payload: unknown }
+  const sanitize = (raw: unknown): import('@/lib/study/concepts').ConceptMap => {
+    const p = (raw ?? {}) as Partial<import('@/lib/study/concepts').ConceptMap>
+    return {
+      materiaId: p.materiaId ?? '',
+      areas: Array.isArray(p.areas) ? p.areas : [],
+      concepts: Array.isArray(p.concepts) ? p.concepts : [],
+      createdAt: p.createdAt ?? new Date().toISOString(),
+      updatedAt: p.updatedAt ?? new Date().toISOString(),
+    }
+  }
+  const remoteMaps: import('@/lib/study/concepts').ConceptMap[] =
+    (res.data ?? []).map((r: MapRow) => sanitize(r.payload))
+  const tombs = await fetchTombstones(sb, uid, ['study_concept_maps'])
+  const mergedMaps = mergeById<import('@/lib/study/concepts').ConceptMap>({
+    local: useConceptStore.getState().maps,
+    remote: remoteMaps,
+    baseline: getBaseline('concepts:maps'),
+    getId: (x) => x.materiaId,
+    getUpdatedAt: (x) => x.updatedAt,
+    tombstones: tombs.get('study_concept_maps'),
+  })
+  useConceptStore.setState({ maps: mergedMaps })
+  setBaseline('concepts:maps', remoteMaps.map((x) => x.materiaId))
+  markSynced('concepts')
+  return true
+  } finally {
+    endPulling('concepts')
+  }
+}
+
 // ─── APP PREFERENCES (sidebar nav order, language, timezone, schedule, etc.) ─
 //
 // Singleton row per user. The payload is a flexible JSONB blob that mirrors
@@ -2929,6 +3009,7 @@ function scheduleStudy()      { schedule(studyPushTimer,      pushStudy,      (t
 function scheduleContent()    { schedule(contentPushTimer,    pushContent,    (t) => { contentPushTimer = t }) }
 function scheduleBacktests()  { schedule(backtestPushTimer,   pushBacktests,  (t) => { backtestPushTimer = t }) }
 function scheduleJournal()     { schedule(journalPushTimer,    pushJournal,    (t) => { journalPushTimer = t }) }
+function scheduleConcepts()    { schedule(conceptPushTimer,    pushConcepts,   (t) => { conceptPushTimer = t }) }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
 
@@ -3140,6 +3221,16 @@ async function initAllDomains() {
     if (hasLocal) await pushJournal().catch((e) => console.error('Journal post-pull push failed', e))
   }
 
+  // ─── Mapas de conceptos (materias modo 'conceptos') ───────────────────
+  // Pull-first: LWW por updatedAt + tombstones (mismo patrón que mindmaps).
+  if (!state.conceptInit) {
+    state.conceptInit = true
+    const { maps } = useConceptStore.getState()
+    const hasLocal = maps.length > 0
+    await pullConcepts()
+    if (hasLocal) await pushConcepts().catch((e) => console.error('Concepts post-pull push failed', e))
+  }
+
   // ─── KPIs (library de definiciones) ───────────────────────────────────
   // Sincroniza la library completa de KPIs entre devices. Las activaciones
   // por semana y los valores cargados viven dentro de SPI sessions, NO
@@ -3241,6 +3332,7 @@ export function useSupabaseSync() {
       useContentStore.subscribe(() => { markModifiedIfNotPulling('content'); if (state.userId) scheduleContent() })
       useBacktestStore.subscribe(() => { markModifiedIfNotPulling('backtests'); if (state.userId) scheduleBacktests() })
       useJournalStore.subscribe(() => { markModifiedIfNotPulling('journal'); if (state.userId) scheduleJournal() })
+      useConceptStore.subscribe(() => { markModifiedIfNotPulling('concepts'); if (state.userId) scheduleConcepts() })
     }
 
     // Auth state changes — when the user signs in *after* mount (e.g. from
@@ -3270,6 +3362,7 @@ export function useSupabaseSync() {
       state.contentInit = false
       state.backtestInit = false
       state.journalInit = false
+      state.conceptInit = false
       if (newId) {
         initAllDomains().catch((e) => console.error('Init after auth change failed', e))
       }
@@ -3321,6 +3414,7 @@ export function useSupabaseSync() {
       state.contentInit = false
       state.backtestInit = false
       state.journalInit = false
+      state.conceptInit = false
       try {
         await initAllDomains()
       } catch (e) {
@@ -3399,6 +3493,7 @@ export async function forceSyncAll(): Promise<void> {
   state.contentInit = false
   state.backtestInit = false
   state.journalInit = false
+  state.conceptInit = false
   await initAllDomains()
 }
 
@@ -3466,3 +3561,5 @@ export async function forceSyncBacktests() { await pushBacktests() }
 export async function forcePullBacktests() { return pullBacktests() }
 export async function forceSyncJournal()   { await pushJournal() }
 export async function forcePullJournal()   { return pullJournal() }
+export async function forceSyncConcepts()  { await pushConcepts() }
+export async function forcePullConcepts()  { return pullConcepts() }
