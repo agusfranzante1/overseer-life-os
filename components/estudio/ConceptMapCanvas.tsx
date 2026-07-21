@@ -14,10 +14,10 @@ import { useRef, useState, useEffect, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Plus, Trash2, ZoomIn, ZoomOut, Hand, Pencil, ChevronDown, ChevronUp,
-  Tag, User,
+  Tag, User, Check, UserPlus,
 } from 'lucide-react'
 import { useConceptStore } from '@/lib/store/conceptStore'
-import { AREA_PALETTE, type Concept, type ConceptArea } from '@/lib/study/concepts'
+import { AREA_PALETTE, authorsLabel, type Concept, type ConceptArea } from '@/lib/study/concepts'
 
 const ZOOM_MIN = 0.35
 const ZOOM_MAX = 2.5
@@ -318,8 +318,14 @@ function ConceptNode({
 }) {
   const updateConcept = useConceptStore((s) => s.updateConcept)
   const removeConcept = useConceptStore((s) => s.removeConcept)
+  const toggleStudied = useConceptStore((s) => s.toggleStudied)
+  const addSource = useConceptStore((s) => s.addSource)
+  const updateSource = useConceptStore((s) => s.updateSource)
+  const removeSource = useConceptStore((s) => s.removeSource)
   const [areaMenu, setAreaMenu] = useState(false)
   const color = area?.color ?? '#71717a'
+  const authors = authorsLabel(concept)
+  const sources = concept.sources ?? []
 
   return (
     <div
@@ -338,14 +344,21 @@ function ConceptNode({
         className="flex items-start gap-2 px-3 py-2.5 cursor-move"
         style={{ touchAction: 'none' }}
       >
-        <span className="mt-0.5 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: color, boxShadow: `0 0 6px ${color}` }} />
+        {/* Tilde de estudiado (o dot del área si no está estudiado) */}
+        {concept.studied ? (
+          <span className="mt-0.5 w-3.5 h-3.5 rounded-full shrink-0 flex items-center justify-center bg-emerald-500" title="Estudiado">
+            <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />
+          </span>
+        ) : (
+          <span className="mt-0.5 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: color, boxShadow: `0 0 6px ${color}` }} />
+        )}
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-semibold text-white leading-snug break-words">
+          <p className={`text-[13px] font-semibold leading-snug break-words ${concept.studied ? 'text-zinc-400' : 'text-white'}`}>
             {concept.title.trim() || <span className="text-zinc-500 italic font-normal">Sin título</span>}
           </p>
-          {concept.author?.trim() && (
+          {authors && (
             <p className="flex items-center gap-1 text-[11px] text-zinc-400 mt-0.5">
-              <User className="w-3 h-3 shrink-0" style={{ color }} /> {concept.author}
+              <User className="w-3 h-3 shrink-0" style={{ color }} /> {authors}
             </p>
           )}
         </div>
@@ -363,19 +376,54 @@ function ConceptNode({
                 placeholder="Título del concepto"
                 className="w-full bg-transparent text-[13px] font-semibold text-white placeholder-zinc-600 focus:outline-none"
               />
-              <input
-                value={concept.author ?? ''}
-                onChange={(e) => updateConcept(materiaId, concept.id, { author: e.target.value })}
-                placeholder="Autor / fuente"
-                className="w-full bg-zinc-950/60 border border-white/[0.08] rounded-lg px-2 py-1 text-[11px] text-zinc-300 placeholder-zinc-600 focus:outline-none"
-              />
-              <textarea
-                value={concept.body ?? ''}
-                onChange={(e) => updateConcept(materiaId, concept.id, { body: e.target.value })}
-                placeholder="Explicación del concepto…"
-                rows={4}
-                className="w-full bg-zinc-950/60 border border-white/[0.08] rounded-lg px-2 py-1.5 text-[12px] text-zinc-200 leading-relaxed placeholder-zinc-600 focus:outline-none resize-y"
-              />
+
+              {/* Estudiado */}
+              <button
+                onClick={() => toggleStudied(materiaId, concept.id)}
+                className={`inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg transition-colors ${
+                  concept.studied ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-300' : 'bg-white/[0.03] border border-white/[0.10] text-zinc-400 hover:text-white'
+                }`}
+              >
+                <span className={`w-3.5 h-3.5 rounded flex items-center justify-center ${concept.studied ? 'bg-emerald-500' : 'border border-zinc-600'}`}>
+                  {concept.studied && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
+                </span>
+                {concept.studied ? 'Estudiado' : 'Marcar como estudiado'}
+              </button>
+
+              {/* Aportes por autor */}
+              <div className="space-y-2">
+                {sources.map((src, i) => (
+                  <div key={src.id} className="rounded-lg bg-zinc-950/50 border border-white/[0.07] p-2 space-y-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <User className="w-3 h-3 text-zinc-500 shrink-0" />
+                      <input
+                        value={src.author}
+                        onChange={(e) => updateSource(materiaId, concept.id, src.id, { author: e.target.value })}
+                        placeholder="Autor / fuente"
+                        className="flex-1 min-w-0 bg-transparent text-[12px] font-medium text-zinc-200 placeholder-zinc-600 focus:outline-none"
+                      />
+                      {sources.length > 1 && (
+                        <button onClick={() => removeSource(materiaId, concept.id, src.id)} title="Quitar aporte"
+                          className="p-0.5 text-zinc-600 hover:text-red-400 shrink-0"><Trash2 className="w-3 h-3" /></button>
+                      )}
+                    </div>
+                    <textarea
+                      value={src.body}
+                      onChange={(e) => updateSource(materiaId, concept.id, src.id, { body: e.target.value })}
+                      placeholder={i === 0 ? 'Explicación del concepto…' : 'La mirada de este autor…'}
+                      rows={3}
+                      className="w-full bg-transparent text-[12px] text-zinc-200 leading-relaxed placeholder-zinc-600 focus:outline-none resize-y"
+                    />
+                  </div>
+                ))}
+                <button
+                  onClick={() => addSource(materiaId, concept.id)}
+                  className="inline-flex items-center gap-1.5 text-[11px] text-zinc-400 hover:text-white transition-colors"
+                >
+                  <UserPlus className="w-3 h-3" /> Agregar aporte de otro autor
+                </button>
+              </div>
+
               {/* Mover entre áreas + borrar */}
               <div className="flex items-center justify-between gap-2">
                 <div className="relative">

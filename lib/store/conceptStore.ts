@@ -8,8 +8,8 @@
  */
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { ConceptMap, ConceptArea, Concept } from '@/lib/study/concepts'
-import { AREA_PALETTE, makeDefaultAreas } from '@/lib/study/concepts'
+import type { ConceptMap, ConceptArea, Concept, ConceptSource } from '@/lib/study/concepts'
+import { AREA_PALETTE, makeDefaultAreas, normalizeConcept } from '@/lib/study/concepts'
 
 function genId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
@@ -35,9 +35,16 @@ interface State {
 
   // ── Conceptos ──
   addConcept: (materiaId: string, args?: { areaId?: string | null; x?: number; y?: number; title?: string; author?: string }) => string
-  updateConcept: (materiaId: string, conceptId: string, patch: Partial<Pick<Concept, 'title' | 'author' | 'body' | 'areaId'>>) => void
+  updateConcept: (materiaId: string, conceptId: string, patch: Partial<Pick<Concept, 'title' | 'areaId'>>) => void
   moveConcept: (materiaId: string, conceptId: string, x: number, y: number) => void
   removeConcept: (materiaId: string, conceptId: string) => void
+  /** Marca/desmarca un concepto como estudiado (alimenta la vista Progreso). */
+  toggleStudied: (materiaId: string, conceptId: string, studied?: boolean) => void
+
+  // ── Aportes (autores) de un concepto ──
+  addSource: (materiaId: string, conceptId: string, author?: string) => string
+  updateSource: (materiaId: string, conceptId: string, sourceId: string, patch: Partial<Pick<ConceptSource, 'author' | 'body'>>) => void
+  removeSource: (materiaId: string, conceptId: string, sourceId: string) => void
 }
 
 /** Bump del updatedAt del mapa — toda mutación pasa por acá. */
@@ -115,8 +122,9 @@ export const useConceptStore = create<State>()(
               id,
               areaId: args?.areaId ?? m.areas[0]?.id ?? null,
               title: args?.title ?? '',
-              author: args?.author,
-              body: '',
+              // Arranca con UN aporte (vacío o con el autor pasado) para que la
+              // tarjeta ya tenga dónde escribir.
+              sources: [{ id: genId(), author: args?.author ?? '', body: '' }],
               x, y,
               createdAt: ts, updatedAt: ts,
             }
@@ -143,12 +151,60 @@ export const useConceptStore = create<State>()(
           concepts: m.concepts.filter((c) => c.id !== conceptId),
         })),
       })),
+      toggleStudied: (materiaId, conceptId, studied) => set((s) => ({
+        maps: mapOver(s.maps, materiaId, (m) => ({
+          ...m,
+          concepts: m.concepts.map((c) => (c.id === conceptId ? { ...c, studied: studied ?? !c.studied, updatedAt: nowISO() } : c)),
+        })),
+      })),
+
+      // ── Aportes ────────────────────────────────────────────────────────
+      addSource: (materiaId, conceptId, author) => {
+        const sid = genId()
+        set((s) => ({
+          maps: mapOver(s.maps, materiaId, (m) => ({
+            ...m,
+            concepts: m.concepts.map((c) => (c.id !== conceptId ? c : {
+              ...c,
+              sources: [...(c.sources ?? []), { id: sid, author: author ?? '', body: '' }],
+              updatedAt: nowISO(),
+            })),
+          })),
+        }))
+        return sid
+      },
+      updateSource: (materiaId, conceptId, sourceId, patch) => set((s) => ({
+        maps: mapOver(s.maps, materiaId, (m) => ({
+          ...m,
+          concepts: m.concepts.map((c) => (c.id !== conceptId ? c : {
+            ...c,
+            sources: (c.sources ?? []).map((src) => (src.id === sourceId ? { ...src, ...patch } : src)),
+            updatedAt: nowISO(),
+          })),
+        })),
+      })),
+      removeSource: (materiaId, conceptId, sourceId) => set((s) => ({
+        maps: mapOver(s.maps, materiaId, (m) => ({
+          ...m,
+          concepts: m.concepts.map((c) => {
+            if (c.id !== conceptId) return c
+            const next = (c.sources ?? []).filter((src) => src.id !== sourceId)
+            // Nunca dejar un concepto sin ningún aporte → mantener uno vacío.
+            return { ...c, sources: next.length > 0 ? next : [{ id: genId(), author: '', body: '' }], updatedAt: nowISO() }
+          }),
+        })),
+      })),
     }),
     {
       name: 'overseer-concepts',
       partialize: (s) => ({ maps: s.maps }),
       onRehydrateStorage: () => (state) => {
-        if (state && !Array.isArray(state.maps)) state.maps = []
+        if (!state) return
+        if (!Array.isArray(state.maps)) { state.maps = []; return }
+        // Migración de conceptos legacy (author/body sueltos → sources[]).
+        for (const m of state.maps) {
+          if (Array.isArray(m.concepts)) m.concepts = m.concepts.map((c) => normalizeConcept(c, genId))
+        }
       },
     },
   ),

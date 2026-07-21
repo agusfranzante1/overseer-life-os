@@ -11,6 +11,8 @@ import { cleanupLegacySubjectProjects } from '@/lib/study/legacyCleanup'
 import { temaProgress, parcialProgress, aggregate } from '@/lib/study/progress'
 import type { Carrera, Materia, Parcial, Tema, StudyProgress } from '@/lib/study/types'
 import { ConceptMapCanvas } from './ConceptMapCanvas'
+import { ConceptProgress } from './ConceptProgress'
+import { conceptProgress } from '@/lib/study/concepts'
 
 // ─── Paletas ─────────────────────────────────────────────────────────────────
 
@@ -319,6 +321,8 @@ function MateriaDetail({ materia, onBack }: { materia: Materia; onBack: () => vo
   const [showAddParcial, setShowAddParcial] = useState(false)
   const [newParcial, setNewParcial] = useState('')
   const [openParcialId, setOpenParcialId] = useState<string | null>(null)
+  const [conceptView, setConceptView] = useState<'mapa' | 'progreso'>('mapa')
+  const conceptMap = useConceptStore((s) => s.maps.find((m) => m.materiaId === materia.id) ?? null)
   const prog = useMateriaProgress(materia.id)
   const color = materia.color ?? DEFAULT_CARRERA_COLOR
 
@@ -339,17 +343,37 @@ function MateriaDetail({ materia, onBack }: { materia: Materia; onBack: () => vo
   const sub = [materia.codigo, materia.profesor, materia.cuatrimestre].filter(Boolean).join(' · ')
   const isConceptos = materia.mode === 'conceptos'
 
-  // Modo conceptos: header + lienzo de conceptos (no parciales/temas).
+  // Modo conceptos: header + tabs Mapa/Progreso sobre los MISMOS conceptos.
   if (isConceptos) {
+    const cProg = conceptProgress(conceptMap?.concepts ?? [])
     return (
       <div className="space-y-6">
         <DetailHeader
           onBack={onBack} icon={materia.icon ?? '🧠'} color={color} title={materia.name}
-          subtitle={sub || 'Base de conceptos — arrastrá, desplegá y agrupá por área.'}
+          subtitle={sub || 'Base de conceptos — mapá, estudiá y seguí el avance.'}
+          prog={cProg} progLabel="conceptos estudiados"
           onEdit={() => setShowEdit(true)}
           onDelete={() => { if (confirm(`¿Eliminar la materia "${materia.name}"?\nBorra su mapa de conceptos.`)) { useConceptStore.getState().removeMap(materia.id); deleteMateria(materia.id); onBack() } }}
         />
-        <ConceptMapCanvas materiaId={materia.id} accent={color} />
+
+        {/* Tabs Mapa / Progreso — dos vistas de los mismos conceptos */}
+        <div className="inline-flex items-center gap-0.5 p-0.5 rounded-xl" style={{ background: 'var(--card-bg)', border: '1px solid rgba(255,255,255,0.10)' }}>
+          {([{ v: 'mapa' as const, t: 'Mapa' }, { v: 'progreso' as const, t: 'Progreso' }]).map((tab) => (
+            <button key={tab.v} onClick={() => setConceptView(tab.v)}
+              className="px-4 py-1.5 rounded-lg text-[13px] font-semibold transition-colors"
+              style={conceptView === tab.v
+                ? { background: `${color}22`, color: '#fff', boxShadow: `inset 0 0 0 1px ${color}55` }
+                : { color: '#a1a1aa' }}>
+              {tab.t}
+              {tab.v === 'progreso' && cProg.total > 0 && <span className="ml-1.5 text-[11px] font-mono opacity-70">{cProg.pct}%</span>}
+            </button>
+          ))}
+        </div>
+
+        {conceptView === 'mapa'
+          ? <ConceptMapCanvas materiaId={materia.id} accent={color} />
+          : <ConceptProgress materiaId={materia.id} accent={color} />}
+
         <AnimatePresence>
           {showEdit && <EditMateriaModal materia={materia} onClose={() => setShowEdit(false)} />}
         </AnimatePresence>
@@ -741,7 +765,7 @@ function CreateMateriaModal({ carreraId, onClose, onCreated }: { carreraId: stri
         <div className="grid grid-cols-2 gap-2">
           {([
             { v: 'checklist' as const, t: 'Checklist', d: 'Parciales, temas y progreso' },
-            { v: 'conceptos' as const, t: 'Mapa de conceptos', d: 'Base visual por autor y área' },
+            { v: 'conceptos' as const, t: 'Mapa de conceptos', d: 'Conceptos por autor + avance de estudio' },
           ]).map((opt) => (
             <button key={opt.v} type="button" onClick={() => setMode(opt.v)}
               className="text-left rounded-xl p-3 transition-all"

@@ -17,21 +17,36 @@ export interface ConceptArea {
   color: string
 }
 
-/** Un concepto = un nodo del lienzo. */
+/** Un APORTE a un concepto: la mirada de UN autor sobre él. Un mismo concepto
+ *  (ej. "Disciplina") puede tener varios aportes de distintas personas. */
+export interface ConceptSource {
+  id: string
+  /** Autor / fuente del aporte (ej. "Goggins", "Jocko"). */
+  author: string
+  /** La explicación de ese autor sobre el concepto. */
+  body: string
+}
+
+/** Un concepto = un nodo del lienzo. Agrupa uno o varios APORTES de distintos
+ *  autores, y un flag `studied` para el seguimiento de avance. */
 export interface Concept {
   id: string
   /** Área a la que pertenece (null = sin área). Mover entre áreas = cambiar esto. */
   areaId: string | null
   title: string
-  /** Autor / fuente del concepto (ej. "Naval", "Kiyosaki"). */
-  author?: string
-  /** Cuerpo — la explicación del concepto. Se ve al desplegar la tarjeta. */
-  body?: string
+  /** Aportes de distintos autores sobre este concepto. */
+  sources: ConceptSource[]
+  /** ¿Ya lo estudiaste? Alimenta la vista Progreso (estudiados / total). */
+  studied?: boolean
   /** Posición en el lienzo (coords de content). */
   x: number
   y: number
   createdAt: string
   updatedAt: string
+  // ── Legacy (pre-aportes): concepto con un solo autor+cuerpo. Se migra a
+  //    `sources` vía normalizeConcept. No escribir estos campos en código nuevo.
+  /** @deprecated usar `sources` */ author?: string
+  /** @deprecated usar `sources` */ body?: string
 }
 
 /** El mapa entero de una materia. `materiaId` es también su id de fila. */
@@ -54,4 +69,42 @@ export function makeDefaultAreas(genId: () => string): ConceptArea[] {
   return [
     { id: genId(), name: 'General', color: AREA_PALETTE[0] },
   ]
+}
+
+/** Normaliza un concepto potencialmente legacy (author/body sueltos) al modelo
+ *  con `sources[]`. Idempotente: si ya tiene sources, lo deja igual (limpiando
+ *  los campos legacy). Un genId opcional evita ids duplicados entre aportes. */
+export function normalizeConcept(c: Concept, genId: () => string): Concept {
+  // Ya está en el modelo nuevo (con sources) y sin campos legacy → tal cual.
+  if (Array.isArray(c.sources) && c.sources.length > 0 && c.author === undefined && c.body === undefined) {
+    return c
+  }
+  const legacyAuthor = (c.author ?? '').trim()
+  const legacyBody = (c.body ?? '').trim()
+  const sources: ConceptSource[] = (Array.isArray(c.sources) && c.sources.length > 0)
+    ? c.sources
+    : (legacyAuthor || legacyBody)
+      ? [{ id: genId(), author: legacyAuthor, body: legacyBody }]
+      : [{ id: genId(), author: '', body: '' }]
+  // Reconstrucción explícita → descarta author/body legacy sin binds sin usar.
+  return {
+    id: c.id, areaId: c.areaId, title: c.title, sources,
+    studied: c.studied, x: c.x, y: c.y,
+    createdAt: c.createdAt, updatedAt: c.updatedAt,
+  }
+}
+
+/** Progreso de estudio de un conjunto de conceptos (estudiados / total). */
+export function conceptProgress(concepts: Concept[]): { done: number; total: number; pct: number } {
+  const total = concepts.length
+  const done = concepts.filter((c) => c.studied).length
+  return { done, total, pct: total > 0 ? Math.round((done / total) * 100) : 0 }
+}
+
+/** Etiqueta corta de los autores de un concepto para la tarjeta colapsada. */
+export function authorsLabel(c: Concept): string {
+  const names = (c.sources ?? []).map((s) => s.author.trim()).filter(Boolean)
+  if (names.length === 0) return ''
+  if (names.length <= 2) return names.join(' · ')
+  return `${names[0]} · ${names[1]} +${names.length - 2}`
 }
