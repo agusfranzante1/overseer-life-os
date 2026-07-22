@@ -54,6 +54,13 @@ function todayKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+/** Un snapshot es válido solo si su `date` es un día real YYYY-MM-DD. Sin esto,
+ *  un snapshot con date undefined/"" entra al store keyed como "undefined" y
+ *  rompe el push (columna `date` es NOT NULL en Supabase). */
+export function isValidDay(d: unknown): d is string {
+  return typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)
+}
+
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 export const useHealthStore = create<HealthState>()(
@@ -64,6 +71,11 @@ export const useHealthStore = create<HealthState>()(
       lastSyncAt: null,
 
       upsertSnapshot: (s) => {
+        // Guard: nunca guardar un snapshot sin fecha válida (rompería el sync).
+        if (!isValidDay(s.date)) {
+          console.warn('[health] upsertSnapshot ignorado: date inválido', s.date)
+          return
+        }
         set((state) => ({
           snapshots: { ...state.snapshots, [s.date]: { ...state.snapshots[s.date], ...s } },
         }))
@@ -116,7 +128,21 @@ export const useHealthStore = create<HealthState>()(
         }
       },
     }),
-    { name: 'overseer-health' }
+    {
+      name: 'overseer-health',
+      onRehydrateStorage: () => (state) => {
+        // Purga snapshots con key/date inválido que hayan quedado de versiones
+        // previas (rompían el push con "null value in column date").
+        if (!state?.snapshots) return
+        let dirty = false
+        const clean: Record<string, HealthSnapshot> = {}
+        for (const [key, snap] of Object.entries(state.snapshots)) {
+          if (isValidDay(key) && isValidDay(snap?.date)) clean[key] = snap
+          else dirty = true
+        }
+        if (dirty) state.snapshots = clean
+      },
+    }
   )
 )
 

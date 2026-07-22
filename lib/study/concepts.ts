@@ -41,6 +41,9 @@ export interface Concept {
   /** Posición en el lienzo (coords de content). */
   x: number
   y: number
+  /** Ancho de la tarjeta en px (opcional). Sin valor → ancho default. El user
+   *  lo estira con el handle del borde derecho para acomodar aportes largos. */
+  w?: number
   createdAt: string
   updatedAt: string
   // ── Legacy (pre-aportes): concepto con un solo autor+cuerpo. Se migra a
@@ -57,6 +60,11 @@ export interface ConceptMap {
   createdAt: string
   updatedAt: string
 }
+
+/** Ancho de tarjeta: default y límites del resize manual. */
+export const NODE_W_DEFAULT = 208
+export const NODE_W_MIN = 184
+export const NODE_W_MAX = 640
 
 /** Paleta para áreas nuevas (se cicla por orden de creación). */
 export const AREA_PALETTE = [
@@ -89,7 +97,7 @@ export function normalizeConcept(c: Concept, genId: () => string): Concept {
   // Reconstrucción explícita → descarta author/body legacy sin binds sin usar.
   return {
     id: c.id, areaId: c.areaId, title: c.title, sources,
-    studied: c.studied, x: c.x, y: c.y,
+    studied: c.studied, x: c.x, y: c.y, w: c.w,
     createdAt: c.createdAt, updatedAt: c.updatedAt,
   }
 }

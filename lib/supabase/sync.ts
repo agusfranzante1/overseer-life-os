@@ -6,7 +6,7 @@ import { useWalletStore } from '@/lib/store/walletStore'
 import { useTradingStore } from '@/lib/store/tradingStore'
 import { useHabitsStore } from '@/lib/store/habitsStore'
 import { useGymStore } from '@/lib/store/gymStore'
-import { useHealthStore } from '@/lib/store/healthStore'
+import { useHealthStore, isValidDay } from '@/lib/store/healthStore'
 import { useChatStore } from '@/lib/store/chatStore'
 import { useFoodStore } from '@/lib/store/foodStore'
 import { useSPIStore } from '@/lib/store/spiStore'
@@ -2381,7 +2381,7 @@ async function pushHealth() {
   const uid = state.userId!
   const { snapshots, baseline } = useHealthStore.getState()
 
-  const snapRows = Object.values(snapshots).map((s) => ({
+  const snapRows = Object.values(snapshots).filter((s) => isValidDay(s.date)).map((s) => ({
     user_id: uid, date: s.date,
     steps: s.steps, sleep_minutes: s.sleepMinutes,
     sleep_start: s.sleepStart ?? null, sleep_end: s.sleepEnd ?? null,
@@ -2401,7 +2401,7 @@ async function pushHealth() {
 
   // Reconcile deletes por fecha — solo borra los snapshots que el user quitó
   // (baseline ∩ ¬local). PK natural = date.
-  const localDates = Object.keys(snapshots)
+  const localDates = Object.keys(snapshots).filter(isValidDay)
   await syncDeletes(sb, uid, 'health_snapshots', localDates, 'health:snapshots', 'date')
 
   await sb.from('health_config').upsert(

@@ -9,7 +9,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { ConceptMap, ConceptArea, Concept, ConceptSource } from '@/lib/study/concepts'
-import { AREA_PALETTE, makeDefaultAreas, normalizeConcept } from '@/lib/study/concepts'
+import { AREA_PALETTE, makeDefaultAreas, normalizeConcept, NODE_W_MIN, NODE_W_MAX } from '@/lib/study/concepts'
 
 function genId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
@@ -37,6 +37,8 @@ interface State {
   addConcept: (materiaId: string, args?: { areaId?: string | null; x?: number; y?: number; title?: string; author?: string }) => string
   updateConcept: (materiaId: string, conceptId: string, patch: Partial<Pick<Concept, 'title' | 'areaId'>>) => void
   moveConcept: (materiaId: string, conceptId: string, x: number, y: number) => void
+  /** Ajusta el ancho de la tarjeta (px), clampeado a [NODE_W_MIN, NODE_W_MAX]. */
+  resizeConcept: (materiaId: string, conceptId: string, w: number) => void
   removeConcept: (materiaId: string, conceptId: string) => void
   /** Marca/desmarca un concepto como estudiado (alimenta la vista Progreso). */
   toggleStudied: (materiaId: string, conceptId: string, studied?: boolean) => void
@@ -143,6 +145,14 @@ export const useConceptStore = create<State>()(
         maps: mapOver(s.maps, materiaId, (m) => ({
           ...m,
           concepts: m.concepts.map((c) => (c.id === conceptId ? { ...c, x, y, updatedAt: nowISO() } : c)),
+        })),
+      })),
+      resizeConcept: (materiaId, conceptId, w) => set((s) => ({
+        maps: mapOver(s.maps, materiaId, (m) => ({
+          ...m,
+          concepts: m.concepts.map((c) => (c.id === conceptId
+            ? { ...c, w: Math.max(NODE_W_MIN, Math.min(NODE_W_MAX, Math.round(w))), updatedAt: nowISO() }
+            : c)),
         })),
       })),
       removeConcept: (materiaId, conceptId) => set((s) => ({

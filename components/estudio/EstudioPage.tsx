@@ -12,6 +12,7 @@ import { temaProgress, parcialProgress, aggregate } from '@/lib/study/progress'
 import type { Carrera, Materia, Parcial, Tema, StudyProgress } from '@/lib/study/types'
 import { ConceptMapCanvas } from './ConceptMapCanvas'
 import { ConceptProgress } from './ConceptProgress'
+import { CarreraConceptMap } from './CarreraConceptMap'
 import { conceptProgress } from '@/lib/study/concepts'
 
 // ─── Paletas ─────────────────────────────────────────────────────────────────
@@ -254,6 +255,7 @@ function CarreraDetail({ carrera, onBack, onOpenMateria }: { carrera: Carrera; o
   const deleteMateria = useStudyStore((s) => s.deleteMateria)
   const [showCreate, setShowCreate] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
+  const [view, setView] = useState<'materias' | 'mapa'>('materias')
   const prog = useCarreraProgress(carrera.id)
   const color = carrera.color ?? DEFAULT_CARRERA_COLOR
 
@@ -261,6 +263,8 @@ function CarreraDetail({ carrera, onBack, onOpenMateria }: { carrera: Carrera; o
     () => materias.filter((m) => m.carreraId === carrera.id).sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
     [materias, carrera.id],
   )
+  // Solo las materias en modo conceptos alimentan el mapa de la carrera.
+  const conceptosMaterias = useMemo(() => carreraMaterias.filter((m) => m.mode === 'conceptos'), [carreraMaterias])
 
   return (
     <>
@@ -271,23 +275,48 @@ function CarreraDetail({ carrera, onBack, onOpenMateria }: { carrera: Carrera; o
         onDelete={() => { if (confirm(`¿Eliminar la carrera "${carrera.name}"?\nBorra todas sus materias, parciales y temas.`)) { deleteCarrera(carrera.id); onBack() } }}
       />
 
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wider">Materias</h2>
-        <button onClick={() => setShowCreate(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-semibold text-fuchsia-300 bg-fuchsia-500/15 border border-fuchsia-500/30 hover:bg-fuchsia-500/25 transition-all">
-          <Plus className="w-4 h-4" /> Nueva materia
-        </button>
-      </div>
-
-      {carreraMaterias.length === 0 ? (
-        <EmptyState title="Sin materias" hint="Agregá la primera materia de esta carrera." onCreate={() => setShowCreate(true)} cta="Crear materia" />
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {carreraMaterias.map((m) => (
-            <MateriaCard key={m.id} materia={m} fallbackColor={color} onClick={() => onOpenMateria(m.id)}
-              onDelete={() => { if (confirm(`¿Eliminar la materia "${m.name}"?\nBorra sus parciales y temas.`)) deleteMateria(m.id) }} />
+      {/* Toggle Materias / Mapa de conceptos (el mapa aparece si hay ≥1 materia de conceptos) */}
+      {conceptosMaterias.length > 0 && (
+        <div className="inline-flex items-center gap-0.5 p-0.5 rounded-xl" style={{ background: 'var(--card-bg)', border: '1px solid rgba(255,255,255,0.10)' }}>
+          {([{ v: 'materias' as const, t: 'Materias' }, { v: 'mapa' as const, t: 'Mapa de conceptos' }]).map((tab) => (
+            <button key={tab.v} onClick={() => setView(tab.v)}
+              className="px-4 py-1.5 rounded-lg text-[13px] font-semibold transition-colors"
+              style={view === tab.v
+                ? { background: `${color}22`, color: '#fff', boxShadow: `inset 0 0 0 1px ${color}55` }
+                : { color: '#a1a1aa' }}>
+              {tab.t}
+            </button>
           ))}
         </div>
+      )}
+
+      {view === 'mapa' && conceptosMaterias.length > 0 ? (
+        <CarreraConceptMap
+          carrera={{ name: carrera.name, icon: carrera.icon, color }}
+          materias={conceptosMaterias}
+          onOpenMateria={onOpenMateria}
+        />
+      ) : (
+        <>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-zinc-300 uppercase tracking-wider">Materias</h2>
+            <button onClick={() => setShowCreate(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-[13px] font-semibold text-fuchsia-300 bg-fuchsia-500/15 border border-fuchsia-500/30 hover:bg-fuchsia-500/25 transition-all">
+              <Plus className="w-4 h-4" /> Nueva materia
+            </button>
+          </div>
+
+          {carreraMaterias.length === 0 ? (
+            <EmptyState title="Sin materias" hint="Agregá la primera materia de esta carrera." onCreate={() => setShowCreate(true)} cta="Crear materia" />
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {carreraMaterias.map((m) => (
+                <MateriaCard key={m.id} materia={m} fallbackColor={color} onClick={() => onOpenMateria(m.id)}
+                  onDelete={() => { if (confirm(`¿Eliminar la materia "${m.name}"?\nBorra sus parciales y temas.`)) deleteMateria(m.id) }} />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       <AnimatePresence>

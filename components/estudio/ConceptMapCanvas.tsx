@@ -17,17 +17,18 @@ import {
   Tag, User, Check, UserPlus,
 } from 'lucide-react'
 import { useConceptStore } from '@/lib/store/conceptStore'
-import { AREA_PALETTE, authorsLabel, type Concept, type ConceptArea } from '@/lib/study/concepts'
+import { AREA_PALETTE, authorsLabel, NODE_W_DEFAULT, NODE_W_MIN, NODE_W_MAX, type Concept, type ConceptArea } from '@/lib/study/concepts'
 
 const ZOOM_MIN = 0.35
 const ZOOM_MAX = 2.5
-const NODE_WIDTH = 208
+const NODE_WIDTH = NODE_W_DEFAULT
 
 export function ConceptMapCanvas({ materiaId, accent }: { materiaId: string; accent: string }) {
   const ensureMap = useConceptStore((s) => s.ensureMap)
   const map = useConceptStore((s) => s.maps.find((m) => m.materiaId === materiaId) ?? null)
   const addConcept = useConceptStore((s) => s.addConcept)
   const moveConcept = useConceptStore((s) => s.moveConcept)
+  const resizeConcept = useConceptStore((s) => s.resizeConcept)
 
   // Asegurar que el mapa existe (una vez, al montar).
   useEffect(() => { ensureMap(materiaId) }, [materiaId, ensureMap])
@@ -110,6 +111,31 @@ export function ConceptMapCanvas({ materiaId, accent }: { materiaId: string; acc
     el.addEventListener('pointerup', onUp)
   }, [materiaId, moveConcept])
 
+  // ── Resize del ancho de un nodo (handle borde derecho) ──
+  const startNodeResize = useCallback((e: React.PointerEvent, concept: Concept) => {
+    e.stopPropagation()
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = concept.w ?? NODE_WIDTH
+    const pointerId = e.pointerId
+    const el = e.currentTarget as HTMLElement
+    try { el.setPointerCapture(pointerId) } catch { /* noop */ }
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      const z = zoomRef.current
+      const next = startW + (ev.clientX - startX) / z
+      resizeConcept(materiaId, concept.id, Math.max(NODE_W_MIN, Math.min(NODE_W_MAX, next)))
+    }
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+      try { el.releasePointerCapture(pointerId) } catch { /* noop */ }
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+  }, [materiaId, resizeConcept])
+
   if (!map) return null
 
   const areaById = new Map(map.areas.map((a) => [a.id, a]))
@@ -190,6 +216,7 @@ export function ConceptMapCanvas({ materiaId, accent }: { materiaId: string; acc
                 open={openId === c.id}
                 onToggle={() => setOpenId((id) => (id === c.id ? null : c.id))}
                 onPointerDownHeader={(e) => startNodeDrag(e, c)}
+                onPointerDownResize={(e) => startNodeResize(e, c)}
               />
             ))}
           </div>
@@ -306,7 +333,7 @@ function AreaLegend({
 // ─── Nodo-concepto ────────────────────────────────────────────────────────────
 
 function ConceptNode({
-  materiaId, concept, area, areas, open, onToggle, onPointerDownHeader,
+  materiaId, concept, area, areas, open, onToggle, onPointerDownHeader, onPointerDownResize,
 }: {
   materiaId: string
   concept: Concept
@@ -315,6 +342,7 @@ function ConceptNode({
   open: boolean
   onToggle: () => void
   onPointerDownHeader: (e: React.PointerEvent) => void
+  onPointerDownResize: (e: React.PointerEvent) => void
 }) {
   const updateConcept = useConceptStore((s) => s.updateConcept)
   const removeConcept = useConceptStore((s) => s.removeConcept)
@@ -331,12 +359,22 @@ function ConceptNode({
     <div
       className="absolute rounded-xl shadow-lg select-none"
       style={{
-        left: concept.x, top: concept.y, width: NODE_WIDTH,
+        left: concept.x, top: concept.y, width: concept.w ?? NODE_WIDTH,
         background: 'var(--surface-popover)',
         border: `1px solid ${color}${open ? 'cc' : '66'}`,
         boxShadow: open ? `0 0 0 1px ${color}55, 0 12px 32px -12px ${color}aa` : `0 4px 16px -6px ${color}66`,
       }}
     >
+      {/* Handle de resize — borde derecho, ancho ajustable */}
+      <div
+        onPointerDown={onPointerDownResize}
+        onClick={(e) => e.stopPropagation()}
+        title="Arrastrar para ajustar el ancho"
+        className="absolute top-0 right-0 h-full w-2 cursor-ew-resize z-10 group/resize flex items-center justify-center"
+        style={{ touchAction: 'none' }}
+      >
+        <span className="h-8 w-1 rounded-full bg-white/15 group-hover/resize:bg-white/40 transition-colors" style={{ boxShadow: `0 0 6px ${color}66` }} />
+      </div>
       {/* Cabecera — draggable + toggle */}
       <div
         onPointerDown={onPointerDownHeader}
