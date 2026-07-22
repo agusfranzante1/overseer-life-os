@@ -2789,6 +2789,7 @@ async function pullStudy(): Promise<boolean> {
       id: m.id ?? (r as Row).id as string, carreraId: m.carreraId ?? (r as Row).carrera_id as string,
       name: m.name ?? 'Materia', icon: m.icon, color: m.color,
       profesor: m.profesor, codigo: m.codigo, cuatrimestre: m.cuatrimestre,
+      ...(m.mode ? { mode: m.mode } : {}),
       sortOrder: m.sortOrder ?? 0, createdAt: m.createdAt ?? nowIso(), updatedAt: m.updatedAt ?? nowIso(),
     }
   })

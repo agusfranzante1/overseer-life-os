@@ -798,14 +798,35 @@ function EditMateriaModal({ materia, onClose }: { materia: Materia; onClose: () 
   const [profesor, setProfesor] = useState(materia.profesor ?? '')
   const [codigo, setCodigo] = useState(materia.codigo ?? '')
   const [cuatrimestre, setCuatrimestre] = useState(materia.cuatrimestre ?? '')
+  const [mode, setMode] = useState<'checklist' | 'conceptos'>(materia.mode === 'conceptos' ? 'conceptos' : 'checklist')
   const save = () => {
-    updateMateria(materia.id, { name: name.trim() || materia.name, icon, color, profesor: profesor.trim() || undefined, codigo: codigo.trim() || undefined, cuatrimestre: cuatrimestre.trim() || undefined })
+    updateMateria(materia.id, { name: name.trim() || materia.name, icon, color, mode, profesor: profesor.trim() || undefined, codigo: codigo.trim() || undefined, cuatrimestre: cuatrimestre.trim() || undefined })
     onClose()
   }
   return (
     <ModalShell title="Editar materia" onClose={onClose}
       footer={<><GhostBtn onClick={onClose}>Cancelar</GhostBtn><PrimaryBtn onClick={save}>Guardar</PrimaryBtn></>}>
       <div><label className={labelClass()}>Nombre</label><input value={name} onChange={(e) => setName(e.target.value)} className={fieldClass()} /></div>
+      {/* Modo de la materia — permite convertir entre checklist y conceptos */}
+      <div>
+        <label className={labelClass()}>Tipo de materia</label>
+        <div className="grid grid-cols-2 gap-2">
+          {([
+            { v: 'checklist' as const, t: 'Checklist', d: 'Parciales, temas y progreso' },
+            { v: 'conceptos' as const, t: 'Mapa de conceptos', d: 'Conceptos por autor + avance de estudio' },
+          ]).map((opt) => (
+            <button key={opt.v} type="button" onClick={() => setMode(opt.v)}
+              className="text-left rounded-xl p-3 transition-all"
+              style={{
+                background: mode === opt.v ? `${color}18` : 'var(--card-bg)',
+                border: `1px solid ${mode === opt.v ? color : 'rgba(255,255,255,0.10)'}`,
+              }}>
+              <p className="text-[13px] font-semibold" style={{ color: mode === opt.v ? '#fff' : '#d4d4d8' }}>{opt.t}</p>
+              <p className="text-[11px] text-zinc-500 leading-snug mt-0.5">{opt.d}</p>
+            </button>
+          ))}
+        </div>
+      </div>
       <div><label className={labelClass()}>Icono</label><IconPicker icons={MATERIA_ICONS} value={icon} onChange={setIcon} /></div>
       <div><label className={labelClass()}>Color</label><ColorPicker value={color} onChange={setColor} /></div>
       <div className="grid grid-cols-2 gap-3">
