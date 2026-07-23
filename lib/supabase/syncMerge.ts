@@ -68,6 +68,13 @@ export function mergeById<T>(opts: MergeByIdOpts<T>): T[] {
     return ts !== undefined && ts > updMs(it)
   }
 
+  // AUTO-HEAL: si el local está COMPLETAMENTE vacío pero el baseline tenía
+  // filas, casi nunca es "el usuario borró todo" — es un store que no
+  // rehidrató (localStorage lleno / wipe). En ese caso NO suprimimos las
+  // filas remotas por baseline: las resucitamos desde la nube. Es el espejo,
+  // del lado del pull, del blindaje anti-wipe de reconcileDeletes.
+  const localWiped = local.length === 0 && baseline.size > 0
+
   const allIds = new Set<string>([...localById.keys(), ...remoteById.keys()])
   const merged: T[] = []
   for (const id of allIds) {
@@ -80,8 +87,10 @@ export function mergeById<T>(opts: MergeByIdOpts<T>): T[] {
       if (ts !== undefined && ts > Math.max(updMs(l), updMs(r))) continue
       merged.push(mergeItem ? mergeItem(l, r) : pickNewer(l, r, getUpdatedAt))
     } else if (r !== undefined) {
-      if (tombDead(r)) continue                      // borrada en otro device
-      if (tombstones && baseline.has(id)) continue   // borrado local pendiente → no resucitar
+      if (tombDead(r)) continue                      // borrada en otro device (tombstone explícito)
+      // borrado local pendiente → no resucitar. PERO si el local está vacío
+      // (wipe/no-rehidrató), ignoramos el baseline y sí resucitamos.
+      if (tombstones && baseline.has(id) && !localWiped) continue
       merged.push(r)
     } else if (l !== undefined) {
       if (tombDead(l)) continue                       // borrada en otro device (global)
