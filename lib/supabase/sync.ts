@@ -1453,18 +1453,22 @@ async function pullSPI(): Promise<boolean> {
   const localSPI = useSPIStore.getState()
   const tombs = await fetchTombstones(sb, uid, ['spi_sessions', 'spi_bitacora'])
 
-  // Merge no-destructivo. Sesiones en conflicto → deep-merge campo-por-campo
-  // (mergeSpiSession): preserva respuestas no-vacías de cada device (arregla
-  // "la pregunta de estrategia quedó en local").
-  const mergedSessions = mergeById<import('@/lib/spi/types').SPISession>({
-    local: localSPI.sessions,
-    remote: remoteSessions,
-    baseline: getBaseline('spi:sessions'),
-    getId: (s) => s.id,
-    getUpdatedAt: (s) => s.updatedAt,
-    mergeItem: mergeSpiSession,
-    tombstones: tombs.get('spi_sessions'),
-  })
+  // PROTECCIÓN ANTI-WIPE DEL PULL: si la nube NO tiene sesiones pero este
+  // device SÍ, jamás las borramos (ni por tombstones ni por baseline). Es el
+  // caso "otro device se vació y borró la nube, pero acá todavía están": este
+  // device es el que las tiene que RESTAURAR, no perderlas. El push posterior
+  // las vuelve a subir. Sin esto, el merge las dropea por tombDead.
+  const mergedSessions = (remoteSessions.length === 0 && localSPI.sessions.length > 0)
+    ? localSPI.sessions
+    : mergeById<import('@/lib/spi/types').SPISession>({
+        local: localSPI.sessions,
+        remote: remoteSessions,
+        baseline: getBaseline('spi:sessions'),
+        getId: (s) => s.id,
+        getUpdatedAt: (s) => s.updatedAt,
+        mergeItem: mergeSpiSession,
+        tombstones: tombs.get('spi_sessions'),
+      })
 
   const mergedBitacora = mergeById<import('@/lib/spi/types').BitacoraEntry>({
     local: localSPI.bitacoraEntries,
