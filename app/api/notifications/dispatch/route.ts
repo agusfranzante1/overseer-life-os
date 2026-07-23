@@ -10,7 +10,13 @@ import {
   buildTaskDuePayload,
   buildTaskOverduePayload,
   buildSpiNewPayload,
+  buildReviewPendingPayload,
 } from '@/lib/notifications/builders'
+import {
+  REVIEW_CADENCES, currentPeriodKey, currentPeriodLabel, isCadencePending,
+  lastSaturdayYmd, type ReviewFacts,
+} from '@/lib/reviews/pending'
+import { currentMonthKey, currentQuarterKey } from '@/lib/projection/period'
 import { sendEmail, pushPayloadToEmail } from '@/lib/notifications/email'
 
 // Necesitamos `nodejs` (no edge) porque web-push usa criptografía Node.
@@ -37,6 +43,7 @@ interface DispatchStats {
   task_due: number
   task_overdue: number
   spi_new: number
+  review_pending: number
   skipped: number
   errors: number
   gone_subs_removed: number
@@ -53,6 +60,7 @@ export async function POST(req: NextRequest) {
   const now = new Date()
   const stats: DispatchStats = {
     habit: 0, habit_specific: 0, task_due: 0, task_overdue: 0, spi_new: 0,
+    review_pending: 0,
     skipped: 0, errors: 0, gone_subs_removed: 0,
     emails_sent: 0, emails_failed: 0,
   }
@@ -291,6 +299,33 @@ export async function POST(req: NextRequest) {
           }
         }
       }
+
+      // ── CANAL 5: review_pending (semanal / mensual / trimestral / semestral) ──
+      // Una vez por período, a la hora del recordatorio, si la revisión de
+      // ese período todavía no está cerrada. Dedupe por (cadencia, períodoKey)
+      // → se manda UNA sola vez por período (al primer tick dentro de la
+      // ventana desde que arrancó el período nuevo).
+      if (prefs.reviewReminders !== false) {
+        const reminderH = settings.habit_reminder_hour ?? 21
+        const reminderM = settings.habit_reminder_minute ?? 0
+        if (withinWindow(local.hour, local.minute, reminderH, reminderM, WINDOW_MIN)) {
+          // Fecha "local" del usuario (componentes y/m/d correctos en su TZ)
+          // para que las claves de período se calculen en su calendario.
+          const [ly, lm, ld] = local.ymd.split('-').map(Number)
+          const localDate = new Date(ly, lm - 1, ld)
+          const facts = await fetchReviewFacts(sb, userId, localDate)
+          for (const cadence of REVIEW_CADENCES) {
+            if (!isCadencePending(cadence, facts, localDate)) continue
+            const periodKey = currentPeriodKey(cadence, localDate)
+            const dedupe = `review:${cadence}:${periodKey}`
+            if (await wasSent(sb, userId, 'review_pending', dedupe)) { stats.skipped++; continue }
+            const payload = buildReviewPendingPayload(cadence, currentPeriodLabel(cadence, localDate))
+            const result = await dispatchToUser(userId, subs, settings, payload)
+            await logSent(sb, userId, 'review_pending', dedupe, payload, result)
+            stats.review_pending++
+          }
+        }
+      }
     }
 
     return NextResponse.json({ ok: true, ts: now.toISOString(), ...stats })
@@ -442,4 +477,34 @@ async function hasSpiSessionForWeek(sb: ReturnType<typeof getSupabaseAdmin>, use
     .limit(1)
     .maybeSingle()
   return !!data
+}
+
+/** Junta el estado de cierre de las 4 revisiones para el período actual del
+ *  usuario (semana SPI + planes month/quarter/eagle de proyección). */
+async function fetchReviewFacts(
+  sb: ReturnType<typeof getSupabaseAdmin>,
+  userId: string,
+  localDate: Date,
+): Promise<ReviewFacts> {
+  const satYmd = lastSaturdayYmd(localDate)
+  const monthKey = currentMonthKey(localDate)
+  const quarterKey = currentQuarterKey(localDate)
+
+  const [weekRes, planRes] = await Promise.all([
+    sb.from('spi_sessions').select('closed_at').eq('user_id', userId).eq('week_start_date', satYmd).limit(1).maybeSingle(),
+    sb.from('projection_plans').select('level, period_key, closed_at').eq('user_id', userId)
+      .in('level', ['month', 'quarter', 'eagle']),
+  ])
+
+  const plans = (planRes.data ?? []) as Array<{ level: string; period_key: string; closed_at: string | null }>
+  const monthPlan = plans.find((p) => p.level === 'month' && p.period_key === monthKey)
+  const quarterPlan = plans.find((p) => p.level === 'quarter' && p.period_key === quarterKey)
+  const eaglePlan = plans.find((p) => p.level === 'eagle' && p.period_key === 'current')
+
+  return {
+    weeklyClosed: !!(weekRes.data as { closed_at?: string | null } | null)?.closed_at,
+    monthlyClosedAt: monthPlan?.closed_at ?? null,
+    quarterlyClosedAt: quarterPlan?.closed_at ?? null,
+    eagleClosedAt: eaglePlan?.closed_at ?? null,
+  }
 }

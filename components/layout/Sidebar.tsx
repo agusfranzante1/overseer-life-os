@@ -3,6 +3,7 @@ import { useState, useRef, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAppStore } from '@/lib/store/appStore'
 import { useTranslation } from '@/hooks/useTranslation'
+import { usePendingReviews } from '@/hooks/usePendingReviews'
 import {
   LayoutDashboard, Calendar, CheckSquare,
   Globe, WalletCards, Activity, Dumbbell, Utensils, HeartPulse, Menu,
@@ -59,6 +60,8 @@ export function Sidebar({
   const { t } = useTranslation()
   const pathname = usePathname()
   const router = useRouter()
+  // Revisiones periódicas pendientes → badge titilante en el ítem de Proyección.
+  const { count: pendingReviews } = usePendingReviews()
 
   // Detect mobile (<sm). On mobile we IGNORE the collapsed state — when the
   // drawer is open we always want the full sidebar (icons + labels), since
@@ -450,11 +453,28 @@ export function Sidebar({
                   style={active ? { filter: 'drop-shadow(0 0 6px color-mix(in srgb, var(--app-accent) 65%, transparent))' } : undefined}
                 >
                   <Icon className="w-4 h-4" />
+                  {/* Badge de revisiones pendientes — solo en Proyección (key 'spi').
+                      Colapsado: punto rojo que titila sobre el ícono. */}
+                  {key === 'spi' && pendingReviews > 0 && !showLabels && (
+                    <PendingDot />
+                  )}
                 </span>
                 {showLabels && (
                   <span className="relative z-10 text-[13px] font-medium whitespace-nowrap flex-1">
                     {t(`nav.${key}`)}
                   </span>
+                )}
+                {/* Expandido: pastilla roja con el conteo, titilando. */}
+                {key === 'spi' && pendingReviews > 0 && showLabels && (
+                  <motion.span
+                    animate={{ opacity: [1, 0.35, 1], scale: [1, 0.92, 1] }}
+                    transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+                    className="relative z-10 shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center"
+                    style={{ boxShadow: '0 0 8px rgba(239,68,68,0.8)' }}
+                    title={`${pendingReviews} revisión${pendingReviews === 1 ? '' : 'es'} pendiente${pendingReviews === 1 ? '' : 's'}`}
+                  >
+                    {pendingReviews}
+                  </motion.span>
                 )}
                 {/* Dot verde "on" — indicador de "sección encendida". */}
                 {active && (
@@ -552,6 +572,18 @@ export function Sidebar({
         </AnimatePresence>
       </div>
     </motion.aside>
+  )
+}
+
+// ─── Pending-reviews dot — punto rojo titilante sobre el ícono colapsado ──────
+
+function PendingDot() {
+  return (
+    <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+      {/* Halo que se expande (ping) + punto sólido. */}
+      <span className="absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75 animate-ping" />
+      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" style={{ boxShadow: '0 0 6px rgba(239,68,68,0.9)' }} />
+    </span>
   )
 }
 

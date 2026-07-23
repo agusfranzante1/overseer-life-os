@@ -28,6 +28,8 @@ import {
   labelForPeriod, shiftPeriod, monthOfSpiWeek, weekOfQuarter,
 } from '@/lib/projection/period'
 import type { ProjectionLevel, ProjectionPlan, ProjectionTemplate, SPISection, SectionField } from '@/lib/projection/types'
+import { useReviewsStore } from '@/lib/store/reviewsStore'
+import { cadenceForTab, currentPeriodKey } from '@/lib/reviews/pending'
 import { planToMarkdown, copyMarkdownToClipboard } from '@/lib/projection/exportMarkdown'
 
 export function ProjectionPage() {
@@ -60,6 +62,14 @@ export function ProjectionPage() {
   useEffect(() => {
     if (!mounted) return
     try { localStorage.setItem('overseer-spi-active-tab', activeLevel) } catch { /* ignore */ }
+  }, [activeLevel, mounted])
+
+  // Al entrar a una pestaña, marcar su revisión como "vista" → apaga el badge
+  // del sidebar para ese período (aunque todavía no la hayas completado).
+  useEffect(() => {
+    if (!mounted) return
+    const cadence = cadenceForTab(activeLevel)
+    if (cadence) useReviewsStore.getState().markSeen(cadence, currentPeriodKey(cadence))
   }, [activeLevel, mounted])
 
   // Honor `?level=X&period=Y` query params so breadcrumb links from /spi

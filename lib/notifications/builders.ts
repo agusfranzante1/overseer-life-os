@@ -80,3 +80,25 @@ export function buildSpiNewPayload(weekLabel: string): PushPayload {
     tag: 'spi-new',
   }
 }
+
+/** Recordatorio de una REVISIÓN PERIÓDICA pendiente (semanal / mensual /
+ *  trimestral / semestral). Manda al usuario a la pestaña correspondiente
+ *  de Proyección. `periodLabel` = etiqueta humana del período (ej. "Q3 2026"). */
+export function buildReviewPendingPayload(
+  cadence: 'weekly' | 'monthly' | 'quarterly' | 'semestral',
+  periodLabel: string,
+): PushPayload {
+  const meta: Record<typeof cadence, { title: string; short: string; level: string }> = {
+    weekly:    { title: '📐 Te falta el SPI semanal',        short: 'SPI semanal',        level: 'week' },
+    monthly:   { title: '📆 Revisión mensual pendiente',     short: 'revisión mensual',   level: 'month' },
+    quarterly: { title: '🎯 Revisión trimestral pendiente',  short: 'revisión trimestral',level: 'quarter' },
+    semestral: { title: '🦅 Vista de Águila pendiente',      short: 'revisión semestral', level: 'eagle' },
+  }
+  const m = meta[cadence]
+  return {
+    title: m.title,
+    body: `Todavía no cerraste tu ${m.short} (${periodLabel}). Tocá para hacerla.`,
+    url: `/proyeccion?level=${m.level}`,
+    tag: `review-${cadence}`,
+  }
+}
