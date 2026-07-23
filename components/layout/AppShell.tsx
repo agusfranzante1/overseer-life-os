@@ -394,7 +394,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             <Menu className="w-5 h-5" />
           </button>
-          <Image src="/eye-v3.png" alt="Overseer" width={30} height={30} />
+          <Image src="/logo-icon.png" alt="Overseer" width={30} height={30} />
           <span className="font-bold text-white text-sm tracking-wider uppercase">Overseer</span>
         </div>
 
