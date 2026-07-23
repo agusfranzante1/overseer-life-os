@@ -323,6 +323,16 @@ async function syncDeletes(
   table: string, localIds: string[], baselineKey: string, idColumn: string = 'id',
 ): Promise<void> {
   const base = getBaseline(baselineKey)
+  // ── BLINDAJE ANTI-WIPE TOTAL ────────────────────────────────────────
+  // Si el local quedó COMPLETAMENTE vacío pero el baseline tenía filas, casi
+  // nunca es un borrado real: es un store que no rehidrató (localStorage lleno
+  // / wipe) o un pull que no llegó. NO tocamos nada: ni borramos de la nube,
+  // ni escribimos tombstones (que después bloquearían el pull vía tombDead),
+  // ni pisamos el baseline. La data en la nube queda intacta y recuperable.
+  if (localIds.length === 0 && base.size > 0) {
+    console.warn(`[sync] syncDeletes(${table}): local vacío con baseline de ${base.size} → skip TOTAL (no borra, no tombstonea, no toca baseline)`)
+    return
+  }
   await reconcileDeletes(sb, table, uid, localIds, base, idColumn)
   await writeTombstones(sb, uid, table, deletedSince(base, localIds))
   setBaseline(baselineKey, localIds)
