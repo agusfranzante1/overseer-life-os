@@ -129,6 +129,17 @@ export async function reconcileDeletes(
   idColumn: string = 'id',
 ): Promise<void> {
   if (baseline.size === 0) return
+  // ── BLINDAJE ANTI-WIPE ──────────────────────────────────────────────
+  // Si el local quedó COMPLETAMENTE vacío pero el baseline tenía filas, casi
+  // nunca es un borrado real: es un store que no rehidrató / falló al cargar
+  // (ej. localStorage lleno) o un pull que no llegó a mergear. Interpretar eso
+  // como "el usuario borró TODO" y propagarlo destruiría los datos en la nube.
+  // Preferimos NO borrar nada en ese caso — una fila de más en remoto se
+  // re-pulla; datos perdidos en la nube no se recuperan.
+  if (localIds.length === 0) {
+    console.warn(`[sync] reconcileDeletes(${table}): local vacío con baseline de ${baseline.size} → skip para no borrar todo de la nube`)
+    return
+  }
   const localSet = new Set(localIds)
   const intentional = [...baseline].filter((id) => !localSet.has(id))
   if (intentional.length === 0) return
