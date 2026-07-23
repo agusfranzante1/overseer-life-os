@@ -29,7 +29,8 @@ import {
 } from '@/lib/projection/period'
 import type { ProjectionLevel, ProjectionPlan, ProjectionTemplate, SPISection, SectionField } from '@/lib/projection/types'
 import { useReviewsStore } from '@/lib/store/reviewsStore'
-import { cadenceForTab, currentPeriodKey } from '@/lib/reviews/pending'
+import { cadenceForTab, currentPeriodKey, CADENCE_TAB } from '@/lib/reviews/pending'
+import { usePendingReviews } from '@/hooks/usePendingReviews'
 import { planToMarkdown, copyMarkdownToClipboard } from '@/lib/projection/exportMarkdown'
 
 export function ProjectionPage() {
@@ -72,6 +73,14 @@ export function ProjectionPage() {
     if (cadence) useReviewsStore.getState().markSeen(cadence, currentPeriodKey(cadence))
   }, [activeLevel, mounted])
 
+  // Qué pestañas tienen su revisión del período sin cerrar (para el dot rojo
+  // en cada tab). Usa pendingRaw (estado real), no el "visto" del badge.
+  const { pendingRaw } = usePendingReviews()
+  const pendingTabs = useMemo(
+    () => new Set(pendingRaw.map((c) => CADENCE_TAB[c])),
+    [pendingRaw],
+  )
+
   // Honor `?level=X&period=Y` query params so breadcrumb links from /spi
   // (e.g. /proyeccion?level=quarter&period=2026-Q1) drop the user into
   // the right tab and period.
@@ -107,11 +116,11 @@ export function ProjectionPage() {
 
       {/* ── Level tabs ──────────────────────────────────────────── */}
       <div className="flex items-center gap-1 bg-black/30 border border-white/[0.08] rounded-xl p-1 w-fit flex-wrap">
-        <LevelTab active={activeLevel === 'eagle'}   onClick={() => setActiveLevel('eagle')}   icon="🦅" label={t('spi.eagleView')} />
+        <LevelTab active={activeLevel === 'eagle'}   onClick={() => setActiveLevel('eagle')}   icon="🦅" label={t('spi.eagleView')} pending={pendingTabs.has('eagle')} />
         <LevelTab active={activeLevel === 'year'}    onClick={() => setActiveLevel('year')}    icon="📅" label={t('projection.annual')} />
-        <LevelTab active={activeLevel === 'quarter'} onClick={() => setActiveLevel('quarter')} icon="🎯" label={t('projection.quarterly')} />
-        <LevelTab active={activeLevel === 'month'}   onClick={() => setActiveLevel('month')}   icon="📆" label={t('projection.monthly')} />
-        <LevelTab active={activeLevel === 'week'}    onClick={() => setActiveLevel('week')}    icon="♾️" label={t('spi.weeklyTab')} />
+        <LevelTab active={activeLevel === 'quarter'} onClick={() => setActiveLevel('quarter')} icon="🎯" label={t('projection.quarterly')} pending={pendingTabs.has('quarter')} />
+        <LevelTab active={activeLevel === 'month'}   onClick={() => setActiveLevel('month')}   icon="📆" label={t('projection.monthly')} pending={pendingTabs.has('month')} />
+        <LevelTab active={activeLevel === 'week'}    onClick={() => setActiveLevel('week')}    icon="♾️" label={t('spi.weeklyTab')} pending={pendingTabs.has('week')} />
       </div>
 
       {/* ── Active level content ────────────────────────────────── */}
@@ -174,17 +183,25 @@ export function ProjectionPage() {
 // ─────────────────────────────────────────────────────────────────────
 // LEVEL TAB
 // ─────────────────────────────────────────────────────────────────────
-function LevelTab({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: string; label: string }) {
+function LevelTab({ active, onClick, icon, label, pending }: { active: boolean; onClick: () => void; icon: string; label: string; pending?: boolean }) {
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+      className={`relative px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
         active
           ? 'bg-indigo-500/15 border border-indigo-500/40 text-indigo-300'
           : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.03]'
       }`}
+      title={pending ? 'Revisión de este período sin cerrar' : undefined}
     >
       <span>{icon}</span> {label}
+      {/* Dot rojo titilante: esta pestaña tiene la revisión de su período sin cerrar. */}
+      {pending && (
+        <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+          <span className="absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75 animate-ping" />
+          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" style={{ boxShadow: '0 0 6px rgba(239,68,68,0.9)' }} />
+        </span>
+      )}
     </button>
   )
 }
