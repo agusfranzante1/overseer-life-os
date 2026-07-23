@@ -68,12 +68,14 @@ export function mergeById<T>(opts: MergeByIdOpts<T>): T[] {
     return ts !== undefined && ts > updMs(it)
   }
 
-  // AUTO-HEAL: si el local está COMPLETAMENTE vacío pero el baseline tenía
-  // filas, casi nunca es "el usuario borró todo" — es un store que no
-  // rehidrató (localStorage lleno / wipe). En ese caso NO suprimimos las
-  // filas remotas por baseline: las resucitamos desde la nube. Es el espejo,
-  // del lado del pull, del blindaje anti-wipe de reconcileDeletes.
-  const localWiped = local.length === 0 && baseline.size > 0
+  // AUTO-HEAL / RESUCITACIÓN: si el local está COMPLETAMENTE vacío, casi nunca
+  // es "el usuario borró todo" — es un store que no rehidrató (localStorage
+  // lleno / wipe). En ese caso resucitamos TODO lo que haya en la nube,
+  // ignorando TANTO el baseline COMO los tombstones (que muy probablemente los
+  // escribió el mismo push defectuoso de local-vacío). Una fila de más se puede
+  // volver a borrar; datos perdidos no se recuperan. Es el espejo, del lado del
+  // pull, del blindaje anti-wipe de reconcileDeletes/syncDeletes.
+  const localEmpty = local.length === 0
 
   const allIds = new Set<string>([...localById.keys(), ...remoteById.keys()])
   const merged: T[] = []
@@ -87,10 +89,10 @@ export function mergeById<T>(opts: MergeByIdOpts<T>): T[] {
       if (ts !== undefined && ts > Math.max(updMs(l), updMs(r))) continue
       merged.push(mergeItem ? mergeItem(l, r) : pickNewer(l, r, getUpdatedAt))
     } else if (r !== undefined) {
-      if (tombDead(r)) continue                      // borrada en otro device (tombstone explícito)
-      // borrado local pendiente → no resucitar. PERO si el local está vacío
-      // (wipe/no-rehidrató), ignoramos el baseline y sí resucitamos.
-      if (tombstones && baseline.has(id) && !localWiped) continue
+      // Con el local vacío (wipe) resucitamos SIEMPRE: ignoramos tombstone y
+      // baseline. Sin wipe, respetamos ambos (borrado real de otro device).
+      if (tombDead(r) && !localEmpty) continue        // tombstone explícito (solo si NO es wipe)
+      if (tombstones && baseline.has(id) && !localEmpty) continue  // borrado local pendiente
       merged.push(r)
     } else if (l !== undefined) {
       if (tombDead(l)) continue                       // borrada en otro device (global)
