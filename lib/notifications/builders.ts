@@ -92,7 +92,7 @@ export function buildReviewPendingPayload(
     weekly:    { title: '📐 Te falta el SPI semanal',        short: 'SPI semanal',        level: 'week' },
     monthly:   { title: '📆 Revisión mensual pendiente',     short: 'revisión mensual',   level: 'month' },
     quarterly: { title: '🎯 Revisión trimestral pendiente',  short: 'revisión trimestral',level: 'quarter' },
-    semestral: { title: '🦅 Vista de Águila pendiente',      short: 'revisión semestral', level: 'eagle' },
+    semestral: { title: '🌗 Revisión semestral pendiente',   short: 'revisión semestral', level: 'semester' },
   }
   const m = meta[cadence]
   return {

@@ -16,7 +16,7 @@ import {
   REVIEW_CADENCES, currentPeriodKey, isCadencePending, lastSaturdayYmd,
   type ReviewCadence, type ReviewFacts,
 } from '@/lib/reviews/pending'
-import { currentMonthKey, currentQuarterKey } from '@/lib/projection/period'
+import { currentMonthKey, currentQuarterKey, currentSemesterKey } from '@/lib/projection/period'
 
 export interface PendingReviews {
   /** Cadencias pendientes Y no vistas todavía (lo que hace titilar el badge). */
@@ -38,13 +38,13 @@ export function usePendingReviews(): PendingReviews {
     const weekSession = sessions.find((s) => s.weekStartDate === satYmd)
     const monthPlan = plans.find((p) => p.level === 'month' && p.periodKey === currentMonthKey(now))
     const quarterPlan = plans.find((p) => p.level === 'quarter' && p.periodKey === currentQuarterKey(now))
-    const eaglePlan = plans.find((p) => p.level === 'eagle' && p.periodKey === 'current')
+    const semesterPlan = plans.find((p) => p.level === 'semester' && p.periodKey === currentSemesterKey(now))
 
     const facts: ReviewFacts = {
       weeklyClosed: !!weekSession?.closedAt,
       monthlyClosedAt: monthPlan?.closedAt ?? null,
       quarterlyClosedAt: quarterPlan?.closedAt ?? null,
-      eagleClosedAt: eaglePlan?.closedAt ?? null,
+      semesterClosedAt: semesterPlan?.closedAt ?? null,
     }
 
     const pendingRaw: ReviewCadence[] = []

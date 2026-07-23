@@ -22,9 +22,10 @@ import { Sparkles, Dices, Loader2 } from 'lucide-react'
 import { useTranslation } from '@/hooks/useTranslation'
 import { getAiHeaders } from '@/lib/ai/headers'
 import {
-  currentYearKey, currentQuarterKey, currentMonthKey,
-  previewMonthKey, previewQuarterKey,
+  currentYearKey, currentQuarterKey, currentMonthKey, currentSemesterKey,
+  previewMonthKey, previewQuarterKey, previewSemesterKey,
   quarterMonths, yearOfQuarter, yearOfMonth, quarterOfMonthKey,
+  semestersOfYear, quartersOfSemester, semesterOfQuarterKey, semesterOfMonthKey, yearOfSemester,
   labelForPeriod, shiftPeriod, monthOfSpiWeek, weekOfQuarter,
 } from '@/lib/projection/period'
 import type { ProjectionLevel, ProjectionPlan, ProjectionTemplate, SPISection, SectionField } from '@/lib/projection/types'
@@ -47,6 +48,7 @@ export function ProjectionPage() {
   // (embedded weekly SPI). Persisted across visits via localStorage.
   const [activeLevel, setActiveLevel] = useState<ProjectionLevel | 'week'>('year')
   const [yearKey, setYearKey] = useState(() => currentYearKey())
+  const [semesterKey, setSemesterKey] = useState(() => currentSemesterKey())
   const [quarterKey, setQuarterKey] = useState(() => currentQuarterKey())
   const [monthKey, setMonthKey] = useState(() => currentMonthKey())
 
@@ -54,7 +56,9 @@ export function ProjectionPage() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem('overseer-spi-active-tab')
-      if (saved === 'eagle' || saved === 'year' || saved === 'quarter' || saved === 'month' || saved === 'week') {
+      // 'eagle' quedó jubilado → lo mapeamos a 'semester'.
+      if (saved === 'eagle') setActiveLevel('semester')
+      else if (saved === 'year' || saved === 'semester' || saved === 'quarter' || saved === 'month' || saved === 'week') {
         setActiveLevel(saved)
       }
     } catch { /* ignore */ }
@@ -87,14 +91,17 @@ export function ProjectionPage() {
   const searchParams = useSearchParams()
   useEffect(() => {
     if (!mounted) return
-    const lvl = searchParams.get('level') as ProjectionLevel | 'week' | null
+    const lvlRaw = searchParams.get('level') as ProjectionLevel | 'week' | null
+    // 'eagle' jubilado → 'semester'.
+    const lvl = lvlRaw === 'eagle' ? 'semester' : lvlRaw
     const period = searchParams.get('period')
-    if (lvl === 'eagle' || lvl === 'year' || lvl === 'quarter' || lvl === 'month' || lvl === 'week') {
+    if (lvl === 'year' || lvl === 'semester' || lvl === 'quarter' || lvl === 'month' || lvl === 'week') {
       setActiveLevel(lvl)
       if (period) {
-        if (lvl === 'year')    setYearKey(period)
-        if (lvl === 'quarter') setQuarterKey(period)
-        if (lvl === 'month')   setMonthKey(period)
+        if (lvl === 'year')     setYearKey(period)
+        if (lvl === 'semester') setSemesterKey(period)
+        if (lvl === 'quarter')  setQuarterKey(period)
+        if (lvl === 'month')    setMonthKey(period)
       }
     }
   }, [mounted, searchParams])
@@ -116,14 +123,17 @@ export function ProjectionPage() {
 
       {/* ── Level tabs ──────────────────────────────────────────── */}
       <div className="flex items-center gap-1 bg-black/30 border border-white/[0.08] rounded-xl p-1 w-fit flex-wrap">
-        <LevelTab active={activeLevel === 'eagle'}   onClick={() => setActiveLevel('eagle')}   icon="🦅" label={t('spi.eagleView')} pending={pendingTabs.has('eagle')} />
-        <LevelTab active={activeLevel === 'year'}    onClick={() => setActiveLevel('year')}    icon="📅" label={t('projection.annual')} />
-        <LevelTab active={activeLevel === 'quarter'} onClick={() => setActiveLevel('quarter')} icon="🎯" label={t('projection.quarterly')} pending={pendingTabs.has('quarter')} />
-        <LevelTab active={activeLevel === 'month'}   onClick={() => setActiveLevel('month')}   icon="📆" label={t('projection.monthly')} pending={pendingTabs.has('month')} />
-        <LevelTab active={activeLevel === 'week'}    onClick={() => setActiveLevel('week')}    icon="♾️" label={t('spi.weeklyTab')} pending={pendingTabs.has('week')} />
+        <LevelTab active={activeLevel === 'year'}     onClick={() => setActiveLevel('year')}     icon="📅" label={t('projection.annual')} />
+        <LevelTab active={activeLevel === 'semester'} onClick={() => setActiveLevel('semester')} icon="🌗" label="Semestral" pending={pendingTabs.has('semester')} />
+        <LevelTab active={activeLevel === 'quarter'}  onClick={() => setActiveLevel('quarter')}  icon="🎯" label={t('projection.quarterly')} pending={pendingTabs.has('quarter')} />
+        <LevelTab active={activeLevel === 'month'}    onClick={() => setActiveLevel('month')}    icon="📆" label={t('projection.monthly')} pending={pendingTabs.has('month')} />
+        <LevelTab active={activeLevel === 'week'}     onClick={() => setActiveLevel('week')}     icon="♾️" label={t('spi.weeklyTab')} pending={pendingTabs.has('week')} />
       </div>
 
       {/* ── Active level content ────────────────────────────────── */}
+      {/* 'eagle' quedó jubilado: se mapea a 'semester' en la hidratación, así
+          que este bloque no se muestra en el flujo normal (solo lo dejamos
+          referenciado por si un deeplink viejo lo fuerza). */}
       {activeLevel === 'eagle' && (
         <EagleView
           plan={findPlan('eagle', 'current')}
@@ -147,12 +157,13 @@ export function ProjectionPage() {
           relatedPlans={plans}
           spiSessions={spiSessions}
           onJumpToChild={(level, periodKey) => {
-            if (level === 'quarter') { setQuarterKey(periodKey); setActiveLevel('quarter') }
-            if (level === 'month')   { setMonthKey(periodKey); setActiveLevel('month') }
+            if (level === 'semester') { setSemesterKey(periodKey); setActiveLevel('semester') }
+            if (level === 'quarter')  { setQuarterKey(periodKey); setActiveLevel('quarter') }
+            if (level === 'month')    { setMonthKey(periodKey); setActiveLevel('month') }
           }}
         />
       )}
-      {(activeLevel === 'quarter' || activeLevel === 'month') && (
+      {(activeLevel === 'semester' || activeLevel === 'quarter' || activeLevel === 'month') && (
         <PlanList
           level={activeLevel}
           allPlans={plans}
@@ -162,7 +173,8 @@ export function ProjectionPage() {
           closePlan={closePlan}
           reopenPlan={reopenPlan}
           onJumpToChild={(level, periodKey) => {
-            if (level === 'month') { setMonthKey(periodKey); setActiveLevel('month') }
+            if (level === 'quarter') { setQuarterKey(periodKey); setActiveLevel('quarter') }
+            if (level === 'month')   { setMonthKey(periodKey); setActiveLevel('month') }
           }}
         />
       )}
@@ -219,7 +231,7 @@ function PlanList({
   level, allPlans, spiSessions,
   getOrCreatePlan, updateValue, closePlan, reopenPlan, onJumpToChild,
 }: {
-  level: 'quarter' | 'month'
+  level: 'semester' | 'quarter' | 'month'
   allPlans: ProjectionPlan[]
   spiSessions: ReturnType<typeof useSPIStore.getState>['sessions']
   getOrCreatePlan: (level: ProjectionLevel, periodKey: string) => string
@@ -228,12 +240,12 @@ function PlanList({
   reopenPlan: (planId: string) => void
   onJumpToChild: (level: ProjectionLevel, periodKey: string) => void
 }) {
-  const currentKey = level === 'quarter' ? currentQuarterKey() : currentMonthKey()
+  const currentKey = level === 'semester' ? currentSemesterKey() : level === 'quarter' ? currentQuarterKey() : currentMonthKey()
   // PREVIEW key: if today is the Sat/Sun before the start of a new
-  // month/quarter (i.e. the upcoming Monday is the 1st), surface that
+  // semester/month/quarter (i.e. the upcoming Monday is the 1st), surface that
   // upcoming period as an EXTRA editable card on top. Lets the user do
   // their planning during the weekend instead of waiting for Monday.
-  const previewKey = level === 'quarter' ? previewQuarterKey() : previewMonthKey()
+  const previewKey = level === 'semester' ? previewSemesterKey() : level === 'quarter' ? previewQuarterKey() : previewMonthKey()
 
   // Build the visible periods list: preview (when applicable) + current
   // (always) + any closed plans for past periods (newest first). Future
@@ -269,9 +281,11 @@ function PlanList({
           {template.title}
         </p>
         <p className="text-xs text-zinc-500 mt-0.5">
-          {level === 'quarter'
-            ? 'Tu trimestre actual está abierto. Cuando lo cerrás, queda guardado abajo en el historial.'
-            : 'Tu mes actual está abierto. Cuando lo cerrás, queda guardado abajo en el historial.'}
+          {level === 'semester'
+            ? 'Tu semestre actual está abierto. Cuando lo cerrás, queda guardado abajo en el historial.'
+            : level === 'quarter'
+              ? 'Tu trimestre actual está abierto. Cuando lo cerrás, queda guardado abajo en el historial.'
+              : 'Tu mes actual está abierto. Cuando lo cerrás, queda guardado abajo en el historial.'}
         </p>
       </div>
 
@@ -309,7 +323,7 @@ function PlanCard({
   allPlans, spiSessions,
   getOrCreatePlan, updateValue, closePlan, reopenPlan, onJumpToChild,
 }: {
-  level: 'quarter' | 'month'
+  level: 'semester' | 'quarter' | 'month'
   periodKey: string
   plan: ProjectionPlan | null
   status: 'in_progress' | 'done'
@@ -356,7 +370,7 @@ function PlanCard({
         onClick={() => setExpanded((v) => !v)}
         className="w-full px-5 py-3 flex items-center gap-3 text-left hover:bg-white/[0.02] transition-colors"
       >
-        <span className="text-lg shrink-0">{level === 'quarter' ? '🎯' : '📆'}</span>
+        <span className="text-lg shrink-0">{level === 'semester' ? '🌗' : level === 'quarter' ? '🎯' : '📆'}</span>
         <div className="flex-1 min-w-0">
           <p className="text-base font-semibold text-zinc-100 capitalize truncate">
             {labelForPeriod(periodKey)}
@@ -416,7 +430,7 @@ function PlanCard({
                 <div className="bg-black/20 border border-white/[0.08] rounded-2xl p-6 text-center">
                   <Target className="w-8 h-8 text-indigo-400/70 mx-auto mb-2" />
                   <p className="text-sm font-semibold text-zinc-200 mb-1">
-                    No empezaste este {level === 'quarter' ? 'trimestre' : 'mes'} todavía
+                    No empezaste este {level === 'semester' ? 'semestre' : level === 'quarter' ? 'trimestre' : 'mes'} todavía
                   </p>
                   <p className="text-xs text-zinc-500 mb-4 max-w-md mx-auto">
                     Se guarda automático en cada cambio.
@@ -820,6 +834,7 @@ function LevelView({
 
 function levelLabel(level: ProjectionLevel): string {
   if (level === 'year') return 'año'
+  if (level === 'semester') return 'semestre'
   if (level === 'quarter') return 'trimestre'
   return 'mes'
 }
@@ -846,8 +861,18 @@ function buildHierarchyContext(
   const parents: { key: string; label: string }[] = []
   const children: HierarchyChild[] = []
 
-  if (level === 'quarter') {
+  if (level === 'semester') {
+    // Semestre — padre: año. Hijos: sus 2 trimestres.
+    parents.push({ key: yearOfSemester(periodKey), label: yearOfSemester(periodKey) })
+    for (const qKey of quartersOfSemester(periodKey)) {
+      const plan = allPlans.find((p) => p.level === 'quarter' && p.periodKey === qKey)
+      children.push({ level: 'quarter', key: qKey, label: labelForPeriod(qKey), plan, closed: !!plan?.closedAt })
+    }
+  } else if (level === 'quarter') {
+    // Trimestre — padres: año › semestre. Hijos: sus 3 meses.
+    const semKey = semesterOfQuarterKey(periodKey)
     parents.push({ key: yearOfQuarter(periodKey), label: yearOfQuarter(periodKey) })
+    parents.push({ key: semKey, label: labelForPeriod(semKey) })
     for (const monthKey of quarterMonths(periodKey)) {
       const plan = allPlans.find((p) => p.level === 'month' && p.periodKey === monthKey)
       children.push({
@@ -859,8 +884,11 @@ function buildHierarchyContext(
       })
     }
   } else if (level === 'month') {
+    // Mes — padres: año › semestre › trimestre. Hijos: semanas (SPI).
     const qKey = quarterOfMonthKey(periodKey)
+    const semKey = semesterOfMonthKey(periodKey)
     parents.push({ key: yearOfMonth(periodKey), label: yearOfMonth(periodKey) })
+    parents.push({ key: semKey, label: labelForPeriod(semKey) })
     parents.push({ key: qKey, label: labelForPeriod(qKey) })
     // Weeks (SPI sessions) inside this month
     const monthSessions = spiSessions
@@ -881,14 +909,13 @@ function buildHierarchyContext(
       })
     }
   } else {
-    // Year — children are the 4 quarters
-    for (const q of [1, 2, 3, 4]) {
-      const qKey = `${periodKey}-Q${q}`
-      const plan = allPlans.find((p) => p.level === 'quarter' && p.periodKey === qKey)
+    // Year — hijos: los 2 semestres.
+    for (const semKey of semestersOfYear(periodKey)) {
+      const plan = allPlans.find((p) => p.level === 'semester' && p.periodKey === semKey)
       children.push({
-        level: 'quarter',
-        key: qKey,
-        label: labelForPeriod(qKey),
+        level: 'semester',
+        key: semKey,
+        label: labelForPeriod(semKey),
         plan,
         closed: !!plan?.closedAt,
       })
@@ -908,7 +935,7 @@ function ChildrenOverview({
   children: HierarchyChild[]
   onJump: (level: ProjectionLevel, periodKey: string) => void
 }) {
-  const childTypeLabel = level === 'year' ? 'Trimestres' : level === 'quarter' ? 'Meses' : 'Semanas (SPI)'
+  const childTypeLabel = level === 'year' ? 'Semestres' : level === 'semester' ? 'Trimestres' : level === 'quarter' ? 'Meses' : 'Semanas (SPI)'
   return (
     <div className="bg-black/20 border border-white/[0.08] rounded-xl p-4">
       <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 mb-3 flex items-center gap-1.5">

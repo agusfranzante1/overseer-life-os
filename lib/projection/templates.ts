@@ -389,9 +389,74 @@ export const MONTH_TEMPLATE: ProjectionTemplate = {
   ],
 }
 
-export const ALL_TEMPLATES: Record<'eagle' | 'year' | 'quarter' | 'month', ProjectionTemplate> = {
+/** Semester template — el puente entre el año y el trimestre. Config estilo
+ *  mensual (foco + grandes apuestas + hitos + pre-mortem + cierre), pero con
+ *  horizonte de 6 meses. Self-contained (sin cascada de un padre). */
+export const SEMESTER_TEMPLATE: ProjectionTemplate = {
+  level: 'semester',
+  version: 1,
+  title: 'Plan Semestral',
+  intro: 'El semestre baja tu visión anual a un horizonte de 6 meses. Definí las grandes apuestas y los hitos que quieren ver cumplidos antes de que termine.',
+  sections: [
+    {
+      key: 'foco_sem',
+      emoji: '🧭',
+      title: 'Foco del semestre',
+      fields: [
+        { key: 'foco', label: 'Foco principal del semestre (1 frase)', type: 'text', hint: 'La idea-fuerza que ordena los 2 trimestres.' },
+        { key: 'una_batalla', label: 'La UNA batalla principal del semestre', type: 'textarea', hint: '¿Cuál es el frente donde más vas a empujar estos 6 meses?' },
+      ],
+    },
+    {
+      key: 'apuestas_sem',
+      emoji: '🚀',
+      title: 'Grandes apuestas del semestre',
+      intro: '3-4 movimientos grandes que querés ver avanzar de verdad en estos 6 meses.',
+      fields: [
+        { key: 'apuesta_1', label: 'Apuesta #1', type: 'textarea' },
+        { key: 'apuesta_2', label: 'Apuesta #2', type: 'textarea' },
+        { key: 'apuesta_3', label: 'Apuesta #3', type: 'textarea' },
+        { key: 'apuesta_4', label: 'Apuesta #4 (opcional)', type: 'textarea' },
+      ],
+    },
+    {
+      key: 'hitos_sem',
+      emoji: '📅',
+      title: 'Hitos y eventos del semestre',
+      fields: [
+        { key: 'hitos', label: 'Hitos importantes esperados', type: 'textarea', placeholder: 'Lanzamientos, viajes, deadlines grandes, fechas clave...' },
+      ],
+    },
+    {
+      key: 'premortem_sem',
+      emoji: '⚠️',
+      title: 'Pre-mortem',
+      defaultCollapsed: true,
+      intro: 'Imaginate llegando al fin del semestre y NO cumpliste. ¿Qué pasó?',
+      fields: [
+        { key: 'que_pasaria', label: '¿Qué pasaría si fallás este semestre?', type: 'textarea' },
+        { key: 'como_evitar', label: '¿Cómo lo evitás?', type: 'textarea' },
+      ],
+    },
+    {
+      key: 'cierre_sem',
+      emoji: '🏁',
+      title: 'Cierre del semestre anterior',
+      defaultCollapsed: true,
+      intro: 'Aprendizajes del semestre que recién terminó (si ya tenés uno).',
+      fields: [
+        { key: 'logros', label: 'Logros principales', type: 'textarea' },
+        { key: 'aprendizajes', label: 'Aprendizajes / insights', type: 'textarea' },
+        { key: 'ajustes', label: 'Ajustes para este semestre nuevo', type: 'textarea' },
+      ],
+    },
+  ],
+}
+
+export const ALL_TEMPLATES: Record<'eagle' | 'year' | 'semester' | 'quarter' | 'month', ProjectionTemplate> = {
   eagle: EAGLE_TEMPLATE,
   year: ANNUAL_TEMPLATE,
+  semester: SEMESTER_TEMPLATE,
   quarter: QUARTER_TEMPLATE,
   month: MONTH_TEMPLATE,
 }

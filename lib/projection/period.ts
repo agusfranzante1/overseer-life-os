@@ -16,6 +16,52 @@ export function currentQuarterKey(now: Date = new Date()): string {
   return `${y}-Q${q}`
 }
 
+/** Semestre calendario: H1 = Ene-Jun, H2 = Jul-Dic. Key = 'YYYY-H1' | 'YYYY-H2'. */
+export type Semester = 1 | 2
+export function currentSemesterKey(now: Date = new Date()): string {
+  const h = now.getMonth() < 6 ? 1 : 2
+  return `${now.getFullYear()}-H${h}`
+}
+/** Semestre (1|2) que contiene un mes (1-12). */
+export function semesterOfMonth(month: number): Semester {
+  return month <= 6 ? 1 : 2
+}
+/** Los 2 semestres de un año, como keys YYYY-HN. */
+export function semestersOfYear(yearKey: string): string[] {
+  return [`${yearKey}-H1`, `${yearKey}-H2`]
+}
+/** Los 2 trimestres que pertenecen a un semestre (YYYY-QN). */
+export function quartersOfSemester(semesterKey: string): string[] {
+  const [y, hStr] = semesterKey.split('-H')
+  const h = parseInt(hStr, 10) as Semester
+  const startQ = h === 1 ? 1 : 3
+  return [`${y}-Q${startQ}`, `${y}-Q${startQ + 1}`]
+}
+/** Semestre que contiene un quarter key (YYYY-QN → YYYY-HN). */
+export function semesterOfQuarterKey(quarterKey: string): string {
+  const [y, qStr] = quarterKey.split('-Q')
+  const q = parseInt(qStr, 10)
+  return `${y}-H${q <= 2 ? 1 : 2}`
+}
+/** Semestre que contiene un month key (YYYY-MM → YYYY-HN). */
+export function semesterOfMonthKey(monthKey: string): string {
+  const [y, mStr] = monthKey.split('-')
+  return `${y}-H${semesterOfMonth(parseInt(mStr, 10))}`
+}
+/** Año que contiene un semester key. */
+export function yearOfSemester(semesterKey: string): string {
+  return semesterKey.split('-H')[0]
+}
+/** Preview del próximo semestre si el lunes que viene arranca uno nuevo. */
+export function previewSemesterKey(now: Date = new Date()): string | null {
+  const monthKey = previewMonthKey(now)
+  if (!monthKey) return null
+  const [yearStr, monthStr] = monthKey.split('-')
+  const m = parseInt(monthStr, 10)
+  if (m !== 1 && m !== 7) return null
+  return `${yearStr}-H${m === 1 ? 1 : 2}`
+}
+
 /** Returns current month key (YYYY-MM). */
 export function currentMonthKey(now: Date = new Date()): string {
   const y = now.getFullYear()
@@ -129,6 +175,11 @@ export function labelForPeriod(periodKey: string): string {
   if (periodKey === 'current') return 'Vista de Águila'
   // Year
   if (/^\d{4}$/.test(periodKey)) return periodKey
+  // Semester
+  if (/^\d{4}-H[12]$/.test(periodKey)) {
+    const [y, hStr] = periodKey.split('-H')
+    return h1o2Label(parseInt(hStr, 10), y)
+  }
   // Quarter
   if (/^\d{4}-Q[1-4]$/.test(periodKey)) {
     const [y, qStr] = periodKey.split('-Q')
@@ -153,11 +204,24 @@ export function labelForPeriod(periodKey: string): string {
   return periodKey
 }
 
+/** Etiqueta "1er/2do semestre YYYY · rango". */
+function h1o2Label(h: number, year: string): string {
+  return h === 1 ? `1er semestre ${year} · Ene-Jun` : `2do semestre ${year} · Jul-Dic`
+}
+
 /** Step a period key forward/backward by one unit.
- *  Year: ±1 year. Quarter: ±1 quarter (wraps year). Month: ±1 month (wraps year). */
+ *  Year: ±1 year. Semester: ±1 (wraps year). Quarter: ±1 quarter (wraps year). Month: ±1 month (wraps year). */
 export function shiftPeriod(periodKey: string, delta: number): string {
   if (/^\d{4}$/.test(periodKey)) {
     return String(parseInt(periodKey, 10) + delta)
+  }
+  if (/^\d{4}-H[12]$/.test(periodKey)) {
+    const [yStr, hStr] = periodKey.split('-H')
+    let y = parseInt(yStr, 10)
+    let h = parseInt(hStr, 10) + delta
+    while (h < 1) { h += 2; y -= 1 }
+    while (h > 2) { h -= 2; y += 1 }
+    return `${y}-H${h}`
   }
   if (/^\d{4}-Q[1-4]$/.test(periodKey)) {
     const [yStr, qStr] = periodKey.split('-Q')

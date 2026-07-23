@@ -14,13 +14,16 @@
 
 import type { SPISection, SectionField, SPILane } from '@/lib/spi/types'
 
-export type ProjectionLevel = 'eagle' | 'year' | 'quarter' | 'month'
+// 'eagle' queda SOLO por compat de datos viejos (Vista de Águila jubilada).
+// La jerarquía activa es year → semester → quarter → month → (week/SPI).
+export type ProjectionLevel = 'eagle' | 'year' | 'semester' | 'quarter' | 'month'
 
 /** Period key encoding (string-sortable, locale-independent):
- *    eagle:   'current' (singleton, on-demand reflection workspace)
- *    year:    'YYYY'        e.g. '2026'
- *    quarter: 'YYYY-QN'     e.g. '2026-Q1'
- *    month:   'YYYY-MM'     e.g. '2026-03'
+ *    eagle:    'current' (legacy singleton — Vista de Águila jubilada)
+ *    year:     'YYYY'        e.g. '2026'
+ *    semester: 'YYYY-HN'     e.g. '2026-H1'
+ *    quarter:  'YYYY-QN'     e.g. '2026-Q1'
+ *    month:    'YYYY-MM'     e.g. '2026-03'
  */
 export type PeriodKey = string
 

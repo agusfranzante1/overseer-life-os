@@ -15,7 +15,7 @@
  *  dispatcher server-side de notificaciones push. NO importa spiStore
  *  (es 'use client' + zustand) — la clave de semana se calcula acá.
  */
-import { currentMonthKey, currentQuarterKey, labelForPeriod } from '@/lib/projection/period'
+import { currentMonthKey, currentQuarterKey, currentSemesterKey, labelForPeriod } from '@/lib/projection/period'
 
 /** YYYY-MM-DD del sábado más reciente (hoy si hoy ES sábado) — es la sesión
  *  SPI que el usuario está completando esta semana. Copia PURA de la lógica
@@ -37,12 +37,12 @@ export type ReviewCadence = 'weekly' | 'monthly' | 'quarterly' | 'semestral'
 export const REVIEW_CADENCES: ReviewCadence[] = ['weekly', 'monthly', 'quarterly', 'semestral']
 
 /** Pestaña de la ProjectionPage que "cubre" cada cadencia (para limpiar el
- *  badge al entrar). 'week'|'month'|'quarter'|'eagle' son los activeLevel. */
-export const CADENCE_TAB: Record<ReviewCadence, 'week' | 'month' | 'quarter' | 'eagle'> = {
+ *  badge al entrar). Son los activeLevel de la ProjectionPage. */
+export const CADENCE_TAB: Record<ReviewCadence, 'week' | 'month' | 'quarter' | 'semester'> = {
   weekly: 'week',
   monthly: 'month',
   quarterly: 'quarter',
-  semestral: 'eagle',
+  semestral: 'semester',
 }
 
 /** Inverso: qué cadencia corresponde a una pestaña (o null si no trackeada). */
@@ -55,7 +55,7 @@ export const CADENCE_LABEL: Record<ReviewCadence, string> = {
   weekly: 'SPI semanal',
   monthly: 'Revisión mensual',
   quarterly: 'Revisión trimestral',
-  semestral: 'Vista de Águila (semestral)',
+  semestral: 'Revisión semestral',
 }
 
 export const CADENCE_SHORT: Record<ReviewCadence, string> = {
@@ -63,18 +63,6 @@ export const CADENCE_SHORT: Record<ReviewCadence, string> = {
   monthly: 'mensual',
   quarterly: 'trimestral',
   semestral: 'semestral',
-}
-
-/** Semestre calendario: H1 = Ene-Jun, H2 = Jul-Dic. Key = 'YYYY-H1' | 'YYYY-H2'. */
-export function currentSemesterKey(now: Date = new Date()): string {
-  const h = now.getMonth() < 6 ? 1 : 2
-  return `${now.getFullYear()}-H${h}`
-}
-
-/** Fecha de inicio (00:00) del semestre que contiene `now`. */
-export function semesterStart(now: Date = new Date()): Date {
-  const startMonth = now.getMonth() < 6 ? 0 : 6
-  return new Date(now.getFullYear(), startMonth, 1)
 }
 
 /** Clave del período ACTUAL para una cadencia — identifica "de qué revisión
@@ -110,12 +98,12 @@ export interface ReviewFacts {
   monthlyClosedAt: string | null
   /** closedAt (ISO) del plan trimestral del Q actual. */
   quarterlyClosedAt: string | null
-  /** closedAt (ISO) del plan 'eagle'. Se compara contra el inicio del semestre. */
-  eagleClosedAt: string | null
+  /** closedAt (ISO) del plan semestral del semestre actual. */
+  semesterClosedAt: string | null
 }
 
 /** ¿La revisión de esta cadencia está pendiente (no completada este período)? */
-export function isCadencePending(cadence: ReviewCadence, facts: ReviewFacts, now: Date = new Date()): boolean {
+export function isCadencePending(cadence: ReviewCadence, facts: ReviewFacts, _now: Date = new Date()): boolean {
   switch (cadence) {
     case 'weekly':
       return !facts.weeklyClosed
@@ -123,10 +111,7 @@ export function isCadencePending(cadence: ReviewCadence, facts: ReviewFacts, now
       return !facts.monthlyClosedAt
     case 'quarterly':
       return !facts.quarterlyClosedAt
-    case 'semestral': {
-      // Pendiente si la Vista de Águila no se cerró DENTRO del semestre actual.
-      if (!facts.eagleClosedAt) return true
-      return new Date(facts.eagleClosedAt).getTime() < semesterStart(now).getTime()
-    }
+    case 'semestral':
+      return !facts.semesterClosedAt
   }
 }

@@ -16,7 +16,7 @@ import {
   REVIEW_CADENCES, currentPeriodKey, currentPeriodLabel, isCadencePending,
   lastSaturdayYmd, type ReviewFacts,
 } from '@/lib/reviews/pending'
-import { currentMonthKey, currentQuarterKey } from '@/lib/projection/period'
+import { currentMonthKey, currentQuarterKey, currentSemesterKey } from '@/lib/projection/period'
 import { sendEmail, pushPayloadToEmail } from '@/lib/notifications/email'
 
 // Necesitamos `nodejs` (no edge) porque web-push usa criptografía Node.
@@ -489,22 +489,23 @@ async function fetchReviewFacts(
   const satYmd = lastSaturdayYmd(localDate)
   const monthKey = currentMonthKey(localDate)
   const quarterKey = currentQuarterKey(localDate)
+  const semesterKey = currentSemesterKey(localDate)
 
   const [weekRes, planRes] = await Promise.all([
     sb.from('spi_sessions').select('closed_at').eq('user_id', userId).eq('week_start_date', satYmd).limit(1).maybeSingle(),
     sb.from('projection_plans').select('level, period_key, closed_at').eq('user_id', userId)
-      .in('level', ['month', 'quarter', 'eagle']),
+      .in('level', ['month', 'quarter', 'semester']),
   ])
 
   const plans = (planRes.data ?? []) as Array<{ level: string; period_key: string; closed_at: string | null }>
   const monthPlan = plans.find((p) => p.level === 'month' && p.period_key === monthKey)
   const quarterPlan = plans.find((p) => p.level === 'quarter' && p.period_key === quarterKey)
-  const eaglePlan = plans.find((p) => p.level === 'eagle' && p.period_key === 'current')
+  const semesterPlan = plans.find((p) => p.level === 'semester' && p.period_key === semesterKey)
 
   return {
     weeklyClosed: !!(weekRes.data as { closed_at?: string | null } | null)?.closed_at,
     monthlyClosedAt: monthPlan?.closed_at ?? null,
     quarterlyClosedAt: quarterPlan?.closed_at ?? null,
-    eagleClosedAt: eaglePlan?.closed_at ?? null,
+    semesterClosedAt: semesterPlan?.closed_at ?? null,
   }
 }
