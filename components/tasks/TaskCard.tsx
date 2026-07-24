@@ -861,7 +861,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                           if (!childDraft.trim()) setAddingChildTo(null)
                         }}
                         placeholder="Nueva subtarea…"
-                        className="flex-1 bg-transparent border-b border-indigo-500/40 focus:border-indigo-500 outline-none text-[11px] text-zinc-200 placeholder:text-zinc-700 py-0.5"
+                        className="flex-1 bg-transparent border-b border-indigo-500/40 focus:border-indigo-500 outline-none text-[14px] text-zinc-200 placeholder:text-zinc-700 py-0.5"
                       />
                       <button
                         type="button"
@@ -1377,7 +1377,7 @@ function InlineSubtask({
             if (e.key === 'Escape') { setDraft(subtask.title); setEditing(false) }
           }}
           onClick={(e) => e.stopPropagation()}
-          className={`flex-1 bg-zinc-800 border border-indigo-500 rounded px-1.5 py-0.5 text-sm focus:outline-none ${
+          className={`flex-1 bg-zinc-800 border border-indigo-500 rounded px-1.5 py-0.5 text-[15px] focus:outline-none ${
             subtask.completed ? 'line-through text-zinc-500' : 'text-zinc-100'
           }`}
         />
@@ -1386,7 +1386,7 @@ function InlineSubtask({
           data-interactive
           onClick={(e) => { e.stopPropagation(); setEditing(true) }}
           title={`Click para renombrar · ${subtask.title}`}
-          className={`flex-1 text-sm text-left px-1.5 py-0.5 rounded hover:bg-white/[0.05]/60 transition-colors min-w-0 truncate ${
+          className={`flex-1 text-[15px] text-left px-1.5 py-0.5 rounded hover:bg-white/[0.05]/60 transition-colors min-w-0 truncate ${
             subtask.completed ? 'line-through text-zinc-500' : 'text-zinc-200'
           } ${hasChildren ? 'font-semibold' : ''}`}
         >

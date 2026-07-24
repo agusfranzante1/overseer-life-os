@@ -801,7 +801,7 @@ function SubtaskRow({ title, completed, onToggle, onRename, onOpenDetail, onDele
             if (e.key === 'Enter') { e.preventDefault(); commit() }
             if (e.key === 'Escape') { setDraft(title); setEditing(false) }
           }}
-          className={`flex-1 bg-zinc-800 border border-indigo-500 rounded px-2 py-0.5 text-sm focus:outline-none ${
+          className={`flex-1 bg-zinc-800 border border-indigo-500 rounded px-2 py-0.5 text-[15px] focus:outline-none ${
             completed ? 'line-through text-zinc-500' : 'text-zinc-200'
           }`}
         />
@@ -810,7 +810,7 @@ function SubtaskRow({ title, completed, onToggle, onRename, onOpenDetail, onDele
           onClick={onOpenDetail}
           onDoubleClick={() => setEditing(true)}
           title="Click para abrir detalle · doble click para renombrar inline"
-          className={`flex-1 text-sm text-left px-2 py-0.5 rounded hover:bg-white/[0.05]/60 transition-colors ${
+          className={`flex-1 text-[15px] text-left px-2 py-0.5 rounded hover:bg-white/[0.05]/60 transition-colors ${
             completed ? 'line-through text-zinc-500' : 'text-zinc-300'
           }`}
         >
