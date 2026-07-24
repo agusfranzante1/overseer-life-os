@@ -657,9 +657,11 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
         if (h < NODE_MIN_HEIGHT) { h = NODE_MIN_HEIGHT; w = h * aspect }
         updateNode(mapId, node.id, { width: Math.round(w), height: Math.round(h) })
       } else {
+        // Nodo de texto: SOLO ancho manual. La altura la maneja 100% el
+        // auto-grow del texto (crece con el contenido / los enters). Así el
+        // texto nunca se desborda por un alto seteado a mano demasiado chico.
         const w = Math.max(NODE_MIN_WIDTH, startW + dx)
-        const h = Math.max(NODE_MIN_HEIGHT, startH + dy)
-        updateNode(mapId, node.id, { width: w, height: h })
+        updateNode(mapId, node.id, { width: w })
       }
     }
     const onUp = (ev: PointerEvent) => {
@@ -1697,6 +1699,18 @@ function NodeBox({
   const onAutoGrowHeightRef = useRef(onAutoGrowHeight)
   useEffect(() => { onAutoGrowHeightRef.current = onAutoGrowHeight }, [onAutoGrowHeight])
 
+  // Al entrar en edición, poner el cursor al FINAL del texto (no al inicio),
+  // así se puede seguir escribiendo de una sin tener que reposicionar. El
+  // `autoFocus` del textarea foca pero deja el caret al principio.
+  useEffect(() => {
+    if (!editing) return
+    const ta = textareaRef.current
+    if (!ta) return
+    const len = ta.value.length
+    ta.focus()
+    ta.setSelectionRange(len, len)
+  }, [editing])
+
   useLayoutEffect(() => {
     if (isImage || isCircle) return  // imagen/círculo no auto-crecen por texto
     if (!editing) return
@@ -1826,22 +1840,30 @@ function NodeBox({
           </div>
         )}
 
-        {/* Resize handle — bottom-right corner. Visible only when the node
-            is selected and NOT being edited (during edit, the focus is on
-            the textarea — a stray pointer-down on the corner would steal
-            the blur). For circles, dragging keeps width === height. */}
+        {/* Resize handle. Visible solo cuando el nodo está seleccionado y NO
+            en edición. Para CÍRCULO/IMAGEN → esquina inferior-derecha (redimensiona
+            proporcional/1:1). Para NODOS DE TEXTO → borde derecho-centro con
+            cursor horizontal: SOLO cambia el ancho (la altura es automática). */}
         {selected && !editing && (
-          <div
-            onPointerDown={onResizeStart}
-            onClick={(e) => e.stopPropagation()}
-            onDoubleClick={(e) => e.stopPropagation()}
-            title="Arrastrá para cambiar el tamaño"
-            className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 bg-zinc-900 cursor-nwse-resize z-[5]"
-            style={{
-              borderColor: color,
-              touchAction: 'none',
-            }}
-          />
+          isCircle || isImage ? (
+            <div
+              onPointerDown={onResizeStart}
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              title="Arrastrá para cambiar el tamaño"
+              className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 bg-zinc-900 cursor-nwse-resize z-[5]"
+              style={{ borderColor: color, touchAction: 'none' }}
+            />
+          ) : (
+            <div
+              onPointerDown={onResizeStart}
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              title="Arrastrá para cambiar el ancho (la altura crece sola con el texto)"
+              className="absolute top-1/2 -right-1 -translate-y-1/2 w-4 h-4 rounded-full border-2 bg-zinc-900 cursor-ew-resize z-[5]"
+              style={{ borderColor: color, touchAction: 'none' }}
+            />
+          )
         )}
 
         {/* Duplicar — botón chico arriba a la derecha del nodo. Se muestra
