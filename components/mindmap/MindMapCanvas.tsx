@@ -927,7 +927,9 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
           drawingFromId ? 'cursor-crosshair' : dragPanRef.current ? 'cursor-grabbing' : boxSelect ? 'cursor-crosshair' : 'cursor-grab'
         }`}
         style={{
-          backgroundImage: 'radial-gradient(circle at 1px 1px, #27272a 1px, transparent 0)',
+          // Estilo "Miro": lienzo crema cálido con grid de puntos sutil oscuro.
+          background: '#F6F4E9',
+          backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(0,0,0,0.08) 1px, transparent 0)',
           backgroundSize: '24px 24px',
           backgroundPosition: `${pan.x % 24}px ${pan.y % 24}px`,
           touchAction: 'none',
@@ -1860,15 +1862,15 @@ function NodeBox({
           top: node.y + pan.y,
           width: node.width,
           height: node.height,
-          // El bracket no tiene caja: fondo/borde transparentes. Al seleccionarlo
-          // mostramos solo un aro sutil para saber que está activo.
-          background: isBracket ? 'transparent' : color + '18',
+          // Estilo "Miro" (lienzo crema): tarjeta casi blanca con borde fino del
+          // color de acento y sombra suave. El bracket no tiene caja.
+          background: isBracket ? 'transparent' : 'rgba(255,255,255,0.82)',
           borderColor: isBracket ? 'transparent' : borderColor,
           boxShadow: isBracket
-            ? (selected ? `0 0 0 2px ${color}55` : 'none')
+            ? (selected ? `0 0 0 2px ${color}66` : 'none')
             : selected
-              ? `0 0 0 3px ${color}40, 0 10px 24px -10px ${color}80`
-              : `0 4px 14px -4px ${color}40`,
+              ? `0 0 0 3px ${color}55, 0 8px 20px -8px rgba(0,0,0,0.25)`
+              : `0 2px 8px -2px rgba(0,0,0,0.12)`,
           cursor: drawingMode ? 'crosshair' : editing ? 'text' : 'move',
           touchAction: 'none',
         }}
@@ -1934,13 +1936,13 @@ function NodeBox({
             }}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            className="w-full h-full bg-transparent text-zinc-100 font-medium text-center p-2 focus:outline-none resize-none leading-snug placeholder:opacity-40 placeholder:italic"
-            style={{ color, fontSize }}
+            className="w-full h-full bg-transparent font-heading font-bold text-center p-2 focus:outline-none resize-none leading-snug placeholder:opacity-40 placeholder:italic"
+            style={{ color: '#20202e', fontSize }}
           />
         ) : (
           <div
-            className="w-full h-full flex items-center justify-center text-center px-2 font-medium leading-snug select-none break-words"
-            style={{ color, fontSize }}
+            className="w-full h-full flex items-center justify-center text-center px-2 font-heading font-bold leading-snug select-none break-words"
+            style={{ color: '#20202e', fontSize }}
           >
             {/* Inner wrapper with NATURAL height — this is the element the
                 auto-grow effect measures. The outer flex container is h-full
