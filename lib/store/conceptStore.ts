@@ -35,7 +35,7 @@ interface State {
 
   // ── Conceptos ──
   addConcept: (materiaId: string, args?: { areaId?: string | null; x?: number; y?: number; title?: string; author?: string }) => string
-  updateConcept: (materiaId: string, conceptId: string, patch: Partial<Pick<Concept, 'title' | 'areaId'>>) => void
+  updateConcept: (materiaId: string, conceptId: string, patch: Partial<Pick<Concept, 'title' | 'areaId' | 'notes'>>) => void
   moveConcept: (materiaId: string, conceptId: string, x: number, y: number) => void
   /** Ajusta el ancho de la tarjeta (px), clampeado a [NODE_W_MIN, NODE_W_MAX]. */
   resizeConcept: (materiaId: string, conceptId: string, w: number) => void

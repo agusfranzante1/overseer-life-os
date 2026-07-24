@@ -41,6 +41,10 @@ export interface Concept {
   title: string
   /** Aportes de distintos autores sobre este concepto. */
   sources: ConceptSource[]
+  /** Texto libre / explicación general del concepto (independiente de los
+   *  autores). Acá se escribe la idea propia mezclando prosa y `@`menciones a
+   *  otros conceptos ([[conceptId]]) para contar cómo se relacionan/unen. */
+  notes?: string
   /** ¿Ya lo estudiaste? Alimenta la vista Progreso (estudiados / total). */
   studied?: boolean
   /** Posición en el lienzo (coords de content). */
@@ -101,7 +105,7 @@ export function normalizeConcept(c: Concept, genId: () => string): Concept {
       : [{ id: genId(), author: '', body: '' }]
   // Reconstrucción explícita → descarta author/body legacy sin binds sin usar.
   return {
-    id: c.id, areaId: c.areaId, title: c.title, sources,
+    id: c.id, areaId: c.areaId, title: c.title, sources, notes: c.notes,
     studied: c.studied, x: c.x, y: c.y, w: c.w,
     createdAt: c.createdAt, updatedAt: c.updatedAt,
   }

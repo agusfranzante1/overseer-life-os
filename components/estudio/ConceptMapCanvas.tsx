@@ -452,6 +452,19 @@ function ConceptNode({
                 className="w-full bg-transparent text-[13px] font-semibold text-white placeholder-zinc-600 focus:outline-none"
               />
 
+              {/* Explicación / notas del concepto — texto libre donde escribís
+                  tu idea y enlazás otros conceptos con @ para contar cómo se unen. */}
+              <div className="rounded-lg bg-zinc-950/40 border border-white/[0.06] p-2">
+                <RichText
+                  value={concept.notes ?? ''}
+                  onSave={(v) => updateConcept(materiaId, concept.id, { notes: v })}
+                  placeholder="Explicación… escribí @ para enlazar otros conceptos y contar cómo se unen"
+                  allConcepts={allConcepts}
+                  selfId={concept.id}
+                  onNavigate={onNavigate}
+                />
+              </div>
+
               {/* Estudiado */}
               <button
                 onClick={() => toggleStudied(materiaId, concept.id)}
@@ -483,10 +496,9 @@ function ConceptNode({
                           className="p-0.5 text-zinc-600 hover:text-red-400 shrink-0"><Trash2 className="w-3 h-3" /></button>
                       )}
                     </div>
-                    <SourceBody
-                      materiaId={materiaId}
-                      conceptId={concept.id}
-                      source={src}
+                    <RichText
+                      value={src.body}
+                      onSave={(v) => updateSource(materiaId, concept.id, src.id, { body: v })}
                       placeholder={i === 0 ? 'Explicación del concepto…' : 'La mirada de este autor…'}
                       allConcepts={allConcepts}
                       selfId={concept.id}
@@ -580,28 +592,27 @@ function renderBody(body: string, allConcepts: Concept[], onNavigate: (id: strin
   return out
 }
 
-function SourceBody({
-  materiaId, conceptId, source, placeholder, allConcepts, selfId, onNavigate,
+function RichText({
+  value, onSave, placeholder, allConcepts, selfId, onNavigate, className,
 }: {
-  materiaId: string
-  conceptId: string
-  source: ConceptSource
+  value: string
+  onSave: (next: string) => void
   placeholder: string
   allConcepts: Concept[]
   selfId: string
   onNavigate: (conceptId: string) => void
+  className?: string
 }) {
-  const updateSource = useConceptStore((s) => s.updateSource)
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(source.body)
+  const [draft, setDraft] = useState(value)
   const [mention, setMention] = useState<{ query: string; at: number } | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
-  useEffect(() => { if (!editing) setDraft(source.body) }, [source.body, editing])
+  useEffect(() => { if (!editing) setDraft(value) }, [value, editing])
 
   const commit = () => {
     setEditing(false)
     setMention(null)
-    if (draft !== source.body) updateSource(materiaId, conceptId, source.id, { body: draft })
+    if (draft !== value) onSave(draft)
   }
 
   const onChange = (value: string, cursor: number) => {
@@ -629,9 +640,9 @@ function SourceBody({
     return (
       <div
         onClick={() => setEditing(true)}
-        className="w-full text-[12px] text-zinc-200 leading-relaxed cursor-text min-h-[2.25rem] whitespace-pre-wrap break-words"
+        className={`w-full text-[12px] text-zinc-200 leading-relaxed cursor-text min-h-[2.25rem] whitespace-pre-wrap break-words ${className ?? ''}`}
       >
-        {source.body.trim() ? renderBody(source.body, allConcepts, onNavigate) : <span className="text-zinc-600">{placeholder}</span>}
+        {value.trim() ? renderBody(value, allConcepts, onNavigate) : <span className="text-zinc-600">{placeholder}</span>}
       </div>
     )
   }
