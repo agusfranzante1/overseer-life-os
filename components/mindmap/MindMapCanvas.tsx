@@ -1630,6 +1630,13 @@ function NodeBox({
   // "Nodo imagen": tiene foto → se renderiza la imagen en vez del texto, y el
   // auto-grow de altura (que mide el texto) queda desactivado.
   const isImage = !!node.imageUrl
+  // Los CÍRCULOS tampoco auto-crecen por texto: width y height están acoplados
+  // (size = max(width, needed)), y realimentar el ancho con el alto del texto
+  // producía un bucle de renders que nunca converge (el texto reflowa distinto
+  // a cada ancho) → "Maximum update depth exceeded" al intentar achicarlos.
+  // El tamaño del círculo lo maneja SOLO el handle de resize; el texto se
+  // centra adentro. Esto arregla el crash al achicar un círculo.
+  const isCircle = node.shape === 'circle'
 
   const [draft, setDraft] = useState(node.text)
   useEffect(() => { setDraft(node.text) }, [node.text, editing])
@@ -1691,7 +1698,7 @@ function NodeBox({
   useEffect(() => { onAutoGrowHeightRef.current = onAutoGrowHeight }, [onAutoGrowHeight])
 
   useLayoutEffect(() => {
-    if (isImage) return  // los nodos imagen no auto-crecen por texto
+    if (isImage || isCircle) return  // imagen/círculo no auto-crecen por texto
     if (!editing) return
     const ta = textareaRef.current
     if (!ta) return
@@ -1716,7 +1723,7 @@ function NodeBox({
   // h-full, que devolvería siempre la altura actual del box).
   const viewMeasureRef = useRef<HTMLDivElement | null>(null)
   useLayoutEffect(() => {
-    if (isImage) return  // altura controlada por el resize con aspect lock
+    if (isImage || isCircle) return  // altura controlada por el resize (no por texto)
     if (editing) return
     const el = viewMeasureRef.current
     if (!el) return
