@@ -10,7 +10,7 @@
  * Reusa los patrones de MindMapCanvas (transform pan/zoom + pointer-capture
  * drag), pero con nodos-tarjeta a medida en vez de cajas de texto.
  */
-import { useRef, useState, useEffect, useCallback } from 'react'
+import { useRef, useState, useEffect, useCallback, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Plus, Trash2, ZoomIn, ZoomOut, Hand, Pencil, ChevronDown, ChevronUp,
@@ -166,6 +166,19 @@ export function ConceptMapCanvas({ materiaId, accent }: { materiaId: string; acc
     setOpenId(id)
   }
 
+  // Ir a un concepto por id (click en un link @concepto): lo centra y lo abre.
+  // Si el filtro de área lo oculta, lo limpiamos para que se vea.
+  const navigateToConcept = (conceptId: string) => {
+    const c = map.concepts.find((x) => x.id === conceptId)
+    if (!c) return
+    if (areaFilter && c.areaId !== areaFilter) setAreaFilter(null)
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (rect) {
+      setPan({ x: rect.width / 2 - (c.x + (c.w ?? NODE_WIDTH) / 2) * zoom, y: rect.height / 2 - (c.y + 30) * zoom })
+    }
+    setOpenId(conceptId)
+  }
+
   const zoomBy = (mult: number) => {
     const el = canvasRef.current; if (!el) return
     const rect = el.getBoundingClientRect()
@@ -231,6 +244,8 @@ export function ConceptMapCanvas({ materiaId, accent }: { materiaId: string; acc
                 area={c.areaId ? areaById.get(c.areaId) ?? null : null}
                 areas={map.areas}
                 open={openId === c.id}
+                allConcepts={map.concepts}
+                onNavigate={navigateToConcept}
                 onToggle={() => setOpenId((id) => (id === c.id ? null : c.id))}
                 onPointerDownHeader={(e) => startNodeDrag(e, c)}
                 onPointerDownResize={(e) => startNodeResize(e, c)}
@@ -350,13 +365,15 @@ function AreaLegend({
 // ─── Nodo-concepto ────────────────────────────────────────────────────────────
 
 function ConceptNode({
-  materiaId, concept, area, areas, open, onToggle, onPointerDownHeader, onPointerDownResize,
+  materiaId, concept, area, areas, open, allConcepts, onNavigate, onToggle, onPointerDownHeader, onPointerDownResize,
 }: {
   materiaId: string
   concept: Concept
   area: ConceptArea | null
   areas: ConceptArea[]
   open: boolean
+  allConcepts: Concept[]
+  onNavigate: (conceptId: string) => void
   onToggle: () => void
   onPointerDownHeader: (e: React.PointerEvent) => void
   onPointerDownResize: (e: React.PointerEvent) => void
@@ -466,12 +483,14 @@ function ConceptNode({
                           className="p-0.5 text-zinc-600 hover:text-red-400 shrink-0"><Trash2 className="w-3 h-3" /></button>
                       )}
                     </div>
-                    <textarea
-                      value={src.body}
-                      onChange={(e) => updateSource(materiaId, concept.id, src.id, { body: e.target.value })}
+                    <SourceBody
+                      materiaId={materiaId}
+                      conceptId={concept.id}
+                      source={src}
                       placeholder={i === 0 ? 'Explicación del concepto…' : 'La mirada de este autor…'}
-                      rows={3}
-                      className="w-full bg-transparent text-[12px] text-zinc-200 leading-relaxed placeholder-zinc-600 focus:outline-none resize-y"
+                      allConcepts={allConcepts}
+                      selfId={concept.id}
+                      onNavigate={onNavigate}
                     />
                   </div>
                 ))}
@@ -525,6 +544,128 @@ function ConceptNode({
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+// ─── Cuerpo del aporte: click-para-editar + @menciones a conceptos ────────────
+
+/** Renderiza el body reemplazando los tokens `[[conceptId]]` por links
+ *  clickeables con el título ACTUAL del concepto (así renombrar propaga). */
+function renderBody(body: string, allConcepts: Concept[], onNavigate: (id: string) => void): ReactNode {
+  const re = /\[\[([^\]]+)\]\]/g
+  const out: ReactNode[] = []
+  let last = 0
+  let m: RegExpExecArray | null
+  let k = 0
+  while ((m = re.exec(body)) !== null) {
+    if (m.index > last) out.push(<span key={`t${k}`}>{body.slice(last, m.index)}</span>)
+    const id = m[1]
+    const c = allConcepts.find((x) => x.id === id)
+    out.push(
+      <button
+        key={`l${k}`}
+        onClick={(e) => { e.stopPropagation(); onNavigate(id) }}
+        onPointerDown={(e) => e.stopPropagation()}
+        title="Ir al concepto"
+        className="text-fuchsia-300 hover:text-fuchsia-200 underline decoration-fuchsia-400/40 hover:decoration-fuchsia-300 font-medium"
+      >
+        {c ? (c.title.trim() || 'concepto') : 'concepto?'}
+      </button>,
+    )
+    last = re.lastIndex
+    k++
+  }
+  if (last < body.length) out.push(<span key={`t${k}`}>{body.slice(last)}</span>)
+  return out
+}
+
+function SourceBody({
+  materiaId, conceptId, source, placeholder, allConcepts, selfId, onNavigate,
+}: {
+  materiaId: string
+  conceptId: string
+  source: ConceptSource
+  placeholder: string
+  allConcepts: Concept[]
+  selfId: string
+  onNavigate: (conceptId: string) => void
+}) {
+  const updateSource = useConceptStore((s) => s.updateSource)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(source.body)
+  const [mention, setMention] = useState<{ query: string; at: number } | null>(null)
+  const taRef = useRef<HTMLTextAreaElement | null>(null)
+  useEffect(() => { if (!editing) setDraft(source.body) }, [source.body, editing])
+
+  const commit = () => {
+    setEditing(false)
+    setMention(null)
+    if (draft !== source.body) updateSource(materiaId, conceptId, source.id, { body: draft })
+  }
+
+  const onChange = (value: string, cursor: number) => {
+    setDraft(value)
+    const before = value.slice(0, cursor)
+    const m = before.match(/@([^\n@[\]]{0,40})$/)
+    setMention(m ? { query: m[1], at: cursor - m[0].length } : null)
+  }
+
+  const insertConcept = (c: Concept) => {
+    if (!mention) return
+    const token = `[[${c.id}]] `
+    const next = draft.slice(0, mention.at) + token + draft.slice(mention.at + 1 + mention.query.length)
+    setDraft(next)
+    setMention(null)
+    requestAnimationFrame(() => taRef.current?.focus())
+  }
+
+  const q = mention?.query.trim().toLowerCase() ?? ''
+  const suggestions = mention
+    ? allConcepts.filter((c) => c.id !== selfId && c.title.trim() && (q === '' || c.title.toLowerCase().includes(q))).slice(0, 6)
+    : []
+
+  if (!editing) {
+    return (
+      <div
+        onClick={() => setEditing(true)}
+        className="w-full text-[12px] text-zinc-200 leading-relaxed cursor-text min-h-[2.25rem] whitespace-pre-wrap break-words"
+      >
+        {source.body.trim() ? renderBody(source.body, allConcepts, onNavigate) : <span className="text-zinc-600">{placeholder}</span>}
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative">
+      <textarea
+        ref={taRef}
+        autoFocus
+        value={draft}
+        onChange={(e) => onChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (mention && suggestions.length > 0 && (e.key === 'Enter' || e.key === 'Tab')) {
+            e.preventDefault(); insertConcept(suggestions[0]); return
+          }
+          if (e.key === 'Escape') setMention(null)
+        }}
+        placeholder={`${placeholder}  ·  @ enlaza un concepto`}
+        rows={3}
+        className="w-full bg-transparent text-[12px] text-zinc-200 leading-relaxed placeholder-zinc-600 focus:outline-none resize-y"
+      />
+      {mention && suggestions.length > 0 && (
+        <div className="absolute z-40 left-0 top-full mt-0.5 min-w-[170px] max-h-44 overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1">
+          <p className="px-2.5 py-0.5 text-[9px] font-mono uppercase tracking-wider text-zinc-600">Enlazar concepto</p>
+          {suggestions.map((c) => (
+            <button key={c.id}
+              onMouseDown={(e) => { e.preventDefault(); insertConcept(c) }}
+              className="w-full flex items-center gap-1.5 px-2.5 py-1 text-left text-[12px] text-zinc-200 hover:bg-white/[0.06]">
+              <Tag className="w-3 h-3 text-zinc-500 shrink-0" /> <span className="truncate">{c.title.trim() || 'Sin título'}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
