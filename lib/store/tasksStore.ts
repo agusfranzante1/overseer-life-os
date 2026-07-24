@@ -11,6 +11,15 @@ function genId() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
 }
 
+/** Id DETERMINISTA para una instancia recurrente = madre + fecha. Clave para
+ *  el multi-device: si dos dispositivos spawnean la MISMA ocurrencia (mismo
+ *  día de la misma serie), generan el MISMO id → el merge del sync las fusiona
+ *  en vez de duplicarlas. Antes se usaba `genId()` (random) y cada device creaba
+ *  una copia distinta de la misma tarea → "aparecen 2 por día". */
+function recurringInstanceId(motherId: string, dueDate: string): string {
+  return `rec_${motherId}_${dueDate}`
+}
+
 function today() {
   return new Date().toISOString().split('T')[0]
 }
@@ -83,6 +92,12 @@ interface TasksState {
    *  igual la siguiente aparece sola en su nueva fecha — no perdés el
    *  hilo. Devuelve cuántas instancias nuevas se crearon. */
   ensureRecurringSpawns: (todayKey: string) => number
+  /** Limpia duplicados de instancias recurrentes: si hay 2+ tareas de la MISMA
+   *  serie (recurringHeadId, o projectId+título legacy) con la MISMA dueDate,
+   *  conserva una (prioriza la completada; a igualdad, el id más chico) y borra
+   *  el resto. Determinista → converge entre dispositivos. Idempotente. Devuelve
+   *  cuántas borró. Arregla el "aparecen 2 por día" de spawns multi-device. */
+  dedupeRecurringInstances: () => number
   /** Llena el buffer de instancias recurrentes para la TASK ID dada
    *  hasta tener `lookaheadCount` instancias chained. Idempotente —
    *  si la cadena ya está completa, no hace nada. Se llama al crear
@@ -568,7 +583,8 @@ export const useTasksStore = create<TasksState>()(
               prevDue = next
               continue
             }
-            const newId = genId()
+            const newId = recurringInstanceId(motherId, next)
+            if (tasks[newId]) { prevDue = next; continue }   // id determinista ya presente
             const proj = projects[mother.projectId]
             const todoStatus = proj?.statuses[0]?.label ?? 'To Do'
             // SPAWN desde la MADRE — su título, dueTime, durationMinutes,
@@ -1224,7 +1240,8 @@ export const useTasksStore = create<TasksState>()(
             const dupe = arr.some((t) => t.dueDate === nextDueDate)
             if (dupe) continue
 
-            const newId = genId()
+            const newId = recurringInstanceId(motherId, nextDueDate)
+            if (tasks[newId]) continue   // ya existe (id determinista) → no duplicar
             const proj = s.projects[mother.projectId]
             const todoStatus = proj?.statuses[0]?.label ?? 'To Do'
             const freshSubs: Subtask[] = (mother.subtasks ?? [])
@@ -1281,6 +1298,50 @@ export const useTasksStore = create<TasksState>()(
           get().ensureRecurringBuffer(newId, 14, 2, realTodayKey)
         }
         return spawned
+      },
+
+      dedupeRecurringInstances: () => {
+        let removed = 0
+        set((s) => {
+          // Agrupar por (serie, dueDate). Serie = recurringHeadId, o legacy
+          // projectId::título. Solo instancias vivas (no archivadas) con fecha.
+          const groups = new Map<string, Task[]>()
+          for (const t of Object.values(s.tasks)) {
+            if (!t.recurrence || !t.dueDate || t.archivedAt) continue
+            const series = t.recurringHeadId ? `head:${t.recurringHeadId}` : `legacy:${t.projectId}::${t.title}`
+            const key = `${series}@@${t.dueDate}`
+            if (!groups.has(key)) groups.set(key, [])
+            groups.get(key)!.push(t)
+          }
+          const toRemove = new Set<string>()
+          for (const arr of groups.values()) {
+            if (arr.length < 2) continue
+            // Keep determinista: completada primero (preserva historial), luego id más chico.
+            const keeper = [...arr].sort((a, b) => {
+              const ca = a.completedAt ? 0 : 1
+              const cb = b.completedAt ? 0 : 1
+              if (ca !== cb) return ca - cb
+              return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+            })[0]
+            for (const t of arr) if (t.id !== keeper.id) toRemove.add(t.id)
+          }
+          if (toRemove.size === 0) return s
+          const tasks = { ...s.tasks }
+          const projects = { ...s.projects }
+          for (const id of toRemove) {
+            const t = tasks[id]
+            delete tasks[id]
+            if (t && projects[t.projectId]) {
+              projects[t.projectId] = {
+                ...projects[t.projectId],
+                taskIds: (projects[t.projectId].taskIds ?? []).filter((tid) => tid !== id),
+              }
+            }
+          }
+          removed = toRemove.size
+          return { tasks, projects }
+        })
+        return removed
       },
 
       restoreFromArchive: (id) =>

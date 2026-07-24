@@ -95,6 +95,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const spawnAdvanceDow = useAppStore((s) => s.recurringSpawnAdvanceDayOfWeek)
   const archiveCompletedBefore = useTasksStore((s) => s.archiveCompletedBefore)
   const ensureRecurringSpawns = useTasksStore((s) => s.ensureRecurringSpawns)
+  const dedupeRecurringInstances = useTasksStore((s) => s.dedupeRecurringInstances)
   const migrateRecurringHeads = useTasksStore((s) => s.migrateRecurringHeads)
   const ensureWaitingStatusInAllProjects = useTasksStore((s) => s.ensureWaitingStatusInAllProjects)
   const processRecurringExpenses = useWalletStore((s) => s.processRecurringExpenses)
@@ -176,6 +177,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         new Date(), timezone, spawnAdvanceDow, spawnAdvanceHour,
       )
       ensureRecurringSpawns(effectiveTodayKey)
+      // Limpia duplicados de recurrentes (mismas serie+fecha) que hayan quedado
+      // de spawns multi-device con ids random. Idempotente y determinista.
+      dedupeRecurringInstances()
       // Tras spawnear instancias recurrentes, adjuntá las que sean de origen
       // SPI al listado de la sesión de su semana (heredando ⭐/⚡).
       reconcileRecurringSpiTasks()
@@ -234,7 +238,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if (midnightTimer) clearTimeout(midnightTimer)
       clearInterval(safetyInterval)
     }
-  }, [timezone, autoPurgeCompletedTasks, archiveCompletedBefore, ensureRecurringSpawns, reconcileRecurringSpiTasks, spawnAdvanceDow, spawnAdvanceHour])
+  }, [timezone, autoPurgeCompletedTasks, archiveCompletedBefore, ensureRecurringSpawns, dedupeRecurringInstances, reconcileRecurringSpiTasks, spawnAdvanceDow, spawnAdvanceHour])
 
   // Process recurring wallet expenses (suscripciones / pagos recurrentes).
   // Same pattern as task auto-purge: run on mount + 10s delayed (post-Supabase
