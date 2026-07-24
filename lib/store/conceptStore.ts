@@ -45,7 +45,7 @@ interface State {
 
   // ── Aportes (autores) de un concepto ──
   addSource: (materiaId: string, conceptId: string, author?: string) => string
-  updateSource: (materiaId: string, conceptId: string, sourceId: string, patch: Partial<Pick<ConceptSource, 'author' | 'body'>>) => void
+  updateSource: (materiaId: string, conceptId: string, sourceId: string, patch: Partial<Pick<ConceptSource, 'author' | 'authorId' | 'body'>>) => void
   removeSource: (materiaId: string, conceptId: string, sourceId: string) => void
 }
 

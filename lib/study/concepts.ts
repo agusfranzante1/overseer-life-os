@@ -21,8 +21,13 @@ export interface ConceptArea {
  *  (ej. "Disciplina") puede tener varios aportes de distintas personas. */
 export interface ConceptSource {
   id: string
-  /** Autor / fuente del aporte (ej. "Goggins", "Jocko"). */
+  /** Autor / fuente del aporte (ej. "Goggins", "Jocko"). Nombre denormalizado
+   *  (se muestra tal cual si no hay `authorId`, o como fallback). */
   author: string
+  /** Si está seteado, referencia a un StudyAuthor del registro de la carrera.
+   *  El nombre a mostrar se resuelve desde ahí → renombrar el autor una vez
+   *  actualiza todos los aportes. Es la "variable" del autor. */
+  authorId?: string
   /** La explicación de ese autor sobre el concepto. */
   body: string
 }

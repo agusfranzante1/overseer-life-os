@@ -23,6 +23,13 @@ interface StudyState {
   updateCarrera: (id: string, patch: Partial<Omit<Carrera, 'id' | 'createdAt'>>) => void
   deleteCarrera: (id: string) => void
 
+  // ── Autores (registro reutilizable por carrera) ──
+  /** Crea (o reutiliza si ya existe por nombre, case-insensitive) un autor en
+   *  la carrera. Devuelve su id. */
+  addAuthor: (carreraId: string, name: string) => string
+  renameAuthor: (carreraId: string, authorId: string, name: string) => void
+  removeAuthor: (carreraId: string, authorId: string) => void
+
   // ── Materia ──
   addMateria: (args: { carreraId: string; name: string; icon?: string; color?: string; profesor?: string; codigo?: string; cuatrimestre?: string; mode?: 'checklist' | 'conceptos' }) => string
   updateMateria: (id: string, patch: Partial<Omit<Materia, 'id' | 'carreraId' | 'createdAt'>>) => void
@@ -81,6 +88,33 @@ export const useStudyStore = create<StudyState>()(
           temas: s.temas.filter((t) => !parIds.has(t.parcialId)),
         }
       }),
+
+      // ── Autores (registro por carrera) ───────────────────────────────────
+      addAuthor: (carreraId, name) => {
+        const trimmed = name.trim()
+        const existing = get().carreras.find((c) => c.id === carreraId)?.authors
+          ?.find((a) => a.name.trim().toLowerCase() === trimmed.toLowerCase())
+        if (existing) return existing.id
+        const id = genId()
+        set((s) => ({
+          carreras: s.carreras.map((c) => c.id !== carreraId ? c : {
+            ...c, authors: [...(c.authors ?? []), { id, name: trimmed }], updatedAt: now(),
+          }),
+        }))
+        return id
+      },
+      renameAuthor: (carreraId, authorId, name) => set((s) => ({
+        carreras: s.carreras.map((c) => c.id !== carreraId ? c : {
+          ...c,
+          authors: (c.authors ?? []).map((a) => a.id !== authorId ? a : { ...a, name: name.trim() }),
+          updatedAt: now(),
+        }),
+      })),
+      removeAuthor: (carreraId, authorId) => set((s) => ({
+        carreras: s.carreras.map((c) => c.id !== carreraId ? c : {
+          ...c, authors: (c.authors ?? []).filter((a) => a.id !== authorId), updatedAt: now(),
+        }),
+      })),
 
       // ── Materia ──────────────────────────────────────────────────────────
       addMateria: ({ carreraId, name, icon, color, profesor, codigo, cuatrimestre, mode }) => {

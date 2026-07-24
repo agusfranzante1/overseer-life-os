@@ -66,6 +66,17 @@ export interface Materia {
   updatedAt: string
 }
 
+/** Autor reutilizable de una carrera — "variable" para no repetir el nombre en
+ *  cada aporte del mapa de conceptos. Vive en la Carrera (se comparte entre
+ *  TODAS sus materias). Renombrarlo acá actualiza todos los aportes que lo
+ *  referencian por `authorId`. */
+export interface StudyAuthor {
+  id: string
+  name: string
+  /** Color de acento opcional para el chip del autor. */
+  color?: string
+}
+
 /** Carrera — nivel raíz del módulo de estudio. */
 export interface Carrera {
   id: string
@@ -73,6 +84,8 @@ export interface Carrera {
   icon?: string
   color?: string
   institucion?: string
+  /** Registro de autores reutilizables (compartido por todas las materias). */
+  authors?: StudyAuthor[]
   sortOrder: number
   createdAt: string
   updatedAt: string

@@ -17,11 +17,28 @@ import {
   Tag, User, Check, UserPlus,
 } from 'lucide-react'
 import { useConceptStore } from '@/lib/store/conceptStore'
-import { AREA_PALETTE, authorsLabel, NODE_W_DEFAULT, NODE_W_MIN, NODE_W_MAX, type Concept, type ConceptArea } from '@/lib/study/concepts'
+import { useStudyStore } from '@/lib/store/studyStore'
+import { AREA_PALETTE, NODE_W_DEFAULT, NODE_W_MIN, NODE_W_MAX, type Concept, type ConceptArea, type ConceptSource } from '@/lib/study/concepts'
+import type { StudyAuthor } from '@/lib/study/types'
 
 const ZOOM_MIN = 0.35
 const ZOOM_MAX = 2.5
 const NODE_WIDTH = NODE_W_DEFAULT
+// Referencia estable para cuando la carrera aún no tiene autores (evita re-renders).
+const EMPTY_AUTHORS: StudyAuthor[] = []
+
+/** Nombre a mostrar de un aporte: resuelve `authorId` contra el registro de la
+ *  carrera (así renombrar un autor propaga), con fallback al `author` guardado. */
+function sourceAuthorName(src: ConceptSource, authors: StudyAuthor[]): string {
+  return (src.authorId ? authors.find((a) => a.id === src.authorId)?.name : undefined) ?? src.author ?? ''
+}
+/** Etiqueta corta de autores del concepto (resuelta contra el registro). */
+function resolvedAuthorsLabel(sources: ConceptSource[], authors: StudyAuthor[]): string {
+  const names = sources.map((s) => sourceAuthorName(s, authors).trim()).filter(Boolean)
+  if (names.length === 0) return ''
+  if (names.length <= 2) return names.join(' · ')
+  return `${names[0]} · ${names[1]} +${names.length - 2}`
+}
 
 export function ConceptMapCanvas({ materiaId, accent }: { materiaId: string; accent: string }) {
   const ensureMap = useConceptStore((s) => s.ensureMap)
@@ -350,9 +367,12 @@ function ConceptNode({
   const addSource = useConceptStore((s) => s.addSource)
   const updateSource = useConceptStore((s) => s.updateSource)
   const removeSource = useConceptStore((s) => s.removeSource)
+  // Carrera de esta materia + su registro de autores reutilizables.
+  const carreraId = useStudyStore((s) => s.materias.find((m) => m.id === materiaId)?.carreraId ?? null)
+  const carreraAuthors = useStudyStore((s) => s.carreras.find((c) => c.id === carreraId)?.authors) ?? EMPTY_AUTHORS
   const [areaMenu, setAreaMenu] = useState(false)
   const color = area?.color ?? '#71717a'
-  const authors = authorsLabel(concept)
+  const authorNames = resolvedAuthorsLabel(concept.sources ?? [], carreraAuthors)
   const sources = concept.sources ?? []
 
   return (
@@ -394,9 +414,9 @@ function ConceptNode({
           <p className={`text-[13px] font-semibold leading-snug break-words ${concept.studied ? 'text-zinc-400' : 'text-white'}`}>
             {concept.title.trim() || <span className="text-zinc-500 italic font-normal">Sin título</span>}
           </p>
-          {authors && (
+          {authorNames && (
             <p className="flex items-center gap-1 text-[11px] text-zinc-400 mt-0.5">
-              <User className="w-3 h-3 shrink-0" style={{ color }} /> {authors}
+              <User className="w-3 h-3 shrink-0" style={{ color }} /> {authorNames}
             </p>
           )}
         </div>
@@ -434,11 +454,12 @@ function ConceptNode({
                   <div key={src.id} className="rounded-lg bg-zinc-950/50 border border-white/[0.07] p-2 space-y-1.5">
                     <div className="flex items-center gap-1.5">
                       <User className="w-3 h-3 text-zinc-500 shrink-0" />
-                      <input
-                        value={src.author}
-                        onChange={(e) => updateSource(materiaId, concept.id, src.id, { author: e.target.value })}
-                        placeholder="Autor / fuente"
-                        className="flex-1 min-w-0 bg-transparent text-[12px] font-medium text-zinc-200 placeholder-zinc-600 focus:outline-none"
+                      <AuthorInput
+                        materiaId={materiaId}
+                        conceptId={concept.id}
+                        source={src}
+                        carreraId={carreraId}
+                        authors={carreraAuthors}
                       />
                       {sources.length > 1 && (
                         <button onClick={() => removeSource(materiaId, concept.id, src.id)} title="Quitar aporte"
@@ -504,6 +525,75 @@ function ConceptNode({
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+// ─── Autor con autocompletar (registro reutilizable de la carrera) ────────────
+
+function AuthorInput({
+  materiaId, conceptId, source, carreraId, authors,
+}: {
+  materiaId: string
+  conceptId: string
+  source: ConceptSource
+  carreraId: string | null
+  authors: StudyAuthor[]
+}) {
+  const updateSource = useConceptStore((s) => s.updateSource)
+  const addAuthor = useStudyStore((s) => s.addAuthor)
+  const resolvedName = sourceAuthorName(source, authors)
+  const [draft, setDraft] = useState(resolvedName)
+  const [open, setOpen] = useState(false)
+  // Re-sincronizar si el nombre cambia desde afuera (renombre en el registro).
+  useEffect(() => { setDraft(resolvedName) }, [resolvedName])
+
+  const q = draft.trim().toLowerCase()
+  const suggestions = authors
+    .filter((a) => a.name.trim() && (q === '' || a.name.toLowerCase().includes(q)))
+    .filter((a) => a.name.trim().toLowerCase() !== q)
+    .slice(0, 6)
+
+  const commit = (name: string) => {
+    const n = name.trim()
+    if (!n) { updateSource(materiaId, conceptId, source.id, { author: '', authorId: undefined }); return }
+    const existing = authors.find((a) => a.name.trim().toLowerCase() === n.toLowerCase())
+    const id = existing ? existing.id : (carreraId ? addAuthor(carreraId, n) : undefined)
+    updateSource(materiaId, conceptId, source.id, { author: n, authorId: id })
+  }
+  const pick = (a: StudyAuthor) => {
+    setDraft(a.name)
+    updateSource(materiaId, conceptId, source.id, { author: a.name, authorId: a.id })
+    setOpen(false)
+  }
+
+  return (
+    <div className="relative flex-1 min-w-0">
+      <input
+        value={draft}
+        onChange={(e) => { setDraft(e.target.value); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => { setOpen(false); commit(draft) }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); commit(draft); setOpen(false); (e.target as HTMLInputElement).blur() }
+          if (e.key === 'Escape') { setOpen(false) }
+        }}
+        placeholder="Autor / fuente"
+        className="w-full min-w-0 bg-transparent text-[12px] font-medium text-zinc-200 placeholder-zinc-600 focus:outline-none"
+      />
+      {open && suggestions.length > 0 && (
+        <div className="absolute z-40 top-full left-0 mt-1 min-w-[150px] max-h-40 overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1">
+          <p className="px-2.5 py-0.5 text-[9px] font-mono uppercase tracking-wider text-zinc-600">Autores de la carrera</p>
+          {suggestions.map((a) => (
+            <button key={a.id}
+              // onMouseDown (no onClick) para ganarle al onBlur del input.
+              onMouseDown={(e) => { e.preventDefault(); pick(a) }}
+              className="w-full flex items-center gap-1.5 px-2.5 py-1 text-left text-[12px] text-zinc-200 hover:bg-white/[0.06] transition-colors">
+              <User className="w-3 h-3 text-zinc-500 shrink-0" /> <span className="truncate">{a.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

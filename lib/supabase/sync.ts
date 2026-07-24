@@ -2794,6 +2794,7 @@ async function pullStudy(): Promise<boolean> {
     return {
       id: c.id ?? (r as Row).id as string, name: c.name ?? 'Carrera',
       icon: c.icon, color: c.color, institucion: c.institucion,
+      ...(Array.isArray(c.authors) ? { authors: c.authors } : {}),
       sortOrder: c.sortOrder ?? 0, createdAt: c.createdAt ?? nowIso(), updatedAt: c.updatedAt ?? nowIso(),
     }
   })
