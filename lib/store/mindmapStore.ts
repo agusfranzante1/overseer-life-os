@@ -10,10 +10,13 @@ function genId(): string {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /** Visual shape used to render a node.
- *   - 'rect'   → rounded rectangle (default, current behavior)
- *   - 'circle' → ellipse inscribed in the bounding box (becomes a true
- *                circle when width === height) */
-export type MindMapNodeShape = 'rect' | 'circle'
+ *   - 'rect'    → rounded rectangle (default, current behavior)
+ *   - 'circle'  → ellipse inscribed in the bounding box (becomes a true
+ *                 circle when width === height)
+ *   - 'bracket' → corchete/llave/paréntesis vectorizado (SVG) para AGRUPAR
+ *                 visualmente. No tiene texto; su tipo y orientación viven en
+ *                 `bracketKind` / `bracketDir`. */
+export type MindMapNodeShape = 'rect' | 'circle' | 'bracket'
 
 export interface MindMapNode {
   id: string
@@ -27,6 +30,9 @@ export interface MindMapNode {
   /** Optional shape. Undefined = 'rect' for back-compat with maps created
    *  before this field existed. */
   shape?: MindMapNodeShape
+  /** Solo para shape==='bracket': qué corchete y hacia dónde abre. */
+  bracketKind?: import('@/lib/mindmap/brackets').BracketKind   // 'square' | 'curly' | 'round'
+  bracketDir?: import('@/lib/mindmap/brackets').BracketDir     // 'left' | 'right' | 'top' | 'bottom'
   /** Optional text size in pixels. Undefined = 14 (text-sm) for back-compat
    *  with maps created before this field existed. The user can bump it from
    *  the toolbar; auto-grow logic factors it into the measured height. */

@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import {
   Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight, ZoomIn, ZoomOut, Square, Circle, Type, Copy, Link2, Image as ImageIcon, Loader2,
+  Brackets, Braces, Parentheses, RotateCw,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter,
@@ -12,6 +13,7 @@ import {
   type MindMapAlignMode, type MindMapDistributeAxis,
 } from '@/lib/store/mindmapStore'
 import { uploadMindmapImage } from '@/lib/mindmap/imageUpload'
+import { bracketPath, type BracketKind, type BracketDir } from '@/lib/mindmap/brackets'
 import {
   buildEdgePath, computeEdgeEndpoints, computeDrawingEndpoints, computeEdgeBreakpoints,
 } from './edgeGeometry'
@@ -627,6 +629,9 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     const startW = node.width
     const startH = node.height
     const isCircle = node.shape === 'circle'
+    // El bracket se redimensiona LIBRE en ancho y alto (puede ser flaco y alto,
+    // o ancho y bajo). No tiene texto que lo condicione.
+    const isBracketNode = node.shape === 'bracket'
     // Los nodos imagen (no-círculo) conservan su aspect ratio al redimensionar
     // para que la foto nunca se deforme. El círculo ya fuerza 1:1 más abajo.
     const isAspectLocked = !!node.imageUrl && !isCircle
@@ -656,6 +661,11 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
         let h = w / aspect
         if (h < NODE_MIN_HEIGHT) { h = NODE_MIN_HEIGHT; w = h * aspect }
         updateNode(mapId, node.id, { width: Math.round(w), height: Math.round(h) })
+      } else if (isBracketNode) {
+        // Bracket: ancho y alto libres (mínimos chicos porque suelen ser flacos).
+        const w = Math.max(24, startW + dx)
+        const h = Math.max(24, startH + dy)
+        updateNode(mapId, node.id, { width: w, height: h })
       } else {
         // Nodo de texto: SOLO ancho manual. La altura la maneja 100% el
         // auto-grow del texto (crece con el contenido / los enters). Así el
@@ -814,7 +824,24 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
           for (const id of selectedNodeIds) updateNode(mapId, id, { color })
         }}
         onChangeNodeShape={(shape) => {
-          for (const id of selectedNodeIds) setNodeShape(mapId, id, shape)
+          for (const id of selectedNodeIds) {
+            setNodeShape(mapId, id, shape)
+            if (shape === 'bracket') {
+              const n = map.nodes.find((x) => x.id === id)
+              const patch: Partial<MindMapNode> = {}
+              if (!n?.bracketKind) patch.bracketKind = 'square'
+              if (!n?.bracketDir) patch.bracketDir = 'left'
+              // Si venía de una caja ancha/baja, lo hacemos vertical y flaco.
+              if (n && n.height <= n.width) { patch.width = 46; patch.height = 170 }
+              if (Object.keys(patch).length) updateNode(mapId, id, patch)
+            }
+          }
+        }}
+        onChangeBracketKind={(kind) => {
+          for (const id of selectedNodeIds) updateNode(mapId, id, { bracketKind: kind })
+        }}
+        onChangeBracketDir={(dir) => {
+          for (const id of selectedNodeIds) updateNode(mapId, id, { bracketDir: dir })
         }}
         onChangeNodeFontSize={(fontSize) => {
           for (const id of selectedNodeIds) setNodeFontSize(mapId, id, fontSize)
@@ -1129,9 +1156,9 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
                 }}
                 onClick={(modifierKey) => handleNodeClick(node.id, { multi: modifierKey })}
                 onDoubleClick={() => {
-                  // Los nodos imagen no tienen texto editable — doble-click
+                  // Imágenes y brackets no tienen texto editable — doble-click
                   // solo selecciona (no abre textarea).
-                  if (node.imageUrl) { selectOnlyNode(node.id); return }
+                  if (node.imageUrl || node.shape === 'bracket') { selectOnlyNode(node.id); return }
                   setEditingNodeId(node.id)
                   selectOnlyNode(node.id)
                 }}
@@ -1243,7 +1270,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
 
 function Toolbar({
   selectedNode, selectedEdge, selectedNodeCount, selectedNodesColor,
-  onChangeNodeColor, onChangeNodeShape, onChangeNodeFontSize, onChangeEdgeShape, onAlign, onDistribute, onDeleteSelection, onAddNode, onAddImage, uploadingImage, onResetPan,
+  onChangeNodeColor, onChangeNodeShape, onChangeBracketKind, onChangeBracketDir, onChangeNodeFontSize, onChangeEdgeShape, onAlign, onDistribute, onDeleteSelection, onAddNode, onAddImage, uploadingImage, onResetPan,
   zoom, onZoomIn, onZoomOut,
 }: {
   selectedNode: MindMapNode | null
@@ -1255,6 +1282,8 @@ function Toolbar({
   selectedNodesColor: string
   onChangeNodeColor: (color: string) => void
   onChangeNodeShape: (shape: MindMapNodeShape) => void
+  onChangeBracketKind: (kind: BracketKind) => void
+  onChangeBracketDir: (dir: BracketDir) => void
   onChangeNodeFontSize: (fontSize: number | undefined) => void
   onChangeEdgeShape: (shape: MindMapEdgeShape) => void
   onAlign: (mode: MindMapAlignMode) => void
@@ -1330,10 +1359,22 @@ function Toolbar({
                 current={selectedNode.shape ?? 'rect'}
                 onChange={onChangeNodeShape}
               />
-              <FontSizePicker
-                current={selectedNode.fontSize ?? DEFAULT_FONT_SIZE}
-                onChange={onChangeNodeFontSize}
-              />
+              {/* Controles extra solo cuando el nodo es un bracket: tipo + dirección */}
+              {selectedNode.shape === 'bracket' && (
+                <BracketOptions
+                  kind={selectedNode.bracketKind ?? 'square'}
+                  dir={selectedNode.bracketDir ?? 'left'}
+                  onChangeKind={onChangeBracketKind}
+                  onChangeDir={onChangeBracketDir}
+                />
+              )}
+              {/* La fuente no aplica a brackets (no tienen texto). */}
+              {selectedNode.shape !== 'bracket' && (
+                <FontSizePicker
+                  current={selectedNode.fontSize ?? DEFAULT_FONT_SIZE}
+                  onChange={onChangeNodeFontSize}
+                />
+              )}
               <ColorPickerInline
                 currentColor={selectedNode.color ?? DEFAULT_NODE_COLOR}
                 onChange={onChangeNodeColor}
@@ -1469,8 +1510,9 @@ function NodeShapePicker({
   current, onChange,
 }: { current: MindMapNodeShape; onChange: (s: MindMapNodeShape) => void }) {
   const buttons: { key: MindMapNodeShape; label: string; Icon: typeof Square }[] = [
-    { key: 'rect',   label: 'Rectángulo', Icon: Square },
-    { key: 'circle', label: 'Círculo',    Icon: Circle },
+    { key: 'rect',    label: 'Rectángulo', Icon: Square },
+    { key: 'circle',  label: 'Círculo',    Icon: Circle },
+    { key: 'bracket', label: 'Corchete',   Icon: Brackets },
   ]
   return (
     <div className="flex items-center gap-0.5 bg-zinc-950/60 border border-zinc-800 rounded-lg p-0.5">
@@ -1492,6 +1534,55 @@ function NodeShapePicker({
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/** Controles del bracket: tipo (corchete/llave/paréntesis) + botón que rota la
+ *  dirección (left → top → right → bottom → left). Solo visible cuando el nodo
+ *  seleccionado es un bracket. */
+function BracketOptions({
+  kind, dir, onChangeKind, onChangeDir,
+}: {
+  kind: BracketKind
+  dir: BracketDir
+  onChangeKind: (k: BracketKind) => void
+  onChangeDir: (d: BracketDir) => void
+}) {
+  const kinds: { key: BracketKind; label: string; Icon: typeof Square }[] = [
+    { key: 'square', label: 'Corchete [ ]',  Icon: Brackets },
+    { key: 'curly',  label: 'Llave { }',      Icon: Braces },
+    { key: 'round',  label: 'Paréntesis ( )', Icon: Parentheses },
+  ]
+  const rotate = () => {
+    const order: BracketDir[] = ['left', 'top', 'right', 'bottom']
+    const i = order.indexOf(dir)
+    onChangeDir(order[(i + 1) % order.length])
+  }
+  return (
+    <div className="flex items-center gap-0.5 bg-zinc-950/60 border border-zinc-800 rounded-lg p-0.5">
+      {kinds.map(({ key, label, Icon }) => (
+        <button
+          key={key}
+          onClick={() => onChangeKind(key)}
+          title={label}
+          onPointerDown={(e) => e.stopPropagation()}
+          className={`px-1.5 py-1 rounded-md transition-colors ${
+            kind === key ? 'bg-violet-500/25 text-violet-200' : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800'
+          }`}
+        >
+          <Icon className="w-3.5 h-3.5" />
+        </button>
+      ))}
+      <div className="w-px h-4 bg-zinc-800 mx-0.5" />
+      <button
+        onClick={rotate}
+        title={`Rotar dirección (actual: ${dir})`}
+        onPointerDown={(e) => e.stopPropagation()}
+        className="px-1.5 py-1 rounded-md text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+      >
+        <RotateCw className="w-3.5 h-3.5" />
+      </button>
     </div>
   )
 }
@@ -1639,6 +1730,10 @@ function NodeBox({
   // El tamaño del círculo lo maneja SOLO el handle de resize; el texto se
   // centra adentro. Esto arregla el crash al achicar un círculo.
   const isCircle = node.shape === 'circle'
+  // Corchete/llave/paréntesis vectorizado: sin caja ni texto, solo el path SVG.
+  const isBracket = node.shape === 'bracket'
+  const bracketKind = node.bracketKind ?? 'square'
+  const bracketDir = node.bracketDir ?? 'left'
 
   const [draft, setDraft] = useState(node.text)
   useEffect(() => { setDraft(node.text) }, [node.text, editing])
@@ -1712,7 +1807,7 @@ function NodeBox({
   }, [editing])
 
   useLayoutEffect(() => {
-    if (isImage || isCircle) return  // imagen/círculo no auto-crecen por texto
+    if (isImage || isCircle || isBracket) return  // imagen/círculo/bracket no auto-crecen por texto
     if (!editing) return
     const ta = textareaRef.current
     if (!ta) return
@@ -1737,7 +1832,7 @@ function NodeBox({
   // h-full, que devolvería siempre la altura actual del box).
   const viewMeasureRef = useRef<HTMLDivElement | null>(null)
   useLayoutEffect(() => {
-    if (isImage || isCircle) return  // altura controlada por el resize (no por texto)
+    if (isImage || isCircle || isBracket) return  // altura controlada por el resize (no por texto)
     if (editing) return
     const el = viewMeasureRef.current
     if (!el) return
@@ -1757,24 +1852,45 @@ function NodeBox({
         onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick() }}
         onPointerEnter={() => onHover(true)}
         onPointerLeave={() => onHover(false)}
-        className={`absolute border-2 shadow-lg transition-shadow ${
-          node.shape === 'circle' ? 'rounded-full' : 'rounded-2xl'
+        className={`absolute transition-shadow ${isBracket ? '' : 'border-2 shadow-lg'} ${
+          node.shape === 'circle' ? 'rounded-full' : isBracket ? 'rounded-lg' : 'rounded-2xl'
         }`}
         style={{
           left: node.x + pan.x,
           top: node.y + pan.y,
           width: node.width,
           height: node.height,
-          background: color + '18',
-          borderColor,
-          boxShadow: selected
-            ? `0 0 0 3px ${color}40, 0 10px 24px -10px ${color}80`
-            : `0 4px 14px -4px ${color}40`,
+          // El bracket no tiene caja: fondo/borde transparentes. Al seleccionarlo
+          // mostramos solo un aro sutil para saber que está activo.
+          background: isBracket ? 'transparent' : color + '18',
+          borderColor: isBracket ? 'transparent' : borderColor,
+          boxShadow: isBracket
+            ? (selected ? `0 0 0 2px ${color}55` : 'none')
+            : selected
+              ? `0 0 0 3px ${color}40, 0 10px 24px -10px ${color}80`
+              : `0 4px 14px -4px ${color}40`,
           cursor: drawingMode ? 'crosshair' : editing ? 'text' : 'move',
           touchAction: 'none',
         }}
       >
-        {isImage ? (
+        {isBracket ? (
+          <svg
+            width={node.width}
+            height={node.height}
+            viewBox={`0 0 ${node.width} ${node.height}`}
+            className="absolute inset-0 overflow-visible pointer-events-none"
+          >
+            <path
+              d={bracketPath(bracketKind, bracketDir, node.width, node.height)}
+              fill="none"
+              stroke={color}
+              strokeWidth={4}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+        ) : isImage ? (
           // Imagen clipeada a los bordes redondeados (o al círculo). El
           // wrapper absolute inset-0 + overflow-hidden recorta la foto SIN
           // tapar los handles externos (resize / duplicar / "+"), que viven
@@ -1845,7 +1961,7 @@ function NodeBox({
             proporcional/1:1). Para NODOS DE TEXTO → borde derecho-centro con
             cursor horizontal: SOLO cambia el ancho (la altura es automática). */}
         {selected && !editing && (
-          isCircle || isImage ? (
+          isCircle || isImage || isBracket ? (
             <div
               onPointerDown={onResizeStart}
               onClick={(e) => e.stopPropagation()}
