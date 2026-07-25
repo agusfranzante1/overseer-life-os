@@ -2578,6 +2578,30 @@ async function pushFood() {
   const uid = state.userId!
   const { stages, shopping, fixedCosts, foods, currentStageId, notes } = useFoodStore.getState()
 
+  // ── BLINDAJE ANTI-WIPE (singleton) ──────────────────────────────────
+  // food_data se sube como UNA fila que PISA el remoto (upsert, sin merge).
+  // Si el local quedó COMPLETAMENTE vacío, casi nunca es real → es un store que
+  // no rehidrató (localStorage lleno / wipe). Antes de pisar la nube, chequeamos
+  // si el remoto tiene datos; si los tiene, NO sobrescribimos (el pull posterior
+  // restaura el local). Evita el "se borraron los alimentos".
+  const localEmpty = stages.length === 0 && shopping.length === 0
+    && fixedCosts.length === 0 && foods.length === 0 && !(notes ?? '').trim()
+  if (localEmpty) {
+    const { data } = await sb.from('food_data').select('foods, stages, shopping, fixed_costs, notes')
+      .eq('user_id', uid).maybeSingle()
+    const remoteHasData = !!data && (
+      (Array.isArray(data.foods) && data.foods.length > 0)
+      || (Array.isArray(data.stages) && data.stages.length > 0)
+      || (Array.isArray(data.shopping) && data.shopping.length > 0)
+      || (Array.isArray(data.fixed_costs) && data.fixed_costs.length > 0)
+      || (typeof data.notes === 'string' && data.notes.trim().length > 0)
+    )
+    if (remoteHasData) {
+      console.warn('[sync] pushFood: local vacío pero remoto con datos → skip (no piso la nube)')
+      return   // sin markSynced: el pull restaura y un cambio real re-pushea bien
+    }
+  }
+
   const r = await sb.from('food_data').upsert(
     {
       user_id: uid,
