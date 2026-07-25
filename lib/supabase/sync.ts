@@ -320,6 +320,31 @@ async function clearTombstones(
   if (r.error) console.warn(`[tombstones] clear ${tableName} failed:`, r.error.message)
 }
 
+/** Upsert de un SINGLETON (una fila por user, que PISA el remoto) con blindaje
+ *  anti-wipe: si el local no tiene datos (`localHasData` false), NO sobrescribe
+ *  la nube cuando el remoto SÍ tiene datos en alguna de `dataCols`. Evita que un
+ *  store que no rehidrató (localStorage lleno / corrupción) borre la nube — el
+ *  mismo desastre que pasó con food. Devuelve `{ error }` como el upsert normal. */
+async function safeSingletonUpsert(
+  sb: ReturnType<typeof getSupabaseBrowser>, uid: string, table: string,
+  row: Record<string, unknown>, localHasData: boolean, dataCols: string[],
+): Promise<{ error: { message: string } | null }> {
+  if (!localHasData) {
+    const { data } = await sb.from(table).select(dataCols.join(', ')).eq('user_id', uid).maybeSingle()
+    const remoteHasData = !!data && dataCols.some((col) => {
+      const v = (data as Record<string, unknown>)[col]
+      if (Array.isArray(v)) return v.length > 0
+      if (v && typeof v === 'object') return Object.keys(v).length > 0
+      return v != null && v !== ''
+    })
+    if (remoteHasData) {
+      console.warn(`[sync] ${table}: local vacío pero remoto con datos → skip (no piso la nube)`)
+      return { error: null }
+    }
+  }
+  return sb.from(table).upsert(row, { onConflict: 'user_id' })
+}
+
 /** Ids que estaban en el baseline (ya sincronizados) y ya no están en local =
  *  borrados a propósito por el user en este device. */
 function deletedSince(baseline: Set<string>, localIds: string[]): string[] {
@@ -1642,16 +1667,18 @@ async function pushLab() {
   }
   await syncDeletes(sb, uid, 'lab_beliefs', beliefRows.map((r) => r.id), 'lab:beliefs')
 
-  // ─── Config (ejercicios + categorías custom) — singleton ──
+  // ─── Config (ejercicios + categorías custom) — singleton con blindaje ──
   {
-    const r = await sb.from('lab_config').upsert(
+    const r = await safeSingletonUpsert(
+      sb, uid, 'lab_config',
       {
         user_id: uid,
         custom_exercises: customExercises,
         custom_categories: customCategories,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: 'user_id' }
+      customExercises.length > 0 || customCategories.length > 0,
+      ['custom_exercises', 'custom_categories'],
     )
     if (r.error) {
       reportSyncError(`lab_config upsert failed (¿corriste migration_lab_config.sql?): ${r.error.message}`)
@@ -2252,7 +2279,13 @@ async function pushGym() {
 
   // Config (singleton)
   {
-    const r = await sb.from('gym_config').upsert(
+    // El "dato" real del gym es el training_plan. Blindaje: si el plan local
+    // está vacío pero el remoto tiene uno, no lo pisamos (store no rehidratado).
+    const planHasData = Array.isArray(trainingPlan)
+      ? trainingPlan.length > 0
+      : (!!trainingPlan && typeof trainingPlan === 'object' ? Object.keys(trainingPlan).length > 0 : !!trainingPlan)
+    const r = await safeSingletonUpsert(
+      sb, uid, 'gym_config',
       {
         user_id: uid,
         gym_type: gymType,
@@ -2261,7 +2294,8 @@ async function pushGym() {
         training_plan: trainingPlan,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: 'user_id' }
+      planHasData,
+      ['training_plan'],
     )
     // Si falla por columna inexistente, casi seguro falta correr
     // migration_gym_training_plan.sql. Antes este upsert tragaba el error
@@ -2847,37 +2881,40 @@ async function pullStudy(): Promise<boolean> {
   const nowIso = () => new Date().toISOString()
 
   const remoteCarreras: Carrera[] = (carRes.data ?? []).map((r: Row) => {
+    // Spread del payload PRIMERO → preserva TODO campo (icon, color, authors, y
+    // cualquiera futuro). Solo forzamos los required con defaults. Evita el bug
+    // de "campo dropeado en el pull" (que ya pasó con mode y con authors).
     const c = ((r as Row).payload ?? {}) as Partial<Carrera>
     return {
+      ...c,
       id: c.id ?? (r as Row).id as string, name: c.name ?? 'Carrera',
-      icon: c.icon, color: c.color, institucion: c.institucion,
-      ...(Array.isArray(c.authors) ? { authors: c.authors } : {}),
       sortOrder: c.sortOrder ?? 0, createdAt: c.createdAt ?? nowIso(), updatedAt: c.updatedAt ?? nowIso(),
     }
   })
   const remoteMaterias: Materia[] = (matRes.data ?? []).map((r: Row) => {
     const m = ((r as Row).payload ?? {}) as Partial<Materia>
     return {
+      ...m,
       id: m.id ?? (r as Row).id as string, carreraId: m.carreraId ?? (r as Row).carrera_id as string,
-      name: m.name ?? 'Materia', icon: m.icon, color: m.color,
-      profesor: m.profesor, codigo: m.codigo, cuatrimestre: m.cuatrimestre,
-      ...(m.mode ? { mode: m.mode } : {}),
+      name: m.name ?? 'Materia',
       sortOrder: m.sortOrder ?? 0, createdAt: m.createdAt ?? nowIso(), updatedAt: m.updatedAt ?? nowIso(),
     }
   })
   const remoteParciales: Parcial[] = (parRes.data ?? []).map((r: Row) => {
     const p = ((r as Row).payload ?? {}) as Partial<Parcial>
     return {
+      ...p,
       id: p.id ?? (r as Row).id as string, materiaId: p.materiaId ?? (r as Row).materia_id as string,
-      label: p.label ?? 'Parcial', examDate: p.examDate, closed: p.closed,
+      label: p.label ?? 'Parcial',
       sortOrder: p.sortOrder ?? 0, createdAt: p.createdAt ?? nowIso(), updatedAt: p.updatedAt ?? nowIso(),
     }
   })
   const remoteTemas: Tema[] = (temRes.data ?? []).map((r: Row) => {
     const t = ((r as Row).payload ?? {}) as Partial<Tema>
     return {
+      ...t,
       id: t.id ?? (r as Row).id as string, parcialId: t.parcialId ?? (r as Row).parcial_id as string,
-      title: t.title ?? 'Tema', notes: t.notes, done: !!t.done,
+      title: t.title ?? 'Tema', done: !!t.done,
       items: Array.isArray(t.items) ? t.items : [],
       sortOrder: t.sortOrder ?? 0, createdAt: t.createdAt ?? nowIso(), updatedAt: t.updatedAt ?? nowIso(),
     }
