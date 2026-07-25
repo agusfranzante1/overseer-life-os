@@ -306,6 +306,20 @@ async function writeTombstones(
   }
 }
 
+/** Borra tombstones de filas que VUELVEN a existir localmente (se re-suben).
+ *  Si upserteamos una fila, ya no está borrada → su tombstone debe irse, para
+ *  que no la vuelva a tapar en el pull de otros devices (`tombDead`). Clave para
+ *  que un restore desde el device que todavía tiene la data "pegue" de verdad. */
+async function clearTombstones(
+  sb: ReturnType<typeof getSupabaseBrowser>, userId: string, tableName: string, ids: string[],
+): Promise<void> {
+  if (ids.length === 0) return
+  // La app corre con auth.uid() del user → la RLS "own" permite el delete.
+  const r = await sb.from('deleted_rows').delete()
+    .eq('user_id', userId).eq('table_name', tableName).in('row_id', ids)
+  if (r.error) console.warn(`[tombstones] clear ${tableName} failed:`, r.error.message)
+}
+
 /** Ids que estaban en el baseline (ya sincronizados) y ya no están en local =
  *  borrados a propósito por el user en este device. */
 function deletedSince(baseline: Set<string>, localIds: string[]): string[] {
@@ -1337,6 +1351,10 @@ async function pushSPI() {
   if (sessRows.length > 0) {
     const r = await sb.from('spi_sessions').upsert(sessRows)
     if (r.error) { reportSyncError(`spi_sessions upsert failed: ${r.error.message}`); throw r.error }
+    // Las sesiones que subimos EXISTEN → limpiamos cualquier tombstone viejo que
+    // las tapara (ej. el del wipe). Así un restore desde el device que todavía
+    // las tiene queda firme y no las vuelve a esconder el pull.
+    await clearTombstones(sb, uid, 'spi_sessions', sessRows.map((r) => r.id))
   }
   await syncDeletes(sb, uid, 'spi_sessions', sessRows.map((r) => r.id), 'spi:sessions')
 
