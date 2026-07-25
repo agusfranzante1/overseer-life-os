@@ -2631,11 +2631,26 @@ async function pullFood(): Promise<boolean> {
   if (!res.data) { markSynced('food'); return false }
 
   const d = res.data as Row
+  const remoteFoods = (d.foods as import('@/lib/store/foodStore').FoodEntry[]) ?? []
+  const remoteStages = (d.stages as import('@/lib/store/foodStore').Stage[]) ?? []
+
+  // ── PROTECCIÓN / AUTO-RESTORE ───────────────────────────────────────
+  // Si ESTE device tiene MÁS datos que el remoto, el remoto quedó diezmado por
+  // un wipe: NO pisamos el local (perderíamos lo bueno). Además, restauramos la
+  // nube pusheando este local (más rico). Así, abrir el dispositivo que todavía
+  // tiene los alimentos los devuelve a la nube automáticamente.
+  const local = useFoodStore.getState()
+  if (local.foods.length > remoteFoods.length || local.stages.length > remoteStages.length) {
+    console.warn(`[sync] pullFood: local más rico (${local.foods.length} alimentos) que remoto (${remoteFoods.length}) → conservo local y restauro la nube`)
+    await pushFood().catch((e) => console.error('Food restore push failed', e))
+    return false
+  }
+
   useFoodStore.setState({
-    stages: (d.stages as import('@/lib/store/foodStore').Stage[]) ?? [],
+    stages: remoteStages,
     shopping: (d.shopping as import('@/lib/store/foodStore').ShoppingCategory[]) ?? [],
     fixedCosts: (d.fixed_costs as import('@/lib/store/foodStore').FixedCost[]) ?? [],
-    foods: (d.foods as import('@/lib/store/foodStore').FoodEntry[]) ?? [],
+    foods: remoteFoods,
     currentStageId: (d.current_stage_id as string) ?? '',
     notes: (d.notes as string) ?? '',
   })
