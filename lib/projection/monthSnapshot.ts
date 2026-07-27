@@ -27,6 +27,11 @@ export function buildMonthSnapshot(monthKey: string): MonthClosureSnapshot {
   const habitsSnapshot: MonthClosureSnapshot['habits'] = habits.map((h) => {
     const completedSet = new Set(h.completedDates)
     const skippedSet = new Set(h.skippedDates ?? [])
+    // Días target del hábito (0=Dom…6=Sáb). Vacío = todos los días. Un día
+    // que NO es target (ej. finde en un hábito L-V) se trata como skipped
+    // (N/A / guión): no cuenta ni a favor ni en contra del %.
+    const targetDays = h.targetDays ?? []
+    const isTargetDay = (dt: Date) => targetDays.length === 0 || targetDays.includes(dt.getDay())
     const days: MonthClosureSnapshot['habits'][number]['days'] = []
     let doneCount = 0
     let countedDays = 0
@@ -40,6 +45,8 @@ export function buildMonthSnapshot(monthKey: string): MonthClosureSnapshot {
       }
       if (skippedSet.has(dateStr)) { days.push('skipped'); continue }
       if (completedSet.has(dateStr)) { days.push('done'); doneCount++; countedDays++; continue }
+      // No es día target → N/A (no penaliza), igual que un skipped.
+      if (!isTargetDay(dayDate)) { days.push('skipped'); continue }
       days.push('missed'); countedDays++
     }
     const completionPct = countedDays > 0 ? Math.round((doneCount / countedDays) * 100) : 0

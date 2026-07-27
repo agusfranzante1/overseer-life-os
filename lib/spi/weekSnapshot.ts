@@ -49,6 +49,11 @@ export function buildWeekSnapshot(
   const habitsSnapshot: WeekClosureSnapshot['habits'] = habits.map((h) => {
     const completedSet = new Set(h.completedDates)
     const skippedSet = new Set(h.skippedDates ?? [])
+    // Días target del hábito (0=Dom…6=Sáb). Vacío = todos los días. Un día
+    // que NO es target (ej. finde en un hábito L-V) se trata como skipped
+    // (N/A / guión): no cuenta ni a favor ni en contra del %.
+    const targetDays = h.targetDays ?? []
+    const isTargetDay = (d: Date) => targetDays.length === 0 || targetDays.includes(d.getDay())
     const days: WeekClosureSnapshot['habits'][number]['days'] = []
     let doneCount = 0
     let countedDays = 0
@@ -59,6 +64,8 @@ export function buildWeekSnapshot(
       }
       if (skippedSet.has(dateStrs[i])) { days.push('skipped'); continue }
       if (completedSet.has(dateStrs[i])) { days.push('done'); doneCount++; countedDays++; continue }
+      // No es día target → N/A (no penaliza), igual que un skipped.
+      if (!isTargetDay(dateObjs[i])) { days.push('skipped'); continue }
       days.push('missed'); countedDays++
     }
     const completionPct = countedDays > 0 ? Math.round((doneCount / countedDays) * 100) : 0

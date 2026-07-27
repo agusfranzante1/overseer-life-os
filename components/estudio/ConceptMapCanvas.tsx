@@ -14,11 +14,11 @@ import { useRef, useState, useEffect, useCallback, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Plus, Trash2, ZoomIn, ZoomOut, Hand, Pencil, ChevronDown, ChevronUp,
-  Tag, User, Check, UserPlus,
+  Tag, User, Check, UserPlus, StickyNote, RotateCcw, Users,
 } from 'lucide-react'
 import { useConceptStore } from '@/lib/store/conceptStore'
 import { useStudyStore } from '@/lib/store/studyStore'
-import { AREA_PALETTE, NODE_W_DEFAULT, NODE_W_MIN, NODE_W_MAX, type Concept, type ConceptArea, type ConceptSource } from '@/lib/study/concepts'
+import { AREA_PALETTE, NODE_W_DEFAULT, NODE_W_MIN, NODE_W_MAX, type Concept, type ConceptArea, type ConceptSource, type MapNote } from '@/lib/study/concepts'
 import type { StudyAuthor } from '@/lib/study/types'
 
 const ZOOM_MIN = 0.35
@@ -46,6 +46,14 @@ export function ConceptMapCanvas({ materiaId, accent }: { materiaId: string; acc
   const addConcept = useConceptStore((s) => s.addConcept)
   const moveConcept = useConceptStore((s) => s.moveConcept)
   const resizeConcept = useConceptStore((s) => s.resizeConcept)
+  const addNoteNode = useConceptStore((s) => s.addNoteNode)
+  const moveNoteNode = useConceptStore((s) => s.moveNoteNode)
+  const resizeNoteNode = useConceptStore((s) => s.resizeNoteNode)
+
+  // Carrera de esta materia + registro de autores (para las @menciones a
+  // autores en los nodos NOTA y el panel de autores del sidebar).
+  const carreraId = useStudyStore((s) => s.materias.find((m) => m.id === materiaId)?.carreraId ?? null)
+  const carreraAuthors = useStudyStore((s) => (carreraId ? s.carreras.find((c) => c.id === carreraId)?.authors : undefined)) ?? EMPTY_AUTHORS
 
   // Asegurar que el mapa existe (una vez, al montar).
   useEffect(() => { ensureMap(materiaId) }, [materiaId, ensureMap])
@@ -153,10 +161,63 @@ export function ConceptMapCanvas({ materiaId, accent }: { materiaId: string; acc
     el.addEventListener('pointerup', onUp)
   }, [materiaId, resizeConcept])
 
+  // ── Drag / resize de un nodo NOTA (mismo patrón que los conceptos) ──
+  const startNoteDrag = useCallback((e: React.PointerEvent, note: MapNote) => {
+    e.stopPropagation()
+    const startX = e.clientX, startY = e.clientY
+    const ox = note.x, oy = note.y
+    const pointerId = e.pointerId
+    const el = e.currentTarget as HTMLElement
+    let moved = false
+    try { el.setPointerCapture(pointerId) } catch { /* noop */ }
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      const z = zoomRef.current
+      const dx = (ev.clientX - startX) / z, dy = (ev.clientY - startY) / z
+      if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 4) return
+      moved = true
+      moveNoteNode(materiaId, note.id, ox + dx, oy + dy)
+    }
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+      try { el.releasePointerCapture(pointerId) } catch { /* noop */ }
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+  }, [materiaId, moveNoteNode])
+
+  const startNoteResize = useCallback((e: React.PointerEvent, note: MapNote) => {
+    e.stopPropagation()
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = note.w ?? NODE_WIDTH
+    const pointerId = e.pointerId
+    const el = e.currentTarget as HTMLElement
+    try { el.setPointerCapture(pointerId) } catch { /* noop */ }
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      const z = zoomRef.current
+      const next = startW + (ev.clientX - startX) / z
+      resizeNoteNode(materiaId, note.id, Math.max(NODE_W_MIN, Math.min(NODE_W_MAX, next)))
+    }
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+      try { el.releasePointerCapture(pointerId) } catch { /* noop */ }
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+  }, [materiaId, resizeNoteNode])
+
   if (!map) return null
 
   const areaById = new Map(map.areas.map((a) => [a.id, a]))
   const visibleConcepts = areaFilter ? map.concepts.filter((c) => c.areaId === areaFilter) : map.concepts
+
+  const noteNodes = map.noteNodes ?? []
 
   const addConceptAtCenter = () => {
     const rect = canvasRef.current?.getBoundingClientRect()
@@ -164,6 +225,13 @@ export function ConceptMapCanvas({ materiaId, accent }: { materiaId: string; acc
     const cy = rect ? (rect.height / 2 - pan.y) / zoom - 40 : 120
     const id = addConcept(materiaId, { x: cx, y: cy, areaId: areaFilter ?? undefined })
     setOpenId(id)
+  }
+
+  const addNoteAtCenter = () => {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    const cx = rect ? (rect.width / 2 - pan.x) / zoom - NODE_WIDTH / 2 : 120
+    const cy = rect ? (rect.height / 2 - pan.y) / zoom - 40 : 120
+    addNoteNode(materiaId, { x: cx, y: cy })
   }
 
   // Ir a un concepto por id (click en un link @concepto): lo centra y lo abre.
@@ -192,17 +260,20 @@ export function ConceptMapCanvas({ materiaId, accent }: { materiaId: string; acc
 
   return (
     <div className="flex gap-3 h-[calc(100vh-220px)] min-h-[520px]">
-      {/* ── Leyenda de áreas ── */}
-      <AreaLegend
-        materiaId={materiaId}
-        areas={map.areas}
-        accent={accent}
-        areaFilter={areaFilter}
-        setAreaFilter={setAreaFilter}
-        countByArea={(id) => map.concepts.filter((c) => c.areaId === id).length}
-        unassignedCount={map.concepts.filter((c) => !c.areaId).length}
-        totalCount={map.concepts.length}
-      />
+      {/* ── Columna izquierda: áreas + autores ── */}
+      <div className="w-52 shrink-0 flex flex-col gap-3 min-h-0">
+        <AreaLegend
+          materiaId={materiaId}
+          areas={map.areas}
+          accent={accent}
+          areaFilter={areaFilter}
+          setAreaFilter={setAreaFilter}
+          countByArea={(id) => map.concepts.filter((c) => c.areaId === id).length}
+          unassignedCount={map.concepts.filter((c) => !c.areaId).length}
+          totalCount={map.concepts.length}
+        />
+        <AuthorsPanel carreraId={carreraId} authors={carreraAuthors} />
+      </div>
 
       {/* ── Lienzo ── */}
       <div className="relative flex-1 rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)', background: 'var(--card-bg)' }}>
@@ -211,6 +282,10 @@ export function ConceptMapCanvas({ materiaId, accent }: { materiaId: string; acc
           <button onClick={addConceptAtCenter}
             className="text-xs font-semibold text-zinc-200 hover:text-white px-2.5 py-1.5 rounded-lg hover:bg-zinc-800 transition-colors flex items-center gap-1.5">
             <Plus className="w-3.5 h-3.5" /> Concepto
+          </button>
+          <button onClick={addNoteAtCenter} title="Agregar un nodo NOTA — resumen de texto libre con @ a conceptos y autores"
+            className="text-xs font-semibold text-amber-300/90 hover:text-amber-200 px-2.5 py-1.5 rounded-lg hover:bg-zinc-800 transition-colors flex items-center gap-1.5">
+            <StickyNote className="w-3.5 h-3.5" /> Nota
           </button>
           <button onClick={() => { setPan({ x: 0, y: 0 }); setZoom(1) }} title="Centrar + 100%"
             className="text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 p-1.5 rounded-lg transition-colors">
@@ -249,6 +324,20 @@ export function ConceptMapCanvas({ materiaId, accent }: { materiaId: string; acc
                 onToggle={() => setOpenId((id) => (id === c.id ? null : c.id))}
                 onPointerDownHeader={(e) => startNodeDrag(e, c)}
                 onPointerDownResize={(e) => startNodeResize(e, c)}
+              />
+            ))}
+            {/* Nodos NOTA — solo se muestran sin filtro de área (son del mapa,
+                no pertenecen a un área). */}
+            {areaFilter === null && noteNodes.map((n) => (
+              <NoteNode
+                key={n.id}
+                materiaId={materiaId}
+                note={n}
+                allConcepts={map.concepts}
+                authors={carreraAuthors}
+                onNavigate={navigateToConcept}
+                onPointerDownHeader={(e) => startNoteDrag(e, n)}
+                onPointerDownResize={(e) => startNoteResize(e, n)}
               />
             ))}
           </div>
@@ -292,7 +381,7 @@ function AreaLegend({
   const [editId, setEditId] = useState<string | null>(null)
 
   return (
-    <div className="w-52 shrink-0 rounded-2xl p-3 flex flex-col gap-2 overflow-y-auto" style={{ border: '1px solid rgba(255,255,255,0.08)', background: 'var(--card-bg)' }}>
+    <div className="w-full flex-1 min-h-0 rounded-2xl p-3 flex flex-col gap-2 overflow-y-auto" style={{ border: '1px solid rgba(255,255,255,0.08)', background: 'var(--card-bg)' }}>
       <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-zinc-500 px-1">Áreas</p>
 
       <button
@@ -452,19 +541,6 @@ function ConceptNode({
                 className="w-full bg-transparent text-[13px] font-semibold text-white placeholder-zinc-600 focus:outline-none"
               />
 
-              {/* Explicación / notas del concepto — texto libre donde escribís
-                  tu idea y enlazás otros conceptos con @ para contar cómo se unen. */}
-              <div className="rounded-lg bg-zinc-950/40 border border-white/[0.06] p-2">
-                <RichText
-                  value={concept.notes ?? ''}
-                  onSave={(v) => updateConcept(materiaId, concept.id, { notes: v })}
-                  placeholder="Explicación… escribí @ para enlazar otros conceptos y contar cómo se unen"
-                  allConcepts={allConcepts}
-                  selfId={concept.id}
-                  onNavigate={onNavigate}
-                />
-              </div>
-
               {/* Estudiado */}
               <button
                 onClick={() => toggleStudied(materiaId, concept.id)}
@@ -562,29 +638,53 @@ function ConceptNode({
 
 // ─── Cuerpo del aporte: click-para-editar + @menciones a conceptos ────────────
 
-/** Renderiza el body reemplazando los tokens `[[conceptId]]` por links
- *  clickeables con el título ACTUAL del concepto (así renombrar propaga). */
-function renderBody(body: string, allConcepts: Concept[], onNavigate: (id: string) => void): ReactNode {
-  const re = /\[\[([^\]]+)\]\]/g
+/** Renderiza el texto reemplazando los tokens de mención:
+ *   - `[[conceptId]]` → link clickeable con el título ACTUAL del concepto
+ *     (así renombrar propaga) que navega hacia él.
+ *   - `((authorId))`  → chip con el nombre ACTUAL del autor (registro carrera).
+ *  Ambos resuelven el nombre en vivo, así renombrar propaga a todas las notas. */
+function renderBody(
+  body: string,
+  allConcepts: Concept[],
+  onNavigate: (id: string) => void,
+  authors: StudyAuthor[] = EMPTY_AUTHORS,
+): ReactNode {
+  const re = /\[\[([^\]]+)\]\]|\(\(([^)]+)\)\)/g
   const out: ReactNode[] = []
   let last = 0
   let m: RegExpExecArray | null
   let k = 0
   while ((m = re.exec(body)) !== null) {
     if (m.index > last) out.push(<span key={`t${k}`}>{body.slice(last, m.index)}</span>)
-    const id = m[1]
-    const c = allConcepts.find((x) => x.id === id)
-    out.push(
-      <button
-        key={`l${k}`}
-        onClick={(e) => { e.stopPropagation(); onNavigate(id) }}
-        onPointerDown={(e) => e.stopPropagation()}
-        title="Ir al concepto"
-        className="text-fuchsia-300 hover:text-fuchsia-200 underline decoration-fuchsia-400/40 hover:decoration-fuchsia-300 font-medium"
-      >
-        {c ? (c.title.trim() || 'concepto') : 'concepto?'}
-      </button>,
-    )
+    if (m[1] !== undefined) {
+      // Concepto
+      const id = m[1]
+      const c = allConcepts.find((x) => x.id === id)
+      out.push(
+        <button
+          key={`l${k}`}
+          onClick={(e) => { e.stopPropagation(); onNavigate(id) }}
+          onPointerDown={(e) => e.stopPropagation()}
+          title="Ir al concepto"
+          className="text-fuchsia-300 hover:text-fuchsia-200 underline decoration-fuchsia-400/40 hover:decoration-fuchsia-300 font-medium"
+        >
+          {c ? (c.title.trim() || 'concepto') : 'concepto?'}
+        </button>,
+      )
+    } else {
+      // Autor
+      const id = m[2]
+      const a = authors.find((x) => x.id === id)
+      out.push(
+        <span
+          key={`a${k}`}
+          className="inline-flex items-center gap-0.5 align-baseline text-sky-300 font-medium"
+          title="Autor"
+        >
+          <User className="w-3 h-3" />{a ? (a.name.trim() || 'autor') : 'autor?'}
+        </span>,
+      )
+    }
     last = re.lastIndex
     k++
   }
@@ -592,8 +692,12 @@ function renderBody(body: string, allConcepts: Concept[], onNavigate: (id: strin
   return out
 }
 
+type MentionSuggestion =
+  | { kind: 'concept'; id: string; label: string }
+  | { kind: 'author'; id: string; label: string }
+
 function RichText({
-  value, onSave, placeholder, allConcepts, selfId, onNavigate, className,
+  value, onSave, placeholder, allConcepts, selfId, onNavigate, authors, className,
 }: {
   value: string
   onSave: (next: string) => void
@@ -601,6 +705,8 @@ function RichText({
   allConcepts: Concept[]
   selfId: string
   onNavigate: (conceptId: string) => void
+  /** Si se pasan, el `@` también sugiere autores (se insertan como `((id))`). */
+  authors?: StudyAuthor[]
   className?: string
 }) {
   const [editing, setEditing] = useState(false)
@@ -608,6 +714,7 @@ function RichText({
   const [mention, setMention] = useState<{ query: string; at: number } | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   useEffect(() => { if (!editing) setDraft(value) }, [value, editing])
+  const withAuthors = authors ?? EMPTY_AUTHORS
 
   const commit = () => {
     setEditing(false)
@@ -622,9 +729,9 @@ function RichText({
     setMention(m ? { query: m[1], at: cursor - m[0].length } : null)
   }
 
-  const insertConcept = (c: Concept) => {
+  const insert = (sug: MentionSuggestion) => {
     if (!mention) return
-    const token = `[[${c.id}]] `
+    const token = sug.kind === 'concept' ? `[[${sug.id}]] ` : `((${sug.id})) `
     const next = draft.slice(0, mention.at) + token + draft.slice(mention.at + 1 + mention.query.length)
     setDraft(next)
     setMention(null)
@@ -632,8 +739,17 @@ function RichText({
   }
 
   const q = mention?.query.trim().toLowerCase() ?? ''
-  const suggestions = mention
-    ? allConcepts.filter((c) => c.id !== selfId && c.title.trim() && (q === '' || c.title.toLowerCase().includes(q))).slice(0, 6)
+  const suggestions: MentionSuggestion[] = mention
+    ? [
+        ...allConcepts
+          .filter((c) => c.id !== selfId && c.title.trim() && (q === '' || c.title.toLowerCase().includes(q)))
+          .slice(0, 6)
+          .map((c): MentionSuggestion => ({ kind: 'concept', id: c.id, label: c.title.trim() || 'Sin título' })),
+        ...withAuthors
+          .filter((a) => a.name.trim() && (q === '' || a.name.toLowerCase().includes(q)))
+          .slice(0, 6)
+          .map((a): MentionSuggestion => ({ kind: 'author', id: a.id, label: a.name.trim() })),
+      ]
     : []
 
   if (!editing) {
@@ -642,11 +758,12 @@ function RichText({
         onClick={() => setEditing(true)}
         className={`w-full text-[12px] text-zinc-200 leading-relaxed cursor-text min-h-[2.25rem] whitespace-pre-wrap break-words ${className ?? ''}`}
       >
-        {value.trim() ? renderBody(value, allConcepts, onNavigate) : <span className="text-zinc-600">{placeholder}</span>}
+        {value.trim() ? renderBody(value, allConcepts, onNavigate, withAuthors) : <span className="text-zinc-600">{placeholder}</span>}
       </div>
     )
   }
 
+  const hint = authors ? '@ enlaza concepto o autor' : '@ enlaza un concepto'
   return (
     <div className="relative">
       <textarea
@@ -657,24 +774,210 @@ function RichText({
         onBlur={commit}
         onKeyDown={(e) => {
           if (mention && suggestions.length > 0 && (e.key === 'Enter' || e.key === 'Tab')) {
-            e.preventDefault(); insertConcept(suggestions[0]); return
+            e.preventDefault(); insert(suggestions[0]); return
           }
           if (e.key === 'Escape') setMention(null)
         }}
-        placeholder={`${placeholder}  ·  @ enlaza un concepto`}
+        placeholder={`${placeholder}  ·  ${hint}`}
         rows={3}
         className="w-full bg-transparent text-[12px] text-zinc-200 leading-relaxed placeholder-zinc-600 focus:outline-none resize-y"
       />
       {mention && suggestions.length > 0 && (
         <div className="absolute z-40 left-0 top-full mt-0.5 min-w-[170px] max-h-44 overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1">
-          <p className="px-2.5 py-0.5 text-[9px] font-mono uppercase tracking-wider text-zinc-600">Enlazar concepto</p>
-          {suggestions.map((c) => (
-            <button key={c.id}
-              onMouseDown={(e) => { e.preventDefault(); insertConcept(c) }}
+          <p className="px-2.5 py-0.5 text-[9px] font-mono uppercase tracking-wider text-zinc-600">Enlazar</p>
+          {suggestions.map((sug) => (
+            <button key={`${sug.kind}-${sug.id}`}
+              onMouseDown={(e) => { e.preventDefault(); insert(sug) }}
               className="w-full flex items-center gap-1.5 px-2.5 py-1 text-left text-[12px] text-zinc-200 hover:bg-white/[0.06]">
-              <Tag className="w-3 h-3 text-zinc-500 shrink-0" /> <span className="truncate">{c.title.trim() || 'Sin título'}</span>
+              {sug.kind === 'concept'
+                ? <Tag className="w-3 h-3 text-zinc-500 shrink-0" />
+                : <User className="w-3 h-3 text-sky-400 shrink-0" />}
+              <span className="truncate">{sug.label}</span>
             </button>
           ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Nodo NOTA: resumen de texto libre con @conceptos y @autores ─────────────
+
+function NoteNode({
+  materiaId, note, allConcepts, authors, onNavigate, onPointerDownHeader, onPointerDownResize,
+}: {
+  materiaId: string
+  note: MapNote
+  allConcepts: Concept[]
+  authors: StudyAuthor[]
+  onNavigate: (conceptId: string) => void
+  onPointerDownHeader: (e: React.PointerEvent) => void
+  onPointerDownResize: (e: React.PointerEvent) => void
+}) {
+  const updateNoteNode = useConceptStore((s) => s.updateNoteNode)
+  const removeNoteNode = useConceptStore((s) => s.removeNoteNode)
+  const color = '#f59e0b'  // ámbar — distingue las notas de los conceptos
+
+  return (
+    <div
+      className="absolute rounded-xl shadow-lg select-none"
+      style={{
+        left: note.x, top: note.y, width: note.w ?? NODE_WIDTH,
+        background: 'linear-gradient(180deg, rgba(245,158,11,0.10), var(--surface-popover))',
+        border: `1px solid ${color}66`,
+        boxShadow: `0 4px 16px -6px ${color}66`,
+      }}
+    >
+      {/* Handle de resize — borde derecho */}
+      <div
+        onPointerDown={onPointerDownResize}
+        onClick={(e) => e.stopPropagation()}
+        title="Arrastrar para ajustar el ancho"
+        className="absolute top-0 right-0 h-full w-2 cursor-ew-resize z-10 group/resize flex items-center justify-center"
+        style={{ touchAction: 'none' }}
+      >
+        <span className="h-8 w-1 rounded-full bg-white/15 group-hover/resize:bg-white/40 transition-colors" style={{ boxShadow: `0 0 6px ${color}66` }} />
+      </div>
+      {/* Cabecera — draggable */}
+      <div
+        onPointerDown={onPointerDownHeader}
+        className="flex items-center gap-2 px-3 py-2 cursor-move"
+        style={{ touchAction: 'none' }}
+      >
+        <StickyNote className="w-3.5 h-3.5 shrink-0" style={{ color }} />
+        <span className="text-[10px] font-mono uppercase tracking-[0.2em] flex-1" style={{ color: `${color}` }}>Nota</span>
+        <button
+          onClick={() => { if (confirm('¿Borrar esta nota?')) removeNoteNode(materiaId, note.id) }}
+          title="Borrar nota"
+          className="p-0.5 rounded text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      {/* Cuerpo editable */}
+      <div className="px-3 pb-3 pt-1 border-t border-white/[0.06]" onPointerDown={(e) => e.stopPropagation()}>
+        <RichText
+          value={note.text}
+          onSave={(v) => updateNoteNode(materiaId, note.id, v)}
+          placeholder="Resumen… escribí @ para enlazar conceptos y autores"
+          allConcepts={allConcepts}
+          selfId=""
+          onNavigate={onNavigate}
+          authors={authors}
+        />
+      </div>
+    </div>
+  )
+}
+
+// ─── Panel de autores del sidebar (registro de la carrera + recuperación) ─────
+
+function AuthorsPanel({
+  carreraId, authors,
+}: {
+  carreraId: string | null
+  authors: StudyAuthor[]
+}) {
+  const addAuthor = useStudyStore((s) => s.addAuthor)
+  const renameAuthor = useStudyStore((s) => s.renameAuthor)
+  const removeAuthor = useStudyStore((s) => s.removeAuthor)
+  const materias = useStudyStore((s) => s.materias)
+  const maps = useConceptStore((s) => s.maps)
+  const [adding, setAdding] = useState('')
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+
+  // Recupera el registro desde los nombres de autor "denormalizados" que
+  // siguen guardados en los aportes de los conceptos (útil si el registro se
+  // borró pero los aportes conservan el nombre).
+  const recover = () => {
+    if (!carreraId) return
+    const materiaIds = new Set(materias.filter((m) => m.carreraId === carreraId).map((m) => m.id))
+    const names = new Set<string>()
+    for (const m of maps) {
+      if (!materiaIds.has(m.materiaId)) continue
+      for (const c of m.concepts) {
+        for (const src of c.sources ?? []) {
+          const n = (src.author ?? '').trim()
+          if (n) names.add(n)
+        }
+      }
+    }
+    const existing = new Set(authors.map((a) => a.name.trim().toLowerCase()))
+    let added = 0
+    for (const n of names) {
+      if (!existing.has(n.toLowerCase())) { addAuthor(carreraId, n); added++ }
+    }
+    alert(added > 0
+      ? `Recuperé ${added} autor${added === 1 ? '' : 'es'} desde los aportes de tus conceptos.`
+      : 'No encontré autores nuevos para recuperar en los aportes de los conceptos.')
+  }
+
+  const submitAdd = () => {
+    const n = adding.trim()
+    if (!n || !carreraId) { setAdding(''); return }
+    if (!authors.some((a) => a.name.trim().toLowerCase() === n.toLowerCase())) addAuthor(carreraId, n)
+    setAdding('')
+  }
+
+  return (
+    <div className="w-full shrink-0 max-h-[45%] rounded-2xl p-3 flex flex-col gap-2 overflow-y-auto" style={{ border: '1px solid rgba(255,255,255,0.08)', background: 'var(--card-bg)' }}>
+      <div className="flex items-center justify-between px-1">
+        <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-zinc-500 flex items-center gap-1.5"><Users className="w-3 h-3" /> Autores</p>
+        <button onClick={recover} disabled={!carreraId} title="Recuperar autores desde los aportes de los conceptos"
+          className="p-1 rounded-md text-zinc-500 hover:text-amber-300 hover:bg-white/[0.05] disabled:opacity-30 transition-colors">
+          <RotateCcw className="w-3 h-3" />
+        </button>
+      </div>
+
+      {authors.length === 0 && (
+        <p className="text-[11px] text-zinc-600 leading-relaxed px-1">Sin autores todavía. Se crean al escribir el autor de un aporte, o tocá <RotateCcw className="w-2.5 h-2.5 inline" /> para recuperarlos.</p>
+      )}
+
+      {authors.map((a) => (
+        <div key={a.id} className="group/author flex items-center gap-1.5">
+          {editId === a.id ? (
+            <input
+              autoFocus
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onBlur={() => { if (editName.trim() && carreraId) renameAuthor(carreraId, a.id, editName); setEditId(null) }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { if (editName.trim() && carreraId) renameAuthor(carreraId, a.id, editName); setEditId(null) }
+                if (e.key === 'Escape') setEditId(null)
+              }}
+              className="flex-1 min-w-0 bg-zinc-900 border border-white/[0.12] rounded px-1.5 py-0.5 text-[11px] text-zinc-100 focus:outline-none focus:border-sky-500/60"
+            />
+          ) : (
+            <button
+              onClick={() => { setEditId(a.id); setEditName(a.name) }}
+              className="flex-1 min-w-0 flex items-center gap-1.5 text-left text-[11px] text-zinc-300 hover:text-white px-1 py-0.5 rounded hover:bg-white/[0.03] transition-colors"
+              title="Renombrar autor"
+            >
+              <User className="w-3 h-3 text-sky-400 shrink-0" />
+              <span className="truncate">{a.name.trim() || 'Sin nombre'}</span>
+            </button>
+          )}
+          <button
+            onClick={() => { if (carreraId && confirm(`¿Quitar a "${a.name}" del registro? Los aportes conservan el nombre.`)) removeAuthor(carreraId, a.id) }}
+            title="Quitar autor"
+            className="p-0.5 rounded text-zinc-600 hover:text-red-400 opacity-0 group-hover/author:opacity-100 transition-all shrink-0"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </div>
+      ))}
+
+      {carreraId && (
+        <div className="flex items-center gap-1.5 pt-1">
+          <input
+            value={adding}
+            onChange={(e) => setAdding(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') submitAdd() }}
+            onBlur={submitAdd}
+            placeholder="+ Autor…"
+            className="flex-1 min-w-0 bg-transparent border border-dashed border-white/[0.12] rounded px-1.5 py-1 text-[11px] text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-sky-500/50"
+          />
         </div>
       )}
     </div>

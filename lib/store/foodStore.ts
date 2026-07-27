@@ -262,6 +262,8 @@ const DEMO_FOODS: FoodEntry[] = [
   { id: 'f-brocoli',   name: 'Brócoli',             unit: 'gr', calories: 40,  protein: 2.6,  carbs: 8.9,   fats: 0.3,   category: 'Verdura' },
   { id: 'f-cebolla',   name: 'Cebolla',             unit: 'gr', calories: 40,  protein: 1.1,  carbs: 10.7,  fats: 1.1,   category: 'Verdura' },
   { id: 'f-zanahoria', name: 'Zanahoria',           unit: 'gr', calories: 41,  protein: 0.9,  carbs: 9.6,   fats: 0.2,   category: 'Verdura' },
+  { id: 'f-acelga',    name: 'Acelga',              unit: 'gr', calories: 19,  protein: 1.8,  carbs: 3.7,   fats: 0.2,   category: 'Verdura' },
+  { id: 'f-repollo-morado', name: 'Repollo morado', unit: 'gr', calories: 31,  protein: 1.4,  carbs: 7.4,   fats: 0.2,   category: 'Verdura' },
   { id: 'f-papa',      name: 'Papa',                unit: 'gr', calories: 80,  protein: 0.55, carbs: 14,    fats: 0,     category: 'Carbo' },
   { id: 'f-almendra',  name: 'Almendra',            unit: 'u',  calories: 5.8, protein: 0.213,carbs: 0.197, fats: 0.506, category: 'Fruto seco' },
   { id: 'f-pasta-mani',name: 'Pasta de maní',       unit: 'gr', calories: 600, protein: 11.75,carbs: 8.25,  fats: 23.5,  category: 'Grasa' },
@@ -305,6 +307,11 @@ interface State {
   addFood: (patch?: Partial<FoodEntry>) => void
   updateFood: (id: string, patch: Partial<FoodEntry>) => void
   removeFood: (id: string) => void
+  /** Repuebla la biblioteca con los alimentos por defecto de la dieta que
+   *  falten (match por nombre, case-insensitive). NO duplica ni pisa los que
+   *  ya tengas (respeta tus ediciones de macros). Devuelve cuántos agregó.
+   *  Sirve para recuperar la biblioteca si se borró. */
+  restoreDefaultFoods: () => number
 
   // Shopping
   addShoppingCategory: (name: string) => void
@@ -509,6 +516,17 @@ export const useFoodStore = create<State>()(
           })),
         })),
       })),
+      restoreDefaultFoods: () => {
+        let added = 0
+        set((s) => {
+          const existing = new Set(s.foods.map((f) => f.name.trim().toLowerCase()))
+          const missing = DEMO_FOODS.filter((f) => !existing.has(f.name.trim().toLowerCase()))
+          added = missing.length
+          if (missing.length === 0) return s
+          return { foods: [...missing, ...s.foods] }
+        })
+        return added
+      },
 
       addFixedCost: (group, label) => set((s) => ({
         fixedCosts: [...s.fixedCosts, { id: genId(), label, amount: 0, group }],

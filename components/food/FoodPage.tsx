@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Utensils, ShoppingCart, Wallet, Plus, Trash2, ExternalLink, Settings,
-  StickyNote, ChevronDown, ChevronRight, BookOpen, Link2, Link2Off, Search,
+  StickyNote, ChevronDown, ChevronRight, BookOpen, Link2, Link2Off, Search, RotateCcw,
 } from 'lucide-react'
 import {
   useFoodStore, sumMealMacros, sumStageMacros, categoryTotal,
@@ -869,6 +869,7 @@ function AlimentosTab() {
   const addFood = useFoodStore((s) => s.addFood)
   const updateFood = useFoodStore((s) => s.updateFood)
   const removeFood = useFoodStore((s) => s.removeFood)
+  const restoreDefaultFoods = useFoodStore((s) => s.restoreDefaultFoods)
 
   const [query, setQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<string>('')
@@ -897,12 +898,25 @@ function AlimentosTab() {
             <p className="text-lg font-bold text-white">{foods.length} <span className="text-xs font-normal text-zinc-500">alimentos cargados</span></p>
             <p className="text-[11px] text-zinc-500 mt-0.5">Macros por 100 gr/ml o por 1 unidad. Se usan para autocompletar la dieta.</p>
           </div>
-          <button
-            onClick={() => addFood({ name: 'Nuevo alimento' })}
-            className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 text-emerald-400 font-semibold flex items-center gap-1"
-          >
-            <Plus className="w-3 h-3" /> Alimento
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const added = restoreDefaultFoods()
+                if (added > 0) alert(`Se agregaron ${added} alimento${added === 1 ? '' : 's'} de la dieta por defecto (los que ya tenías no se tocaron).`)
+                else alert('Ya tenés todos los alimentos de la dieta por defecto cargados.')
+              }}
+              title="Recupera los alimentos de tu dieta con sus macros. No duplica ni pisa los que ya tengas."
+              className="text-xs px-3 py-1.5 rounded-lg bg-indigo-500/15 border border-indigo-500/30 hover:bg-indigo-500/25 text-indigo-300 font-semibold flex items-center gap-1"
+            >
+              <RotateCcw className="w-3 h-3" /> Restaurar dieta
+            </button>
+            <button
+              onClick={() => addFood({ name: 'Nuevo alimento' })}
+              className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 hover:bg-emerald-500/25 text-emerald-400 font-semibold flex items-center gap-1"
+            >
+              <Plus className="w-3 h-3" /> Alimento
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-2 mt-3 flex-wrap">

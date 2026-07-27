@@ -41,9 +41,10 @@ export interface Concept {
   title: string
   /** Aportes de distintos autores sobre este concepto. */
   sources: ConceptSource[]
-  /** Texto libre / explicación general del concepto (independiente de los
-   *  autores). Acá se escribe la idea propia mezclando prosa y `@`menciones a
-   *  otros conceptos ([[conceptId]]) para contar cómo se relacionan/unen. */
+  /** @deprecated Las notas de relación ya NO viven dentro del concepto: son
+   *  nodos NOTA independientes en el mapa (`ConceptMap.noteNodes`). Este campo
+   *  se conserva solo para migrar datos viejos (su texto se mueve a un nodo
+   *  NOTA vía `migrateMapNotes`) y no debe escribirse en código nuevo. */
   notes?: string
   /** ¿Ya lo estudiaste? Alimenta la vista Progreso (estudiados / total). */
   studied?: boolean
@@ -61,11 +62,30 @@ export interface Concept {
   /** @deprecated usar `sources` */ body?: string
 }
 
+/** Un nodo NOTA del mapa — texto libre a nivel MATERIA (no dentro de un
+ *  concepto). Sirve para armar resúmenes que hilvanan varios conceptos y
+ *  autores: el texto mezcla prosa con `@`menciones que se guardan como tokens
+ *  `[[conceptId]]` (concepto) y `((authorId))` (autor). Se arrastra y
+ *  redimensiona en el lienzo como cualquier nodo. */
+export interface MapNote {
+  id: string
+  text: string
+  x: number
+  y: number
+  /** Ancho en px (opcional). Sin valor → ancho default. */
+  w?: number
+  createdAt: string
+  updatedAt: string
+}
+
 /** El mapa entero de una materia. `materiaId` es también su id de fila. */
 export interface ConceptMap {
   materiaId: string
   areas: ConceptArea[]
   concepts: Concept[]
+  /** Nodos NOTA (resúmenes de texto libre) del mapa. Opcional para
+   *  back-compat con mapas creados antes de esta feature. */
+  noteNodes?: MapNote[]
   createdAt: string
   updatedAt: string
 }
@@ -109,6 +129,33 @@ export function normalizeConcept(c: Concept, genId: () => string): Concept {
     studied: c.studied, x: c.x, y: c.y, w: c.w,
     createdAt: c.createdAt, updatedAt: c.updatedAt,
   }
+}
+
+/** Migra un mapa al modelo de nodos NOTA: garantiza `noteNodes[]` y mueve el
+ *  texto de cualquier `concept.notes` viejo (la nota que antes vivía DENTRO del
+ *  concepto) a un nodo NOTA nuevo, ubicado a la derecha del concepto. Preserva
+ *  los tokens `[[conceptId]]` del texto (siguen resolviendo). Idempotente: tras
+ *  correr, los `concept.notes` quedan en undefined y no vuelve a extraer nada. */
+export function migrateMapNotes(m: ConceptMap, genId: () => string): ConceptMap {
+  const hasStrandedNotes = m.concepts.some((c) => (c.notes ?? '').trim() !== '')
+  if (Array.isArray(m.noteNodes) && !hasStrandedNotes) return m
+
+  const ts = new Date().toISOString()
+  const extracted: MapNote[] = []
+  const concepts = m.concepts.map((c) => {
+    const text = (c.notes ?? '').trim()
+    if (!text) return c.notes === undefined ? c : { ...c, notes: undefined }
+    extracted.push({
+      id: genId(),
+      text,
+      x: c.x + (c.w ?? NODE_W_DEFAULT) + 40,
+      y: c.y,
+      createdAt: c.createdAt ?? ts,
+      updatedAt: ts,
+    })
+    return { ...c, notes: undefined }
+  })
+  return { ...m, noteNodes: [...(m.noteNodes ?? []), ...extracted], concepts }
 }
 
 /** Progreso de estudio de un conjunto de conceptos (estudiados / total). */

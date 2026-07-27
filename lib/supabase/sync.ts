@@ -21,6 +21,7 @@ import { useBacktestStore } from '@/lib/store/backtestStore'
 import { useJournalStore } from '@/lib/store/journalStore'
 import { useMeditationsStore } from '@/lib/store/meditationsStore'
 import { useConceptStore } from '@/lib/store/conceptStore'
+import { migrateMapNotes } from '@/lib/study/concepts'
 import {
   startPulling, endPulling,
   markModifiedIfNotPulling, markSynced, hasUnsyncedChanges,
@@ -2183,16 +2184,25 @@ async function pullConcepts(): Promise<boolean> {
   type MapRow = { payload: unknown }
   const sanitize = (raw: unknown): import('@/lib/study/concepts').ConceptMap => {
     const p = (raw ?? {}) as Partial<import('@/lib/study/concepts').ConceptMap>
+    // Spread del payload PRIMERO → preserva TODO campo (noteNodes y cualquier
+    // agregado futuro). Evita el problema histórico de "campo dropeado en el
+    // pull" (ya nos pasó con authors/mode). Después normalizamos los requeridos.
     return {
+      ...p,
       materiaId: p.materiaId ?? '',
       areas: Array.isArray(p.areas) ? p.areas : [],
       concepts: Array.isArray(p.concepts) ? p.concepts : [],
+      noteNodes: Array.isArray(p.noteNodes) ? p.noteNodes : undefined,
       createdAt: p.createdAt ?? new Date().toISOString(),
       updatedAt: p.updatedAt ?? new Date().toISOString(),
     }
   }
+  // Migramos también lo que baja de la nube: un mapa remoto viejo puede traer
+  // `concept.notes` sin `noteNodes` → lo pasamos al modelo de nodos NOTA para
+  // que la migración no se revierta al pullear desde otro device.
+  const genNoteId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
   const remoteMaps: import('@/lib/study/concepts').ConceptMap[] =
-    (res.data ?? []).map((r: MapRow) => sanitize(r.payload))
+    (res.data ?? []).map((r: MapRow) => migrateMapNotes(sanitize(r.payload), genNoteId))
   const tombs = await fetchTombstones(sb, uid, ['study_concept_maps'])
   const mergedMaps = mergeById<import('@/lib/study/concepts').ConceptMap>({
     local: useConceptStore.getState().maps,

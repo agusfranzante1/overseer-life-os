@@ -8,8 +8,8 @@
  */
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { ConceptMap, ConceptArea, Concept, ConceptSource } from '@/lib/study/concepts'
-import { AREA_PALETTE, makeDefaultAreas, normalizeConcept, NODE_W_MIN, NODE_W_MAX } from '@/lib/study/concepts'
+import type { ConceptMap, ConceptArea, Concept, ConceptSource, MapNote } from '@/lib/study/concepts'
+import { AREA_PALETTE, makeDefaultAreas, normalizeConcept, migrateMapNotes, NODE_W_MIN, NODE_W_MAX } from '@/lib/study/concepts'
 
 function genId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
@@ -35,13 +35,20 @@ interface State {
 
   // ── Conceptos ──
   addConcept: (materiaId: string, args?: { areaId?: string | null; x?: number; y?: number; title?: string; author?: string }) => string
-  updateConcept: (materiaId: string, conceptId: string, patch: Partial<Pick<Concept, 'title' | 'areaId' | 'notes'>>) => void
+  updateConcept: (materiaId: string, conceptId: string, patch: Partial<Pick<Concept, 'title' | 'areaId'>>) => void
   moveConcept: (materiaId: string, conceptId: string, x: number, y: number) => void
   /** Ajusta el ancho de la tarjeta (px), clampeado a [NODE_W_MIN, NODE_W_MAX]. */
   resizeConcept: (materiaId: string, conceptId: string, w: number) => void
   removeConcept: (materiaId: string, conceptId: string) => void
   /** Marca/desmarca un concepto como estudiado (alimenta la vista Progreso). */
   toggleStudied: (materiaId: string, conceptId: string, studied?: boolean) => void
+
+  // ── Nodos NOTA (resúmenes de texto libre a nivel materia) ──
+  addNoteNode: (materiaId: string, args?: { x?: number; y?: number; text?: string }) => string
+  updateNoteNode: (materiaId: string, noteId: string, text: string) => void
+  moveNoteNode: (materiaId: string, noteId: string, x: number, y: number) => void
+  resizeNoteNode: (materiaId: string, noteId: string, w: number) => void
+  removeNoteNode: (materiaId: string, noteId: string) => void
 
   // ── Aportes (autores) de un concepto ──
   addSource: (materiaId: string, conceptId: string, author?: string) => string
@@ -168,6 +175,48 @@ export const useConceptStore = create<State>()(
         })),
       })),
 
+      // ── Nodos NOTA ─────────────────────────────────────────────────────
+      addNoteNode: (materiaId, args) => {
+        const id = genId()
+        const ts = nowISO()
+        set((s) => ({
+          maps: mapOver(s.maps, materiaId, (m) => {
+            const n = (m.noteNodes ?? []).length
+            const x = args?.x ?? 120 + (n % 4) * 240
+            const y = args?.y ?? 120 + Math.floor(n / 4) * 160
+            const note: MapNote = { id, text: args?.text ?? '', x, y, createdAt: ts, updatedAt: ts }
+            return { ...m, noteNodes: [...(m.noteNodes ?? []), note] }
+          }),
+        }))
+        return id
+      },
+      updateNoteNode: (materiaId, noteId, text) => set((s) => ({
+        maps: mapOver(s.maps, materiaId, (m) => ({
+          ...m,
+          noteNodes: (m.noteNodes ?? []).map((n) => (n.id === noteId ? { ...n, text, updatedAt: nowISO() } : n)),
+        })),
+      })),
+      moveNoteNode: (materiaId, noteId, x, y) => set((s) => ({
+        maps: mapOver(s.maps, materiaId, (m) => ({
+          ...m,
+          noteNodes: (m.noteNodes ?? []).map((n) => (n.id === noteId ? { ...n, x, y, updatedAt: nowISO() } : n)),
+        })),
+      })),
+      resizeNoteNode: (materiaId, noteId, w) => set((s) => ({
+        maps: mapOver(s.maps, materiaId, (m) => ({
+          ...m,
+          noteNodes: (m.noteNodes ?? []).map((n) => (n.id === noteId
+            ? { ...n, w: Math.max(NODE_W_MIN, Math.min(NODE_W_MAX, Math.round(w))), updatedAt: nowISO() }
+            : n)),
+        })),
+      })),
+      removeNoteNode: (materiaId, noteId) => set((s) => ({
+        maps: mapOver(s.maps, materiaId, (m) => ({
+          ...m,
+          noteNodes: (m.noteNodes ?? []).filter((n) => n.id !== noteId),
+        })),
+      })),
+
       // ── Aportes ────────────────────────────────────────────────────────
       addSource: (materiaId, conceptId, author) => {
         const sid = genId()
@@ -215,6 +264,9 @@ export const useConceptStore = create<State>()(
         for (const m of state.maps) {
           if (Array.isArray(m.concepts)) m.concepts = m.concepts.map((c) => normalizeConcept(c, genId))
         }
+        // Migración de notas: el texto que antes vivía DENTRO del concepto
+        // (`concept.notes`) pasa a ser un nodo NOTA independiente del mapa.
+        state.maps = state.maps.map((m) => migrateMapNotes(m, genId))
       },
     },
   ),
