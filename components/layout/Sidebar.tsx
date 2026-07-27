@@ -12,6 +12,7 @@ import {
   Network, ChevronUp, ChevronDown, ChevronRight, Target, GraduationCap, Sparkles,
   Sun, Moon, NotebookPen, Wind,
 } from 'lucide-react'
+import { SidebarLinks } from './SidebarLinks'
 import { listTimezones, formatTzOffset, detectTimezone } from '@/lib/utils/dateInTz'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -488,6 +489,9 @@ export function Sidebar({
             </Link>
           )
         })}
+        {/* Accesos rápidos (enlaces) — chats de ChatGPT, docs, lo que estés
+            trabajando. Scrollea junto con el nav. Solo con sidebar expandido. */}
+        <SidebarLinks showLabels={showLabels} />
       </nav>
 
       {/* Bottom actions — colapsables detrás de "Opciones" para no ocupar
