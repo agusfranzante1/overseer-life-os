@@ -1397,6 +1397,9 @@ async function pushSPI() {
   if (bitRows.length > 0) {
     const r = await sb.from('spi_bitacora').upsert(bitRows)
     if (r.error) { reportSyncError(`spi_bitacora upsert failed: ${r.error.message}`); throw r.error }
+    // Igual que las sesiones: lo que re-subimos EXISTE → limpiamos tombstones
+    // viejos para que un restore de la bitácora quede firme.
+    await clearTombstones(sb, uid, 'spi_bitacora', bitRows.map((r) => r.id))
   }
   await syncDeletes(sb, uid, 'spi_bitacora', bitRows.map((r) => r.id), 'spi:bitacora')
   markSynced('spi', syncedAt)

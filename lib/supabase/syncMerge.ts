@@ -76,6 +76,11 @@ export function mergeById<T>(opts: MergeByIdOpts<T>): T[] {
   // volver a borrar; datos perdidos no se recuperan. Es el espejo, del lado del
   // pull, del blindaje anti-wipe de reconcileDeletes/syncDeletes.
   const localEmpty = local.length === 0
+  // ESPEJO: el REMOTO quedó vacío pero el local TIENE datos = la nube fue
+  // wipeada (push de otro device con local vacío). Este device es el que todavía
+  // tiene la data → la conservamos (ignorando tombstones/baseline) para que el
+  // push la restaure. Cubre bitácora y cualquier colección, no solo sesiones.
+  const remoteWiped = remote.length === 0 && local.length > 0
 
   const allIds = new Set<string>([...localById.keys(), ...remoteById.keys()])
   const merged: T[] = []
@@ -95,9 +100,9 @@ export function mergeById<T>(opts: MergeByIdOpts<T>): T[] {
       if (tombstones && baseline.has(id) && !localEmpty) continue  // borrado local pendiente
       merged.push(r)
     } else if (l !== undefined) {
-      if (tombDead(l)) continue                       // borrada en otro device (global)
-      if (!baseline.has(id)) merged.push(l)           // nueva local sin pushear → conservar
-      // ∈ baseline → borrada en otro device → no se incluye
+      if (tombDead(l) && !remoteWiped) continue       // borrada en otro device (salvo wipe de la nube)
+      if (remoteWiped || !baseline.has(id)) merged.push(l)  // nueva local, O nube wipeada → conservar
+      // ∈ baseline y ausente en remoto (sin wipe) → borrada en otro device → no se incluye
     }
   }
   return merged
