@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import {
   Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight, ZoomIn, ZoomOut, Square, Circle, Type, Copy, Link2, Image as ImageIcon, Loader2,
-  Brackets, Braces, Parentheses, RotateCw,
+  Brackets, Braces, Parentheses, RotateCw, Undo2,
   AlignStartVertical, AlignCenterVertical, AlignEndVertical,
   AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal,
   AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter,
@@ -68,6 +68,8 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   const distributeNodes = useMindMapStore((s) => s.distributeNodes)
   const duplicateNode = useMindMapStore((s) => s.duplicateNode)
   const pasteSubgraph = useMindMapStore((s) => s.pasteSubgraph)
+  const undo = useMindMapStore((s) => s.undo)
+  const canUndo = useMindMapStore((s) => s.undoSnapshot?.mapId === mapId)
 
   // Selection — either a node or an edge.
   // Selection model:
@@ -326,6 +328,19 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
       const key = e.key.toLowerCase()
 
+      // Ctrl/Cmd+Z → deshacer el último cambio (1 solo nivel). Shift+Z lo
+      // ignoramos (no hay redo, por diseño).
+      if (key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        const had = useMindMapStore.getState().undoSnapshot?.mapId === mapId
+        undo()
+        if (had) {
+          setCopyFlash('Deshice el último cambio')
+          setTimeout(() => setCopyFlash(null), 1500)
+        }
+        return
+      }
+
       if (key === 'c') {
         if (!map || selectedNodeIds.length === 0) return
         e.preventDefault()
@@ -356,7 +371,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [map, selectedNodeIds, mapId, pasteSubgraph])
+  }, [map, selectedNodeIds, mapId, pasteSubgraph, undo])
 
   // Convert a screen-space pointer event into CONTENT coords (the same space
   // that node.x/y live in — i.e. canvas-local, minus pan, divided by zoom).
@@ -871,6 +886,8 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
         }}
         onAddImage={() => imageInputRef.current?.click()}
         uploadingImage={uploadingImage}
+        onUndo={() => { undo(); clearSelection() }}
+        canUndo={canUndo}
         onResetPan={() => { setPan({ x: 0, y: 0 }); setZoom(1) }}
         zoom={zoom}
         onZoomIn={() => {
@@ -1272,7 +1289,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
 
 function Toolbar({
   selectedNode, selectedEdge, selectedNodeCount, selectedNodesColor,
-  onChangeNodeColor, onChangeNodeShape, onChangeBracketKind, onChangeBracketDir, onChangeNodeFontSize, onChangeEdgeShape, onAlign, onDistribute, onDeleteSelection, onAddNode, onAddImage, uploadingImage, onResetPan,
+  onChangeNodeColor, onChangeNodeShape, onChangeBracketKind, onChangeBracketDir, onChangeNodeFontSize, onChangeEdgeShape, onAlign, onDistribute, onDeleteSelection, onAddNode, onAddImage, uploadingImage, onUndo, canUndo, onResetPan,
   zoom, onZoomIn, onZoomOut,
 }: {
   selectedNode: MindMapNode | null
@@ -1294,6 +1311,8 @@ function Toolbar({
   onAddNode: () => void
   onAddImage: () => void
   uploadingImage: boolean
+  onUndo: () => void
+  canUndo: boolean
   onResetPan: () => void
   zoom: number
   onZoomIn: () => void
@@ -1315,6 +1334,14 @@ function Toolbar({
         className="text-xs text-zinc-300 hover:text-indigo-300 active:bg-zinc-800 px-2.5 py-1.5 rounded-lg hover:bg-zinc-800 transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-wait"
       >
         {uploadingImage ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />} Imagen
+      </button>
+      <button
+        onClick={onUndo}
+        disabled={!canUndo}
+        title="Deshacer el último cambio · Ctrl+Z"
+        className="text-zinc-400 hover:text-indigo-300 hover:bg-zinc-800 active:bg-zinc-800 p-1.5 rounded-lg transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-400"
+      >
+        <Undo2 className="w-3.5 h-3.5" />
       </button>
       <button
         onClick={onResetPan}

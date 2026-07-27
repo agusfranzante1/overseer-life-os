@@ -6,6 +6,7 @@ export const en: Record<string, any> = {
     spi: 'SPI',
     lab: 'Lab',
     journal: 'My Journal',
+    meditaciones: 'Meditations',
     mindmaps: 'Mind Maps',
     calendar: 'Calendar',
     tasks: 'Task Tracker',

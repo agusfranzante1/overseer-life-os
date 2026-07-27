@@ -110,12 +110,22 @@ const NODE_DEFAULT_HEIGHT = 64
 export const NODE_PALETTE = [
   '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#3b82f6',
   '#ec4899', '#a855f7', '#14b8a6', '#f97316', '#facc15',
+  '#000000',
 ]
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 interface MindMapState {
   maps: MindMap[]
+
+  /** Undo de 1 SOLO nivel (por diseño — "solo 1 así es fácil"). Guarda el
+   *  estado (nodos + edges) de UN mapa justo ANTES del último cambio. Las
+   *  ráfagas rápidas (arrastrar, redimensionar) se agrupan en un único punto
+   *  de undo vía coalescing temporal, así Ctrl+Z deshace el gesto completo y
+   *  no un micro-paso. No se persiste (se recalcula por sesión). */
+  undoSnapshot: { mapId: string; nodes: MindMapNode[]; edges: MindMapEdge[] } | null
+  /** Restaura el `undoSnapshot` y lo limpia. Noop si no hay nada que deshacer. */
+  undo: () => void
 
   // Map-level CRUD
   createMap: (title?: string) => string
@@ -181,10 +191,52 @@ function touch(map: MindMap): MindMap {
   return { ...map, updatedAt: new Date().toISOString() }
 }
 
+// Ventana de coalescing del undo: mutaciones al mismo mapa dentro de este
+// lapso se consideran UN solo gesto (arrastrar/redimensionar disparan muchos
+// updateNode seguidos). Vive a nivel de módulo porque es solo timing y no
+// necesita reactividad.
+const UNDO_COALESCE_MS = 500
+let lastUndoCaptureAt = 0
+
 export const useMindMapStore = create<MindMapState>()(
   persist(
-    (set, get) => ({
+    (set, get) => {
+      /** Aplica una mutación a un mapa capturando ANTES su estado para el
+       *  undo de 1 nivel. Reemplaza a `set` en todas las acciones que editan
+       *  el contenido del mapa (nodos/edges). Ráfagas <500ms → un solo undo. */
+      const mutate = (
+        mapId: string,
+        updater: (s: MindMapState) => Partial<MindMapState>,
+      ) => set((s) => {
+        const now = Date.now()
+        const coalesce =
+          now - lastUndoCaptureAt < UNDO_COALESCE_MS && s.undoSnapshot?.mapId === mapId
+        lastUndoCaptureAt = now
+        const m = s.maps.find((mm) => mm.id === mapId)
+        // Los arrays son inmutables (cada acción crea nuevos) → guardar la
+        // referencia actual es un snapshot válido sin deep-clone.
+        const undoSnapshot = coalesce || !m
+          ? s.undoSnapshot
+          : { mapId, nodes: m.nodes, edges: m.edges }
+        return { ...updater(s), undoSnapshot }
+      })
+
+      return {
       maps: [],
+      undoSnapshot: null,
+
+      undo: () => set((s) => {
+        const snap = s.undoSnapshot
+        if (!snap) return {}
+        // Tras deshacer, el próximo cambio arranca un punto de undo nuevo.
+        lastUndoCaptureAt = 0
+        return {
+          maps: s.maps.map((m) => m.id !== snap.mapId
+            ? m
+            : touch({ ...m, nodes: snap.nodes, edges: snap.edges })),
+          undoSnapshot: null,
+        }
+      }),
 
       createMap: (title) => {
         const now = new Date().toISOString()
@@ -209,7 +261,7 @@ export const useMindMapStore = create<MindMapState>()(
 
       addNode: (mapId, args) => {
         const nodeId = genId()
-        set((s) => ({
+        mutate(mapId, (s) => ({
           maps: s.maps.map((m) => {
             if (m.id !== mapId) return m
             const newNode: MindMapNode = {
@@ -234,7 +286,7 @@ export const useMindMapStore = create<MindMapState>()(
         return nodeId
       },
 
-      updateNode: (mapId, nodeId, patch) => set((s) => ({
+      updateNode: (mapId, nodeId, patch) => mutate(mapId, (s) => ({
         maps: s.maps.map((m) => {
           if (m.id !== mapId) return m
           return touch({
@@ -256,7 +308,7 @@ export const useMindMapStore = create<MindMapState>()(
           x: source.x + 24,
           y: source.y + 24,
         }
-        set((s) => ({
+        mutate(mapId, (s) => ({
           maps: s.maps.map((m) => m.id !== mapId ? m : touch({ ...m, nodes: [...m.nodes, copy] })),
         }))
         return newId
@@ -281,7 +333,7 @@ export const useMindMapStore = create<MindMapState>()(
           )
           if (!stillUsedElsewhere) void deleteMindmapImage(path)
         }
-        set((s) => ({
+        mutate(mapId, (s) => ({
           maps: s.maps.map((m) => {
             if (m.id !== mapId) return m
             return touch({
@@ -321,7 +373,7 @@ export const useMindMapStore = create<MindMapState>()(
             if (e.toAnchor) ne.toAnchor = { x: e.toAnchor.x + offset.dx, y: e.toAnchor.y + offset.dy }
             return ne
           })
-        set((s) => ({
+        mutate(mapId, (s) => ({
           maps: s.maps.map((m) => m.id !== mapId ? m : touch({
             ...m,
             nodes: [...m.nodes, ...newNodes],
@@ -340,7 +392,7 @@ export const useMindMapStore = create<MindMapState>()(
         // edge with its own arrow.)
         if (map.edges.some((e) => e.fromNodeId === fromNodeId && e.toNodeId === toNodeId)) return null
         const id = genId()
-        set((s) => ({
+        mutate(mapId, (s) => ({
           maps: s.maps.map((m) => m.id !== mapId ? m : touch({
             ...m,
             edges: [...m.edges, { id, fromNodeId, toNodeId }],
@@ -349,21 +401,21 @@ export const useMindMapStore = create<MindMapState>()(
         return id
       },
 
-      removeEdge: (mapId, edgeId) => set((s) => ({
+      removeEdge: (mapId, edgeId) => mutate(mapId, (s) => ({
         maps: s.maps.map((m) => m.id !== mapId ? m : touch({
           ...m,
           edges: m.edges.filter((e) => e.id !== edgeId),
         })),
       })),
 
-      setEdgeShape: (mapId, edgeId, shape) => set((s) => ({
+      setEdgeShape: (mapId, edgeId, shape) => mutate(mapId, (s) => ({
         maps: s.maps.map((m) => m.id !== mapId ? m : touch({
           ...m,
           edges: m.edges.map((e) => e.id !== edgeId ? e : { ...e, shape }),
         })),
       })),
 
-      setEdgeBend: (mapId, edgeId, bend) => set((s) => ({
+      setEdgeBend: (mapId, edgeId, bend) => mutate(mapId, (s) => ({
         maps: s.maps.map((m) => m.id !== mapId ? m : touch({
           ...m,
           edges: m.edges.map((e) => {
@@ -376,7 +428,7 @@ export const useMindMapStore = create<MindMapState>()(
         })),
       })),
 
-      setEdgeAnchor: (mapId, edgeId, side, anchor) => set((s) => ({
+      setEdgeAnchor: (mapId, edgeId, side, anchor) => mutate(mapId, (s) => ({
         maps: s.maps.map((m) => m.id !== mapId ? m : touch({
           ...m,
           edges: m.edges.map((e) => {
@@ -390,7 +442,7 @@ export const useMindMapStore = create<MindMapState>()(
         })),
       })),
 
-      setNodeFontSize: (mapId, nodeId, fontSize) => set((s) => ({
+      setNodeFontSize: (mapId, nodeId, fontSize) => mutate(mapId, (s) => ({
         maps: s.maps.map((m) => m.id !== mapId ? m : touch({
           ...m,
           nodes: m.nodes.map((n) => {
@@ -405,7 +457,7 @@ export const useMindMapStore = create<MindMapState>()(
         })),
       })),
 
-      setNodeShape: (mapId, nodeId, shape) => set((s) => ({
+      setNodeShape: (mapId, nodeId, shape) => mutate(mapId, (s) => ({
         maps: s.maps.map((m) => m.id !== mapId ? m : touch({
           ...m,
           nodes: m.nodes.map((n) => {
@@ -432,7 +484,7 @@ export const useMindMapStore = create<MindMapState>()(
         })),
       })),
 
-      alignNodes: (mapId, nodeIds, mode) => set((s) => ({
+      alignNodes: (mapId, nodeIds, mode) => mutate(mapId, (s) => ({
         maps: s.maps.map((m) => {
           if (m.id !== mapId) return m
           const idset = new Set(nodeIds)
@@ -463,7 +515,7 @@ export const useMindMapStore = create<MindMapState>()(
         }),
       })),
 
-      distributeNodes: (mapId, nodeIds, axis) => set((s) => ({
+      distributeNodes: (mapId, nodeIds, axis) => mutate(mapId, (s) => ({
         maps: s.maps.map((m) => {
           if (m.id !== mapId) return m
           const idset = new Set(nodeIds)
@@ -495,7 +547,8 @@ export const useMindMapStore = create<MindMapState>()(
       })),
 
       getMap: (mapId) => get().maps.find((m) => m.id === mapId) ?? null,
-    }),
+      }
+    },
     {
       name: 'overseer-mindmaps',
       partialize: (s) => ({ maps: s.maps }),

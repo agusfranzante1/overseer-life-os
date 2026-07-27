@@ -425,6 +425,14 @@ function PlanCard({
                 <QuarterMiniCalendar quarterKey={periodKey} />
               )}
 
+              {/* Mini-calendario de los 6 meses — solo en el semestre actual */}
+              {level === 'semester' && status === 'in_progress' && (
+                <SemesterMiniCalendar
+                  semesterKey={periodKey}
+                  onJumpToMonth={(mk) => onJumpToChild('month', mk)}
+                />
+              )}
+
               {/* Empty state — only on the current period if not started */}
               {!plan && status === 'in_progress' && (
                 <div className="bg-black/20 border border-white/[0.08] rounded-2xl p-6 text-center">
@@ -1314,6 +1322,92 @@ function QuarterMiniCalendar({ quarterKey }: { quarterKey: string }) {
               <p className="text-xs font-semibold text-zinc-200 mb-2">
                 {MONTH_NAMES[realMonthIdx]}{monthYear !== year && ` ${monthYear}`}
               </p>
+              {/* Weekday headers (Spanish Mon-Sun, X for Wednesday) */}
+              <div className="grid grid-cols-[24px_repeat(7,1fr)] gap-y-0.5 mb-1">
+                <span />
+                {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d) => (
+                  <span key={d} className="text-[10px] text-zinc-500 text-center font-medium">{d}</span>
+                ))}
+              </div>
+              {/* Weeks */}
+              <div className="grid grid-cols-[24px_repeat(7,1fr)] gap-y-0.5">
+                {grid.weeks.map((week, wi) => (
+                  <React.Fragment key={wi}>
+                    <span className="text-[9px] text-zinc-600 bg-white/[0.03] rounded text-center font-mono leading-6">
+                      {week.weekNo}
+                    </span>
+                    {week.days.map((cell, di) => {
+                      const isToday = isSameYMD(cell.date, today)
+                      const isWeekend = di >= 5
+                      let textCls = 'text-zinc-200'
+                      if (!cell.inMonth) textCls = 'text-zinc-700'
+                      else if (isWeekend) textCls = 'text-red-400'
+                      return (
+                        <div key={di} className="text-center relative">
+                          {isToday ? (
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-500 text-white text-[11px] font-semibold">
+                              {cell.date.getDate()}
+                            </span>
+                          ) : (
+                            <span className={`inline-block text-[11px] leading-6 ${textCls}`}>
+                              {cell.date.getDate()}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/** Mini-calendario de los 6 meses del semestre — misma estética que
+ *  QuarterMiniCalendar pero con horizonte semestral. Sirve para ubicarte en
+ *  el semestre y, tocando el nombre del mes, saltar a su plan mensual.
+ *  semesterKey: 'YYYY-HN' (H1 = ene-jun, H2 = jul-dic). */
+function SemesterMiniCalendar({
+  semesterKey, onJumpToMonth,
+}: {
+  semesterKey: string
+  onJumpToMonth: (monthKey: string) => void
+}) {
+  const [yearStr, hStr] = semesterKey.split('-H')
+  const year = parseInt(yearStr, 10)
+  const h = parseInt(hStr, 10)
+  if (Number.isNaN(year) || Number.isNaN(h)) return null
+  const firstMonthIdx = (h - 1) * 6
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const isSameYMD = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate()
+
+  return (
+    <div className="bg-black/20 border border-white/[0.08] rounded-xl p-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {[0, 1, 2, 3, 4, 5].map((offset) => {
+          const monthIdx = firstMonthIdx + offset
+          const monthYear = year + Math.floor(monthIdx / 12)
+          const realMonthIdx = monthIdx % 12
+          const monthKey = `${monthYear}-${String(realMonthIdx + 1).padStart(2, '0')}`
+          const grid = buildMonthGrid(monthYear, realMonthIdx)
+          return (
+            <div key={monthIdx}>
+              <button
+                onClick={() => onJumpToMonth(monthKey)}
+                title="Ir al plan de este mes"
+                className="text-xs font-semibold text-zinc-200 mb-2 hover:text-indigo-300 transition-colors text-left"
+              >
+                {MONTH_NAMES[realMonthIdx]}{monthYear !== year && ` ${monthYear}`}
+              </button>
               {/* Weekday headers (Spanish Mon-Sun, X for Wednesday) */}
               <div className="grid grid-cols-[24px_repeat(7,1fr)] gap-y-0.5 mb-1">
                 <span />

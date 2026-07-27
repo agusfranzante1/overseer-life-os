@@ -19,6 +19,7 @@ import { useStudyStore } from '@/lib/store/studyStore'
 import { useContentStore } from '@/lib/store/contentStore'
 import { useBacktestStore } from '@/lib/store/backtestStore'
 import { useJournalStore } from '@/lib/store/journalStore'
+import { useMeditationsStore } from '@/lib/store/meditationsStore'
 import { useConceptStore } from '@/lib/store/conceptStore'
 import {
   startPulling, endPulling,
@@ -50,6 +51,7 @@ interface SyncState {
   contentInit: boolean
   backtestInit: boolean
   journalInit: boolean
+  meditationsInit: boolean
   conceptInit: boolean
 }
 
@@ -74,6 +76,7 @@ const state: SyncState = {
   contentInit: false,
   backtestInit: false,
   journalInit: false,
+  meditationsInit: false,
   conceptInit: false,
 }
 
@@ -97,6 +100,7 @@ let studyPushTimer: ReturnType<typeof setTimeout> | null = null
 let contentPushTimer: ReturnType<typeof setTimeout> | null = null
 let backtestPushTimer: ReturnType<typeof setTimeout> | null = null
 let journalPushTimer: ReturnType<typeof setTimeout> | null = null
+let meditationsPushTimer: ReturnType<typeof setTimeout> | null = null
 let conceptPushTimer: ReturnType<typeof setTimeout> | null = null
 
 // Registro de push debounceados que están en cola. Lo usa
@@ -2052,6 +2056,85 @@ async function pullJournal(): Promise<boolean> {
   }
 }
 
+// ─── MEDITACIONES (biblioteca de meditaciones / respiración) ─────────────────
+// Una fila por meditación. Merge: LWW por updatedAt + tombstones.
+// Ver migration_meditations.sql.
+
+async function pushMeditations() {
+  if (!state.userId) return
+  const syncedAt = new Date().toISOString()
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { meditations } = useMeditationsStore.getState()
+
+  const rows = meditations.map((m) => ({
+    id: m.id,
+    user_id: uid,
+    created_at: m.createdAt,
+    updated_at: m.updatedAt,
+    payload: m,
+  }))
+
+  if (rows.length > 0) {
+    const r = await sb.from('meditation_entries').upsert(rows)
+    if (r.error) {
+      reportSyncError(`meditation_entries upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_meditations.sql.`)
+      throw r.error
+    }
+  }
+  await syncDeletes(sb, uid, 'meditation_entries', rows.map((r) => r.id), 'meditations:entries')
+  markSynced('meditations', syncedAt)
+}
+
+async function pullMeditations(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('meditations')
+  try {
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('meditation_entries').select('*').eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+  if (res.error) {
+    console.error('Meditations pull failed (run migration_meditations.sql?):', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) { markSynced('meditations'); return false }
+
+  type MedRow = { payload: unknown }
+  const sanitize = (raw: unknown): import('@/lib/store/meditationsStore').Meditation => {
+    const p = (raw ?? {}) as Partial<import('@/lib/store/meditationsStore').Meditation>
+    return {
+      id: p.id ?? '',
+      title: p.title ?? '',
+      script: p.script ?? '',
+      category: p.category ?? 'Respiración',
+      favorite: !!p.favorite,
+      ...(p.audioUrl ? { audioUrl: p.audioUrl } : {}),
+      createdAt: p.createdAt ?? new Date().toISOString(),
+      updatedAt: p.updatedAt ?? new Date().toISOString(),
+    }
+  }
+  const remoteMeds: import('@/lib/store/meditationsStore').Meditation[] =
+    (res.data ?? []).map((r: MedRow) => sanitize(r.payload))
+  const tombs = await fetchTombstones(sb, uid, ['meditation_entries'])
+  const mergedMeds = mergeById<import('@/lib/store/meditationsStore').Meditation>({
+    local: useMeditationsStore.getState().meditations,
+    remote: remoteMeds,
+    baseline: getBaseline('meditations:entries'),
+    getId: (x) => x.id,
+    getUpdatedAt: (x) => x.updatedAt,
+    tombstones: tombs.get('meditation_entries'),
+  })
+  useMeditationsStore.setState({ meditations: mergedMeds })
+  setBaseline('meditations:entries', remoteMeds.map((x) => x.id))
+  markSynced('meditations')
+  return true
+  } finally {
+    endPulling('meditations')
+  }
+}
+
 // ─── MAPAS DE CONCEPTOS (materias en modo 'conceptos') ───────────────────────
 // Una fila por mapa (id = materiaId). Merge: LWW por updatedAt + tombstones.
 // Ver migration_study_concepts.sql.
@@ -3122,6 +3205,7 @@ function scheduleStudy()      { schedule(studyPushTimer,      pushStudy,      (t
 function scheduleContent()    { schedule(contentPushTimer,    pushContent,    (t) => { contentPushTimer = t }) }
 function scheduleBacktests()  { schedule(backtestPushTimer,   pushBacktests,  (t) => { backtestPushTimer = t }) }
 function scheduleJournal()     { schedule(journalPushTimer,    pushJournal,    (t) => { journalPushTimer = t }) }
+function scheduleMeditations() { schedule(meditationsPushTimer, pushMeditations, (t) => { meditationsPushTimer = t }) }
 function scheduleConcepts()    { schedule(conceptPushTimer,    pushConcepts,   (t) => { conceptPushTimer = t }) }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
@@ -3334,6 +3418,16 @@ async function initAllDomains() {
     if (hasLocal) await pushJournal().catch((e) => console.error('Journal post-pull push failed', e))
   }
 
+  // ─── Meditaciones ─────────────────────────────────────────────────────
+  // Pull-first: LWW por updatedAt + tombstones (mismo patrón que journal).
+  if (!state.meditationsInit) {
+    state.meditationsInit = true
+    const { meditations } = useMeditationsStore.getState()
+    const hasLocal = meditations.length > 0
+    await pullMeditations()
+    if (hasLocal) await pushMeditations().catch((e) => console.error('Meditations post-pull push failed', e))
+  }
+
   // ─── Mapas de conceptos (materias modo 'conceptos') ───────────────────
   // Pull-first: LWW por updatedAt + tombstones (mismo patrón que mindmaps).
   if (!state.conceptInit) {
@@ -3445,6 +3539,7 @@ export function useSupabaseSync() {
       useContentStore.subscribe(() => { markModifiedIfNotPulling('content'); if (state.userId) scheduleContent() })
       useBacktestStore.subscribe(() => { markModifiedIfNotPulling('backtests'); if (state.userId) scheduleBacktests() })
       useJournalStore.subscribe(() => { markModifiedIfNotPulling('journal'); if (state.userId) scheduleJournal() })
+      useMeditationsStore.subscribe(() => { markModifiedIfNotPulling('meditations'); if (state.userId) scheduleMeditations() })
       useConceptStore.subscribe(() => { markModifiedIfNotPulling('concepts'); if (state.userId) scheduleConcepts() })
     }
 
@@ -3475,6 +3570,7 @@ export function useSupabaseSync() {
       state.contentInit = false
       state.backtestInit = false
       state.journalInit = false
+      state.meditationsInit = false
       state.conceptInit = false
       if (newId) {
         initAllDomains().catch((e) => console.error('Init after auth change failed', e))
@@ -3527,6 +3623,7 @@ export function useSupabaseSync() {
       state.contentInit = false
       state.backtestInit = false
       state.journalInit = false
+      state.meditationsInit = false
       state.conceptInit = false
       try {
         await initAllDomains()
@@ -3606,6 +3703,7 @@ export async function forceSyncAll(): Promise<void> {
   state.contentInit = false
   state.backtestInit = false
   state.journalInit = false
+  state.meditationsInit = false
   state.conceptInit = false
   await initAllDomains()
 }
@@ -3674,5 +3772,7 @@ export async function forceSyncBacktests() { await pushBacktests() }
 export async function forcePullBacktests() { return pullBacktests() }
 export async function forceSyncJournal()   { await pushJournal() }
 export async function forcePullJournal()   { return pullJournal() }
+export async function forceSyncMeditations() { await pushMeditations() }
+export async function forcePullMeditations() { return pullMeditations() }
 export async function forceSyncConcepts()  { await pushConcepts() }
 export async function forcePullConcepts()  { return pullConcepts() }

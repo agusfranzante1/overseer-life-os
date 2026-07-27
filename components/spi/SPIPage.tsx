@@ -2350,12 +2350,14 @@ function BitacoraBlock({
   onRemove: (id: string) => void
 }) {
   const [collapsed, setCollapsed] = useState(false)
-  const [showResolved, setShowResolved] = useState(false)
 
-  const working = entries.filter((e) => e.kind === 'working')
-  const broken = entries.filter((e) => e.kind === 'broken' && (showResolved || !e.resolved))
+  // Una entrada 'broken' que el usuario marcó como resuelta significa "la
+  // corregí → ahora funciona", así que vive en la columna "Sí funciona"
+  // (sigue siendo kind:'broken' para conservar su checkbox y poder revertir).
+  const working = entries.filter((e) => e.kind === 'working' || (e.kind === 'broken' && e.resolved))
+  const broken = entries.filter((e) => e.kind === 'broken' && !e.resolved)
   const totalWorking = working.length
-  const totalBroken = entries.filter((e) => e.kind === 'broken').length
+  const totalBroken = broken.length
   const resolvedCount = entries.filter((e) => e.kind === 'broken' && e.resolved).length
 
   return (
@@ -2371,8 +2373,8 @@ function BitacoraBlock({
           <p className="text-[11px] text-zinc-500 mt-0.5">
             Lo que funciona, no se toca · Cross-session ·
             <span className="text-emerald-400/80 ml-1">{totalWorking} ✓</span> ·
-            <span className="text-amber-400/80 ml-1">{totalBroken - resolvedCount} ⚠</span>
-            {resolvedCount > 0 && <span className="text-zinc-600 ml-1">({resolvedCount} resueltos)</span>}
+            <span className="text-amber-400/80 ml-1">{totalBroken} ⚠</span>
+            {resolvedCount > 0 && <span className="text-zinc-600 ml-1">({resolvedCount} corregidos)</span>}
           </p>
         </div>
         {collapsed ? <ChevronRight className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
@@ -2387,18 +2389,6 @@ function BitacoraBlock({
             className="overflow-hidden"
           >
             <div className="border-t border-white/[0.05] p-4">
-              {/* Toggle resolved visibility */}
-              {totalBroken > 0 && resolvedCount > 0 && (
-                <div className="flex justify-end mb-2">
-                  <button
-                    onClick={() => setShowResolved((v) => !v)}
-                    className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
-                  >
-                    {showResolved ? 'ocultar resueltos' : `mostrar resueltos (${resolvedCount})`}
-                  </button>
-                </div>
-              )}
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {/* SI FUNCIONA */}
                 <BitacoraColumn
@@ -2545,12 +2535,12 @@ function BitacoraRow({
   const [expanded, setExpanded] = useState(false)
   const dotColor = color === 'emerald' ? '#10b981' : '#f59e0b'
   return (
-    <div className={`bg-black/30 border border-white/[0.05] rounded p-1.5 group ${entry.resolved ? 'opacity-50' : ''}`}>
+    <div className="bg-black/30 border border-white/[0.05] rounded p-1.5 group">
       <div className="flex items-start gap-1.5">
         {entry.kind === 'broken' && (
           <button
             onClick={() => onUpdate({ resolved: !entry.resolved })}
-            title={entry.resolved ? 'Marcar como pendiente' : 'Marcar como resuelto'}
+            title={entry.resolved ? "Volver a 'No funciona'" : "Lo corregí → pasar a 'Sí funciona'"}
             className={`shrink-0 w-3 h-3 mt-0.5 rounded border flex items-center justify-center transition-all ${
               entry.resolved
                 ? 'bg-emerald-500/20 border-emerald-500'
@@ -2567,7 +2557,7 @@ function BitacoraRow({
           onClick={() => setExpanded((v) => !v)}
           className="flex-1 text-left text-[11px] text-zinc-200 leading-tight"
         >
-          <span className={entry.resolved ? 'line-through' : ''}>{entry.situation || <em className="text-zinc-600">(vacío)</em>}</span>
+          <span>{entry.situation || <em className="text-zinc-600">(vacío)</em>}</span>
         </button>
         <button
           onClick={onRemove}
