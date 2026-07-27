@@ -8,7 +8,8 @@ import { useTaskUiStore } from '@/lib/store/taskUiStore'
 import { effectivePriority } from '@/lib/utils/taskPriority'
 import { sortSubtasks, type KanbanSort } from '@/lib/utils/taskSort'
 import { useTranslation } from '@/hooks/useTranslation'
-import { CheckCircle2, Clock, Trash2, ChevronDown, ChevronUp, Plus, Flag, GripVertical, CornerDownRight, MoreHorizontal, ChevronRight, Calendar, X, Copy } from 'lucide-react'
+import { CheckCircle2, Clock, Trash2, ChevronDown, ChevronUp, Plus, Flag, GripVertical, CornerDownRight, MoreHorizontal, ChevronRight, Calendar, X, Copy, ClipboardCopy, Check } from 'lucide-react'
+import { taskToClipboardText, copyTextToClipboard } from '@/lib/tasks/taskClipboard'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { format } from 'date-fns'
 import { SubtaskDetailModal } from './SubtaskDetailModal'
@@ -38,6 +39,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
   // Estado de UI (expanded del card, colapso de cada sub-tarea-1) vive
   // en su propio store persistido. Refrescar la página ya no resetea el
   // layout — recordamos qué quedó abierto/cerrado.
+  const [copiedToClipboard, setCopiedToClipboard] = useState(false)
   const expanded = useTaskUiStore((s) => !!s.taskExpanded[task.id])
   const setExpanded = (next: boolean | ((v: boolean) => boolean)) => {
     const value = typeof next === 'function' ? next(expanded) : next
@@ -695,6 +697,19 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
               title="Duplicar tarea con todas sus subtareas (plantilla de proceso)"
             >
               <Copy className="w-3.5 h-3.5" />
+            </button>
+            {/* Copiar al portapapeles como checklist de texto (madre + subtareas). */}
+            <button
+              data-interactive
+              onClick={async (e) => {
+                e.stopPropagation()
+                const ok = await copyTextToClipboard(taskToClipboardText(task))
+                if (ok) { setCopiedToClipboard(true); setTimeout(() => setCopiedToClipboard(false), 1500) }
+              }}
+              className={`transition-colors p-1 ${copiedToClipboard ? 'text-emerald-400' : 'text-zinc-600 hover:text-indigo-300'}`}
+              title="Copiar al portapapeles (tarea + subtareas como checklist)"
+            >
+              {copiedToClipboard ? <Check className="w-3.5 h-3.5" /> : <ClipboardCopy className="w-3.5 h-3.5" />}
             </button>
             {/* Eliminar — oculto en mobile (ahí se borra deslizando la tarjeta,
                 y así un toque cerca del chevron no puede borrar por accidente). */}

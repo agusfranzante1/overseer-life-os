@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Task, Project, Priority, TaskRecurrence, TaskRecurrenceKind } from '@/types'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTranslation } from '@/hooks/useTranslation'
-import { X, Plus, Trash2, CheckCircle2, ChevronRight, ArrowRightLeft, Check, GitMerge, Repeat, Bell, Copy } from 'lucide-react'
+import { X, Plus, Trash2, CheckCircle2, ChevronRight, ArrowRightLeft, Check, GitMerge, Repeat, Bell, Copy, ClipboardCopy } from 'lucide-react'
+import { taskToClipboardText, copyTextToClipboard } from '@/lib/tasks/taskClipboard'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { SubtaskDetailModal } from './SubtaskDetailModal'
 import { recurrenceLabel } from '@/lib/utils/taskRecurrence'
@@ -24,6 +25,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
   // Read the task LIVE from the store so edits reflect immediately.
   const liveTask = useTasksStore((s) => (task ? s.tasks[task.id] : undefined))
   const effective = liveTask ?? task
+  const [copiedToClipboard, setCopiedToClipboard] = useState(false)
 
   // ── Buffered local state for the text inputs ──
   // We use local state for the VISIBLE value (so cursor position is
@@ -235,6 +237,17 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 title="Duplicar tarea con todas sus subtareas (plantilla de proceso)"
               >
                 <Copy className="w-5 h-5" />
+              </button>
+              {/* Copiar al portapapeles como checklist de texto. */}
+              <button
+                onClick={async () => {
+                  const ok = await copyTextToClipboard(taskToClipboardText(effective))
+                  if (ok) { setCopiedToClipboard(true); setTimeout(() => setCopiedToClipboard(false), 1500) }
+                }}
+                className={`transition-colors shrink-0 mt-1 ${copiedToClipboard ? 'text-emerald-400' : 'text-zinc-500 hover:text-indigo-300'}`}
+                title="Copiar al portapapeles (tarea + subtareas como checklist)"
+              >
+                {copiedToClipboard ? <Check className="w-5 h-5" /> : <ClipboardCopy className="w-5 h-5" />}
               </button>
               {/* Eliminar — la única forma de borrar una tarea era ir al
                   task manager. Lo agregamos acá para poder eliminar
