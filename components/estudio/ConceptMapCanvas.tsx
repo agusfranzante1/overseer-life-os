@@ -696,6 +696,73 @@ type MentionSuggestion =
   | { kind: 'concept'; id: string; label: string }
   | { kind: 'author'; id: string; label: string }
 
+// ── Helpers del editor de menciones (contentEditable) ────────────────────────
+// El editor guarda el MISMO formato que antes (`[[conceptId]]` / `((authorId))`)
+// pero mientras escribís las menciones se ven como chips con el NOMBRE (no el
+// token crudo). Los chips son `contenteditable=false` (átomos) y llevan el
+// token en `data-token` para serializar de vuelta al string guardado.
+
+function makeMentionChip(kind: 'concept' | 'author', id: string, label: string): HTMLSpanElement {
+  const span = document.createElement('span')
+  span.contentEditable = 'false'
+  span.dataset.token = kind === 'concept' ? `[[${id}]]` : `((${id}))`
+  span.textContent = kind === 'author' ? `@${label}` : label
+  span.style.cssText = kind === 'concept'
+    ? 'color:#f0abfc;font-weight:500;background:rgba(217,70,239,0.14);border-radius:4px;padding:0 3px;'
+    : 'color:#bae6fd;font-weight:500;background:rgba(56,189,248,0.14);border-radius:4px;padding:0 3px;'
+  return span
+}
+
+/** Construye el DOM del editor a partir del string guardado: texto (con <br>
+ *  por cada salto) + chips resueltos al nombre actual del concepto/autor. */
+function setEditorContent(root: HTMLElement, value: string, allConcepts: Concept[], authors: StudyAuthor[]) {
+  root.innerHTML = ''
+  const re = /\[\[([^\]]+)\]\]|\(\(([^)]+)\)\)/g
+  let last = 0
+  let m: RegExpExecArray | null
+  const appendText = (text: string) => {
+    const parts = text.split('\n')
+    parts.forEach((p, i) => {
+      if (i > 0) root.appendChild(document.createElement('br'))
+      if (p) root.appendChild(document.createTextNode(p))
+    })
+  }
+  while ((m = re.exec(value)) !== null) {
+    if (m.index > last) appendText(value.slice(last, m.index))
+    if (m[1] !== undefined) {
+      const c = allConcepts.find((x) => x.id === m![1])
+      root.appendChild(makeMentionChip('concept', m[1], c ? (c.title.trim() || 'concepto') : 'concepto?'))
+    } else {
+      const a = authors.find((x) => x.id === m![2])
+      root.appendChild(makeMentionChip('author', m[2], a ? (a.name.trim() || 'autor') : 'autor?'))
+    }
+    last = re.lastIndex
+  }
+  if (last < value.length) appendText(value.slice(last))
+}
+
+/** Serializa el DOM del editor de vuelta al string guardado: chips → su
+ *  `data-token`, <br>/bloques → `\n`, texto tal cual. */
+function serializeEditor(root: HTMLElement): string {
+  let out = ''
+  const walk = (node: Node) => {
+    node.childNodes.forEach((child) => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        out += child.textContent ?? ''
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        const el = child as HTMLElement
+        const token = el.dataset?.token
+        if (token) { out += token; return }
+        if (el.tagName === 'BR') { out += '\n'; return }
+        if ((el.tagName === 'DIV' || el.tagName === 'P') && out.length > 0 && !out.endsWith('\n')) out += '\n'
+        walk(el)
+      }
+    })
+  }
+  walk(root)
+  return out
+}
+
 function RichText({
   value, onSave, placeholder, allConcepts, selfId, onNavigate, authors, className,
 }: {
@@ -710,32 +777,84 @@ function RichText({
   className?: string
 }) {
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(value)
-  const [mention, setMention] = useState<{ query: string; at: number } | null>(null)
-  const taRef = useRef<HTMLTextAreaElement | null>(null)
-  useEffect(() => { if (!editing) setDraft(value) }, [value, editing])
+  const [empty, setEmpty] = useState(!value.trim())
+  const [mention, setMention] = useState<{ query: string } | null>(null)
+  const editorRef = useRef<HTMLDivElement | null>(null)
+  // Contexto de la mención en curso — nodo de texto + offset del `@`. En un ref
+  // (no state) porque apunta a nodos vivos del DOM del editor.
+  const mentionCtx = useRef<{ node: Text; at: number; query: string } | null>(null)
   const withAuthors = authors ?? EMPTY_AUTHORS
 
-  const commit = () => {
-    setEditing(false)
-    setMention(null)
-    if (draft !== value) onSave(draft)
+  // Al entrar en modo edición, poblamos el editor desde el valor actual y
+  // dejamos el caret al final. React no toca los hijos del div (no tiene
+  // children en el JSX), así que los administramos imperativamente. Leemos
+  // `value` una sola vez (al flipear a editing) — no queremos que un cambio
+  // externo pise lo que estás escribiendo.
+  useEffect(() => {
+    if (!editing || !editorRef.current) return
+    const el = editorRef.current
+    setEditorContent(el, value, allConcepts, withAuthors)
+    setEmpty(!value.trim())
+    el.focus()
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    range.collapse(false)
+    const sel = window.getSelection()
+    sel?.removeAllRanges(); sel?.addRange(range)
+    // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
+  }, [editing])
+
+  const detectMention = () => {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) { mentionCtx.current = null; setMention(null); return }
+    const range = sel.getRangeAt(0)
+    const node = range.startContainer
+    if (node.nodeType !== Node.TEXT_NODE) { mentionCtx.current = null; setMention(null); return }
+    const before = (node.textContent ?? '').slice(0, range.startOffset)
+    const mm = before.match(/@([^@[\]]{0,40})$/)
+    if (!mm) { mentionCtx.current = null; setMention(null); return }
+    mentionCtx.current = { node: node as Text, at: range.startOffset - mm[0].length, query: mm[1] }
+    setMention({ query: mm[1] })
   }
 
-  const onChange = (value: string, cursor: number) => {
-    setDraft(value)
-    const before = value.slice(0, cursor)
-    const m = before.match(/@([^\n@[\]]{0,40})$/)
-    setMention(m ? { query: m[1], at: cursor - m[0].length } : null)
+  const onInput = () => {
+    if (editorRef.current) setEmpty(serializeEditor(editorRef.current).trim() === '')
+    detectMention()
   }
 
   const insert = (sug: MentionSuggestion) => {
-    if (!mention) return
-    const token = sug.kind === 'concept' ? `[[${sug.id}]] ` : `((${sug.id})) `
-    const next = draft.slice(0, mention.at) + token + draft.slice(mention.at + 1 + mention.query.length)
-    setDraft(next)
+    const ctx = mentionCtx.current
+    const root = editorRef.current
+    if (!ctx || !root || !ctx.node.parentNode) return
+    const { node, at, query } = ctx
+    const full = node.textContent ?? ''
+    const after = full.slice(at + 1 + query.length)  // salta '@' + query
+    node.textContent = full.slice(0, at)
+    const chip = makeMentionChip(sug.kind, sug.id, sug.label)
+    const space = document.createTextNode(' ')
+    const afterNode = document.createTextNode(after)
+    const parent = node.parentNode
+    if (!parent) return
+    parent.insertBefore(afterNode, node.nextSibling)
+    parent.insertBefore(space, afterNode)
+    parent.insertBefore(chip, space)
+    const sel = window.getSelection()
+    const range = document.createRange()
+    range.setStart(afterNode, 0)
+    range.collapse(true)
+    sel?.removeAllRanges(); sel?.addRange(range)
+    mentionCtx.current = null
     setMention(null)
-    requestAnimationFrame(() => taRef.current?.focus())
+    setEmpty(serializeEditor(root).trim() === '')
+  }
+
+  const commit = () => {
+    const root = editorRef.current
+    const next = root ? serializeEditor(root) : value
+    setEditing(false)
+    setMention(null)
+    mentionCtx.current = null
+    if (next !== value) onSave(next)
   }
 
   const q = mention?.query.trim().toLowerCase() ?? ''
@@ -766,22 +885,58 @@ function RichText({
   const hint = authors ? '@ enlaza concepto o autor' : '@ enlaza un concepto'
   return (
     <div className="relative">
-      <textarea
-        ref={taRef}
-        autoFocus
-        value={draft}
-        onChange={(e) => onChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        role="textbox"
+        aria-multiline="true"
+        onInput={onInput}
         onBlur={commit}
         onKeyDown={(e) => {
           if (mention && suggestions.length > 0 && (e.key === 'Enter' || e.key === 'Tab')) {
             e.preventDefault(); insert(suggestions[0]); return
           }
-          if (e.key === 'Escape') setMention(null)
+          if (e.key === 'Escape') { setMention(null); mentionCtx.current = null; return }
+          // Borrar un chip como unidad cuando el caret está justo después de él.
+          if (e.key === 'Backspace') {
+            const sel = window.getSelection()
+            if (!sel || !sel.isCollapsed || sel.rangeCount === 0) return
+            const r = sel.getRangeAt(0)
+            let chip: HTMLElement | null = null
+            if (r.startContainer.nodeType === Node.TEXT_NODE && r.startOffset === 0) {
+              const prev = (r.startContainer as Text).previousSibling as HTMLElement | null
+              if (prev && prev.dataset?.token) chip = prev
+            } else if (r.startContainer.nodeType === Node.ELEMENT_NODE && r.startOffset > 0) {
+              const prev = r.startContainer.childNodes[r.startOffset - 1] as HTMLElement | undefined
+              if (prev && prev.dataset?.token) chip = prev
+            }
+            if (chip) { e.preventDefault(); chip.parentNode?.removeChild(chip); onInput() }
+          }
         }}
-        placeholder={`${placeholder}  ·  ${hint}`}
-        rows={3}
-        className="w-full bg-transparent text-[12px] text-zinc-200 leading-relaxed placeholder-zinc-600 focus:outline-none resize-y"
+        onPaste={(e) => {
+          // Pegar SIEMPRE como texto plano (evita HTML pegado que rompe la
+          // serialización).
+          e.preventDefault()
+          const text = e.clipboardData.getData('text/plain')
+          const sel = window.getSelection()
+          if (sel && sel.rangeCount > 0) {
+            const r = sel.getRangeAt(0)
+            r.deleteContents()
+            const tn = document.createTextNode(text)
+            r.insertNode(tn)
+            r.setStartAfter(tn); r.collapse(true)
+            sel.removeAllRanges(); sel.addRange(r)
+          }
+          onInput()
+        }}
+        className="w-full bg-transparent text-[12px] text-zinc-200 leading-relaxed focus:outline-none whitespace-pre-wrap break-words min-h-[3.25rem]"
       />
+      {empty && (
+        <span className="pointer-events-none absolute left-0 top-0 text-[12px] text-zinc-600 select-none">
+          {`${placeholder}  ·  ${hint}`}
+        </span>
+      )}
       {mention && suggestions.length > 0 && (
         <div className="absolute z-40 left-0 top-full mt-0.5 min-w-[170px] max-h-44 overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1">
           <p className="px-2.5 py-0.5 text-[9px] font-mono uppercase tracking-wider text-zinc-600">Enlazar</p>
