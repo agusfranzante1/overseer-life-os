@@ -20,6 +20,7 @@ import { useContentStore } from '@/lib/store/contentStore'
 import { useBacktestStore } from '@/lib/store/backtestStore'
 import { useJournalStore } from '@/lib/store/journalStore'
 import { useMeditationsStore } from '@/lib/store/meditationsStore'
+import { useFavoritesStore } from '@/lib/store/favoritesStore'
 import { useConceptStore } from '@/lib/store/conceptStore'
 import { migrateMapNotes } from '@/lib/study/concepts'
 import {
@@ -53,6 +54,7 @@ interface SyncState {
   backtestInit: boolean
   journalInit: boolean
   meditationsInit: boolean
+  favoritesInit: boolean
   conceptInit: boolean
 }
 
@@ -78,6 +80,7 @@ const state: SyncState = {
   backtestInit: false,
   journalInit: false,
   meditationsInit: false,
+  favoritesInit: false,
   conceptInit: false,
 }
 
@@ -102,6 +105,7 @@ let contentPushTimer: ReturnType<typeof setTimeout> | null = null
 let backtestPushTimer: ReturnType<typeof setTimeout> | null = null
 let journalPushTimer: ReturnType<typeof setTimeout> | null = null
 let meditationsPushTimer: ReturnType<typeof setTimeout> | null = null
+let favoritesPushTimer: ReturnType<typeof setTimeout> | null = null
 let conceptPushTimer: ReturnType<typeof setTimeout> | null = null
 
 // Registro de push debounceados que están en cola. Lo usa
@@ -2136,6 +2140,72 @@ async function pullMeditations(): Promise<boolean> {
   }
 }
 
+// ─── ENLACES / FAVORITOS (accesos rápidos del sidebar) ───────────────────────
+// Singleton por usuario: el array entero como blob JSONB (patrón food_data).
+// Ver migration_favorites.sql.
+
+async function pushFavorites() {
+  if (!state.userId) return
+  const syncedAt = new Date().toISOString()
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { favorites } = useFavoritesStore.getState()
+
+  // Blindaje anti-wipe: si el local está vacío pero el remoto tiene enlaces,
+  // no pisamos la nube (el store no rehidrató, o es un device nuevo). El pull
+  // posterior trae los del remoto.
+  if (favorites.length === 0) {
+    const { data } = await sb.from('favorites_data').select('favorites').eq('user_id', uid).maybeSingle()
+    if (data && Array.isArray(data.favorites) && data.favorites.length > 0) {
+      console.warn('[sync] pushFavorites: local vacío pero remoto con datos → skip')
+      return
+    }
+  }
+
+  const r = await sb.from('favorites_data').upsert(
+    { user_id: uid, favorites, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id' }
+  )
+  if (r.error) {
+    reportSyncError(`favorites_data upsert failed: ${r.error.message}. ¿Falta correr supabase/migration_favorites.sql?`)
+    throw r.error
+  }
+  markSynced('favorites', syncedAt)
+}
+
+async function pullFavorites(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('favorites')
+  try {
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('favorites_data').select('*').eq('user_id', uid).maybeSingle()
+  if (res.error) {
+    console.error('Favorites pull failed (run migration_favorites.sql?):', res.error)
+    return false
+  }
+  if (!res.data) { markSynced('favorites'); return false }
+
+  const remoteFavs = ((res.data as { favorites?: unknown }).favorites as import('@/lib/store/favoritesStore').Favorite[]) ?? []
+
+  // Si este device tiene MÁS enlaces que el remoto, el remoto quedó diezmado
+  // → conservamos el local y restauramos la nube pusheándolo.
+  const local = useFavoritesStore.getState()
+  if (local.favorites.length > remoteFavs.length) {
+    console.warn(`[sync] pullFavorites: local más rico (${local.favorites.length}) que remoto (${remoteFavs.length}) → conservo local y restauro`)
+    await pushFavorites().catch((e) => console.error('Favorites restore push failed', e))
+    return false
+  }
+
+  useFavoritesStore.setState({ favorites: remoteFavs })
+  markSynced('favorites')
+  return true
+  } finally {
+    endPulling('favorites')
+  }
+}
+
 // ─── MAPAS DE CONCEPTOS (materias en modo 'conceptos') ───────────────────────
 // Una fila por mapa (id = materiaId). Merge: LWW por updatedAt + tombstones.
 // Ver migration_study_concepts.sql.
@@ -3216,6 +3286,7 @@ function scheduleContent()    { schedule(contentPushTimer,    pushContent,    (t
 function scheduleBacktests()  { schedule(backtestPushTimer,   pushBacktests,  (t) => { backtestPushTimer = t }) }
 function scheduleJournal()     { schedule(journalPushTimer,    pushJournal,    (t) => { journalPushTimer = t }) }
 function scheduleMeditations() { schedule(meditationsPushTimer, pushMeditations, (t) => { meditationsPushTimer = t }) }
+function scheduleFavorites()   { schedule(favoritesPushTimer,   pushFavorites,   (t) => { favoritesPushTimer = t }) }
 function scheduleConcepts()    { schedule(conceptPushTimer,    pushConcepts,   (t) => { conceptPushTimer = t }) }
 
 // ─── Main hook ────────────────────────────────────────────────────────────────
@@ -3438,6 +3509,17 @@ async function initAllDomains() {
     if (hasLocal) await pushMeditations().catch((e) => console.error('Meditations post-pull push failed', e))
   }
 
+  // ─── Enlaces / Favoritos (accesos rápidos del sidebar) ─────────────────
+  // Singleton blob (patrón food). Pull-first: si el device está vacío trae
+  // los del remoto; si tiene más, conserva y restaura la nube.
+  if (!state.favoritesInit) {
+    state.favoritesInit = true
+    const { favorites } = useFavoritesStore.getState()
+    const hasLocal = favorites.length > 0
+    await pullFavorites()
+    if (hasLocal) await pushFavorites().catch((e) => console.error('Favorites post-pull push failed', e))
+  }
+
   // ─── Mapas de conceptos (materias modo 'conceptos') ───────────────────
   // Pull-first: LWW por updatedAt + tombstones (mismo patrón que mindmaps).
   if (!state.conceptInit) {
@@ -3550,6 +3632,7 @@ export function useSupabaseSync() {
       useBacktestStore.subscribe(() => { markModifiedIfNotPulling('backtests'); if (state.userId) scheduleBacktests() })
       useJournalStore.subscribe(() => { markModifiedIfNotPulling('journal'); if (state.userId) scheduleJournal() })
       useMeditationsStore.subscribe(() => { markModifiedIfNotPulling('meditations'); if (state.userId) scheduleMeditations() })
+      useFavoritesStore.subscribe(() => { markModifiedIfNotPulling('favorites'); if (state.userId) scheduleFavorites() })
       useConceptStore.subscribe(() => { markModifiedIfNotPulling('concepts'); if (state.userId) scheduleConcepts() })
     }
 
@@ -3581,6 +3664,7 @@ export function useSupabaseSync() {
       state.backtestInit = false
       state.journalInit = false
       state.meditationsInit = false
+      state.favoritesInit = false
       state.conceptInit = false
       if (newId) {
         initAllDomains().catch((e) => console.error('Init after auth change failed', e))
@@ -3634,6 +3718,7 @@ export function useSupabaseSync() {
       state.backtestInit = false
       state.journalInit = false
       state.meditationsInit = false
+      state.favoritesInit = false
       state.conceptInit = false
       try {
         await initAllDomains()
@@ -3714,6 +3799,7 @@ export async function forceSyncAll(): Promise<void> {
   state.backtestInit = false
   state.journalInit = false
   state.meditationsInit = false
+  state.favoritesInit = false
   state.conceptInit = false
   await initAllDomains()
 }
@@ -3784,5 +3870,7 @@ export async function forceSyncJournal()   { await pushJournal() }
 export async function forcePullJournal()   { return pullJournal() }
 export async function forceSyncMeditations() { await pushMeditations() }
 export async function forcePullMeditations() { return pullMeditations() }
+export async function forceSyncFavorites()  { await pushFavorites() }
+export async function forcePullFavorites()  { return pullFavorites() }
 export async function forceSyncConcepts()  { await pushConcepts() }
 export async function forcePullConcepts()  { return pullConcepts() }
