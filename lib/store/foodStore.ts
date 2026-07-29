@@ -312,6 +312,13 @@ interface State {
    *  ya tengas (respeta tus ediciones de macros). Devuelve cuántos agregó.
    *  Sirve para recuperar la biblioteca si se borró. */
   restoreDefaultFoods: () => number
+  /** Revincula los ítems de TODAS las comidas con un alimento de la biblioteca
+   *  cuyo nombre coincida (case-insensitive) y recalcula sus macros según la
+   *  cantidad actual. Sirve para reconectar la dieta cuando los ítems quedaron
+   *  sin vínculo (p. ej. tras borrarse/restaurarse la biblioteca), así al
+   *  cambiar la cantidad los macros vuelven a escalar. Devuelve cuántos
+   *  revinculó. */
+  relinkItemsToFoods: () => number
 
   // Shopping
   addShoppingCategory: (name: string) => void
@@ -526,6 +533,44 @@ export const useFoodStore = create<State>()(
           return { foods: [...missing, ...s.foods] }
         })
         return added
+      },
+      relinkItemsToFoods: () => {
+        let relinked = 0
+        set((s) => {
+          const byName = new Map(s.foods.map((f) => [f.name.trim().toLowerCase(), f]))
+          const validIds = new Set(s.foods.map((f) => f.id))
+          const stages = s.stages.map((st) => ({
+            ...st,
+            meals: st.meals.map((m) => ({
+              ...m,
+              items: m.items.map((it) => {
+                // Ya vinculado a un alimento que existe → no tocar.
+                if (it.foodId && validIds.has(it.foodId)) return it
+                const food = byName.get(it.name.trim().toLowerCase())
+                if (!food) {
+                  // Vínculo roto (apunta a un id que ya no existe) → limpiar.
+                  return it.foodId ? { ...it, foodId: undefined } : it
+                }
+                const qtyValue = typeof it.qtyValue === 'number'
+                  ? it.qtyValue
+                  : (parseLegacyQty(it.qty)?.qtyValue ?? (food.unit === 'u' ? 1 : 100))
+                const macros = computeMacrosFromFood(food, qtyValue)
+                relinked++
+                return {
+                  ...it,
+                  foodId: food.id,
+                  qtyValue,
+                  qtyUnit: food.unit,
+                  qty: formatQty(qtyValue, food.unit),
+                  ...macros,
+                }
+              }),
+            })),
+          }))
+          if (relinked === 0) return s
+          return { stages }
+        })
+        return relinked
       },
 
       addFixedCost: (group, label) => set((s) => ({

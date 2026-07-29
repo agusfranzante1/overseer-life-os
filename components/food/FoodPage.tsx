@@ -221,6 +221,7 @@ function NumberField({ label, value, onChange }: { label: string; value: number;
 
 function StageMealsTable({ stage }: { stage: Stage }) {
   const { addItem, updateItem, removeItem, addMealToStage, updateMeal, removeMeal } = useFoodStore()
+  const relinkItemsToFoods = useFoodStore((s) => s.relinkItemsToFoods)
   const totals = sumStageMacros(stage)
 
   // Deltas vs target
@@ -233,10 +234,24 @@ function StageMealsTable({ stage }: { stage: Stage }) {
     <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
       <div className="p-4 border-b border-zinc-800 flex items-center justify-between" style={{ background: stage.color + '10' }}>
         <h2 className="text-sm font-bold" style={{ color: stage.color }}>{stage.name.toUpperCase()}</h2>
-        <button onClick={() => addMealToStage(stage.id)}
-          className="text-xs px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center gap-1">
-          <Plus className="w-3 h-3" /> Comida
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => {
+              const n = relinkItemsToFoods()
+              alert(n > 0
+                ? `Revinculé ${n} alimento${n === 1 ? '' : 's'} con la biblioteca. Ahora al cambiar la cantidad los macros se recalculan solos.`
+                : 'No encontré alimentos para revincular (los ítems ya están vinculados, o su nombre no coincide con ninguno de la biblioteca).')
+            }}
+            title="Revincular los alimentos de la dieta con la biblioteca para que los macros cambien con la cantidad"
+            className="text-xs px-2.5 py-1 rounded-lg bg-indigo-500/15 border border-indigo-500/30 hover:bg-indigo-500/25 text-indigo-300 flex items-center gap-1"
+          >
+            <Link2 className="w-3 h-3" /> Revincular macros
+          </button>
+          <button onClick={() => addMealToStage(stage.id)}
+            className="text-xs px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center gap-1">
+            <Plus className="w-3 h-3" /> Comida
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -394,6 +409,15 @@ function MealItemRow({ item, foods, onUpdateItem, onRemove, onChangeQty, onLink 
   const linked = !!item.foodId
   const linkedFood = linked ? foods.find((f) => f.id === item.foodId) : undefined
 
+  // Picker para vincular a mano un ítem suelto con un alimento de la biblioteca.
+  const [picking, setPicking] = useState(false)
+  const [pickQuery, setPickQuery] = useState('')
+  const pickMatches = useMemo(() => {
+    const q = pickQuery.trim().toLowerCase()
+    const list = q ? foods.filter((f) => f.name.toLowerCase().includes(q)) : foods
+    return list.slice(0, 12)
+  }, [foods, pickQuery])
+
   // Derivar qty efectiva: si tiene qtyValue lo uso, sino parseo el qty string legacy
   const effective = useMemo(() => {
     if (typeof item.qtyValue === 'number') {
@@ -443,7 +467,46 @@ function MealItemRow({ item, foods, onUpdateItem, onRemove, onChangeQty, onLink 
               <Link2 className="w-3 h-3" />
             </button>
           ) : (
-            <Link2Off className="w-3 h-3 text-zinc-700 flex-shrink-0" />
+            <div className="relative flex-shrink-0">
+              <button
+                onClick={() => { setPickQuery(item.name); setPicking((v) => !v) }}
+                title="Vincular con un alimento de la biblioteca para que los macros cambien con la cantidad"
+                className="text-zinc-600 hover:text-indigo-400 transition-colors"
+              >
+                <Link2Off className="w-3 h-3" />
+              </button>
+              {picking && (
+                <div className="absolute z-30 top-full mt-1 left-0 w-56 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl p-1.5">
+                  <div className="relative mb-1">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-600 pointer-events-none" />
+                    <input
+                      autoFocus
+                      value={pickQuery}
+                      onChange={(e) => setPickQuery(e.target.value)}
+                      onBlur={() => setTimeout(() => setPicking(false), 150)}
+                      onKeyDown={(e) => { if (e.key === 'Escape') setPicking(false) }}
+                      placeholder="Buscar alimento…"
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-md pl-7 pr-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500/60"
+                    />
+                  </div>
+                  <div className="max-h-52 overflow-y-auto">
+                    {pickMatches.length === 0 ? (
+                      <p className="text-[11px] text-zinc-600 italic px-2 py-1.5">Sin resultados. Cargalo en la biblioteca primero.</p>
+                    ) : pickMatches.map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onMouseDown={(e) => { e.preventDefault(); onLink(f.id); setPicking(false); setPickQuery('') }}
+                        className="w-full flex items-center justify-between px-2 py-1 text-xs text-zinc-300 hover:bg-indigo-500/10 hover:text-indigo-300 rounded"
+                      >
+                        <span className="truncate">{f.name}</span>
+                        <span className="text-[10px] font-mono text-zinc-500 ml-2 flex-shrink-0">{f.calories}cal</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
           <input
             value={item.name}
@@ -870,6 +933,7 @@ function AlimentosTab() {
   const updateFood = useFoodStore((s) => s.updateFood)
   const removeFood = useFoodStore((s) => s.removeFood)
   const restoreDefaultFoods = useFoodStore((s) => s.restoreDefaultFoods)
+  const relinkItemsToFoods = useFoodStore((s) => s.relinkItemsToFoods)
 
   const [query, setQuery] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<string>('')
@@ -902,10 +966,18 @@ function AlimentosTab() {
             <button
               onClick={() => {
                 const added = restoreDefaultFoods()
-                if (added > 0) alert(`Se agregaron ${added} alimento${added === 1 ? '' : 's'} de la dieta por defecto (los que ya tenías no se tocaron).`)
-                else alert('Ya tenés todos los alimentos de la dieta por defecto cargados.')
+                // Tras restaurar la biblioteca, revinculamos los ítems de la
+                // dieta por nombre → así los macros vuelven a escalar con la
+                // cantidad sin tener que revincular a mano.
+                const relinked = relinkItemsToFoods()
+                const parts: string[] = []
+                if (added > 0) parts.push(`${added} alimento${added === 1 ? '' : 's'} agregado${added === 1 ? '' : 's'} a la biblioteca`)
+                if (relinked > 0) parts.push(`${relinked} ítem${relinked === 1 ? '' : 's'} de la dieta revinculado${relinked === 1 ? '' : 's'}`)
+                alert(parts.length > 0
+                  ? `Listo: ${parts.join(' · ')}. Los que ya tenías no se tocaron.`
+                  : 'Ya tenés todo cargado y vinculado.')
               }}
-              title="Recupera los alimentos de tu dieta con sus macros. No duplica ni pisa los que ya tengas."
+              title="Recupera los alimentos de tu dieta con sus macros y revincula los ítems para que los macros cambien con la cantidad. No duplica ni pisa los que ya tengas."
               className="text-xs px-3 py-1.5 rounded-lg bg-indigo-500/15 border border-indigo-500/30 hover:bg-indigo-500/25 text-indigo-300 font-semibold flex items-center gap-1"
             >
               <RotateCcw className="w-3 h-3" /> Restaurar dieta
