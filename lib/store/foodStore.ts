@@ -304,7 +304,7 @@ interface State {
   removeItem: (stageId: string, mealId: string, itemId: string) => void
 
   // Food library
-  addFood: (patch?: Partial<FoodEntry>) => void
+  addFood: (patch?: Partial<FoodEntry>) => string
   updateFood: (id: string, patch: Partial<FoodEntry>) => void
   removeFood: (id: string) => void
   /** Repuebla la biblioteca con los alimentos por defecto de la dieta que
@@ -472,21 +472,25 @@ export const useFoodStore = create<State>()(
         shopping: s.shopping.map((c) => c.id !== categoryId ? c : { ...c, items: c.items.filter((it) => it.id !== itemId) }),
       })),
 
-      addFood: (patch) => set((s) => ({
-        foods: [
-          {
-            id: genId(),
-            name: '',
-            unit: 'gr',
-            calories: 0,
-            protein: 0,
-            carbs: 0,
-            fats: 0,
-            ...patch,
-          },
-          ...s.foods,
-        ],
-      })),
+      addFood: (patch) => {
+        const id = genId()
+        set((s) => ({
+          foods: [
+            {
+              name: '',
+              unit: 'gr',
+              calories: 0,
+              protein: 0,
+              carbs: 0,
+              fats: 0,
+              ...patch,
+              id,  // nuestro id manda (y es el que devolvemos)
+            },
+            ...s.foods,
+          ],
+        }))
+        return id
+      },
       updateFood: (id, patch) => set((s) => {
         const newFoods = s.foods.map((f) => f.id === id ? { ...f, ...patch } : f)
         const updated = newFoods.find((f) => f.id === id)

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Utensils, ShoppingCart, Wallet, Plus, Trash2, ExternalLink, Settings,
   StickyNote, ChevronDown, ChevronRight, BookOpen, Link2, Link2Off, Search, RotateCcw,
+  X, Check,
 } from 'lucide-react'
 import {
   useFoodStore, sumMealMacros, sumStageMacros, categoryTotal,
@@ -553,10 +554,45 @@ interface AddFromLibraryProps {
   mealName: string
 }
 function AddFromLibrary({ foods, onPick, onAddFree, mealName }: AddFromLibraryProps) {
+  const addFood = useFoodStore((s) => s.addFood)
   const [query, setQuery] = useState('')
   const [qty, setQty] = useState<number | ''>('')
   const [showList, setShowList] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Form de "crear alimento nuevo" cuando lo buscado no existe en la biblioteca.
+  // `creating` guarda el nombre; los campos de macros arrancan vacíos.
+  const [creating, setCreating] = useState<string | null>(null)
+  const [newUnit, setNewUnit] = useState<FoodUnit>('gr')
+  const [newMacros, setNewMacros] = useState({ calories: '', protein: '', carbs: '', fats: '' })
+
+  const startCreate = (name: string) => {
+    setCreating(name)
+    setNewUnit('gr')
+    setNewMacros({ calories: '', protein: '', carbs: '', fats: '' })
+    setShowList(false)
+  }
+  const cancelCreate = () => { setCreating(null); inputRef.current?.focus() }
+  const submitCreate = () => {
+    const name = (creating ?? '').trim()
+    if (!name) return
+    const num = (v: string) => parseFloat(v) || 0
+    const id = addFood({
+      name,
+      unit: newUnit,
+      calories: num(newMacros.calories),
+      protein: num(newMacros.protein),
+      carbs: num(newMacros.carbs),
+      fats: num(newMacros.fats),
+      category: 'Otro',
+    })
+    // Agregar a la comida ya vinculado, con la cantidad elegida (o el default).
+    onPick(id, qty === '' ? (newUnit === 'u' ? 1 : 100) : qty)
+    setCreating(null)
+    setQuery('')
+    setQty('')
+    inputRef.current?.focus()
+  }
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -583,6 +619,7 @@ function AddFromLibrary({ foods, onPick, onAddFree, mealName }: AddFromLibraryPr
   }
 
   return (
+    <div className="w-full space-y-2">
     <div className="flex items-center gap-2 flex-wrap">
       {/* Search */}
       <div className="relative flex-1 min-w-[180px]">
@@ -602,7 +639,7 @@ function AddFromLibrary({ foods, onPick, onAddFree, mealName }: AddFromLibraryPr
         />
 
         <AnimatePresence>
-          {showList && matches.length > 0 && (
+          {showList && (matches.length > 0 || (query.trim() !== '' && !exact)) && (
             <motion.div
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
@@ -622,6 +659,17 @@ function AddFromLibrary({ foods, onPick, onAddFree, mealName }: AddFromLibraryPr
                   </span>
                 </button>
               ))}
+              {/* No existe en la biblioteca → crearlo con ese nombre sin salir. */}
+              {query.trim() !== '' && !exact && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); startCreate(query.trim()) }}
+                  className={`w-full flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-indigo-300 hover:bg-indigo-500/10 ${matches.length > 0 ? 'border-t border-zinc-800' : ''}`}
+                >
+                  <Plus className="w-3 h-3 flex-shrink-0" />
+                  <span className="truncate">Crear <span className="font-semibold">&ldquo;{query.trim()}&rdquo;</span> en la biblioteca</span>
+                </button>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -657,6 +705,62 @@ function AddFromLibrary({ foods, onPick, onAddFree, mealName }: AddFromLibraryPr
       >
         item libre
       </button>
+    </div>
+
+    {/* Mini-form: crear un alimento nuevo con ese nombre (sin ir a Alimentos) */}
+    {creating !== null && (
+      <div className="bg-black/40 border border-indigo-500/30 rounded-lg p-2.5 space-y-2">
+        <div className="flex items-center gap-2">
+          <input
+            value={creating}
+            onChange={(e) => setCreating(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') submitCreate(); if (e.key === 'Escape') cancelCreate() }}
+            placeholder="Nombre del alimento"
+            className="flex-1 min-w-0 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-100 focus:outline-none focus:border-indigo-500/60"
+          />
+          <select
+            value={newUnit}
+            onChange={(e) => setNewUnit(e.target.value as FoodUnit)}
+            title="Unidad de referencia de los macros"
+            className="bg-zinc-900 border border-zinc-700 rounded px-1.5 py-1 text-[11px] font-mono text-zinc-300 focus:outline-none focus:border-indigo-500/60"
+          >
+            <option value="gr" className="bg-zinc-900">por 100 gr</option>
+            <option value="ml" className="bg-zinc-900">por 100 ml</option>
+            <option value="u" className="bg-zinc-900">por 1 u</option>
+          </select>
+        </div>
+        <div className="grid grid-cols-4 gap-1.5">
+          {([
+            ['calories', 'Cal'], ['protein', 'Prot'], ['carbs', 'Carb'], ['fats', 'Grasa'],
+          ] as const).map(([key, label]) => (
+            <div key={key}>
+              <label className="text-[9px] font-mono uppercase tracking-wider text-zinc-500">{label}</label>
+              <input
+                type="number" step="any" min={0}
+                value={newMacros[key]}
+                onChange={(e) => setNewMacros((m) => ({ ...m, [key]: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') submitCreate(); if (e.key === 'Escape') cancelCreate() }}
+                placeholder="0"
+                className="w-full mt-0.5 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-1 text-xs text-zinc-200 tabular-nums text-right focus:outline-none focus:border-indigo-500/60"
+              />
+            </div>
+          ))}
+        </div>
+        <p className="text-[10px] text-zinc-600">Se guarda en la biblioteca y se agrega a {mealName || 'la comida'} vinculado — al cambiar la cantidad los macros escalan solos.</p>
+        <div className="flex items-center justify-end gap-1.5">
+          <button onClick={cancelCreate} className="text-[10px] text-zinc-500 hover:text-zinc-300 px-2 py-1 rounded flex items-center gap-1">
+            <X className="w-3 h-3" /> Cancelar
+          </button>
+          <button
+            onClick={submitCreate}
+            disabled={!creating.trim()}
+            className="text-[10px] font-semibold text-indigo-300 hover:bg-indigo-500/15 disabled:opacity-40 px-2 py-1 rounded flex items-center gap-1 border border-indigo-500/30"
+          >
+            <Check className="w-3 h-3" /> Crear y agregar
+          </button>
+        </div>
+      </div>
+    )}
     </div>
   )
 }
