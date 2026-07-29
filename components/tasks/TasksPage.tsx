@@ -938,6 +938,7 @@ export function TasksPage() {
             onSwipeClose={toggleProjectsPanel}
             enableSwipe={isMobile}
             className="
+              tasks-projects-panel
               fixed sm:relative inset-y-0 left-0 z-40 sm:z-auto
               w-72 sm:w-64 shrink-0 border-r border-white/[0.08] overflow-y-auto bg-zinc-900 sm:bg-black/30 p-4 shadow-2xl sm:shadow-none
             "

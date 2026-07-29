@@ -217,6 +217,21 @@ html.theme-light .bg-black\/10 { background-color: rgba(0, 0, 0, 0.015); }
 html.theme-light .bg-black\/20 { background-color: rgba(0, 0, 0, 0.03); }
 html.theme-light .bg-black\/30 { background-color: rgba(0, 0, 0, 0.045); }
 
+/* ── Panel de proyectos del task manager (columna izquierda, desktop) ──────
+   Usa la variante responsive sm:bg-black/30, que la remap de arriba NO cubre
+   (es otra clase), así que en modo claro quedaba gris (30% negro sólido). Le
+   damos un fondo CLARO con un tinte + glow sutil del acento — "clarito y
+   glowy". Solo desktop (mobile es drawer sólido) y solo tema claro (el oscuro
+   conserva su look "hundido" translúcido vía las clases de Tailwind). */
+@media (min-width: 640px) {
+  html.theme-light .tasks-projects-panel {
+    background-color: color-mix(in srgb, var(--app-accent) 7%, #ffffff);
+    box-shadow:
+      inset 0 0 54px -10px color-mix(in srgb, var(--app-accent) 30%, transparent),
+      inset -1px 0 0 color-mix(in srgb, var(--app-accent) 14%, transparent);
+  }
+}
+
 /* ── Texto de acento claro (-200/-300) → más oscuro en modo claro ─────
    Los shades 200/300 de los colores de acento (text-blue-300, text-amber-200,
    etc.) fueron pensados para texto CLARO sobre fondo oscuro. En claro
