@@ -94,6 +94,27 @@ export const useChatStore = create<ChatState>()(
 
       clearCorrections: () => set({ corrections: [] }),
     }),
-    { name: 'overseer-chat' }
+    {
+      name: 'overseer-chat',
+      // Persistimos SOLO lo necesario y ACOTADO. Antes se guardaba el estado
+      // entero, con `messages` creciendo SIN LÍMITE ("lasts forever") + campos
+      // transitorios (isThinking/pendingIntent). Con el tiempo eso llenaba el
+      // localStorage (~5 MB en Chrome) y las escrituras de OTROS stores (mover/
+      // completar tareas, etc.) fallaban EN SILENCIO → al recargar se perdían.
+      // Cap a los últimos 80 mensajes: suficiente historial reciente, footprint
+      // acotado.
+      partialize: (s) => ({
+        messages: s.messages.slice(-80),
+        corrections: s.corrections,
+      }),
+      // Si venías con un historial enorme guardado de antes, lo recortamos al
+      // rehidratar así el próximo guardado ya pesa poco (self-heal del bloat).
+      onRehydrateStorage: () => (state) => {
+        if (!state) return
+        if (!Array.isArray(state.messages)) state.messages = []
+        else if (state.messages.length > 80) state.messages = state.messages.slice(-80)
+        if (!Array.isArray(state.corrections)) state.corrections = []
+      },
+    }
   )
 )
