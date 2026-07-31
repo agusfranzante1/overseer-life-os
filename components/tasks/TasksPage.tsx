@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTaskSnapshotsStore } from '@/lib/store/taskSnapshotsStore'
+import { useTaskUiStore } from '@/lib/store/taskUiStore'
 import { useTranslation } from '@/hooks/useTranslation'
 import { Task, Project } from '@/types'
 import { TaskCard } from './TaskCard'
@@ -13,7 +14,7 @@ import { TaskDetail } from './TaskDetail'
 import { BreakdownModal } from './BreakdownModal'
 import {
   Plus, FolderOpen, X, ChevronDown, ChevronRight, ChevronLeft, ChevronUp, Filter, Wand2, LayoutList, Columns3,
-  Pencil, Trash2, MoreHorizontal, ArrowUpDown, RotateCcw, Check, Menu, Repeat,
+  Pencil, Trash2, MoreHorizontal, ArrowUpDown, RotateCcw, Check, Menu, Repeat, Eye, EyeOff,
 } from 'lucide-react'
 import { PROJECT_COLORS } from '@/lib/utils/constants'
 import { effectivePriority } from '@/lib/utils/taskPriority'
@@ -569,6 +570,8 @@ export function TasksPage() {
     projects, tasks, selectedProjectId, setSelectedProject, addProject, addTask,
     updateProject, deleteProject,
   } = tasksStoreApi
+  const hiddenProjects = useTaskUiStore((s) => s.hiddenProjects)
+  const toggleProjectHidden = useTaskUiStore((s) => s.toggleProjectHidden)
 
   // Backfill one-shot del buffer recurrente: las tareas recurrentes
   // creadas antes de esta versión solo tienen 1 instancia visible. Al
@@ -940,7 +943,8 @@ export function TasksPage() {
             className="
               tasks-projects-panel
               fixed sm:relative inset-y-0 left-0 z-40 sm:z-auto
-              w-72 sm:w-64 shrink-0 border-r border-white/[0.08] overflow-y-auto bg-zinc-900 sm:bg-black/30 p-4 shadow-2xl sm:shadow-none
+              w-72 sm:w-64 shrink-0 border-r border-white/[0.08] overflow-y-auto bg-zinc-900 sm:bg-black/30 px-4 pb-4 shadow-2xl sm:shadow-none
+              pt-[max(1rem,env(safe-area-inset-top))] sm:pt-4
             "
           >
         <div className="flex items-center justify-between mb-4">
@@ -980,7 +984,9 @@ export function TasksPage() {
         >
           <FolderOpen className="w-3.5 h-3.5" />
           {t('tasks.allProjects')}
-          <span className="ml-auto text-xs text-zinc-600">{Object.values(tasks).length}</span>
+          <span className="ml-auto text-xs text-zinc-600 tabular-nums">
+            {Object.values(tasks).filter((t) => !t.archivedAt && !hiddenProjects[t.projectId]).length}
+          </span>
         </button>
 
         {projectList.map((proj) => {
@@ -989,6 +995,7 @@ export function TasksPage() {
             proj.statuses.find((s) => s.label === t.status)?.countsAsDone
           ).length
           const isActive = selectedProjectId === proj.id
+          const hidden = !!hiddenProjects[proj.id]
 
           const idx = projectList.findIndex((p) => p.id === proj.id)
           const isFirst = idx === 0
@@ -1002,9 +1009,24 @@ export function TasksPage() {
                     isActive ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-white/[0.05] active:bg-zinc-700 hover:text-zinc-200'
                   }`}
                 >
-                  <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: proj.color }} />
-                  <span className="flex-1 text-left truncate">{proj.name}</span>
-                  <span className="text-xs text-zinc-600">{doneCount}/{taskCount}</span>
+                  <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${hidden ? 'opacity-40' : ''}`} style={{ backgroundColor: proj.color }} />
+                  <span className={`flex-1 text-left truncate ${hidden ? 'opacity-45' : ''}`}>{proj.name}</span>
+                  {/* Ojo: oculta/muestra este proyecto en "Todas las tareas".
+                      Span (no button) para no anidar botones; stopPropagation
+                      evita que el click seleccione el proyecto. */}
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); toggleProjectHidden(proj.id) }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleProjectHidden(proj.id) } }}
+                    title={hidden ? 'Mostrar en "Todas las tareas"' : 'Ocultar de "Todas las tareas"'}
+                    className={`shrink-0 p-0.5 rounded transition-colors cursor-pointer ${
+                      hidden ? 'text-amber-400 hover:text-amber-300' : 'text-zinc-600 hover:text-zinc-300'
+                    }`}
+                  >
+                    {hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </span>
+                  <span className="text-xs text-zinc-600 tabular-nums">{doneCount}/{taskCount}</span>
                 </button>
                 {/* Flechitas para reordenar — solo al hover. Si llega a un
                     borde, queda disabled. Estado persiste vía `proj.order`
@@ -1075,9 +1097,14 @@ export function TasksPage() {
         {projectsPanelCollapsed && (
           <button
             onClick={toggleProjectsPanel}
-            className="sm:hidden mb-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] active:bg-white/[0.08] text-sm font-medium text-zinc-300 transition-colors"
+            aria-label="Abrir panel de proyectos"
+            className="sm:hidden mb-3 w-full flex items-center gap-2.5 px-3.5 py-3 rounded-xl bg-indigo-500/10 border border-indigo-500/25 active:bg-indigo-500/20 text-sm font-semibold text-indigo-100 transition-colors shadow-sm"
           >
-            <FolderOpen className="w-4 h-4 text-indigo-400" /> Proyectos
+            <FolderOpen className="w-4 h-4 text-indigo-400 shrink-0" />
+            <span className="flex-1 text-left">
+              {activeProject ? activeProject.name : 'Proyectos'}
+            </span>
+            <ChevronRight className="w-4 h-4 text-indigo-400/70 shrink-0" />
           </button>
         )}
         {inRecurringView ? (
@@ -1359,14 +1386,15 @@ export function TasksPage() {
           )
         ) : viewMode === 'kanban' ? (
           <AllProjectsKanban
-            projects={projectList}
+            projects={projectList.filter((p) => !hiddenProjects[p.id])}
             // Pre-filter and pre-sort for All Projects kanban. Each column will
             // still split by status internally, so sort is applied first to
             // give a stable cross-project order within each status bucket.
             tasks={sortTasks(
               // Ocultamos las completadas-y-calendarizadas en la vista de
-              // Todos los Proyectos (siguen visibles en su proyecto).
-              Object.values(tasks).filter((t) => !t.archivedAt && !isDoneAndCalendarized(t)).filter(passesFilters),
+              // Todos los Proyectos (siguen visibles en su proyecto), y los
+              // proyectos que el usuario ocultó con el ojo.
+              Object.values(tasks).filter((t) => !t.archivedAt && !isDoneAndCalendarized(t) && !hiddenProjects[t.projectId]).filter(passesFilters),
               sortMode,
               null,
             )}
@@ -1379,7 +1407,7 @@ export function TasksPage() {
           // Projects are ordered by HIGHEST priority of any open task they
           // contain so urgent stuff floats to the top and never gets buried.
           <div className="space-y-6">
-            {projectListSortedByUrgency.map((proj) => {
+            {projectListSortedByUrgency.filter((proj) => !hiddenProjects[proj.id]).map((proj) => {
               const projStatusOrder = new Map(proj.statuses.map((s, i) => [s.label, i]))
               // Base del proyecto en la vista global SIN las completadas-y-
               // calendarizadas (se ocultan acá, no en el proyecto individual).

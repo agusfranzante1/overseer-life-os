@@ -19,10 +19,16 @@ import { persist } from 'zustand/middleware'
 interface TaskUIState {
   taskExpanded: Record<string, boolean>
   subtaskCollapsed: Record<string, boolean>
+  /** Proyectos ocultados de la vista "Todas las tareas" (selector = null).
+   *  Sus tareas no aparecen en el cross-project view, pero el proyecto sigue
+   *  seleccionable y visible al abrirlo directo. Preferencia de vista (local,
+   *  no se sincroniza). `hiddenProjects[projectId] === true` → oculto. */
+  hiddenProjects: Record<string, boolean>
   setTaskExpanded: (taskId: string, expanded: boolean) => void
   toggleTaskExpanded: (taskId: string) => void
   setSubtaskCollapsed: (taskId: string, subId: string, collapsed: boolean) => void
   toggleSubtaskCollapsed: (taskId: string, subId: string) => void
+  toggleProjectHidden: (projectId: string) => void
   /** Used by the task store's removal action to purge dead entries. */
   pruneTask: (taskId: string) => void
 }
@@ -34,6 +40,10 @@ export const useTaskUiStore = create<TaskUIState>()(
     (set) => ({
       taskExpanded: {},
       subtaskCollapsed: {},
+      hiddenProjects: {},
+      toggleProjectHidden: (projectId) => set((s) => ({
+        hiddenProjects: { ...s.hiddenProjects, [projectId]: !s.hiddenProjects[projectId] },
+      })),
       setTaskExpanded: (taskId, expanded) => set((s) => ({
         taskExpanded: { ...s.taskExpanded, [taskId]: expanded },
       })),
@@ -63,7 +73,12 @@ export const useTaskUiStore = create<TaskUIState>()(
       partialize: (s) => ({
         taskExpanded: s.taskExpanded,
         subtaskCollapsed: s.subtaskCollapsed,
+        hiddenProjects: s.hiddenProjects,
       }),
+      onRehydrateStorage: () => (state) => {
+        // Back-compat: estados persistidos antes de esta feature no tienen el map.
+        if (state && !state.hiddenProjects) state.hiddenProjects = {}
+      },
     }
   )
 )
