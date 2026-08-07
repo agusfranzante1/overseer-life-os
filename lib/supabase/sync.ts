@@ -1831,7 +1831,7 @@ async function pushMindMaps() {
   const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
-  const { maps } = useMindMapStore.getState()
+  const { maps, folders } = useMindMapStore.getState()
 
   const rows = maps.map((m) => ({
     id: m.id,
@@ -1850,7 +1850,67 @@ async function pushMindMaps() {
     }
   }
   await syncDeletes(sb, uid, 'mindmaps', rows.map((r) => r.id), 'mindmaps:maps')
+
+  // Carpetas — mismo dominio de sync que los mapas (son la misma cosa
+  // conceptualmente, y así no hace falta otro timer ni otro init).
+  const folderRows = folders.map((f) => ({
+    id: f.id,
+    user_id: uid,
+    created_at: f.createdAt,
+    updated_at: f.updatedAt,
+    payload: f,
+  }))
+  if (folderRows.length > 0) {
+    const r = await sb.from('mindmap_folders').upsert(folderRows)
+    if (r.error) {
+      reportSyncError(`mindmap_folders upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_mindmap_folders.sql.`)
+      throw r.error
+    }
+  }
+  await syncDeletes(sb, uid, 'mindmap_folders', folderRows.map((r) => r.id), 'mindmaps:folders')
+
   markSynced('mindmaps', syncedAt)
+}
+
+/** Carpetas de mapas — mismo merge por id + LWW + tombstones que los mapas.
+ *  Va aparte de pullMindMaps porque hay que correrlo IGUAL cuando el usuario
+ *  no tiene ningún mapa todavía pero sí carpetas creadas.
+ *
+ *  Si la tabla no existe (migración sin correr) NO revienta el pull: los mapas
+ *  ya se mergearon y las carpetas quedan locales hasta que corras la SQL. */
+async function pullMindmapFolders(
+  sb: ReturnType<typeof getSupabaseBrowser>,
+  uid: string,
+): Promise<void> {
+  const res = await sb.from('mindmap_folders').select('*').eq('user_id', uid)
+  if (res.error) {
+    console.warn('Mindmap folders pull failed (run migration_mindmap_folders.sql?):', res.error.message)
+    return
+  }
+  type FolderRow = { payload: unknown }
+  const remote: import('@/lib/store/mindmapStore').MindMapFolder[] =
+    (res.data ?? []).map((r: FolderRow) => {
+      const p = (r.payload ?? {}) as Partial<import('@/lib/store/mindmapStore').MindMapFolder>
+      return {
+        id: p.id ?? '',
+        name: p.name ?? 'Carpeta',
+        order: typeof p.order === 'number' ? p.order : 0,
+        ...(p.locked ? { locked: true } : {}),
+        createdAt: p.createdAt ?? new Date().toISOString(),
+        updatedAt: p.updatedAt ?? new Date().toISOString(),
+      }
+    })
+  const tombs = await fetchTombstones(sb, uid, ['mindmap_folders'])
+  const merged = mergeById<import('@/lib/store/mindmapStore').MindMapFolder>({
+    local: useMindMapStore.getState().folders,
+    remote,
+    baseline: getBaseline('mindmaps:folders'),
+    getId: (f) => f.id,
+    getUpdatedAt: (f) => f.updatedAt,
+    tombstones: tombs.get('mindmap_folders'),
+  })
+  useMindMapStore.setState({ folders: merged })
+  setBaseline('mindmaps:folders', remote.map((f) => f.id))
 }
 
 async function pullMindMaps(): Promise<boolean> {
@@ -1866,7 +1926,13 @@ async function pullMindMaps(): Promise<boolean> {
     console.error('Mindmaps pull failed (run migration_mindmaps.sql?):', res.error)
     return false
   }
-  if ((res.data?.length ?? 0) === 0) { markSynced('mindmaps'); return false }
+  // Sin mapas remotos igual hay que traer las carpetas: se pueden crear
+  // carpetas antes de tener un solo mapa adentro.
+  if ((res.data?.length ?? 0) === 0) {
+    await pullMindmapFolders(sb, uid)
+    markSynced('mindmaps')
+    return false
+  }
 
   type MapRow = { payload: unknown }
   const sanitize = (raw: unknown): import('@/lib/store/mindmapStore').MindMap => {
@@ -1874,6 +1940,7 @@ async function pullMindMaps(): Promise<boolean> {
     return {
       id: p.id ?? '',
       title: p.title ?? 'Mapa',
+      ...(p.folderId ? { folderId: p.folderId } : {}),
       nodes: Array.isArray(p.nodes) ? p.nodes : [],
       edges: Array.isArray(p.edges) ? p.edges : [],
       // OJO: sanitize reconstruye el mapa campo por campo, así que todo campo
@@ -1896,6 +1963,9 @@ async function pullMindMaps(): Promise<boolean> {
   })
   useMindMapStore.setState({ maps: mergedMaps })
   setBaseline('mindmaps:maps', remoteMaps.map((m) => m.id))
+
+  await pullMindmapFolders(sb, uid)
+
   markSynced('mindmaps')
   return true
   } finally {
@@ -3521,8 +3591,10 @@ async function initAllDomains() {
   // Pull-first: LWW por updatedAt + tombstones.
   if (!state.mindmapInit) {
     state.mindmapInit = true
-    const { maps } = useMindMapStore.getState()
-    const hasLocal = maps.length > 0
+    const { maps, folders } = useMindMapStore.getState()
+    // Carpetas cuentan: un dispositivo puede tener carpetas creadas sin
+    // ningún mapa todavía, y sin esto no se subirían nunca.
+    const hasLocal = maps.length > 0 || folders.length > 0
     await pullMindMaps()
     if (hasLocal) await pushMindMaps().catch((e) => console.error('Mindmaps post-pull push failed', e))
   }

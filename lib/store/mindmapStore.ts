@@ -115,9 +115,26 @@ export interface MindMapShape {
   dashed?: boolean
 }
 
+/** Carpeta para agrupar mapas. La pestaña "General" no es una carpeta: es la
+ *  vista de TODOS los mapas ordenados por más reciente. */
+export interface MindMapFolder {
+  id: string
+  name: string
+  /** Orden de las pestañas. Menor = más a la izquierda. */
+  order: number
+  /** Carpeta del sistema: no se puede renombrar ni borrar, y sus mapas no se
+   *  pueden mover afuera. Sirve para que un módulo se adueñe de una carpeta y
+   *  sus mapas no se pierdan por accidente. */
+  locked?: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export interface MindMap {
   id: string
   title: string
+  /** Carpeta a la que pertenece. undefined = suelto (solo aparece en General). */
+  folderId?: string
   nodes: MindMapNode[]
   edges: MindMapEdge[]
   /** Opcional por back-compat: los mapas creados antes de las formas no lo
@@ -142,6 +159,18 @@ export const NODE_PALETTE = [
 
 interface MindMapState {
   maps: MindMap[]
+  /** Carpetas del usuario. Se sincronizan junto con los mapas (mismo dominio
+   *  de sync) porque conceptualmente son la misma cosa. */
+  folders: MindMapFolder[]
+
+  createFolder: (name: string, opts?: { locked?: boolean }) => string
+  renameFolder: (folderId: string, name: string) => void
+  /** Borra la carpeta y manda sus mapas a "sin carpeta" (siguen en General —
+   *  nunca se borran mapas por borrar una carpeta). Noop si es del sistema. */
+  deleteFolder: (folderId: string) => void
+  /** Mueve un mapa. `folderId` null = sacarlo de toda carpeta. Noop si el mapa
+   *  está en una carpeta bloqueada. */
+  moveMapToFolder: (mapId: string, folderId: string | null) => void
 
   /** Undo de 1 SOLO nivel (por diseño — "solo 1 así es fácil"). Guarda el
    *  estado (nodos + edges) de UN mapa justo ANTES del último cambio. Las
@@ -258,7 +287,53 @@ export const useMindMapStore = create<MindMapState>()(
 
       return {
       maps: [],
+      folders: [],
       undoSnapshot: null,
+
+      createFolder: (name, opts) => {
+        const now = new Date().toISOString()
+        const id = genId()
+        set((s) => ({
+          folders: [...s.folders, {
+            id,
+            name: name.trim() || 'Carpeta',
+            order: s.folders.length,
+            ...(opts?.locked ? { locked: true } : {}),
+            createdAt: now,
+            updatedAt: now,
+          }],
+        }))
+        return id
+      },
+
+      renameFolder: (folderId, name) => set((s) => ({
+        folders: s.folders.map((f) => f.id !== folderId || f.locked
+          ? f
+          : { ...f, name: name.trim() || f.name, updatedAt: new Date().toISOString() }),
+      })),
+
+      deleteFolder: (folderId) => set((s) => {
+        const folder = s.folders.find((f) => f.id === folderId)
+        if (!folder || folder.locked) return {}
+        return {
+          folders: s.folders.filter((f) => f.id !== folderId),
+          // Los mapas NO se borran: quedan sueltos y siguen visibles en General.
+          maps: s.maps.map((m) => m.folderId !== folderId ? m : touch({ ...m, folderId: undefined })),
+        }
+      }),
+
+      moveMapToFolder: (mapId, folderId) => set((s) => {
+        const map = s.maps.find((m) => m.id === mapId)
+        if (!map) return {}
+        // No se puede sacar un mapa de una carpeta bloqueada.
+        const current = s.folders.find((f) => f.id === map.folderId)
+        if (current?.locked) return {}
+        return {
+          maps: s.maps.map((m) => m.id !== mapId
+            ? m
+            : touch({ ...m, folderId: folderId ?? undefined })),
+        }
+      }),
 
       undo: () => set((s) => {
         const snap = s.undoSnapshot
