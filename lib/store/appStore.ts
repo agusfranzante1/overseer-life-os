@@ -167,6 +167,11 @@ export interface AppState {
   navOrder: string[]
   setNavOrder: (keys: string[]) => void
 
+  // Nombres custom de los ítems del sidebar (persisted). `navLabels[key]` pisa
+  // la etiqueta i18n default. Vacío/ausente = usar el nombre por defecto.
+  navLabels: Record<string, string>
+  setNavLabel: (key: string, label: string) => void
+
   // Orden de las pestañas de Content Strategy (persisted + synced multi-device
   // vía appPrefs). Vacío = orden default. Mismo patrón que navOrder.
   contenidoTabOrder: string[]
@@ -333,6 +338,15 @@ export const useAppStore = create<AppState>()(
 
       navOrder: [],  // empty = use default order from Sidebar's NAV_ITEMS
       setNavOrder: (keys) => set({ navOrder: keys }),
+
+      navLabels: {},
+      setNavLabel: (key, label) => set((s) => {
+        const next = { ...s.navLabels }
+        const trimmed = label.trim()
+        if (trimmed) next[key] = trimmed
+        else delete next[key]  // vacío → vuelve al nombre default
+        return { navLabels: next }
+      }),
       contenidoTabOrder: [],  // empty = use default tab order
       setContenidoTabOrder: (keys) => set({ contenidoTabOrder: keys }),
 

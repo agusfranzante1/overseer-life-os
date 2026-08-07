@@ -10,7 +10,7 @@ import {
   TrendingUp, GripVertical, Check, RotateCcw, Settings2, Cog, LogOut,
   Clock, Search, X as XIcon, Infinity as InfinityIcon, Telescope, FlaskConical,
   Network, ChevronUp, ChevronDown, ChevronRight, Target, GraduationCap, Sparkles,
-  Sun, Moon, NotebookPen, Wind,
+  Sun, Moon, NotebookPen, Wind, Pencil,
 } from 'lucide-react'
 import { SidebarLinks } from './SidebarLinks'
 import { listTimezones, formatTzOffset, detectTimezone } from '@/lib/utils/dateInTz'
@@ -58,7 +58,7 @@ export function Sidebar({
   mobileOpen?: boolean
   onMobileClose?: () => void
 } = {}) {
-  const { sidebarCollapsed, toggleSidebar, language, setLanguage, navOrder, setNavOrder, theme, toggleTheme } = useAppStore()
+  const { sidebarCollapsed, toggleSidebar, language, setLanguage, navOrder, setNavOrder, navLabels, setNavLabel, theme, toggleTheme } = useAppStore()
   const { t } = useTranslation()
   const pathname = usePathname()
   const router = useRouter()
@@ -84,6 +84,15 @@ export function Sidebar({
   const [editMode, setEditMode] = useState(false)
   const [dragKey, setDragKey] = useState<string | null>(null)
   const [overKey, setOverKey] = useState<string | null>(null)
+  // Renombrado inline de un ítem del sidebar (solo en modo edición).
+  const [editingLabelKey, setEditingLabelKey] = useState<string | null>(null)
+  const [labelDraft, setLabelDraft] = useState('')
+  const commitLabel = () => {
+    if (editingLabelKey) setNavLabel(editingLabelKey, labelDraft)
+    setEditingLabelKey(null); setLabelDraft('')
+  }
+  // Nombre a mostrar: el custom del usuario si lo puso, sino el default i18n.
+  const navLabel = (key: string) => navLabels?.[key]?.trim() || t(`nav.${key}`)
   const draggedRef = useRef<string | null>(null)
 
   // Footer colapsable — agrupa modo claro / idioma / timezone / sync / cerrar
@@ -377,34 +386,62 @@ export function Sidebar({
               >
                 <GripVertical className="w-3 h-3 text-zinc-600 shrink-0" />
                 <Icon className="w-4 h-4 shrink-0 text-zinc-400" />
-                <span className="text-sm font-medium whitespace-nowrap text-zinc-300 flex-1 truncate">
-                  {t(`nav.${key}`)}
-                </span>
-                {/* Tap arrows — touch-friendly reorder. preventDefault on
-                    pointerdown so the row's draggable behavior doesn't grab
-                    the touch first. */}
-                <div className="flex flex-col gap-0.5 shrink-0">
-                  <button
-                    type="button"
-                    disabled={isFirst}
-                    onClick={(e) => { e.stopPropagation(); moveItem(key, -1) }}
+                {editingLabelKey === key ? (
+                  <input
+                    autoFocus
+                    value={labelDraft}
+                    onChange={(e) => setLabelDraft(e.target.value)}
+                    onBlur={commitLabel}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitLabel()
+                      if (e.key === 'Escape') { setEditingLabelKey(null); setLabelDraft('') }
+                    }}
                     onPointerDown={(e) => e.stopPropagation()}
-                    title="Subir"
-                    className="w-5 h-3.5 rounded flex items-center justify-center text-zinc-500 hover:text-indigo-300 hover:bg-zinc-800 active:bg-zinc-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <ChevronUp className="w-3 h-3" />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isLast}
-                    onClick={(e) => { e.stopPropagation(); moveItem(key, 1) }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    title="Bajar"
-                    className="w-5 h-3.5 rounded flex items-center justify-center text-zinc-500 hover:text-indigo-300 hover:bg-zinc-800 active:bg-zinc-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <ChevronDown className="w-3 h-3" />
-                  </button>
-                </div>
+                    placeholder={t(`nav.${key}`)}
+                    className="flex-1 min-w-0 bg-zinc-800 border border-indigo-500/40 rounded px-1.5 py-0.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                  />
+                ) : (
+                  <>
+                    <span className="text-sm font-medium whitespace-nowrap text-zinc-300 flex-1 truncate">
+                      {navLabel(key)}
+                    </span>
+                    {/* Lápiz — renombrar la sección a gusto. */}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setEditingLabelKey(key); setLabelDraft(navLabels?.[key] ?? '') }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      title="Renombrar"
+                      className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-zinc-500 hover:text-indigo-300 hover:bg-zinc-800 transition-colors"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                    {/* Tap arrows — touch-friendly reorder. preventDefault on
+                        pointerdown so the row's draggable behavior doesn't grab
+                        the touch first. */}
+                    <div className="flex flex-col gap-0.5 shrink-0">
+                      <button
+                        type="button"
+                        disabled={isFirst}
+                        onClick={(e) => { e.stopPropagation(); moveItem(key, -1) }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        title="Subir"
+                        className="w-5 h-3.5 rounded flex items-center justify-center text-zinc-500 hover:text-indigo-300 hover:bg-zinc-800 active:bg-zinc-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronUp className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isLast}
+                        onClick={(e) => { e.stopPropagation(); moveItem(key, 1) }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        title="Bajar"
+                        className="w-5 h-3.5 rounded flex items-center justify-center text-zinc-500 hover:text-indigo-300 hover:bg-zinc-800 active:bg-zinc-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronDown className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )
           }
@@ -420,7 +457,7 @@ export function Sidebar({
             <Link
               key={href}
               href={href}
-              title={!showLabels ? t(`nav.${key}`) : undefined}
+              title={!showLabels ? navLabel(key) : undefined}
               onClick={handleNavClick}
             >
               <motion.div
@@ -463,7 +500,7 @@ export function Sidebar({
                 </span>
                 {showLabels && (
                   <span className="relative z-10 text-[13px] font-medium whitespace-nowrap flex-1">
-                    {t(`nav.${key}`)}
+                    {navLabel(key)}
                   </span>
                 )}
                 {/* Expandido: pastilla roja con el conteo, titilando. */}

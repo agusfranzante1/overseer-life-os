@@ -2309,6 +2309,7 @@ type AppPrefsPayload = {
   scheduleOrder?: string[]
   dayTypes?: import('@/types').DayTypeConfig[]
   navOrder?: string[]
+  navLabels?: Record<string, string>
   contenidoTabOrder?: string[]
   dailyReflectionPrompt?: string
   aiProvider?: 'off' | 'ollama' | 'anthropic'
@@ -2333,6 +2334,7 @@ async function pushAppPrefs() {
     scheduleOrder: s.scheduleOrder,
     dayTypes: s.dayTypes,
     navOrder: s.navOrder,
+    navLabels: s.navLabels,
     contenidoTabOrder: s.contenidoTabOrder,
     dailyReflectionPrompt: s.dailyReflectionPrompt,
     aiProvider: s.aiProvider,
@@ -2407,6 +2409,7 @@ async function pullAppPrefs(): Promise<boolean> {
     ...(p.scheduleOrder !== undefined ? { scheduleOrder: p.scheduleOrder } : {}),
     ...(p.dayTypes !== undefined ? { dayTypes: p.dayTypes } : {}),
     ...(p.navOrder !== undefined ? { navOrder: p.navOrder } : {}),
+    ...(p.navLabels !== undefined ? { navLabels: p.navLabels } : {}),
     ...(p.contenidoTabOrder !== undefined ? { contenidoTabOrder: p.contenidoTabOrder } : {}),
     ...(p.dailyReflectionPrompt !== undefined ? { dailyReflectionPrompt: p.dailyReflectionPrompt } : {}),
     ...(p.aiProvider !== undefined ? { aiProvider: p.aiProvider } : {}),
