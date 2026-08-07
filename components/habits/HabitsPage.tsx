@@ -205,7 +205,7 @@ export function HabitsPage() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="p-6 space-y-6">
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="p-4 sm:p-6 space-y-6 overflow-x-hidden max-w-full">
       {/* Header — mockup style: título XXL con icon grande y subtítulo
           gris fino. Botones glass + gradient pink el principal. */}
       <div className="flex items-start justify-between gap-4 flex-wrap">

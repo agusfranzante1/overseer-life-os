@@ -87,6 +87,77 @@ function SwipeableDrawer({
   )
 }
 
+/** Filtro MULTI-select: un botón que resume la selección y despliega una
+ *  lista de checkboxes. Reemplaza a los `<select>` single-select para poder
+ *  elegir varios valores a la vez (ej. estado "Haciendo" + "Esperando"). */
+function MultiSelectFilter({
+  label, allLabel, options, selected, onToggle, onClear,
+}: {
+  label: string
+  allLabel: string
+  options: { value: string; label: string }[]
+  selected: string[]
+  onToggle: (value: string) => void
+  onClear: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [open])
+
+  const summary = selected.length === 0
+    ? allLabel
+    : selected.length === 1
+      ? `${label}: ${options.find((o) => o.value === selected[0])?.label ?? selected[0]}`
+      : `${label}: ${selected.length}`
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title={`Filtrar por ${label.toLowerCase()} (podés elegir varios)`}
+        className={`bg-white/[0.03] border rounded-lg px-2 py-1.5 text-xs focus:outline-none flex items-center gap-1 transition-colors ${
+          selected.length > 0 ? 'border-blue-500/60 text-blue-200' : 'border-blue-900/40 text-zinc-300 hover:border-blue-500/40'
+        }`}
+      >
+        <span className="truncate max-w-[140px]">{summary}</span>
+        <ChevronDown className="w-3 h-3 opacity-60 shrink-0" />
+      </button>
+      {open && (
+        <div className="absolute z-40 top-full mt-1 left-0 min-w-[170px] max-h-64 overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1">
+          {selected.length > 0 && (
+            <button
+              onClick={onClear}
+              className="w-full text-left px-2.5 py-1 text-[11px] text-zinc-500 hover:text-zinc-200 border-b border-white/[0.06]"
+            >
+              Limpiar ({selected.length})
+            </button>
+          )}
+          {options.map((o) => {
+            const on = selected.includes(o.value)
+            return (
+              <button
+                key={o.value}
+                onClick={() => onToggle(o.value)}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-white/[0.06] text-left"
+              >
+                <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${on ? 'bg-blue-500 border-blue-500' : 'border-zinc-600'}`}>
+                  {on && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
+                </span>
+                <span className="truncate">{o.label}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ProjectForm({ onAdd, onClose, t }: {
   onAdd: (name: string, description?: string) => void
   onClose: () => void
@@ -654,9 +725,16 @@ export function TasksPage() {
   // view; per-project sets are keyed by project id so each project
   // remembers its own filters independently. Clearing via the "limpiar"
   // button writes nulls back to the same key.
-  const [statusFilter, setStatusFilter] = useState<string | null>(null)
-  const [priorityFilter, setPriorityFilter] = useState<string | null>(null)
-  const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
+  // Filtros MULTI-select: cada uno es una lista de valores activos. Vacío =
+  // sin filtro (muestra todo). Una tarea pasa si su valor está en la lista.
+  const [statusFilter, setStatusFilter] = useState<string[]>([])
+  const [priorityFilter, setPriorityFilter] = useState<string[]>([])
+  const [categoryFilter, setCategoryFilter] = useState<string[]>([])
+  // Alterna un valor dentro de un filtro (agrega si falta, saca si está).
+  const toggleFilterValue = (
+    setter: React.Dispatch<React.SetStateAction<string[]>>,
+    value: string,
+  ) => setter((arr) => (arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value]))
 
   // Restore filters from localStorage on mount + whenever the user
   // switches between projects (or to/from the All-Projects view).
@@ -678,22 +756,25 @@ export function TasksPage() {
 
   useEffect(() => {
     if (!filterStorageKey || typeof window === 'undefined') {
-      setStatusFilter(null); setPriorityFilter(null); setCategoryFilter(null)
+      setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([])
       setLoadedKey(null)
       return
     }
+    // Back-compat: el formato viejo guardaba un string (o null) por filtro;
+    // el nuevo guarda un array. Normalizamos ambos a array.
+    const toArr = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : (typeof v === 'string' && v ? [v] : [])
     try {
       const raw = localStorage.getItem(filterStorageKey)
       if (!raw) {
-        setStatusFilter(null); setPriorityFilter(null); setCategoryFilter(null)
+        setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([])
       } else {
-        const parsed = JSON.parse(raw) as { status?: string | null; priority?: string | null; category?: string | null }
-        setStatusFilter(parsed.status ?? null)
-        setPriorityFilter(parsed.priority ?? null)
-        setCategoryFilter(parsed.category ?? null)
+        const parsed = JSON.parse(raw) as { status?: unknown; priority?: unknown; category?: unknown }
+        setStatusFilter(toArr(parsed.status))
+        setPriorityFilter(toArr(parsed.priority))
+        setCategoryFilter(toArr(parsed.category))
       }
     } catch {
-      setStatusFilter(null); setPriorityFilter(null); setCategoryFilter(null)
+      setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([])
     }
     setLoadedKey(filterStorageKey)
   }, [filterStorageKey])
@@ -783,12 +864,12 @@ export function TasksPage() {
     .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''))
 
   const passesFilters = (t: typeof tasks[string]) =>
-    (statusFilter ? t.status === statusFilter : true) &&
+    (statusFilter.length === 0 || statusFilter.includes(t.status)) &&
     // Filtra por la prioridad EFECTIVA (escala a 'high' si tiene una
     // subtarea urgente abierta). Así una tarea madre con priority='low'
     // pero con sub1 urgent aparece cuando filtrás por "Alta".
-    (priorityFilter ? effectivePriority(t) === priorityFilter : true) &&
-    (categoryFilter ? (t.category ?? '') === categoryFilter : true)
+    (priorityFilter.length === 0 || priorityFilter.includes(effectivePriority(t))) &&
+    (categoryFilter.length === 0 || categoryFilter.includes(t.category ?? ''))
 
   // Status order map for sortTasks: built from the active project's statuses
   // when a project is selected. In "All Projects" view we have no global
@@ -1225,61 +1306,53 @@ export function TasksPage() {
                 <Filter className="w-3.5 h-3.5 text-blue-400/80" />
 
                 {activeProject ? (
-                  <select
-                    value={statusFilter ?? ''}
-                    onChange={(e) => setStatusFilter(e.target.value || null)}
-                    title="Filtrar por estado"
-                    className="bg-white/[0.03] border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="">{t('tasks.status')}: {t('common.all')}</option>
-                    {activeProject.statuses.map((s) => (
-                      <option key={s.id} value={s.label}>{tStatus(s.label)}</option>
-                    ))}
-                  </select>
+                  <MultiSelectFilter
+                    label={t('tasks.status')}
+                    allLabel={`${t('tasks.status')}: ${t('common.all')}`}
+                    options={activeProject.statuses.map((s) => ({ value: s.label, label: tStatus(s.label) }))}
+                    selected={statusFilter}
+                    onToggle={(v) => toggleFilterValue(setStatusFilter, v)}
+                    onClear={() => setStatusFilter([])}
+                  />
                 ) : availableStatuses.length > 0 && (
-                  <select
-                    value={statusFilter ?? ''}
-                    onChange={(e) => setStatusFilter(e.target.value || null)}
-                    title="Filtrar por estado (todos los proyectos)"
-                    className="bg-white/[0.03] border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="">Estado: todos</option>
-                    {availableStatuses.map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
+                  <MultiSelectFilter
+                    label="Estado"
+                    allLabel="Estado: todos"
+                    options={availableStatuses.map((s) => ({ value: s, label: s }))}
+                    selected={statusFilter}
+                    onToggle={(v) => toggleFilterValue(setStatusFilter, v)}
+                    onClear={() => setStatusFilter([])}
+                  />
                 )}
 
-                <select
-                  value={priorityFilter ?? ''}
-                  onChange={(e) => setPriorityFilter(e.target.value || null)}
-                  title="Filtrar por urgencia"
-                  className="bg-white/[0.03] border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
-                >
-                  <option value="">Urgencia: toda</option>
-                  <option value="urgent">Urgente</option>
-                  <option value="high">Alta</option>
-                  <option value="medium">Media</option>
-                  <option value="low">Baja</option>
-                </select>
+                <MultiSelectFilter
+                  label="Urgencia"
+                  allLabel="Urgencia: toda"
+                  options={[
+                    { value: 'urgent', label: 'Urgente' },
+                    { value: 'high', label: 'Alta' },
+                    { value: 'medium', label: 'Media' },
+                    { value: 'low', label: 'Baja' },
+                  ]}
+                  selected={priorityFilter}
+                  onToggle={(v) => toggleFilterValue(setPriorityFilter, v)}
+                  onClear={() => setPriorityFilter([])}
+                />
 
                 {availableCategories.length > 0 && (
-                  <select
-                    value={categoryFilter ?? ''}
-                    onChange={(e) => setCategoryFilter(e.target.value || null)}
-                    title="Filtrar por tipo"
-                    className="bg-white/[0.03] border border-blue-900/40 rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="">Tipo: todos</option>
-                    {availableCategories.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
+                  <MultiSelectFilter
+                    label="Tipo"
+                    allLabel="Tipo: todos"
+                    options={availableCategories.map((c) => ({ value: c, label: c }))}
+                    selected={categoryFilter}
+                    onToggle={(v) => toggleFilterValue(setCategoryFilter, v)}
+                    onClear={() => setCategoryFilter([])}
+                  />
                 )}
 
-                {(statusFilter || priorityFilter || categoryFilter) && (
+                {(statusFilter.length > 0 || priorityFilter.length > 0 || categoryFilter.length > 0) && (
                   <button
-                    onClick={() => { setStatusFilter(null); setPriorityFilter(null); setCategoryFilter(null) }}
+                    onClick={() => { setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([]) }}
                     title="Limpiar filtros"
                     className="text-[10px] font-mono uppercase tracking-wider text-blue-300 hover:text-blue-100 px-2 py-1 rounded hover:bg-blue-500/10 transition-colors"
                   >
@@ -1318,8 +1391,8 @@ export function TasksPage() {
               tasks={getProjectTasks(activeProject.id).filter((t) =>
                 // Misma lógica que `passesFilters`: usa la prioridad
                 // efectiva (escala a 'high' por subtarea urgente).
-                (priorityFilter ? effectivePriority(t) === priorityFilter : true) &&
-                (categoryFilter ? (t.category ?? '') === categoryFilter : true)
+                (priorityFilter.length === 0 || priorityFilter.includes(effectivePriority(t))) &&
+                (categoryFilter.length === 0 || categoryFilter.includes(t.category ?? ''))
               )}
               sortMode={sortMode}
               onTaskClick={(t) => setSelectedTask(t)}
@@ -1428,7 +1501,7 @@ export function TasksPage() {
               // Hide project section entirely if filters leave it empty AND
               // there ARE filters applied — otherwise empty projects (no
               // filter) keep showing so the user can still add tasks there.
-              const anyFilterActive = !!(statusFilter || priorityFilter || categoryFilter)
+              const anyFilterActive = statusFilter.length > 0 || priorityFilter.length > 0 || categoryFilter.length > 0
               if (anyFilterActive && projTasks.length === 0) return null
 
               return (
