@@ -13,7 +13,6 @@ import type { Carrera, Materia, Parcial, Tema, StudyProgress } from '@/lib/study
 import { ConceptMapCanvas } from './ConceptMapCanvas'
 import { ConceptProgress } from './ConceptProgress'
 import { CarreraConceptMap } from './CarreraConceptMap'
-import { conceptProgress } from '@/lib/study/concepts'
 
 // ─── Paletas ─────────────────────────────────────────────────────────────────
 
@@ -263,8 +262,9 @@ function CarreraDetail({ carrera, onBack, onOpenMateria }: { carrera: Carrera; o
     () => materias.filter((m) => m.carreraId === carrera.id).sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
     [materias, carrera.id],
   )
-  // Solo las materias en modo conceptos alimentan el mapa de la carrera.
-  const conceptosMaterias = useMemo(() => carreraMaterias.filter((m) => m.mode === 'conceptos'), [carreraMaterias])
+  // El mapa de conceptos de la carrera agrega TODAS sus materias (ya no hay
+  // modo: toda materia puede tener conceptos).
+  const conceptosMaterias = carreraMaterias
 
   return (
     <>
@@ -342,6 +342,17 @@ function MateriaCard({ materia, fallbackColor, onClick, onDelete }: { materia: M
 
 // ─── Nivel 2 + 3: Materia → Parciales → Temas → ítems ──────────────────────────
 
+/** Título de sección dentro del detalle de materia (Parciales & Temas /
+ *  Conceptos / Progreso Conceptos). Punto + texto en el color de la materia. */
+function SectionLabel({ color, children }: { color: string; children: React.ReactNode }) {
+  return (
+    <h2 className="text-xs font-bold uppercase tracking-wider flex items-center gap-2" style={{ color }}>
+      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color }} />
+      {children}
+    </h2>
+  )
+}
+
 function MateriaDetail({ materia, onBack }: { materia: Materia; onBack: () => void }) {
   const parciales = useStudyStore((s) => s.parciales)
   const addParcial = useStudyStore((s) => s.addParcial)
@@ -350,8 +361,6 @@ function MateriaDetail({ materia, onBack }: { materia: Materia; onBack: () => vo
   const [showAddParcial, setShowAddParcial] = useState(false)
   const [newParcial, setNewParcial] = useState('')
   const [openParcialId, setOpenParcialId] = useState<string | null>(null)
-  const [conceptView, setConceptView] = useState<'mapa' | 'progreso'>('mapa')
-  const conceptMap = useConceptStore((s) => s.maps.find((m) => m.materiaId === materia.id) ?? null)
   const prog = useMateriaProgress(materia.id)
   const color = materia.color ?? DEFAULT_CARRERA_COLOR
 
@@ -370,57 +379,23 @@ function MateriaDetail({ materia, onBack }: { materia: Materia; onBack: () => vo
   }
 
   const sub = [materia.codigo, materia.profesor, materia.cuatrimestre].filter(Boolean).join(' · ')
-  const isConceptos = materia.mode === 'conceptos'
 
-  // Modo conceptos: header + tabs Mapa/Progreso sobre los MISMOS conceptos.
-  if (isConceptos) {
-    const cProg = conceptProgress(conceptMap?.concepts ?? [])
-    return (
-      <div className="space-y-6">
-        <DetailHeader
-          onBack={onBack} icon={materia.icon ?? '🧠'} color={color} title={materia.name}
-          subtitle={sub || 'Base de conceptos — mapá, estudiá y seguí el avance.'}
-          prog={cProg} progLabel="conceptos estudiados"
-          onEdit={() => setShowEdit(true)}
-          onDelete={() => { if (confirm(`¿Eliminar la materia "${materia.name}"?\nBorra su mapa de conceptos.`)) { useConceptStore.getState().removeMap(materia.id); deleteMateria(materia.id); onBack() } }}
-        />
-
-        {/* Tabs Mapa / Progreso — dos vistas de los mismos conceptos */}
-        <div className="inline-flex items-center gap-0.5 p-0.5 rounded-xl" style={{ background: 'var(--card-bg)', border: '1px solid rgba(255,255,255,0.10)' }}>
-          {([{ v: 'mapa' as const, t: 'Mapa' }, { v: 'progreso' as const, t: 'Progreso' }]).map((tab) => (
-            <button key={tab.v} onClick={() => setConceptView(tab.v)}
-              className="px-4 py-1.5 rounded-lg text-[13px] font-semibold transition-colors"
-              style={conceptView === tab.v
-                ? { background: `${color}22`, color: '#fff', boxShadow: `inset 0 0 0 1px ${color}55` }
-                : { color: '#a1a1aa' }}>
-              {tab.t}
-              {tab.v === 'progreso' && cProg.total > 0 && <span className="ml-1.5 text-[11px] font-mono opacity-70">{cProg.pct}%</span>}
-            </button>
-          ))}
-        </div>
-
-        {conceptView === 'mapa'
-          ? <ConceptMapCanvas materiaId={materia.id} accent={color} />
-          : <ConceptProgress materiaId={materia.id} accent={color} />}
-
-        <AnimatePresence>
-          {showEdit && <EditMateriaModal materia={materia} onClose={() => setShowEdit(false)} />}
-        </AnimatePresence>
-      </div>
-    )
-  }
-
+  // Vista unificada: parciales & temas + conceptos + progreso conceptos CONVIVEN
+  // (ya no hay toggle checklist/conceptos). Orden: Parciales & Temas → Conceptos
+  // → Progreso Conceptos.
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <DetailHeader
         onBack={onBack} icon={materia.icon ?? '📚'} color={color} title={materia.name}
         subtitle={sub || 'Sin info — editá para agregar profesor, código, cuatrimestre.'}
         prog={prog} progLabel="temas de la materia"
         onEdit={() => setShowEdit(true)}
-        onDelete={() => { if (confirm(`¿Eliminar la materia "${materia.name}"?\nBorra sus parciales y temas.`)) { deleteMateria(materia.id); onBack() } }}
+        onDelete={() => { if (confirm(`¿Eliminar la materia "${materia.name}"?\nBorra sus parciales, temas y su mapa de conceptos.`)) { useConceptStore.getState().removeMap(materia.id); deleteMateria(materia.id); onBack() } }}
       />
 
-      <div className="space-y-3">
+      {/* ── 1) Parciales & Temas ── */}
+      <section className="space-y-3">
+        <SectionLabel color={color}>Parciales &amp; Temas</SectionLabel>
         {list.map((p) => (
           <ParcialBlock key={p.id} parcial={p} fallbackColor={color}
             isOpen={openParcialId === p.id} onToggle={() => setOpenParcialId(openParcialId === p.id ? null : p.id)} />
@@ -442,7 +417,19 @@ function MateriaDetail({ materia, onBack }: { materia: Materia; onBack: () => vo
             <Plus className="w-4 h-4" /> Agregar parcial
           </button>
         )}
-      </div>
+      </section>
+
+      {/* ── 2) Conceptos (mapa) ── */}
+      <section className="space-y-3">
+        <SectionLabel color={color}>Conceptos</SectionLabel>
+        <ConceptMapCanvas materiaId={materia.id} accent={color} />
+      </section>
+
+      {/* ── 3) Progreso Conceptos ── */}
+      <section className="space-y-3">
+        <SectionLabel color={color}>Progreso Conceptos</SectionLabel>
+        <ConceptProgress materiaId={materia.id} accent={color} />
+      </section>
 
       <AnimatePresence>
         {showEdit && <EditMateriaModal materia={materia} onClose={() => setShowEdit(false)} />}
@@ -778,36 +765,15 @@ function CreateMateriaModal({ carreraId, onClose, onCreated }: { carreraId: stri
   const [profesor, setProfesor] = useState('')
   const [codigo, setCodigo] = useState('')
   const [cuatrimestre, setCuatrimestre] = useState('')
-  const [mode, setMode] = useState<'checklist' | 'conceptos'>('checklist')
   const create = () => {
     if (!name.trim()) return
-    onCreated(addMateria({ carreraId, name, icon, color, mode, profesor: profesor.trim() || undefined, codigo: codigo.trim() || undefined, cuatrimestre: cuatrimestre.trim() || undefined }))
+    onCreated(addMateria({ carreraId, name, icon, color, profesor: profesor.trim() || undefined, codigo: codigo.trim() || undefined, cuatrimestre: cuatrimestre.trim() || undefined }))
   }
   return (
     <ModalShell title="Nueva materia" onClose={onClose}
       footer={<><GhostBtn onClick={onClose}>Cancelar</GhostBtn><PrimaryBtn onClick={create} disabled={!name.trim()}>Crear materia</PrimaryBtn></>}>
       <div><label className={labelClass()}>Nombre de la materia *</label>
         <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Análisis Matemático II" className={fieldClass()} /></div>
-      {/* Modo de la materia */}
-      <div>
-        <label className={labelClass()}>Tipo de materia</label>
-        <div className="grid grid-cols-2 gap-2">
-          {([
-            { v: 'checklist' as const, t: 'Checklist', d: 'Parciales, temas y progreso' },
-            { v: 'conceptos' as const, t: 'Mapa de conceptos', d: 'Conceptos por autor + avance de estudio' },
-          ]).map((opt) => (
-            <button key={opt.v} type="button" onClick={() => setMode(opt.v)}
-              className="text-left rounded-xl p-3 transition-all"
-              style={{
-                background: mode === opt.v ? `${color}18` : 'var(--card-bg)',
-                border: `1px solid ${mode === opt.v ? color : 'rgba(255,255,255,0.10)'}`,
-              }}>
-              <p className="text-[13px] font-semibold" style={{ color: mode === opt.v ? '#fff' : '#d4d4d8' }}>{opt.t}</p>
-              <p className="text-[11px] text-zinc-500 leading-snug mt-0.5">{opt.d}</p>
-            </button>
-          ))}
-        </div>
-      </div>
       <div><label className={labelClass()}>Icono</label><IconPicker icons={MATERIA_ICONS} value={icon} onChange={setIcon} /></div>
       <div><label className={labelClass()}>Color</label><ColorPicker value={color} onChange={setColor} /></div>
       <div className="grid grid-cols-2 gap-3">
@@ -827,35 +793,14 @@ function EditMateriaModal({ materia, onClose }: { materia: Materia; onClose: () 
   const [profesor, setProfesor] = useState(materia.profesor ?? '')
   const [codigo, setCodigo] = useState(materia.codigo ?? '')
   const [cuatrimestre, setCuatrimestre] = useState(materia.cuatrimestre ?? '')
-  const [mode, setMode] = useState<'checklist' | 'conceptos'>(materia.mode === 'conceptos' ? 'conceptos' : 'checklist')
   const save = () => {
-    updateMateria(materia.id, { name: name.trim() || materia.name, icon, color, mode, profesor: profesor.trim() || undefined, codigo: codigo.trim() || undefined, cuatrimestre: cuatrimestre.trim() || undefined })
+    updateMateria(materia.id, { name: name.trim() || materia.name, icon, color, profesor: profesor.trim() || undefined, codigo: codigo.trim() || undefined, cuatrimestre: cuatrimestre.trim() || undefined })
     onClose()
   }
   return (
     <ModalShell title="Editar materia" onClose={onClose}
       footer={<><GhostBtn onClick={onClose}>Cancelar</GhostBtn><PrimaryBtn onClick={save}>Guardar</PrimaryBtn></>}>
       <div><label className={labelClass()}>Nombre</label><input value={name} onChange={(e) => setName(e.target.value)} className={fieldClass()} /></div>
-      {/* Modo de la materia — permite convertir entre checklist y conceptos */}
-      <div>
-        <label className={labelClass()}>Tipo de materia</label>
-        <div className="grid grid-cols-2 gap-2">
-          {([
-            { v: 'checklist' as const, t: 'Checklist', d: 'Parciales, temas y progreso' },
-            { v: 'conceptos' as const, t: 'Mapa de conceptos', d: 'Conceptos por autor + avance de estudio' },
-          ]).map((opt) => (
-            <button key={opt.v} type="button" onClick={() => setMode(opt.v)}
-              className="text-left rounded-xl p-3 transition-all"
-              style={{
-                background: mode === opt.v ? `${color}18` : 'var(--card-bg)',
-                border: `1px solid ${mode === opt.v ? color : 'rgba(255,255,255,0.10)'}`,
-              }}>
-              <p className="text-[13px] font-semibold" style={{ color: mode === opt.v ? '#fff' : '#d4d4d8' }}>{opt.t}</p>
-              <p className="text-[11px] text-zinc-500 leading-snug mt-0.5">{opt.d}</p>
-            </button>
-          ))}
-        </div>
-      </div>
       <div><label className={labelClass()}>Icono</label><IconPicker icons={MATERIA_ICONS} value={icon} onChange={setIcon} /></div>
       <div><label className={labelClass()}>Color</label><ColorPicker value={color} onChange={setColor} /></div>
       <div className="grid grid-cols-2 gap-3">
