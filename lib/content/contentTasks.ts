@@ -86,7 +86,13 @@ function subtaskTitle(item: ContentItem): string {
 export function reconcileContentTasks(): void {
   const content = useContentStore.getState()
   const { profiles, items, campaigns } = content
-  const realProfiles = profiles.filter((p) => profileIsReal(p, items, campaigns))
+  // Los PAUSADOS quedan afuera del espejo: siguen existiendo y editándose en
+  // Content Strategy, pero no ocupan lugar en el task manager. Si uno estaba
+  // reflejado y se pausa, se le borra la tarea madre acá abajo.
+  const realProfiles = profiles.filter((p) => !p.paused && profileIsReal(p, items, campaigns))
+  for (const p of profiles) {
+    if (p.paused) removePausedMother(p)
+  }
   if (realProfiles.length === 0) return
 
   // 1. Proyecto único "Content Strategy" (id fijo + limpieza de viejos).
@@ -112,7 +118,9 @@ export function reconcileContentTasks(): void {
         const t: Task = {
           id: motherId, projectId: projId, title: profile.name,
           status: firstStatus, priority: prio, importance: 'medium',
-          subtasks: [], createdAt: now, updatedAt: now,
+          // Al despausar, le devolvemos las subtareas manuales que se habían
+          // guardado en el perfil. Las de contenido las repone el paso 3.
+          subtasks: profile.pausedSubtasks ?? [], createdAt: now, updatedAt: now,
         }
         return {
           tasks: { ...s.tasks, [motherId]: t },
@@ -130,6 +138,10 @@ export function reconcileContentTasks(): void {
       }
     })
     if (profile.linkedTaskId !== motherId) profilePatches[profile.id] = { linkedTaskId: motherId }
+    // Ya devueltas: limpiamos el guardado para no re-inyectarlas en cada pasada.
+    if (profile.pausedSubtasks?.length) {
+      profilePatches[profile.id] = { ...profilePatches[profile.id], pausedSubtasks: undefined }
+    }
   }
   if (Object.keys(profilePatches).length > 0) {
     useContentStore.setState((s) => ({
@@ -238,6 +250,43 @@ export function deleteItemSubtask(item: ContentItem | undefined): void {
 }
 
 /** Borra la tarea madre de un perfil (desde removeProfile). */
+/** Saca del task manager la tarea madre de un perfil PAUSADO.
+ *
+ *  Borrado DURO a propósito, sin pasar por `deleteTask`: ese hace soft-delete
+ *  (archiva y recién el segundo llamado borra), así que pausar habría tirado
+ *  el perfil a la papelera y encima hubiera hecho falta reconciliar dos veces
+ *  para que desapareciera.
+ *
+ *  Las subtareas de contenido (`cs_`) no se guardan: se reconstruyen solas
+ *  desde las piezas al despausar. Las que el usuario agregó A MANO sí, en el
+ *  perfil, porque esas no se pueden regenerar y perderlas sería silencioso.
+ *
+ *  Idempotente: si la madre ya no está, no hace nada. */
+function removePausedMother(profile: ContentProfile): void {
+  const motherId = `csmom_${profile.id}`
+  const task = useTasksStore.getState().tasks[motherId]
+  if (!task) return
+
+  const userSubs = (task.subtasks ?? []).filter((st) => !st.id.startsWith(SUB_PREFIX))
+  useTasksStore.setState((s) => {
+    if (!s.tasks[motherId]) return s
+    const tasks = { ...s.tasks }
+    delete tasks[motherId]
+    const proj = s.projects[task.projectId]
+    return {
+      tasks,
+      projects: proj
+        ? { ...s.projects, [task.projectId]: { ...proj, taskIds: (proj.taskIds ?? []).filter((id) => id !== motherId) } }
+        : s.projects,
+    }
+  })
+  if (userSubs.length > 0) {
+    useContentStore.setState((s) => ({
+      profiles: s.profiles.map((p) => p.id !== profile.id ? p : { ...p, pausedSubtasks: userSubs }),
+    }))
+  }
+}
+
 export function deleteProfileMother(profileId: string): void {
   const motherId = useContentStore.getState().profiles.find((p) => p.id === profileId)?.linkedTaskId
   if (motherId && useTasksStore.getState().tasks[motherId]) {

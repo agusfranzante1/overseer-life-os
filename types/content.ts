@@ -123,6 +123,17 @@ export interface ContentProfile {
    *  ahí, para que no se pierda. Igual que `linkedTaskId`, viaja en el
    *  payload JSONB del perfil → no requiere migración. */
   linkedMindMapId?: string
+  /** Perfil PAUSADO: existe y se sigue editando acá, pero no se refleja en el
+   *  task manager. Sirve para los canales que ya armaste pero que todavía no
+   *  están en producción — sin esto te llenan el manager de tareas madre de
+   *  cosas en las que no estás trabajando. No borra nada: al despausar, la
+   *  tarea madre y sus subtareas se reconstruyen solas.
+   *  Viaja en el payload JSONB del perfil → no requiere migración. */
+  paused?: boolean
+  /** Subtareas que el usuario había agregado A MANO en la tarea madre, guardadas
+   *  mientras el perfil está pausado. Las de contenido (`cs_`) no hacen falta:
+   *  se reconstruyen solas desde las piezas. Se devuelven al despausar. */
+  pausedSubtasks?: import('@/types').Subtask[]
   createdAt: string
   /** Timestamp de la última edición del perfil. Lo usa el sync para resolver
    *  conflictos con LWW (última edición gana) — sin esto el merge usaba

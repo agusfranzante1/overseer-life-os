@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Sparkles, Target, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Plus, Trash2, X, BookOpen, Layers, Zap, Pencil, Send, Check,
-  Image as ImageIcon, Upload, Loader2, Archive, LayoutGrid, ArrowRight, Network, Lock,
+  Image as ImageIcon, Upload, Loader2, Archive, LayoutGrid, ArrowRight, Network, Lock, Pause, Play,
 } from 'lucide-react'
 import { useContentStore, buildAIContentPrompt } from '@/lib/store/contentStore'
 import { MindMapCanvas } from '@/components/mindmap/MindMapCanvas'
@@ -401,6 +401,10 @@ function ProfileBar({
               }}
             >
               <span>{p.icon ?? '·'}</span>{p.name}
+              {/* Pausado: se ve desde cualquier pestaña, no solo en Panorama. */}
+              {p.paused && (
+                <Pause className="w-3 h-3 text-amber-400" aria-label="Pausado" />
+              )}
               {p.medal && (
                 <span title={p.medal === 'gold' ? 'Prioridad alta' : p.medal === 'bronze' ? 'Prioridad media' : 'Prioridad baja'}>
                   {p.medal === 'gold' ? '🥇' : p.medal === 'bronze' ? '🥉' : '🥈'}
@@ -2279,6 +2283,23 @@ function ProfileOverviewCard({ profile, stats, onOpen }: {
       {/* Barra de acento superior */}
       <div className="absolute inset-x-0 top-0 h-1" style={{ background: color }} />
 
+      {/* Pausar / reanudar. Va acá, en Panorama, porque es la vista donde ves
+          TODOS los perfiles juntos y decidís con cuáles estás trabajando.
+          Pausar no borra nada: solo saca la tarea madre del task manager. */}
+      <button
+        onClick={() => updateProfile(profile.id, { paused: !profile.paused })}
+        title={profile.paused
+          ? 'Reanudar — vuelve a aparecer en el task manager con sus tareas'
+          : 'Pausar — deja de aparecer en el task manager (no se borra nada)'}
+        className={`absolute top-2.5 right-2.5 z-10 p-1.5 rounded-lg transition-colors ${
+          profile.paused
+            ? 'text-amber-300 bg-amber-500/15 hover:bg-amber-500/25'
+            : 'text-zinc-600 hover:text-amber-300 hover:bg-amber-500/10'
+        }`}
+      >
+        {profile.paused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+      </button>
+
       {/* Identidad */}
       <div className="flex items-start gap-2.5">
         <div
@@ -2293,6 +2314,14 @@ function ProfileOverviewCard({ profile, stats, onOpen }: {
               {profile.name}
             </button>
             {medal && <span className="text-sm shrink-0">{medal}</span>}
+            {profile.paused && (
+              <span
+                title="Pausado — no aparece en el task manager"
+                className="text-[9px] font-semibold uppercase tracking-wide text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded px-1.5 py-0.5 shrink-0"
+              >
+                Pausado
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5 mt-1 flex-wrap text-[11px] text-zinc-500">
             <span className="flex items-center gap-1">
