@@ -25,6 +25,11 @@ export interface AlignGuide {
    *  cubra exactamente desde el nodo arrastrado hasta el de referencia. */
   start: number
   end: number
+  /** true si la línea pasa por el CENTRO del nodo que se está moviendo (y no
+   *  por uno de sus bordes). Se dibuja distinto: cuando dos nodos del mismo
+   *  tamaño quedan alineados salen las tres líneas juntas, y así se distingue
+   *  de un vistazo cuál es la del medio. */
+  center: boolean
 }
 
 export interface SnapResult {
@@ -62,39 +67,105 @@ function centerDistance(a: SnapRect, b: SnapRect): number {
 }
 
 interface Candidate {
-  delta: number   // cuánto hay que mover el rect para alinear
-  pos: number     // coordenada de la línea resultante
-  dist: number    // distancia al nodo de referencia (desempate)
+  delta: number    // cuánto hay que mover el rect
+  score: number    // cuántas alineaciones quedan satisfechas con ese delta
+  nearest: number  // distancia al vecino alineado más cercano (último desempate)
 }
 
-/** Mejor alineación sobre un eje: la de menor corrección; a igual corrección,
- *  la del nodo más cercano. */
+/**
+ * Mejor corrección sobre un eje.
+ *
+ * La decisión NO es "el borde más cercano gana". Se enumeran todos los
+ * desplazamientos que producen alguna alineación y se elige el que satisface
+ * MÁS alineaciones a la vez.
+ *
+ * Por qué: si tenés un vecino suelto a la derecha y una columna de nodos a la
+ * izquierda, con el criterio de cercanía ganaba siempre el de la derecha por
+ * estar más cerca — aunque estuvieras armando la columna de la izquierda.
+ * Puntuando por cantidad de alineaciones, la columna pesa más y gana, que es
+ * lo que uno está tratando de hacer. Recién a igualdad de puntaje decide la
+ * corrección más chica, y después la cercanía.
+ */
 function bestCandidate(
   moving: SnapRect,
   others: SnapRect[],
   tolerance: number,
   edgesOf: (r: SnapRect) => number[],
 ): Candidate | null {
-  let best: Candidate | null = null
+  const movingEdges = edgesOf(moving)
+
+  // Desplazamientos candidatos: los que alinean alguna línea del nodo movido
+  // con alguna de algún vecino, dentro de la tolerancia.
+  const deltas: number[] = []
   for (const other of others) {
-    const dist = centerDistance(moving, other)
-    for (const movingEdge of edgesOf(moving)) {
-      for (const otherEdge of edgesOf(other)) {
+    for (const otherEdge of edgesOf(other)) {
+      for (const movingEdge of movingEdges) {
         const delta = otherEdge - movingEdge
-        const abs = Math.abs(delta)
-        if (abs > tolerance) continue
-        if (
-          best === null ||
-          abs < Math.abs(best.delta) - EPS ||
-          // Empate en corrección → desempata el nodo más cercano.
-          (abs <= Math.abs(best.delta) + EPS && dist < best.dist)
-        ) {
-          best = { delta, pos: otherEdge, dist }
-        }
+        if (Math.abs(delta) > tolerance) continue
+        if (!deltas.some((d) => Math.abs(d - delta) <= EPS)) deltas.push(delta)
       }
     }
   }
+  if (deltas.length === 0) return null
+
+  let best: Candidate | null = null
+  for (const delta of deltas) {
+    let score = 0
+    let nearest = Infinity
+    for (const other of others) {
+      let matches = 0
+      for (const movingEdge of movingEdges) {
+        for (const otherEdge of edgesOf(other)) {
+          if (Math.abs(otherEdge - (movingEdge + delta)) <= EPS) matches++
+        }
+      }
+      if (matches > 0) {
+        score += matches
+        nearest = Math.min(nearest, centerDistance(moving, other))
+      }
+    }
+    const cand: Candidate = { delta, score, nearest }
+    const better =
+      best === null ||
+      cand.score > best.score ||
+      (cand.score === best.score && Math.abs(cand.delta) < Math.abs(best.delta) - EPS) ||
+      (cand.score === best.score &&
+        Math.abs(cand.delta) <= Math.abs(best.delta) + EPS &&
+        cand.nearest < best.nearest)
+    if (better) best = cand
+  }
   return best
+}
+
+/** Todas las líneas que se cumplen sobre un eje en la posición YA ENGANCHADA.
+ *
+ *  Ojo: no alcanza con dibujar la que ganó el cálculo del delta. Cuando dos
+ *  nodos tienen el mismo ancho, alinear por izquierda, por centro y por derecha
+ *  dan EXACTAMENTE la misma corrección — el ganador se decide por orden de
+ *  iteración y siempre salía el borde izquierdo, así que el centro y el borde
+ *  derecho no se veían nunca aunque estuvieran igual de alineados.
+ *
+ *  Acá recorremos las tres líneas del nodo movido contra las tres de cada
+ *  vecino y emitimos una guía por cada coordenada distinta que coincida. */
+function guidesOnAxis(
+  axis: 'x' | 'y',
+  snappedMoving: SnapRect,
+  others: SnapRect[],
+): AlignGuide[] {
+  const edgesOf = axis === 'x' ? edgesX : edgesY
+  const movingEdges = edgesOf(snappedMoving)
+  const positions: number[] = []
+  for (const other of others) {
+    for (const otherEdge of edgesOf(other)) {
+      // ¿Alguna línea del nodo movido cae justo acá?
+      if (!movingEdges.some((me) => Math.abs(me - otherEdge) <= EPS)) continue
+      // Evitar duplicar la misma línea si varios vecinos la comparten:
+      // buildGuide ya se encarga de estirarla sobre todos ellos.
+      if (positions.some((p) => Math.abs(p - otherEdge) <= EPS)) continue
+      positions.push(otherEdge)
+    }
+  }
+  return positions.map((pos) => buildGuide(axis, pos, snappedMoving, others))
 }
 
 /** Construye la guía visual: la línea se extiende para cubrir el nodo movido
@@ -118,7 +189,8 @@ function buildGuide(
     lo = Math.min(lo, spanLo(other))
     hi = Math.max(hi, spanHi(other))
   }
-  return { axis, pos, start: lo, end: hi }
+  const movingCenter = axis === 'x' ? centerX(snappedMoving) : centerY(snappedMoving)
+  return { axis, pos, start: lo, end: hi, center: Math.abs(pos - movingCenter) <= EPS }
 }
 
 /**
@@ -149,9 +221,14 @@ export function computeSnap(
   const dy = bestY?.delta ?? 0
   const snapped: SnapRect = { ...moving, x: moving.x + dx, y: moving.y + dy }
 
-  const guides: AlignGuide[] = []
-  if (bestX) guides.push(buildGuide('x', bestX.pos, snapped, others))
-  if (bestY) guides.push(buildGuide('y', bestY.pos, snapped, others))
+  // Se emiten TODAS las alineaciones que quedan satisfechas, no solo la que
+  // ganó el cálculo: si el nodo queda alineado por izquierda con uno y por
+  // derecha con otro, se ven las dos líneas. Y si además coinciden los
+  // centros, se ve la del centro.
+  const guides: AlignGuide[] = [
+    ...guidesOnAxis('x', snapped, others),
+    ...guidesOnAxis('y', snapped, others),
+  ]
   return { dx, dy, guides }
 }
 

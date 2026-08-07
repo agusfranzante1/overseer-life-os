@@ -1256,9 +1256,12 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
                   y1={g.axis === 'x' ? g.start : g.pos}
                   x2={g.axis === 'x' ? g.pos : g.end}
                   y2={g.axis === 'x' ? g.end : g.pos}
-                  stroke="#ec4899"
+                  // La del centro va llena y en violeta; las de los bordes
+                  // punteadas y rosas. Con nodos del mismo tamaño salen las
+                  // tres juntas y así se distingue cuál es cuál.
+                  stroke={g.center ? '#8b5cf6' : '#ec4899'}
                   strokeWidth={1 / zoom}
-                  strokeDasharray={`${4 / zoom} ${3 / zoom}`}
+                  strokeDasharray={g.center ? undefined : `${4 / zoom} ${3 / zoom}`}
                   shapeRendering="crispEdges"
                 />
               ))}
