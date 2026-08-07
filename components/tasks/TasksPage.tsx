@@ -1151,8 +1151,12 @@ export function TasksPage() {
                     isActive ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:bg-white/[0.05] active:bg-zinc-700 hover:text-zinc-200'
                   }`}
                 >
-                  <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${hidden ? 'opacity-40' : ''}`} style={{ backgroundColor: proj.color }} />
-                  <span className={`flex-1 text-left truncate ${hidden ? 'opacity-45' : ''}`}>{proj.name}</span>
+                  {/* Nombre y color NO se atenúan cuando está oculto: el ojo
+                      tachado ya lo indica. Bajarles la opacidad parecía que el
+                      proyecto estaba pausado, cuando en realidad solo se saca
+                      de "Todas las tareas" y sigue igual de activo. */}
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: proj.color }} />
+                  <span className="flex-1 text-left truncate">{proj.name}</span>
                   {/* Ojo: oculta/muestra este proyecto en "Todas las tareas".
                       Span (no button) para no anidar botones; stopPropagation
                       evita que el click seleccione el proyecto. */}

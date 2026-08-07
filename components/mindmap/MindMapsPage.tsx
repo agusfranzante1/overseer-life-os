@@ -57,7 +57,7 @@ export function MindMapsPage() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-      className="max-w-4xl mx-auto px-4 py-6 space-y-5">
+      className="max-w-7xl mx-auto px-4 py-6 space-y-5">
       <header className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
@@ -97,7 +97,7 @@ export function MindMapsPage() {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {maps
             .slice()
             .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -182,11 +182,13 @@ function MapCard({
       {/* Preview / thumbnail — live mini-render of the actual map content.
           Sits at the top of the card as the visual hook. Subtly brightens
           on hover via the wrapper's bg shift. */}
+      {/* Alto reducido junto con el grid de 4 columnas: con tarjetas más
+          angostas, 140px de preview dejaba la card muy apaisada. */}
       <button onClick={onOpen} className="block w-full">
-        <MindMapThumbnail map={map} height={140} hover={hover} />
+        <MindMapThumbnail map={map} height={112} hover={hover} />
       </button>
 
-      <button onClick={onOpen} className="w-full text-left px-4 pt-3 pb-1">
+      <button onClick={onOpen} className="w-full text-left px-3 pt-2.5 pb-1">
         <div className="flex items-center gap-2 mb-1">
           <Network className="w-4 h-4 text-indigo-400 shrink-0" />
           {editing ? (
