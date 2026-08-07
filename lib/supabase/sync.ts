@@ -20,6 +20,7 @@ import { useContentStore } from '@/lib/store/contentStore'
 import { useBacktestStore } from '@/lib/store/backtestStore'
 import { useJournalStore } from '@/lib/store/journalStore'
 import { useMeditationsStore } from '@/lib/store/meditationsStore'
+import { useYoutubeStore } from '@/lib/store/youtubeStore'
 import { useFavoritesStore } from '@/lib/store/favoritesStore'
 import { useConceptStore } from '@/lib/store/conceptStore'
 import { migrateMapNotes } from '@/lib/study/concepts'
@@ -54,6 +55,7 @@ interface SyncState {
   backtestInit: boolean
   journalInit: boolean
   meditationsInit: boolean
+  youtubeInit: boolean
   favoritesInit: boolean
   conceptInit: boolean
 }
@@ -80,6 +82,7 @@ const state: SyncState = {
   backtestInit: false,
   journalInit: false,
   meditationsInit: false,
+  youtubeInit: false,
   favoritesInit: false,
   conceptInit: false,
 }
@@ -105,6 +108,7 @@ let contentPushTimer: ReturnType<typeof setTimeout> | null = null
 let backtestPushTimer: ReturnType<typeof setTimeout> | null = null
 let journalPushTimer: ReturnType<typeof setTimeout> | null = null
 let meditationsPushTimer: ReturnType<typeof setTimeout> | null = null
+let youtubePushTimer: ReturnType<typeof setTimeout> | null = null
 let favoritesPushTimer: ReturnType<typeof setTimeout> | null = null
 let conceptPushTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -2213,6 +2217,90 @@ async function pullMeditations(): Promise<boolean> {
   }
 }
 
+// ─── YOUTUBE (cola de videos para ver, kanban) ───────────────────────────────
+// Una fila por video. Ver migration_youtube.sql.
+
+async function pushYoutube() {
+  if (!state.userId) return
+  const syncedAt = new Date().toISOString()
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { items } = useYoutubeStore.getState()
+
+  const rows = items.map((it) => ({
+    id: it.id,
+    user_id: uid,
+    created_at: it.createdAt,
+    updated_at: it.updatedAt,
+    payload: it,
+  }))
+
+  if (rows.length > 0) {
+    const r = await sb.from('youtube_items').upsert(rows)
+    if (r.error) {
+      reportSyncError(`youtube_items upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_youtube.sql.`)
+      throw r.error
+    }
+  }
+  await syncDeletes(sb, uid, 'youtube_items', rows.map((r) => r.id), 'youtube:items')
+  markSynced('youtube', syncedAt)
+}
+
+async function pullYoutube(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('youtube')
+  try {
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('youtube_items').select('*').eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+  if (res.error) {
+    console.error('YouTube pull failed (run migration_youtube.sql?):', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) { markSynced('youtube'); return false }
+
+  type Row = { payload: unknown }
+  const sanitize = (raw: unknown): import('@/lib/store/youtubeStore').YoutubeItem => {
+    const p = (raw ?? {}) as Partial<import('@/lib/store/youtubeStore').YoutubeItem>
+    // Un estado desconocido (payload viejo o corrupto) cae a 'backlog' en vez
+    // de dejar el item fuera de las tres columnas y volverlo invisible.
+    const status = p.status === 'watching' || p.status === 'done' ? p.status : 'backlog'
+    return {
+      id: p.id ?? '',
+      title: p.title ?? '',
+      url: p.url ?? '',
+      videoId: typeof p.videoId === 'string' ? p.videoId : null,
+      status,
+      category: p.category ?? 'General',
+      ...(p.notes ? { notes: p.notes } : {}),
+      favorite: !!p.favorite,
+      createdAt: p.createdAt ?? new Date().toISOString(),
+      updatedAt: p.updatedAt ?? new Date().toISOString(),
+      ...(p.completedAt ? { completedAt: p.completedAt } : {}),
+    }
+  }
+  const remote: import('@/lib/store/youtubeStore').YoutubeItem[] =
+    (res.data ?? []).map((r: Row) => sanitize(r.payload))
+  const tombs = await fetchTombstones(sb, uid, ['youtube_items'])
+  const merged = mergeById<import('@/lib/store/youtubeStore').YoutubeItem>({
+    local: useYoutubeStore.getState().items,
+    remote,
+    baseline: getBaseline('youtube:items'),
+    getId: (x) => x.id,
+    getUpdatedAt: (x) => x.updatedAt,
+    tombstones: tombs.get('youtube_items'),
+  })
+  useYoutubeStore.setState({ items: merged })
+  setBaseline('youtube:items', remote.map((x) => x.id))
+  markSynced('youtube')
+  return true
+  } finally {
+    endPulling('youtube')
+  }
+}
+
 // ─── ENLACES / FAVORITOS (accesos rápidos del sidebar) ───────────────────────
 // Singleton por usuario: el array entero como blob JSONB (patrón food_data).
 // Ver migration_favorites.sql.
@@ -3404,6 +3492,7 @@ function scheduleContent()    { schedule(contentPushTimer,    pushContent,    (t
 function scheduleBacktests()  { schedule(backtestPushTimer,   pushBacktests,  (t) => { backtestPushTimer = t }) }
 function scheduleJournal()     { schedule(journalPushTimer,    pushJournal,    (t) => { journalPushTimer = t }) }
 function scheduleMeditations() { schedule(meditationsPushTimer, pushMeditations, (t) => { meditationsPushTimer = t }) }
+function scheduleYoutube()     { schedule(youtubePushTimer,     pushYoutube,     (t) => { youtubePushTimer = t }) }
 function scheduleFavorites()   { schedule(favoritesPushTimer,   pushFavorites,   (t) => { favoritesPushTimer = t }) }
 function scheduleConcepts()    { schedule(conceptPushTimer,    pushConcepts,   (t) => { conceptPushTimer = t }) }
 
@@ -3629,6 +3718,16 @@ async function initAllDomains() {
     if (hasLocal) await pushMeditations().catch((e) => console.error('Meditations post-pull push failed', e))
   }
 
+  // ─── YouTube ──────────────────────────────────────────────────────────
+  // Pull-first: LWW por updatedAt + tombstones (mismo patrón que meditaciones).
+  if (!state.youtubeInit) {
+    state.youtubeInit = true
+    const { items } = useYoutubeStore.getState()
+    const hasLocal = items.length > 0
+    await pullYoutube()
+    if (hasLocal) await pushYoutube().catch((e) => console.error('YouTube post-pull push failed', e))
+  }
+
   // ─── Enlaces / Favoritos (accesos rápidos del sidebar) ─────────────────
   // Singleton blob (patrón food). Pull-first: si el device está vacío trae
   // los del remoto; si tiene más, conserva y restaura la nube.
@@ -3757,6 +3856,7 @@ export function useSupabaseSync() {
       useBacktestStore.subscribe(() => { markModifiedIfNotPulling('backtests'); if (state.userId) scheduleBacktests() })
       useJournalStore.subscribe(() => { markModifiedIfNotPulling('journal'); if (state.userId) scheduleJournal() })
       useMeditationsStore.subscribe(() => { markModifiedIfNotPulling('meditations'); if (state.userId) scheduleMeditations() })
+      useYoutubeStore.subscribe(() => { markModifiedIfNotPulling('youtube'); if (state.userId) scheduleYoutube() })
       useFavoritesStore.subscribe(() => { markModifiedIfNotPulling('favorites'); if (state.userId) scheduleFavorites() })
       useConceptStore.subscribe(() => { markModifiedIfNotPulling('concepts'); if (state.userId) scheduleConcepts() })
     }
@@ -3789,6 +3889,7 @@ export function useSupabaseSync() {
       state.backtestInit = false
       state.journalInit = false
       state.meditationsInit = false
+      state.youtubeInit = false
       state.favoritesInit = false
       state.conceptInit = false
       if (newId) {
@@ -3843,6 +3944,7 @@ export function useSupabaseSync() {
       state.backtestInit = false
       state.journalInit = false
       state.meditationsInit = false
+      state.youtubeInit = false
       state.favoritesInit = false
       state.conceptInit = false
       try {
@@ -3924,6 +4026,7 @@ export async function forceSyncAll(): Promise<void> {
   state.backtestInit = false
   state.journalInit = false
   state.meditationsInit = false
+  state.youtubeInit = false
   state.favoritesInit = false
   state.conceptInit = false
   await initAllDomains()

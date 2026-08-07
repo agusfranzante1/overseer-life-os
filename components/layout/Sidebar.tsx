@@ -10,7 +10,7 @@ import {
   TrendingUp, GripVertical, Check, RotateCcw, Settings2, Cog, LogOut,
   Clock, Search, X as XIcon, Infinity as InfinityIcon, Telescope, FlaskConical,
   Network, ChevronUp, ChevronDown, ChevronRight, Target, GraduationCap, Sparkles,
-  Sun, Moon, NotebookPen, Wind, Pencil,
+  Sun, Moon, NotebookPen, Wind, Pencil, SquarePlay,
 } from 'lucide-react'
 import { SidebarLinks } from './SidebarLinks'
 import { listTimezones, formatTzOffset, detectTimezone } from '@/lib/utils/dateInTz'
@@ -34,6 +34,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/laboratorio', icon: FlaskConical,    key: 'lab' },
   { href: '/journal',     icon: NotebookPen,     key: 'journal' },
   { href: '/meditaciones', icon: Wind,           key: 'meditaciones' },
+  { href: '/youtube',    icon: SquarePlay,       key: 'youtube' },
   { href: '/mapas',       icon: Network,         key: 'mindmaps' },
   { href: '/tasks',      icon: CheckSquare,     key: 'tasks' },
   { href: '/calendar',  icon: Calendar,        key: 'calendar' },

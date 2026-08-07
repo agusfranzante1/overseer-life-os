@@ -7,6 +7,7 @@ export const en: Record<string, any> = {
     lab: 'Lab',
     journal: 'My Journal',
     meditaciones: 'Meditations',
+    youtube: 'YouTube',
     mindmaps: 'Mind Maps',
     calendar: 'Calendar',
     tasks: 'Task Tracker',
