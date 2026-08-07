@@ -11,6 +11,7 @@ import {
   useMindMapStore, NODE_PALETTE,
   type MindMapNode, type MindMapEdge, type MindMapEdgeShape, type MindMapNodeShape,
   type MindMapAlignMode, type MindMapDistributeAxis,
+  type MindMapShape, type MindMapShapeKind,
 } from '@/lib/store/mindmapStore'
 import { uploadMindmapImage } from '@/lib/mindmap/imageUpload'
 import { bracketPath, type BracketKind, type BracketDir } from '@/lib/mindmap/brackets'
@@ -58,6 +59,9 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   const addNode = useMindMapStore((s) => s.addNode)
   const updateNode = useMindMapStore((s) => s.updateNode)
   const removeNode = useMindMapStore((s) => s.removeNode)
+  const addShape = useMindMapStore((s) => s.addShape)
+  const updateShape = useMindMapStore((s) => s.updateShape)
+  const removeShape = useMindMapStore((s) => s.removeShape)
   const addEdge = useMindMapStore((s) => s.addEdge)
   const removeEdge = useMindMapStore((s) => s.removeEdge)
   const setEdgeShape = useMindMapStore((s) => s.setEdgeShape)
@@ -81,7 +85,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   //     migró a `selectedNodeIds`. Mantenemos `kind` para que el resto
   //     del código que lee edges no se rompa.
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
-  const [selection, setSelection] = useState<{ kind: 'edge'; id: string } | null>(null)
+  const [selection, setSelection] = useState<{ kind: 'edge' | 'shape'; id: string } | null>(null)
   // Helper para reemplazar el patrón viejo "seleccionar un solo nodo".
   const selectOnlyNode = (id: string) => {
     setSelection(null)
@@ -311,11 +315,18 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
         e.preventDefault()
         removeEdge(mapId, selection.id)
         setSelection(null)
+        return
+      }
+      // Shape selected
+      if (selection?.kind === 'shape') {
+        e.preventDefault()
+        removeShape(mapId, selection.id)
+        setSelection(null)
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [selection, selectedNodeIds, drawingFromId, mapId, removeNode, removeEdge])
+  }, [selection, selectedNodeIds, drawingFromId, mapId, removeNode, removeEdge, removeShape])
 
   // Copiar / Pegar (Ctrl/Cmd + C / V) — copia los nodos seleccionados MÁS las
   // líneas internas (edges con ambos extremos seleccionados) a un "portapapeles"
@@ -704,6 +715,56 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     el.addEventListener('pointercancel', onUp)
   }
 
+  /** Mover o redimensionar una forma libre. `handle` dice qué se agarró:
+   *  'move' = el trazo (arrastra la forma entera); las esquinas redimensionan
+   *  el bounding box; 'start'/'end' mueven las puntas de una línea. */
+  const startShapeDrag = (
+    e: React.PointerEvent,
+    shape: MindMapShape,
+    handle: 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'start' | 'end',
+  ) => {
+    e.stopPropagation()
+    setSelectedNodeIds([])
+    setSelection({ kind: 'shape', id: shape.id })
+
+    const s0 = { x: shape.x, y: shape.y, width: shape.width, height: shape.height }
+    const startClientX = e.clientX
+    const startClientY = e.clientY
+    const pointerId = e.pointerId
+    const el = e.currentTarget as SVGElement
+    try { el.setPointerCapture(pointerId) } catch { /* noop */ }
+
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      const z = zoomRef.current
+      const dx = (ev.clientX - startClientX) / z
+      const dy = (ev.clientY - startClientY) / z
+      let patch: Partial<MindMapShape>
+      switch (handle) {
+        case 'move':  patch = { x: s0.x + dx, y: s0.y + dy }; break
+        // Punta inicial de una línea: se mueve el origen y el delta compensa
+        // para que la otra punta quede quieta.
+        case 'start': patch = { x: s0.x + dx, y: s0.y + dy, width: s0.width - dx, height: s0.height - dy }; break
+        case 'end':   patch = { width: s0.width + dx, height: s0.height + dy }; break
+        case 'nw':    patch = { x: s0.x + dx, y: s0.y + dy, width: s0.width - dx, height: s0.height - dy }; break
+        case 'ne':    patch = { y: s0.y + dy, width: s0.width + dx, height: s0.height - dy }; break
+        case 'sw':    patch = { x: s0.x + dx, width: s0.width - dx, height: s0.height + dy }; break
+        case 'se':    patch = { width: s0.width + dx, height: s0.height + dy }; break
+      }
+      updateShape(mapId, shape.id, patch)
+    }
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      el.removeEventListener('pointermove', onMove)
+      el.removeEventListener('pointerup', onUp)
+      el.removeEventListener('pointercancel', onUp)
+      try { el.releasePointerCapture(pointerId) } catch { /* noop */ }
+    }
+    el.addEventListener('pointermove', onMove)
+    el.addEventListener('pointerup', onUp)
+    el.addEventListener('pointercancel', onUp)
+  }
+
   const startNodeDrag = (e: React.PointerEvent, node: MindMapNode) => {
     e.stopPropagation()
     if (drawingFromId) {
@@ -926,6 +987,18 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
           selectOnlyNode(id)
           setEditingNodeId(id)
         }}
+        onAddShape={(kind) => {
+          // Nace centrada en la vista y con buen tamaño para encerrar un par
+          // de nodos; después se ajusta arrastrando los handles.
+          const rect = canvasRef.current?.getBoundingClientRect()
+          const w = kind === 'line' ? 320 : 360
+          const h = kind === 'line' ? 0 : 240
+          const cx = rect ? (rect.width / 2 - pan.x) / zoom - w / 2 : 100
+          const cy = rect ? (rect.height / 2 - pan.y) / zoom - h / 2 : 100
+          const id = addShape(mapId, { kind, x: cx, y: cy, width: w, height: h })
+          setSelectedNodeIds([])
+          setSelection({ kind: 'shape', id })
+        }}
         onAddImage={() => imageInputRef.current?.click()}
         uploadingImage={uploadingImage}
         onUndo={() => { undo(); clearSelection() }}
@@ -994,6 +1067,34 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
           touchAction: 'none',
         }}
       >
+        {/* Capa de FORMAS LIBRES — va primera para quedar por debajo de las
+            flechas y los nodos.
+
+            Lo importante acá es el hit-testing: cada forma se pinta con
+            fill="none" y solo el TRAZO recibe clicks (pointerEvents: 'stroke').
+            Por eso clickear adentro del recuadro no lo selecciona: el evento
+            pasa de largo hasta el nodo que haya ahí. Para agarrar la forma hay
+            que clickear su borde, tal cual un editor de diagramas.
+
+            El <svg> tiene pointer-events:none; los hijos lo reactivan de a uno,
+            así los huecos entre formas tampoco bloquean el pan del lienzo. */}
+        <svg
+          className="absolute inset-0 w-full h-full pointer-events-none"
+          style={{ overflow: 'visible' }}
+        >
+          <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
+            {(map.shapes ?? []).map((sh) => (
+              <ShapeItem
+                key={sh.id}
+                shape={sh}
+                selected={selection?.kind === 'shape' && selection.id === sh.id}
+                zoom={zoom}
+                onHandleDown={startShapeDrag}
+              />
+            ))}
+          </g>
+        </svg>
+
         {/* SVG layer for edges. Lives in CONTENT coords (no pan applied to
             the math); the outer <g> transform applies the pan visually so
             edges follow the nodes when the user pans the canvas. */}
@@ -1359,9 +1460,93 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
 
 // ─── Toolbar ─────────────────────────────────────────────────────────────────
 
+/** Una forma libre dibujada en la capa de abajo.
+ *
+ *  Se pintan DOS trazos superpuestos: el visible (fino, sin eventos) y uno
+ *  transparente y grueso que es el que recibe los clicks. Así se puede agarrar
+ *  el borde sin tener que acertarle a 2px. Ambos van con fill="none", que es lo
+ *  que hace que el interior no sea clickeable y los nodos de adentro se sigan
+ *  usando normal. */
+function ShapeItem({ shape, selected, zoom, onHandleDown }: {
+  shape: MindMapShape
+  selected: boolean
+  zoom: number
+  onHandleDown: (
+    e: React.PointerEvent,
+    shape: MindMapShape,
+    handle: 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'start' | 'end',
+  ) => void
+}) {
+  const stroke = selected ? '#818cf8' : (shape.color ?? '#71717a')
+  const sw = shape.strokeWidth ?? 2
+  const dash = shape.dashed ? '8 6' : undefined
+  // Banda de agarre constante en pantalla (por eso ÷ zoom).
+  const grab = sw + 14 / zoom
+  // Redimensionar cruzando el lado opuesto deja width/height negativos, y
+  // <rect>/<ellipse> no los aceptan: normalizamos.
+  const rx = Math.min(shape.x, shape.x + shape.width)
+  const ry = Math.min(shape.y, shape.y + shape.height)
+  const rw = Math.abs(shape.width)
+  const rh = Math.abs(shape.height)
+
+  // Sin `ref`: es el único prop que no unifica entre line/ellipse/rect.
+  const geom = (props: Omit<React.SVGProps<SVGGeometryElement>, 'ref'>) => {
+    if (shape.kind === 'line') {
+      return <line x1={shape.x} y1={shape.y} x2={shape.x + shape.width} y2={shape.y + shape.height} {...props} />
+    }
+    if (shape.kind === 'ellipse') {
+      return <ellipse cx={rx + rw / 2} cy={ry + rh / 2} rx={rw / 2} ry={rh / 2} {...props} />
+    }
+    return <rect x={rx} y={ry} width={rw} height={rh} rx={12} {...props} />
+  }
+
+  // Handles: las puntas si es línea, las esquinas si es caja.
+  const handles: { key: 'nw' | 'ne' | 'sw' | 'se' | 'start' | 'end'; cx: number; cy: number }[] =
+    shape.kind === 'line'
+      ? [
+          { key: 'start', cx: shape.x, cy: shape.y },
+          { key: 'end', cx: shape.x + shape.width, cy: shape.y + shape.height },
+        ]
+      : [
+          { key: 'nw', cx: rx, cy: ry },
+          { key: 'ne', cx: rx + rw, cy: ry },
+          { key: 'sw', cx: rx, cy: ry + rh },
+          { key: 'se', cx: rx + rw, cy: ry + rh },
+        ]
+
+  return (
+    <g>
+      {geom({ fill: 'none', stroke, strokeWidth: sw, strokeDasharray: dash, pointerEvents: 'none' })}
+      {geom({
+        fill: 'none',
+        stroke: 'transparent',
+        strokeWidth: grab,
+        pointerEvents: 'stroke',
+        style: { cursor: 'move' },
+        onPointerDown: (e: React.PointerEvent) => onHandleDown(e, shape, 'move'),
+      })}
+      {selected && handles.map((h) => (
+        <rect
+          key={h.key}
+          x={h.cx - 5 / zoom}
+          y={h.cy - 5 / zoom}
+          width={10 / zoom}
+          height={10 / zoom}
+          fill="#18181b"
+          stroke="#818cf8"
+          strokeWidth={1.5 / zoom}
+          pointerEvents="all"
+          style={{ cursor: 'nwse-resize' }}
+          onPointerDown={(e) => onHandleDown(e, shape, h.key)}
+        />
+      ))}
+    </g>
+  )
+}
+
 function Toolbar({
   selectedNode, selectedEdge, selectedNodeCount, selectedNodesColor,
-  onChangeNodeColor, onChangeNodeShape, onChangeBracketKind, onChangeBracketDir, onChangeNodeFontSize, onChangeEdgeShape, onAlign, onDistribute, onDeleteSelection, onAddNode, onAddImage, uploadingImage, onUndo, canUndo, onResetPan,
+  onChangeNodeColor, onChangeNodeShape, onChangeBracketKind, onChangeBracketDir, onChangeNodeFontSize, onChangeEdgeShape, onAlign, onDistribute, onDeleteSelection, onAddNode, onAddShape, onAddImage, uploadingImage, onUndo, canUndo, onResetPan,
   zoom, onZoomIn, onZoomOut,
 }: {
   selectedNode: MindMapNode | null
@@ -1381,6 +1566,7 @@ function Toolbar({
   onDistribute: (axis: MindMapDistributeAxis) => void
   onDeleteSelection: () => void
   onAddNode: () => void
+  onAddShape: (kind: MindMapShapeKind) => void
   onAddImage: () => void
   uploadingImage: boolean
   onUndo: () => void
@@ -1407,6 +1593,32 @@ function Toolbar({
       >
         {uploadingImage ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImageIcon className="w-3.5 h-3.5" />} Imagen
       </button>
+      {/* Formas libres — para encerrar grupos de nodos o separar zonas.
+          Se dibujan sin relleno y por debajo de los nodos: el interior no
+          recibe clicks, así que lo de adentro se sigue usando normal. */}
+      <div className="flex items-center gap-0.5 border-l border-zinc-800 pl-1 ml-0.5">
+        <button
+          onClick={() => onAddShape('rect')}
+          title="Recuadro para agrupar nodos — se selecciona desde el borde"
+          className="text-zinc-400 hover:text-indigo-300 hover:bg-zinc-800 active:bg-zinc-800 p-1.5 rounded-lg transition-colors"
+        >
+          <Square className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => onAddShape('ellipse')}
+          title="Óvalo para agrupar nodos — se selecciona desde el borde"
+          className="text-zinc-400 hover:text-indigo-300 hover:bg-zinc-800 active:bg-zinc-800 p-1.5 rounded-lg transition-colors"
+        >
+          <Circle className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => onAddShape('line')}
+          title="Línea divisoria"
+          className="text-zinc-400 hover:text-indigo-300 hover:bg-zinc-800 active:bg-zinc-800 p-1.5 rounded-lg transition-colors"
+        >
+          <Minus className="w-3.5 h-3.5" />
+        </button>
+      </div>
       <button
         onClick={onUndo}
         disabled={!canUndo}

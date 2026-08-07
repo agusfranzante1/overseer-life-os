@@ -1876,6 +1876,9 @@ async function pullMindMaps(): Promise<boolean> {
       title: p.title ?? 'Mapa',
       nodes: Array.isArray(p.nodes) ? p.nodes : [],
       edges: Array.isArray(p.edges) ? p.edges : [],
+      // OJO: sanitize reconstruye el mapa campo por campo, así que todo campo
+      // nuevo del payload hay que agregarlo acá o el pull lo borra.
+      shapes: Array.isArray(p.shapes) ? p.shapes : [],
       createdAt: p.createdAt ?? new Date().toISOString(),
       updatedAt: p.updatedAt ?? new Date().toISOString(),
     }

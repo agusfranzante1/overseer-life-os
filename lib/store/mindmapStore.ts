@@ -93,11 +93,36 @@ export interface MindMapEdge {
   toAnchor?: { x: number; y: number }
 }
 
+/** Forma libre para DELIMITAR conjuntos de nodos (encerrar un grupo, tirar una
+ *  línea divisoria). No tiene texto ni conexiones: es puro trazo.
+ *
+ *  Se dibujan SIN relleno y por DEBAJO de los nodos, a propósito: el interior
+ *  no recibe clicks, así que clickear adentro sigue seleccionando el nodo que
+ *  esté ahí. Para agarrar la forma hay que clickear su borde. */
+export type MindMapShapeKind = 'rect' | 'ellipse' | 'line'
+
+export interface MindMapShape {
+  id: string
+  kind: MindMapShapeKind
+  /** Esquina superior izquierda del bounding box. Para 'line', el punto de
+   *  inicio (y width/height son el desplazamiento hasta el fin, con signo). */
+  x: number
+  y: number
+  width: number
+  height: number
+  color?: string        // undefined = zinc por defecto
+  strokeWidth?: number  // undefined = 2
+  dashed?: boolean
+}
+
 export interface MindMap {
   id: string
   title: string
   nodes: MindMapNode[]
   edges: MindMapEdge[]
+  /** Opcional por back-compat: los mapas creados antes de las formas no lo
+   *  tienen. Tratar siempre como `?? []`. */
+  shapes?: MindMapShape[]
   createdAt: string
   updatedAt: string
 }
@@ -123,7 +148,7 @@ interface MindMapState {
    *  ráfagas rápidas (arrastrar, redimensionar) se agrupan en un único punto
    *  de undo vía coalescing temporal, así Ctrl+Z deshace el gesto completo y
    *  no un micro-paso. No se persiste (se recalcula por sesión). */
-  undoSnapshot: { mapId: string; nodes: MindMapNode[]; edges: MindMapEdge[] } | null
+  undoSnapshot: { mapId: string; nodes: MindMapNode[]; edges: MindMapEdge[]; shapes: MindMapShape[] } | null
   /** Restaura el `undoSnapshot` y lo limpia. Noop si no hay nada que deshacer. */
   undo: () => void
 
@@ -141,6 +166,16 @@ interface MindMapState {
   }) => string
   updateNode: (mapId: string, nodeId: string, patch: Partial<Omit<MindMapNode, 'id'>>) => void
   removeNode: (mapId: string, nodeId: string) => void
+
+  // Shape CRUD — formas libres para delimitar grupos de nodos.
+  addShape: (mapId: string, args: {
+    kind: MindMapShapeKind
+    x: number; y: number; width: number; height: number
+    color?: string; strokeWidth?: number; dashed?: boolean
+  }) => string
+  updateShape: (mapId: string, shapeId: string, patch: Partial<Omit<MindMapShape, 'id'>>) => void
+  removeShape: (mapId: string, shapeId: string) => void
+
   /** Duplicate a node — copy text, color, shape, dimensions, fontSize. The
    *  copy is offset (x+24, y+24) so it doesn't sit exactly on top of the
    *  original. Returns the new node's id (or null if the source doesn't
@@ -217,7 +252,7 @@ export const useMindMapStore = create<MindMapState>()(
         // referencia actual es un snapshot válido sin deep-clone.
         const undoSnapshot = coalesce || !m
           ? s.undoSnapshot
-          : { mapId, nodes: m.nodes, edges: m.edges }
+          : { mapId, nodes: m.nodes, edges: m.edges, shapes: m.shapes ?? [] }
         return { ...updater(s), undoSnapshot }
       })
 
@@ -233,7 +268,7 @@ export const useMindMapStore = create<MindMapState>()(
         return {
           maps: s.maps.map((m) => m.id !== snap.mapId
             ? m
-            : touch({ ...m, nodes: snap.nodes, edges: snap.edges })),
+            : touch({ ...m, nodes: snap.nodes, edges: snap.edges, shapes: snap.shapes })),
           undoSnapshot: null,
         }
       }),
@@ -345,6 +380,43 @@ export const useMindMapStore = create<MindMapState>()(
           }),
         }))
       },
+
+      addShape: (mapId, args) => {
+        const shapeId = genId()
+        mutate(mapId, (s) => ({
+          maps: s.maps.map((m) => {
+            if (m.id !== mapId) return m
+            const shape: MindMapShape = {
+              id: shapeId,
+              kind: args.kind,
+              x: args.x, y: args.y,
+              width: args.width, height: args.height,
+              ...(args.color ? { color: args.color } : {}),
+              ...(args.strokeWidth ? { strokeWidth: args.strokeWidth } : {}),
+              ...(args.dashed ? { dashed: args.dashed } : {}),
+            }
+            return touch({ ...m, shapes: [...(m.shapes ?? []), shape] })
+          }),
+        }))
+        return shapeId
+      },
+
+      updateShape: (mapId, shapeId, patch) => mutate(mapId, (s) => ({
+        maps: s.maps.map((m) => {
+          if (m.id !== mapId) return m
+          return touch({
+            ...m,
+            shapes: (m.shapes ?? []).map((sh) => sh.id !== shapeId ? sh : { ...sh, ...patch }),
+          })
+        }),
+      })),
+
+      removeShape: (mapId, shapeId) => mutate(mapId, (s) => ({
+        maps: s.maps.map((m) => {
+          if (m.id !== mapId) return m
+          return touch({ ...m, shapes: (m.shapes ?? []).filter((sh) => sh.id !== shapeId) })
+        }),
+      })),
 
       pasteSubgraph: (mapId, payload, offset = { dx: 40, dy: 40 }) => {
         const srcNodes = Array.isArray(payload?.nodes) ? payload.nodes : []
