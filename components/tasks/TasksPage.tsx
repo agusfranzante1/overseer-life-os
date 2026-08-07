@@ -204,6 +204,11 @@ function NewTaskForm({ projectId, statuses, onAdd, onClose, t }: {
 }) {
   const [title, setTitle] = useState('')
   const [justSaved, setJustSaved] = useState(false)
+  // Pegado multi-línea a la espera de que el usuario decida: dividir en N
+  // tareas o insertarlo como una sola. `start`/`end` guardan la selección que
+  // tenía el input al momento del paste, para poder insertar donde iba.
+  const [pendingPaste, setPendingPaste] = useState<{ lines: string[]; start: number; end: number } | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   // Single source of truth for "actually save the task". Called from BOTH
   // form onSubmit AND from the explicit Enter handler on the input.
@@ -230,15 +235,38 @@ function NewTaskForm({ projectId, statuses, onAdd, onClose, t }: {
     addMany([trimmed])
   }
 
-  // Pegar varios renglones → una tarea por línea (no-vacía). Si el texto pegado
-  // tiene una sola línea, dejamos el paste normal del input.
+  // Pegar varios renglones es ambiguo: puede ser una lista de tareas o un texto
+  // largo que va en UNA sola tarea. En vez de asumir, frenamos el paste y
+  // preguntamos. Si el texto pegado tiene una sola línea, paste normal.
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     const text = e.clipboardData.getData('text')
     const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
     if (lines.length > 1) {
       e.preventDefault()
-      addMany(lines)
+      const el = e.currentTarget
+      setPendingPaste({
+        lines,
+        start: el.selectionStart ?? title.length,
+        end: el.selectionEnd ?? title.length,
+      })
     }
+  }
+
+  // "Dividir": una tarea por renglón (el comportamiento viejo).
+  const confirmSplit = () => {
+    if (!pendingPaste) return
+    addMany(pendingPaste.lines)
+    setPendingPaste(null)
+  }
+
+  // "Todo junto": lo insertamos en el input como una sola línea, respetando
+  // dónde estaba el cursor. Queda editable y se guarda con Enter.
+  const confirmJoin = () => {
+    if (!pendingPaste) return
+    const { lines, start, end } = pendingPaste
+    setTitle(title.slice(0, start) + lines.join(' ') + title.slice(end))
+    setPendingPaste(null)
+    requestAnimationFrame(() => inputRef.current?.focus())
   }
 
   return (
@@ -247,10 +275,12 @@ function NewTaskForm({ projectId, statuses, onAdd, onClose, t }: {
         e.preventDefault()
         handleSave()
       }}
-      className="flex items-stretch gap-1.5 mt-2"
+      className="mt-2"
     >
+      <div className="flex items-stretch gap-1.5">
       <input
         autoFocus
+        ref={inputRef}
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         onPaste={handlePaste}
@@ -262,6 +292,13 @@ function NewTaskForm({ projectId, statuses, onAdd, onClose, t }: {
         // Belt-and-suspenders: some mobile keyboards' Enter blurs the input
         // without firing onSubmit on the form. Catch it here as well.
         onKeyDown={(e) => {
+          // Con la pregunta de pegado abierta, las teclas la resuelven a ella
+          // (no cierran el form ni guardan a medias).
+          if (pendingPaste) {
+            if (e.key === 'Escape') { e.preventDefault(); setPendingPaste(null) }
+            if (e.key === 'Enter') e.preventDefault()
+            return
+          }
           if (e.key === 'Escape') { onClose(); return }
           if (e.key === 'Enter') {
             e.preventDefault()
@@ -284,6 +321,30 @@ function NewTaskForm({ projectId, statuses, onAdd, onClose, t }: {
         className="shrink-0 px-2 py-2 text-zinc-500 hover:text-zinc-300 active:text-zinc-200">
         <X className="w-4 h-4" />
       </button>
+      </div>
+
+      {pendingPaste && (
+        <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2.5">
+          <p className="text-xs text-zinc-300 leading-relaxed">
+            Pegaste un texto de <span className="font-semibold text-amber-300">{pendingPaste.lines.length} renglones</span>.
+            ¿Lo divido en {pendingPaste.lines.length} tareas o lo agrego todo junto como una sola?
+          </p>
+          <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+            <button type="button" onClick={confirmSplit}
+              className="text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg transition-colors">
+              Dividir en {pendingPaste.lines.length} tareas
+            </button>
+            <button type="button" onClick={confirmJoin}
+              className="text-xs font-semibold bg-white/[0.08] hover:bg-white/[0.14] text-zinc-200 px-2.5 py-1.5 rounded-lg transition-colors">
+              Todo junto (1 tarea)
+            </button>
+            <button type="button" onClick={() => setPendingPaste(null)}
+              className="text-xs text-zinc-500 hover:text-zinc-300 px-2 py-1.5">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
     </form>
   )
 }

@@ -3282,6 +3282,48 @@ function scheduleSPI()        { schedule(spiPushTimer,       pushSPI,       (t) 
 function scheduleProjection() { schedule(projectionPushTimer, pushProjection, (t) => { projectionPushTimer = t }) }
 function scheduleLab()        { schedule(labPushTimer,        pushLab,        (t) => { labPushTimer = t }) }
 function scheduleAppPrefs()   { schedule(appPrefsPushTimer,   pushAppPrefs,   (t) => { appPrefsPushTimer = t }) }
+
+// ─── appPrefs: detectar cambios REALES vs estado efímero ─────────────────────
+//
+// `app_preferences` es una fila única con un blob JSON: pushear = pisar TODO
+// lo remoto. Por eso solo podemos marcar el dominio como "sucio" cuando cambió
+// algo que realmente viaja al servidor.
+//
+// Bug que arregla: useAppStore también guarda estado efímero de dispositivo
+// (sidebarCollapsed, activeSection, chatOpen, theme). Navegar de una sección a
+// otra dispara setActiveSection → subscribe → markModified('appPrefs'), y ese
+// flag queda PERSISTIDO en localStorage. Al recargar, initAllDomains ve
+// hasUnsyncedChanges('appPrefs') === true y pushea el blob local ENTERO
+// ANTES de pullear → le pisa al servidor los cambios hechos en otro
+// dispositivo. Renombrás una sección en la compu, abrís el celu, navegás, y el
+// celu re-sube sus navLabels viejos: el rename se pierde.
+type AppPrefsSnapshot = ReturnType<typeof useAppStore.getState>
+
+/** Huella de los campos que SÍ se suben: el payload de app_preferences más
+ *  notificationPrefs (que pushAppPrefs espeja en user_settings). Si agregás un
+ *  campo a AppPrefsPayload, agregalo también acá o no va a disparar push. */
+function appPrefsFingerprint(s: AppPrefsSnapshot): string {
+  return JSON.stringify([
+    s.language, s.timezone, s.autoPurgeCompletedTasks, s.idealSchedule,
+    s.scheduleOrder, s.dayTypes, s.navOrder, s.navLabels, s.contenidoTabOrder,
+    s.dailyReflectionPrompt, s.aiProvider, s.anthropicApiKey, s.anthropicModel,
+    s.metrics, s.notificationPrefs,
+  ])
+}
+
+// null = todavía no hay baseline (pre-hidratación del persist).
+let appPrefsFp: string | null = null
+
+function onAppPrefsChange() {
+  const fp = appPrefsFingerprint(useAppStore.getState())
+  // Primer fire (rehidratación del persist): fijamos baseline sin marcar
+  // sucio — recuperar lo que ya estaba guardado no es una edición del usuario.
+  if (appPrefsFp === null) { appPrefsFp = fp; return }
+  if (fp === appPrefsFp) return  // solo cambió estado efímero → no tocar sync
+  appPrefsFp = fp
+  markModifiedIfNotPulling('appPrefs')
+  if (state.userId) scheduleAppPrefs()
+}
 function scheduleMindMaps()   { schedule(mindmapPushTimer,    pushMindMaps,   (t) => { mindmapPushTimer = t }) }
 function scheduleKpis()       { schedule(kpisPushTimer,       pushKpis,       (t) => { kpisPushTimer = t }) }
 function scheduleStudy()      { schedule(studyPushTimer,      pushStudy,      (t) => { studyPushTimer = t }) }
@@ -3627,7 +3669,12 @@ export function useSupabaseSync() {
       useSPIStore.subscribe(() => { markModifiedIfNotPulling('spi'); if (state.userId) scheduleSPI() })
       useProjectionStore.subscribe(() => { markModifiedIfNotPulling('projection'); if (state.userId) scheduleProjection() })
       useLabStore.subscribe(() => { markModifiedIfNotPulling('lab'); if (state.userId) scheduleLab() })
-      useAppStore.subscribe(() => { markModifiedIfNotPulling('appPrefs'); if (state.userId) scheduleAppPrefs() })
+      // appPrefs NO usa el patrón de arriba: filtra por huella de los campos
+      // sincronizados (ver onAppPrefsChange) para que el estado efímero de UI
+      // no ensucie el dominio y termine pisando al otro dispositivo.
+      if (useAppStore.persist.hasHydrated()) appPrefsFp = appPrefsFingerprint(useAppStore.getState())
+      else useAppStore.persist.onFinishHydration(() => { appPrefsFp = appPrefsFingerprint(useAppStore.getState()) })
+      useAppStore.subscribe(onAppPrefsChange)
       useMindMapStore.subscribe(() => { markModifiedIfNotPulling('mindmaps'); if (state.userId) scheduleMindMaps() })
       useKpisStore.subscribe(() => { markModifiedIfNotPulling('kpis'); if (state.userId) scheduleKpis() })
       useStudyStore.subscribe(() => { markModifiedIfNotPulling('study'); if (state.userId) scheduleStudy() })

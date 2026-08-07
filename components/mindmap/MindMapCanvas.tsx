@@ -14,6 +14,7 @@ import {
 } from '@/lib/store/mindmapStore'
 import { uploadMindmapImage } from '@/lib/mindmap/imageUpload'
 import { bracketPath, type BracketKind, type BracketDir } from '@/lib/mindmap/brackets'
+import { computeSnap, unionRect, SNAP_TOLERANCE_PX, type AlignGuide, type SnapRect } from '@/lib/mindmap/snapping'
 import {
   buildEdgePath, computeEdgeEndpoints, computeDrawingEndpoints, computeEdgeBreakpoints,
 } from './edgeGeometry'
@@ -134,6 +135,8 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     }
   }, [])
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
+  // Líneas de alineación mostradas mientras se arrastra un nodo. Vacío = sin drag.
+  const [alignGuides, setAlignGuides] = useState<AlignGuide[]>([])
   // Hover (one node at a time) — drives the "+" connector affordance.
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
   // Feedback efímero al copiar (Ctrl+C) — muestra "Copiado N nodos" un rato.
@@ -735,9 +738,15 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     // porque map.nodes cambia en cada update y necesitamos la referencia
     // del momento del pointerdown.
     const startPositions = new Map<string, { x: number; y: number }>()
+    // Medidas de los nodos que se mueven — las necesitamos para armar la caja
+    // que se alinea contra los vecinos.
+    const movingDims = new Map<string, { width: number; height: number }>()
     for (const id of movingIds) {
       const n = map?.nodes.find((m) => m.id === id)
-      if (n) startPositions.set(id, { x: n.x, y: n.y })
+      if (n) {
+        startPositions.set(id, { x: n.x, y: n.y })
+        movingDims.set(id, { width: n.width, height: n.height })
+      }
     }
 
     // Snapshot de bends y anchors de las edges TOCADAS por la movida —
@@ -745,6 +754,13 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     // ancladas en su posición vieja, dando la sensación de que "no
     // siguen". Trasladamos por el mismo delta del drag.
     const movingSet = new Set(movingIds)
+
+    // Vecinos contra los que alinear. Se calculan UNA vez al empezar el drag:
+    // los nodos que no se mueven no cambian durante el arrastre.
+    const otherRects: SnapRect[] = (map?.nodes ?? [])
+      .filter((n) => !movingSet.has(n.id))
+      .map((n) => ({ x: n.x, y: n.y, width: n.width, height: n.height }))
+
     const startBends = new Map<string, { x: number; y: number }>()
     const startFromAnchors = new Map<string, { x: number; y: number }>()
     const startToAnchors = new Map<string, { x: number; y: number }>()
@@ -772,8 +788,33 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
       if (!hasMoved && Math.hypot(dx, dy) < 4) return
       hasMoved = true
       const z = zoomRef.current
-      const cdx = dx / z
-      const cdy = dy / z
+      let cdx = dx / z
+      let cdy = dy / z
+
+      // ── Alignment guides ──
+      // Enganchamos la caja envolvente de lo que se mueve contra los vecinos.
+      // Los ejes son independientes: podés quedar alineado en X contra el nodo
+      // de arriba y en Y contra el de la izquierda. Con ALT apretado se
+      // desactiva (escape hatch para posicionar libre).
+      let guides: AlignGuide[] = []
+      if (!ev.altKey) {
+        const rawRects: SnapRect[] = []
+        for (const [id, start] of startPositions) {
+          const d = movingDims.get(id)
+          if (d) rawRects.push({ x: start.x + cdx, y: start.y + cdy, width: d.width, height: d.height })
+        }
+        const box = unionRect(rawRects)
+        if (box) {
+          // La tolerancia es en px de PANTALLA: dividida por el zoom, el
+          // enganche se siente igual de "fuerte" con el canvas cerca o lejos.
+          const snap = computeSnap(box, otherRects, SNAP_TOLERANCE_PX / z)
+          cdx += snap.dx
+          cdy += snap.dy
+          guides = snap.guides
+        }
+      }
+      setAlignGuides(guides)
+
       // Aplicar el MISMO delta a TODOS los nodos que estamos moviendo.
       // Si es uno solo, es el comportamiento de antes. Si son varios,
       // se mueven juntos manteniendo su disposición relativa.
@@ -795,6 +836,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     }
     const onUp = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return
+      setAlignGuides([])   // las guías solo viven durante el arrastre
       el.removeEventListener('pointermove', onMove)
       el.removeEventListener('pointerup', onUp)
       el.removeEventListener('pointercancel', onUp)
@@ -1196,6 +1238,33 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
             )
           })}
         </div>
+
+        {/* Alignment guides — por encima de nodos y flechas, igual que en
+            Figma. Comparten el transform de pan+zoom, así que se dibujan en
+            coordenadas de canvas. El strokeWidth se divide por el zoom para
+            que la línea se vea siempre de 1px real. */}
+        {alignGuides.length > 0 && (
+          <svg
+            className="absolute inset-0 w-full h-full pointer-events-none"
+            style={{ overflow: 'visible' }}
+          >
+            <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
+              {alignGuides.map((g, i) => (
+                <line
+                  key={`${g.axis}-${g.pos}-${i}`}
+                  x1={g.axis === 'x' ? g.pos : g.start}
+                  y1={g.axis === 'x' ? g.start : g.pos}
+                  x2={g.axis === 'x' ? g.pos : g.end}
+                  y2={g.axis === 'x' ? g.end : g.pos}
+                  stroke="#ec4899"
+                  strokeWidth={1 / zoom}
+                  strokeDasharray={`${4 / zoom} ${3 / zoom}`}
+                  shapeRendering="crispEdges"
+                />
+              ))}
+            </g>
+          </svg>
+        )}
 
         {/* Box-select overlay — rectángulo de selección visible mientras
             el usuario arrastra desde lienzo vacío. Coordenadas en SCREEN

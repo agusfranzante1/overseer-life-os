@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
 import { getSupabaseServer } from '@/lib/supabase/server'
 import { getAuthedClient } from '@/lib/google/oauthClient'
-import { googleErrMessage } from '@/lib/google/errors'
+import { googleErrMessage, googleErrDetail } from '@/lib/google/errors'
 
 async function getAuth(req: NextRequest) {
   const sb = await getSupabaseServer()
@@ -14,6 +14,8 @@ async function getAuth(req: NextRequest) {
 
 // PATCH /api/calendar/events/<id>?calendarId=<id>
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  // Lo que efectivamente le mandamos a Google, para poder loguearlo si falla.
+  let sentPatch: unknown = null
   try {
     const auth = await getAuth(req)
     if (!auth) return NextResponse.json({ ok: false, error: 'not_connected' }, { status: 401 })
@@ -83,6 +85,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         }
       }
 
+      sentPatch = patch
       const res = await calendar.events.patch({
         calendarId,
         eventId: recurringEventId,
@@ -99,12 +102,25 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (description !== undefined) patch.description = description
     if (location !== undefined) patch.location = location
     if (reminders !== undefined) patch.reminders = reminders
-    if (start) patch.start = allDay ? { date: start.slice(0, 10) } : { dateTime: start, ...(timeZone ? { timeZone } : {}) }
-    if (end)   patch.end   = allDay ? { date: end.slice(0, 10)   } : { dateTime: end,   ...(timeZone ? { timeZone } : {}) }
+    // OJO: `patch` MERGEA campo a campo. Si el evento era con horario y pasa a
+    // all-day, mandar solo `date` deja el `dateTime` viejo puesto y el objeto
+    // queda con los dos → Google responde 400 "Bad Request" (genérico, sin
+    // detalle). Hay que anular explícitamente el campo contrario con null.
+    if (start) patch.start = allDay
+      ? { date: start.slice(0, 10), dateTime: null, timeZone: null }
+      : { dateTime: start, date: null, ...(timeZone ? { timeZone } : {}) }
+    if (end) patch.end = allDay
+      ? { date: end.slice(0, 10), dateTime: null, timeZone: null }
+      : { dateTime: end, date: null, ...(timeZone ? { timeZone } : {}) }
 
+    sentPatch = patch
     const res = await calendar.events.patch({ calendarId, eventId: id, requestBody: patch })
     return NextResponse.json({ ok: true, event: res.data, scope: 'instance' })
   } catch (e) {
+    console.error('[calendar] PATCH failed', {
+      sentPatch,
+      google: googleErrDetail(e),
+    })
     return NextResponse.json({ ok: false, error: googleErrMessage(e) }, { status: 500 })
   }
 }
@@ -135,6 +151,7 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     await calendar.events.delete({ calendarId, eventId: id })
     return NextResponse.json({ ok: true, scope: 'instance' })
   } catch (e) {
+    console.error('[calendar] DELETE failed', googleErrDetail(e))
     return NextResponse.json({ ok: false, error: googleErrMessage(e) }, { status: 500 })
   }
 }

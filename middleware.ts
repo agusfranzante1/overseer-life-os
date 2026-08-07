@@ -49,5 +49,9 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  // manifest.json y sw.js quedan FUERA del middleware a propósito: el browser
+  // los pide sin credenciales, así que caían en el redirect a /login y recibían
+  // HTML. Eso rompe el manifest ("Line: 1, column: 1, Syntax error" al parsear
+  // el <!DOCTYPE) y hace fallar el registro del service worker.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 }
