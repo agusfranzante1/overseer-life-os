@@ -194,6 +194,10 @@ export function MindMapsPage() {
                   deleteMap(m.id)
                 }
               }}
+              // Los mapas de una carpeta bloqueada (los de Content Strategy)
+              // no se borran: el store lo rechaza igual, pero no tiene
+              // sentido ofrecer un botón que no va a hacer nada.
+              canDelete={!folders.find((f) => f.id === m.folderId)?.locked}
             />
           ))}
         </div>
@@ -383,11 +387,12 @@ function RenameableTitle({ title, onRename }: { title: string; onRename: (t: str
 }
 
 function MapCard({
-  map, folders, lockedInFolder, onMoveToFolder, onOpen, onRename, onDelete,
+  map, folders, lockedInFolder, canDelete, onMoveToFolder, onOpen, onRename, onDelete,
 }: {
   map: MindMap
   folders: MindMapFolder[]
   lockedInFolder: boolean
+  canDelete: boolean
   onMoveToFolder: (folderId: string | null) => void
   onOpen: () => void
   onRename: (t: string) => void
@@ -461,12 +466,14 @@ function MapCard({
         >
           <Pencil className="w-3 h-3" /> Renombrar
         </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete() }}
-          className="text-[10px] text-zinc-600 hover:text-red-400 px-2 py-1 rounded hover:bg-red-500/10 transition-colors flex items-center gap-1"
-        >
-          <Trash2 className="w-3 h-3" /> Borrar
-        </button>
+        {canDelete && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete() }}
+            className="text-[10px] text-zinc-600 hover:text-red-400 px-2 py-1 rounded hover:bg-red-500/10 transition-colors flex items-center gap-1"
+          >
+            <Trash2 className="w-3 h-3" /> Borrar
+          </button>
+        )}
       </div>
     </div>
   )

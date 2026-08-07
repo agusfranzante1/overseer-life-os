@@ -118,6 +118,11 @@ export interface ContentProfile {
    *  tarea (id de subtarea = `cs_<itemId>`). Vive en el payload JSONB del
    *  perfil → no requiere migración. */
   linkedTaskId?: string
+  /** Mapa mental propio del perfil. Vive en la carpeta bloqueada
+   *  "Content Strategy" de Mapas Mentales y no se puede borrar ni sacar de
+   *  ahí, para que no se pierda. Igual que `linkedTaskId`, viaja en el
+   *  payload JSONB del perfil → no requiere migración. */
+  linkedMindMapId?: string
   createdAt: string
   /** Timestamp de la última edición del perfil. Lo usa el sync para resolver
    *  conflictos con LWW (última edición gana) — sin esto el merge usaba

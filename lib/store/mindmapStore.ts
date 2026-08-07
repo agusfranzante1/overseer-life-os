@@ -171,6 +171,8 @@ interface MindMapState {
   /** Mueve un mapa. `folderId` null = sacarlo de toda carpeta. Noop si el mapa
    *  está en una carpeta bloqueada. */
   moveMapToFolder: (mapId: string, folderId: string | null) => void
+  /** true si el mapa vive en una carpeta bloqueada (no se borra ni se mueve). */
+  isMapLocked: (mapId: string) => boolean
 
   /** Undo de 1 SOLO nivel (por diseño — "solo 1 así es fácil"). Guarda el
    *  estado (nodos + edges) de UN mapa justo ANTES del último cambio. Las
@@ -367,7 +369,26 @@ export const useMindMapStore = create<MindMapState>()(
         maps: s.maps.map((m) => m.id !== mapId ? m : touch({ ...m, title: title.trim() || m.title })),
       })),
 
-      deleteMap: (mapId) => set((s) => ({ maps: s.maps.filter((m) => m.id !== mapId) })),
+      // Un mapa que vive en una carpeta BLOQUEADA no se borra. Hoy son los
+      // mapas espejo de los perfiles de Content Strategy: borrarlos dejaría
+      // al perfil apuntando a un mapa fantasma y se perdería el trabajo.
+      // El guard va en el store (y no solo escondiendo el botón) para que
+      // ninguna otra vía de borrado se lo saltee.
+      deleteMap: (mapId) => set((s) => {
+        const map = s.maps.find((m) => m.id === mapId)
+        if (!map) return {}
+        if (map.folderId && s.folders.find((f) => f.id === map.folderId)?.locked) return {}
+        return { maps: s.maps.filter((m) => m.id !== mapId) }
+      }),
+
+      /** ¿Este mapa está protegido contra borrado/movimiento? Lo usa la UI
+       *  para no ofrecer acciones que el store va a rechazar igual. */
+      isMapLocked: (mapId) => {
+        const s = get()
+        const map = s.maps.find((m) => m.id === mapId)
+        if (!map?.folderId) return false
+        return !!s.folders.find((f) => f.id === map.folderId)?.locked
+      },
 
       addNode: (mapId, args) => {
         const nodeId = genId()

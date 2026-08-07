@@ -4,9 +4,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Sparkles, Target, Calendar as CalendarIcon, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Plus, Trash2, X, BookOpen, Layers, Zap, Pencil, Send, Check,
-  Image as ImageIcon, Upload, Loader2, Archive, LayoutGrid, ArrowRight,
+  Image as ImageIcon, Upload, Loader2, Archive, LayoutGrid, ArrowRight, Network, Lock,
 } from 'lucide-react'
 import { useContentStore, buildAIContentPrompt } from '@/lib/store/contentStore'
+import { MindMapCanvas } from '@/components/mindmap/MindMapCanvas'
 import { useAppStore } from '@/lib/store/appStore'
 import {
   FORMAT_LABELS, MOMENT_LABELS, STAGE_LABELS, STORY_STAGE_LABELS, STORY_STAGE_ORDER,
@@ -19,7 +20,7 @@ import type {
 } from '@/types/content'
 import { uploadVisualImage, deleteVisualImage } from '@/lib/content/visualUpload'
 
-type Tab = 'panorama' | 'estrategia' | 'mes' | 'calendario' | 'pipeline' | 'estilo' | 'baul'
+type Tab = 'panorama' | 'estrategia' | 'mes' | 'calendario' | 'pipeline' | 'estilo' | 'baul' | 'mapa'
 
 const ALL_NETWORKS: ContentNetwork[] = [
   'instagram', 'tiktok', 'youtube', 'linkedin', 'x',
@@ -61,6 +62,7 @@ const TAB_DEFS: { key: Tab; label: string; icon: React.ReactNode }[] = [
   { key: 'pipeline',    label: 'Pipeline',       icon: <Layers className="w-3.5 h-3.5" /> },
   { key: 'estilo',      label: 'Estilo visual',  icon: <ImageIcon className="w-3.5 h-3.5" /> },
   { key: 'baul',        label: 'Baúl',           icon: <Archive className="w-3.5 h-3.5" /> },
+  { key: 'mapa',        label: 'Mapa mental',    icon: <Network className="w-3.5 h-3.5" /> },
 ]
 const DEFAULT_TAB_ORDER: Tab[] = TAB_DEFS.map((t) => t.key)
 
@@ -167,6 +169,11 @@ export function ContenidoPage() {
         {tab === 'baul' && (
           <motion.div key="t6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <BaulTab />
+          </motion.div>
+        )}
+        {tab === 'mapa' && (
+          <motion.div key="t7" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <MapaMentalTab />
           </motion.div>
         )}
       </AnimatePresence>
@@ -2584,6 +2591,57 @@ function VisualCategoryBlock({
           <span className="text-[10px]">Subir</span>
         </button>
       </div>
+    </div>
+  )
+}
+
+/** Pestaña "Mapa mental" — el mapa propio del perfil, embebido acá mismo.
+ *
+ *  El mapa es uno común y corriente: también aparece en Mapas Mentales, en la
+ *  carpeta bloqueada "Content Strategy". Se crea solo la primera vez que
+ *  entrás a esta pestaña, así los perfiles que ya existían también lo tienen
+ *  sin tener que migrar nada. */
+function MapaMentalTab() {
+  const currentProfileId = useContentStore((s) => s.currentProfileId)
+  const profile = useContentStore((s) => s.profiles.find((p) => p.id === s.currentProfileId))
+  const [mapId, setMapId] = useState<string | null>(null)
+
+  // Crear el mapa es un efecto secundario (escribe en dos stores): va en un
+  // effect, nunca durante el render.
+  useEffect(() => {
+    if (!currentProfileId) return
+    let cancelled = false
+    import('@/lib/content/contentMindMap')
+      .then((m) => {
+        if (cancelled) return
+        setMapId(m.ensureProfileMindMap(currentProfileId))
+      })
+      .catch(() => { /* noop */ })
+    return () => { cancelled = true }
+  }, [currentProfileId])
+
+  if (!profile) return null
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <p className="text-xs text-zinc-500 flex-1 min-w-0">
+          Mapa mental de <span className="font-semibold" style={{ color: profile.color }}>{profile.name}</span>.
+          También lo encontrás en Mapas Mentales, dentro de la carpeta &quot;Content Strategy&quot;.
+        </p>
+        <span className="text-[10px] text-zinc-500 flex items-center gap-1 shrink-0">
+          <Lock className="w-3 h-3" /> No se puede borrar
+        </span>
+      </div>
+      {mapId ? (
+        <div className="h-[70vh] rounded-2xl overflow-hidden border border-zinc-800">
+          <MindMapCanvas mapId={mapId} />
+        </div>
+      ) : (
+        <div className="h-[70vh] rounded-2xl border border-zinc-800 flex items-center justify-center">
+          <Loader2 className="w-5 h-5 text-zinc-600 animate-spin" />
+        </div>
+      )}
     </div>
   )
 }

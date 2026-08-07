@@ -150,11 +150,26 @@ export const useContentStore = create<State & Actions>()(
           }
           set((s) => ({ profiles: [...s.profiles, profile], currentProfileId: id }))
           reflectToTasks()
+          // Mapa mental espejo del perfil, en la carpeta bloqueada. Import
+          // dinámico para no cerrar un ciclo entre stores (igual que las
+          // tareas de arriba). Fire-and-forget: si falla, la pestaña "Mapa
+          // mental" lo crea igual la primera vez que entrás.
+          import('@/lib/content/contentMindMap')
+            .then((m) => m.ensureProfileMindMap(id))
+            .catch(() => { /* noop */ })
           return id
         },
         updateProfile: (id, patch) => {
           set((s) => ({ profiles: s.profiles.map((p) => (p.id === id ? { ...p, ...patch, updatedAt: new Date().toISOString() } : p)) }))
           reflectToTasks()
+          // Renombrar el perfil renombra su mapa, así no quedan con nombres
+          // distintos en Mapas Mentales.
+          if (patch.name !== undefined) {
+            const name = patch.name
+            import('@/lib/content/contentMindMap')
+              .then((m) => m.renameProfileMindMap(id, name))
+              .catch(() => { /* noop */ })
+          }
         },
         removeProfile: (id) => {
           if (get().profiles.length <= 1) return   // siempre dejá uno
