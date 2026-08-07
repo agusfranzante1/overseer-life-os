@@ -3,9 +3,14 @@ import type { OAuth2Client } from 'google-auth-library'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getGCalCredentials, getGCalTokens, saveGCalTokens } from './credentialStore'
 
+// `calendar` = lectura + ESCRITURA (crear/mover/editar/borrar eventos). Ya
+// incluye lo de readonly, así que no hace falta pedir `calendar.readonly`
+// aparte (era redundante y podía dejar la impresión de "solo lectura").
+// OJO: si autorizaste Google ANTES de tener el scope de escritura, tu token
+// viejo sigue siendo readonly → hay que RECONECTAR (Configuración → Google
+// Calendar) para que Google re-otorgue el permiso de escritura.
 export const SCOPES = [
   'https://www.googleapis.com/auth/calendar',
-  'https://www.googleapis.com/auth/calendar.readonly',
 ]
 
 export function makeOAuthClient(
