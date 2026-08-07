@@ -2471,6 +2471,8 @@ type AppPrefsPayload = {
   dayTypes?: import('@/types').DayTypeConfig[]
   navOrder?: string[]
   navLabels?: Record<string, string>
+  hiddenNavKeys?: string[]
+  onboardingDone?: boolean
   contenidoTabOrder?: string[]
   dailyReflectionPrompt?: string
   aiProvider?: 'off' | 'ollama' | 'anthropic'
@@ -2496,6 +2498,8 @@ async function pushAppPrefs() {
     dayTypes: s.dayTypes,
     navOrder: s.navOrder,
     navLabels: s.navLabels,
+    hiddenNavKeys: s.hiddenNavKeys,
+    onboardingDone: s.onboardingDone,
     contenidoTabOrder: s.contenidoTabOrder,
     dailyReflectionPrompt: s.dailyReflectionPrompt,
     aiProvider: s.aiProvider,
@@ -2571,6 +2575,8 @@ async function pullAppPrefs(): Promise<boolean> {
     ...(p.dayTypes !== undefined ? { dayTypes: p.dayTypes } : {}),
     ...(p.navOrder !== undefined ? { navOrder: p.navOrder } : {}),
     ...(p.navLabels !== undefined ? { navLabels: p.navLabels } : {}),
+    ...(p.hiddenNavKeys !== undefined ? { hiddenNavKeys: p.hiddenNavKeys } : {}),
+    ...(p.onboardingDone !== undefined ? { onboardingDone: p.onboardingDone } : {}),
     ...(p.contenidoTabOrder !== undefined ? { contenidoTabOrder: p.contenidoTabOrder } : {}),
     ...(p.dailyReflectionPrompt !== undefined ? { dailyReflectionPrompt: p.dailyReflectionPrompt } : {}),
     ...(p.aiProvider !== undefined ? { aiProvider: p.aiProvider } : {}),
@@ -3468,6 +3474,7 @@ function appPrefsFingerprint(s: AppPrefsSnapshot): string {
     s.language, s.timezone, s.autoPurgeCompletedTasks, s.idealSchedule,
     s.scheduleOrder, s.dayTypes, s.navOrder, s.navLabels, s.contenidoTabOrder,
     s.dailyReflectionPrompt, s.aiProvider, s.anthropicApiKey, s.anthropicModel,
+    s.hiddenNavKeys, s.onboardingDone,
     s.metrics, s.notificationPrefs,
   ])
 }

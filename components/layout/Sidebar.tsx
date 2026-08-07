@@ -1,7 +1,7 @@
 'use client'
 import { useState, useRef, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useAppStore } from '@/lib/store/appStore'
+import { useAppStore, isCoreNavKey } from '@/lib/store/appStore'
 import { useTranslation } from '@/hooks/useTranslation'
 import { usePendingReviews } from '@/hooks/usePendingReviews'
 import {
@@ -59,7 +59,7 @@ export function Sidebar({
   mobileOpen?: boolean
   onMobileClose?: () => void
 } = {}) {
-  const { sidebarCollapsed, toggleSidebar, language, setLanguage, navOrder, setNavOrder, navLabels, setNavLabel, theme, toggleTheme } = useAppStore()
+  const { sidebarCollapsed, toggleSidebar, language, setLanguage, navOrder, setNavOrder, navLabels, setNavLabel, theme, toggleTheme, hiddenNavKeys, hideNavItem, showNavItem } = useAppStore()
   const { t } = useTranslation()
   const pathname = usePathname()
   const router = useRouter()
@@ -176,8 +176,17 @@ export function Sidebar({
     for (const item of NAV_ITEMS) {
       if (!seen.has(item.key)) result.push(item)
     }
-    return result
-  }, [navOrder])
+    // Las secciones que el usuario sacó no se muestran. Las core nunca se
+    // pueden ocultar, pero filtramos igual por si quedó basura guardada.
+    const hidden = new Set(hiddenNavKeys ?? [])
+    return result.filter((item) => !hidden.has(item.key) || isCoreNavKey(item.key))
+  }, [navOrder, hiddenNavKeys])
+
+  /** Secciones sacadas, para el menú de "agregar" del modo edición. */
+  const hiddenNavItems = useMemo(() => {
+    const hidden = new Set(hiddenNavKeys ?? [])
+    return NAV_ITEMS.filter((n) => hidden.has(n.key) && !isCoreNavKey(n.key))
+  }, [hiddenNavKeys])
 
   // ── DnD handlers (only active in edit mode AND expanded) ──
   const onDragStart = (key: string) => (e: React.DragEvent) => {
@@ -416,6 +425,24 @@ export function Sidebar({
                     >
                       <Pencil className="w-3 h-3" />
                     </button>
+                    {/* Quitar la sección. Las core no se pueden sacar: sin
+                        ellas quedan partes de la app inalcanzables. */}
+                    {!isCoreNavKey(key) && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (confirm(`¿Sacar "${navLabel(key)}" del menú?\n\nNo se borra nada de lo que tengas cargado ahí — la sección deja de aparecer y la podés volver a agregar cuando quieras.`)) {
+                            hideNavItem(key)
+                          }
+                        }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        title="Sacar del menú"
+                        className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      >
+                        <XIcon className="w-3 h-3" />
+                      </button>
+                    )}
                     {/* Tap arrows — touch-friendly reorder. preventDefault on
                         pointerdown so the row's draggable behavior doesn't grab
                         the touch first. */}
@@ -527,6 +554,32 @@ export function Sidebar({
             </Link>
           )
         })}
+
+        {/* Secciones disponibles para agregar — solo en modo edición. Acá
+            aparece todo lo que el usuario sacó, más lo que nunca activó
+            (una cuenta nueva arranca con el sidebar mínimo). */}
+        {editMode && showLabels && hiddenNavItems.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-zinc-800">
+            <p className="text-[10px] uppercase tracking-wide text-zinc-600 px-2 mb-2">
+              Agregar sección
+            </p>
+            <div className="space-y-1">
+              {hiddenNavItems.map(({ key, icon: Icon }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => showNavItem(key)}
+                  className="w-full flex items-center gap-2 px-2 py-2 rounded-lg border border-dashed border-zinc-800 hover:border-indigo-500/50 hover:bg-indigo-500/[0.06] text-zinc-500 hover:text-indigo-300 transition-colors"
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="text-sm flex-1 text-left truncate">{navLabel(key)}</span>
+                  <span className="text-zinc-600 text-xs shrink-0">+</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Accesos rápidos (enlaces) — chats de ChatGPT, docs, lo que estés
             trabajando. Scrollea junto con el nav. Solo con sidebar expandido. */}
         <SidebarLinks showLabels={showLabels} />

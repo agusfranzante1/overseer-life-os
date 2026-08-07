@@ -17,6 +17,28 @@ function debouncedSyncSettings() {
   }, 800)
 }
 
+// ─── Secciones del sidebar ───────────────────────────────────────────────────
+
+/** Secciones que NO se pueden sacar del sidebar. Son la base sobre la que se
+ *  apoyan otras partes de la app (el panel lee tareas y hábitos, las revisiones
+ *  viven en SPI, la configuración es la única puerta a los ajustes), así que
+ *  esconderlas dejaría funcionalidad inalcanzable. */
+export const CORE_NAV_KEYS = [
+  'dashboard', 'calendar', 'tasks', 'spi', 'money', 'habits', 'kpis', 'settings',
+] as const
+
+/** Todas las secciones opcionales. Una cuenta NUEVA arranca sin ninguna de
+ *  estas (sidebar mínimo) y el usuario va agregando las que le sirven.
+ *  Mantener en sync con NAV_ITEMS del Sidebar. */
+export const OPTIONAL_NAV_KEYS = [
+  'lab', 'journal', 'meditaciones', 'youtube', 'mindmaps',
+  'trading', 'health', 'estudio', 'contenido', 'gym', 'food',
+] as const
+
+export function isCoreNavKey(key: string): boolean {
+  return (CORE_NAV_KEYS as readonly string[]).includes(key)
+}
+
 // AppState se exporta debajo, antes del export del store. Tipo público
 // para que helpers externos (sync, dispatcher) tipen los argumentos.
 export interface ScheduleSlot {
@@ -170,6 +192,16 @@ export interface AppState {
   // Nombres custom de los ítems del sidebar (persisted). `navLabels[key]` pisa
   // la etiqueta i18n default. Vacío/ausente = usar el nombre por defecto.
   navLabels: Record<string, string>
+  /** Secciones que el usuario sacó del sidebar. No se borra nada de datos:
+   *  solo deja de aparecer y se puede volver a agregar cuando quiera.
+   *  Las de CORE_NAV_KEYS nunca entran acá. */
+  hiddenNavKeys: string[]
+  hideNavItem: (key: string) => void
+  showNavItem: (key: string) => void
+  /** Si ya vio el recorrido inicial. Se sincroniza para que no se lo coma
+   *  de nuevo al entrar desde otro dispositivo. */
+  onboardingDone: boolean
+  setOnboardingDone: (v: boolean) => void
   setNavLabel: (key: string, label: string) => void
 
   // Orden de las pestañas de Content Strategy (persisted + synced multi-device
@@ -347,6 +379,18 @@ export const useAppStore = create<AppState>()(
         else delete next[key]  // vacío → vuelve al nombre default
         return { navLabels: next }
       }),
+
+      // Cuenta nueva = sidebar mínimo. El migrate de abajo se encarga de que
+      // a una cuenta YA EXISTENTE no se le desaparezcan las secciones.
+      hiddenNavKeys: [...OPTIONAL_NAV_KEYS],
+      hideNavItem: (key) => set((s) => {
+        if (isCoreNavKey(key) || s.hiddenNavKeys.includes(key)) return {}
+        return { hiddenNavKeys: [...s.hiddenNavKeys, key] }
+      }),
+      showNavItem: (key) => set((s) => ({ hiddenNavKeys: s.hiddenNavKeys.filter((k) => k !== key) })),
+
+      onboardingDone: false,
+      setOnboardingDone: (v) => set({ onboardingDone: v }),
       contenidoTabOrder: [],  // empty = use default tab order
       setContenidoTabOrder: (keys) => set({ contenidoTabOrder: keys }),
 
@@ -393,13 +437,21 @@ export const useAppStore = create<AppState>()(
               accent: p.themeColors.accent ?? null,
             }
           : { darkBg: null, lightBg: null, accent: null }
+        // CUENTA YA EXISTENTE: si el estado guardado es de antes de que
+        // existieran las secciones ocultables, el usuario ya venía usando
+        // TODAS. Arrancarlo con el sidebar mínimo le haría "desaparecer"
+        // media app de golpe, así que no ocultamos nada. Y damos el
+        // onboarding por visto: ya conoce la app.
+        const hiddenNavKeys = Array.isArray(p.hiddenNavKeys) ? p.hiddenNavKeys : []
+        const onboardingDone = typeof p.onboardingDone === 'boolean' ? p.onboardingDone : true
         return {
           ...p,
           idealSchedule: sched, scheduleOrder: order, dayTypes,
           timezone, autoPurgeCompletedTasks, theme, themeColors,
+          hiddenNavKeys, onboardingDone,
         } as AppState
       },
-      version: 5,
+      version: 6,
     }
   )
 )

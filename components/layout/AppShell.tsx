@@ -9,6 +9,7 @@ import { useWalletStore } from '@/lib/store/walletStore'
 import { useSPIStore } from '@/lib/store/spiStore'
 import { reconcileContentTasks } from '@/lib/content/contentTasks'
 import { Sidebar } from './Sidebar'
+import { OnboardingTour } from '@/components/onboarding/OnboardingTour'
 import { TitleUpdater } from './TitleUpdater'
 import { ThemeStyleInjector } from './ThemeStyleInjector'
 import { ChatBox } from '@/components/chat/ChatBox'
@@ -355,6 +356,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         mobileOpen={mobileNavOpen}
         onMobileClose={() => setMobileNavOpen(false)}
       />
+
+      {/* Recorrido de bienvenida — se muestra solo la primera vez. Va acá
+          (dentro del shell autenticado) para que pueda navegar entre
+          secciones y verse el sidebar detrás del cartel. */}
+      <OnboardingTour />
 
       {/* Mobile backdrop — only when drawer is open, dismisses on tap. */}
       <AnimatePresence>
