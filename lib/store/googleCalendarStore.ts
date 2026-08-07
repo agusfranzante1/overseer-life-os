@@ -59,6 +59,10 @@ export interface GEvent {
    *  the UI to offer "this event only" vs "all events in the series"
    *  when editing/moving a recurring instance. */
   recurringEventId?: string
+  /** Recordatorios del evento (Google). `useDefault:true` usa los del
+   *  calendario; si no, `overrides` define popups/emails a X minutos antes.
+   *  Editable desde el modal para eventos GCal. */
+  reminders?: { useDefault: boolean; overrides?: { method: 'popup' | 'email'; minutes: number }[] }
   /** Cuando es true, este "evento" en realidad es una TASK de Overseer
    *  con dueTime — renderizada como bloque timeado en el calendario
    *  pero no es un evento GCal real. El click en este bloque debe abrir

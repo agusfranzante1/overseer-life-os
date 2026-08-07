@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
 import { getSupabaseServer } from '@/lib/supabase/server'
 import { getAuthedClient } from '@/lib/google/oauthClient'
+import { googleErrMessage } from '@/lib/google/errors'
 
 async function getAuth(req: NextRequest) {
   const sb = await getSupabaseServer()
@@ -32,12 +33,15 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       // Opcional: IANA timezone que se aplica a start/end cuando son
       // dateTime (no all-day). Sin tz, Google usa la del calendar.
       timeZone,
+      // Recordatorios (popup/email a X minutos antes, o usar los del calendar).
+      reminders,
     } = await req.json() as {
       summary?: string; description?: string; location?: string
       start?: string; end?: string; allDay?: boolean
       applyToSeries?: boolean
       recurringEventId?: string
       timeZone?: string
+      reminders?: { useDefault: boolean; overrides?: { method: string; minutes: number }[] }
     }
 
     const calendar = google.calendar({ version: 'v3', auth })
@@ -61,6 +65,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       if (summary !== undefined) patch.summary = summary
       if (description !== undefined) patch.description = description
       if (location !== undefined) patch.location = location
+      if (reminders !== undefined) patch.reminders = reminders
 
       if (oldInstanceStart && newInstanceStart && masterStart && masterEnd) {
         const deltaMs = new Date(newInstanceStart).getTime() - new Date(oldInstanceStart).getTime()
@@ -93,13 +98,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (summary !== undefined) patch.summary = summary
     if (description !== undefined) patch.description = description
     if (location !== undefined) patch.location = location
+    if (reminders !== undefined) patch.reminders = reminders
     if (start) patch.start = allDay ? { date: start.slice(0, 10) } : { dateTime: start, ...(timeZone ? { timeZone } : {}) }
     if (end)   patch.end   = allDay ? { date: end.slice(0, 10)   } : { dateTime: end,   ...(timeZone ? { timeZone } : {}) }
 
     const res = await calendar.events.patch({ calendarId, eventId: id, requestBody: patch })
     return NextResponse.json({ ok: true, event: res.data, scope: 'instance' })
   } catch (e) {
-    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : 'unknown' }, { status: 500 })
+    return NextResponse.json({ ok: false, error: googleErrMessage(e) }, { status: 500 })
   }
 }
 
@@ -129,6 +135,6 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     await calendar.events.delete({ calendarId, eventId: id })
     return NextResponse.json({ ok: true, scope: 'instance' })
   } catch (e) {
-    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : 'unknown' }, { status: 500 })
+    return NextResponse.json({ ok: false, error: googleErrMessage(e) }, { status: 500 })
   }
 }

@@ -1178,6 +1178,15 @@ function EventModal({ mode, event, date, startHour, calendars, projects, onClose
   const [summary, setSummary] = useState(event?.summary ?? '')
   const [description, setDescription] = useState(event?.description ?? '')
   const [location, setLocation] = useState(event?.location ?? '')
+  // Recordatorio (solo eventos GCal): 'default' = usar el del calendario,
+  // 'none' = sin recordatorio, o los minutos antes (popup).
+  const initialReminder = (() => {
+    const r = event?.reminders
+    if (!r || r.useDefault) return 'default'
+    const first = r.overrides?.[0]
+    return first && typeof first.minutes === 'number' ? String(first.minutes) : 'none'
+  })()
+  const [reminder, setReminder] = useState<string>(initialReminder)
   const [allDay, setAllDay] = useState(event?.allDay ?? false)
   const [startDate, setStartDate] = useState(baseDateStr)
   const defaultStart = startHour !== undefined ? `${String(startHour).padStart(2, '0')}:00` : '09:00'
@@ -1280,6 +1289,11 @@ function EventModal({ mode, event, date, startHour, calendars, projects, onClose
       // así el calendario lo guarda con la TZ correcta (evita bugs de
       // DST en otra parte). Fallback a UTC si Intl no está disponible.
       const tz = (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC'
+      const reminders = reminder === 'default'
+        ? { useDefault: true }
+        : reminder === 'none'
+          ? { useDefault: false, overrides: [] as { method: 'popup'; minutes: number }[] }
+          : { useDefault: false, overrides: [{ method: 'popup' as const, minutes: parseInt(reminder, 10) }] }
       onSave({
         calendarId,
         summary: summary.trim(),
@@ -1289,6 +1303,7 @@ function EventModal({ mode, event, date, startHour, calendars, projects, onClose
         end: endISO,
         allDay,
         timeZone: tz,
+        reminders,
         ...(recurrenceRule ? { recurrence: recurrenceRule } : {}),
       })
     } catch {
@@ -1470,6 +1485,30 @@ function EventModal({ mode, event, date, startHour, calendars, projects, onClose
               <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Ubicación (opcional)</label>
               <input value={location} onChange={(e) => setLocation(e.target.value)}
                 className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+            </div>
+          )}
+
+          {!isTask && (
+            <div>
+              <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Recordatorio</label>
+              <select value={reminder} onChange={(e) => setReminder(e.target.value)}
+                className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                {/* Si el evento traía un valor custom que no está en la lista,
+                    lo mostramos igual para no perderlo al guardar. */}
+                {!['default', 'none', '0', '5', '10', '15', '30', '60', '120', '1440'].includes(reminder) && (
+                  <option value={reminder}>{reminder} minutos antes</option>
+                )}
+                <option value="default">Predeterminado del calendario</option>
+                <option value="none">Sin recordatorio</option>
+                <option value="0">Al momento</option>
+                <option value="5">5 minutos antes</option>
+                <option value="10">10 minutos antes</option>
+                <option value="15">15 minutos antes</option>
+                <option value="30">30 minutos antes</option>
+                <option value="60">1 hora antes</option>
+                <option value="120">2 horas antes</option>
+                <option value="1440">1 día antes</option>
+              </select>
             </div>
           )}
 

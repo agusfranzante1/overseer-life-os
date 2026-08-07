@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
 import { getSupabaseServer } from '@/lib/supabase/server'
 import { getAuthedClient } from '@/lib/google/oauthClient'
+import { googleErrMessage } from '@/lib/google/errors'
 
 async function getAuth(req: NextRequest) {
   const sb = await getSupabaseServer()
@@ -62,6 +63,7 @@ export async function GET(req: NextRequest) {
       location?: string; start: string; end: string; allDay: boolean
       htmlLink?: string; colorId?: string
       recurringEventId?: string
+      reminders?: { useDefault: boolean; overrides?: { method: string; minutes: number }[] }
     }
 
     const events: EventOut[] = []
@@ -99,6 +101,15 @@ export async function GET(req: NextRequest) {
           // Undefined for one-off events. The UI uses this to detect when
           // to offer the "this/all" choice on edit/move.
           recurringEventId: ev.recurringEventId ?? undefined,
+          // Recordatorios — para que el modal pueda mostrar/editar el actual.
+          reminders: ev.reminders
+            ? {
+                useDefault: !!ev.reminders.useDefault,
+                overrides: (ev.reminders.overrides ?? [])
+                  .filter((o): o is { method: string; minutes: number } => typeof o.minutes === 'number' && !!o.method)
+                  .map((o) => ({ method: o.method, minutes: o.minutes })),
+              }
+            : undefined,
         })
       }
     })
@@ -117,7 +128,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ ok: true, events, errors })
   } catch (e) {
-    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : 'unknown' }, { status: 500 })
+    return NextResponse.json({ ok: false, error: googleErrMessage(e) }, { status: 500 })
   }
 }
 
@@ -127,7 +138,7 @@ export async function POST(req: NextRequest) {
     const { auth, error } = await getAuth(req)
     if (!auth) return NextResponse.json({ ok: false, error }, { status: 401 })
 
-    const { calendarId, summary, description, location, start, end, allDay, recurrence, timeZone } = await req.json() as {
+    const { calendarId, summary, description, location, start, end, allDay, recurrence, timeZone, reminders } = await req.json() as {
       calendarId: string; summary: string; description?: string
       location?: string; start: string; end: string; allDay?: boolean
       // Optional RRULE array (e.g. ['RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR']).
@@ -137,6 +148,7 @@ export async function POST(req: NextRequest) {
       // Google for recurring events with dateTime — without it, the API
       // returns 400 "Recurring events must have a time zone".
       timeZone?: string
+      reminders?: { useDefault: boolean; overrides?: { method: string; minutes: number }[] }
     }
 
     if (!calendarId || !summary || !start || !end) {
@@ -167,10 +179,11 @@ export async function POST(req: NextRequest) {
           ? { date: end.slice(0, 10) }
           : { dateTime: end,   ...(timeZone ? { timeZone } : {}) },
         ...(recurrence && recurrence.length > 0 ? { recurrence } : {}),
+        ...(reminders ? { reminders } : {}),
       },
     })
     return NextResponse.json({ ok: true, event: res.data })
   } catch (e) {
-    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : 'unknown' }, { status: 500 })
+    return NextResponse.json({ ok: false, error: googleErrMessage(e) }, { status: 500 })
   }
 }
