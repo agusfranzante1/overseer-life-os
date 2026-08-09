@@ -1,5 +1,6 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { Network, Plus, Pencil, Trash2, ChevronLeft, Folder, FolderPlus, Lock, X, Check } from 'lucide-react'
 import { useMindMapStore, type MindMap, type MindMapFolder } from '@/lib/store/mindmapStore'
@@ -297,14 +298,26 @@ function NewFolderInput({ onCreate, onCancel }: { onCreate: (name: string) => vo
   )
 }
 
-/** Menú para mandar un mapa a otra carpeta. */
+/** Menú para mandar un mapa a otra carpeta.
+ *
+ *  Se dibuja en un PORTAL a document.body, anclado al botón. Antes era un
+ *  absolute dentro de la tarjeta: se abría hacia arriba y caía encima de la
+ *  miniatura, ilegible y tapando el preview.
+ *
+ *  El portal no es capricho: la tarjeta aplica `transform: translateY(-2px)`
+ *  en hover, y un ancestro con transform se convierte en el bloque contenedor
+ *  de sus descendientes `position: fixed`. O sea que un fixed común quedaría
+ *  posicionado respecto de la tarjeta justo cuando el mouse está encima —
+ *  exactamente cuando se usa este botón. Saliendo del árbol, no hay ancestro
+ *  que lo afecte. */
 function MoveToFolderMenu({ folders, currentFolderId, locked, onMove }: {
   folders: MindMapFolder[]
   currentFolderId?: string
   locked: boolean
   onMove: (folderId: string | null) => void
 }) {
-  const [open, setOpen] = useState(false)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
 
   if (locked) {
     return (
@@ -315,22 +328,40 @@ function MoveToFolderMenu({ folders, currentFolderId, locked, onMove }: {
   }
   if (folders.length === 0) return null
 
+  const MENU_W = 180
+  const open = () => {
+    const r = btnRef.current?.getBoundingClientRect()
+    if (!r) return
+    // Alineado al borde derecho del botón, justo debajo. Si no entra abajo,
+    // se abre hacia arriba; y nunca se sale por los costados.
+    const itemH = 30
+    const h = (folders.filter((f) => !f.locked).length + 1) * itemH + 8
+    const below = r.bottom + 4
+    const top = below + h > window.innerHeight - 8 ? Math.max(8, r.top - h - 4) : below
+    const left = Math.min(Math.max(8, r.right - MENU_W), window.innerWidth - MENU_W - 8)
+    setPos({ left, top })
+  }
+
   return (
-    <div className="relative">
+    <>
       <button
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v) }}
+        ref={btnRef}
+        onClick={(e) => { e.stopPropagation(); pos ? setPos(null) : open() }}
         title="Mover a una carpeta"
         className="text-zinc-500 hover:text-indigo-300 p-1.5 rounded transition-colors"
       >
         <Folder className="w-3.5 h-3.5" />
       </button>
-      {open && (
+      {pos && createPortal(
         <>
-          {/* Capa para cerrar al clickear afuera. */}
-          <div className="fixed inset-0 z-30" onClick={(e) => { e.stopPropagation(); setOpen(false) }} />
-          <div className="absolute right-0 bottom-full mb-1 z-40 w-44 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1">
+          <div className="fixed inset-0 z-[70]" onClick={(e) => { e.stopPropagation(); setPos(null) }} />
+          <div
+            style={{ position: 'fixed', left: pos.left, top: pos.top, width: MENU_W }}
+            onClick={(e) => e.stopPropagation()}
+            className="z-[71] bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1"
+          >
             <button
-              onClick={(e) => { e.stopPropagation(); onMove(null); setOpen(false) }}
+              onClick={(e) => { e.stopPropagation(); onMove(null); setPos(null) }}
               className={`w-full text-left text-xs px-3 py-1.5 hover:bg-zinc-800 transition-colors ${
                 !currentFolderId ? 'text-indigo-300' : 'text-zinc-300'
               }`}
@@ -340,7 +371,7 @@ function MoveToFolderMenu({ folders, currentFolderId, locked, onMove }: {
             {folders.filter((f) => !f.locked).map((f) => (
               <button
                 key={f.id}
-                onClick={(e) => { e.stopPropagation(); onMove(f.id); setOpen(false) }}
+                onClick={(e) => { e.stopPropagation(); onMove(f.id); setPos(null) }}
                 className={`w-full text-left text-xs px-3 py-1.5 hover:bg-zinc-800 transition-colors truncate ${
                   currentFolderId === f.id ? 'text-indigo-300' : 'text-zinc-300'
                 }`}
@@ -349,9 +380,10 @@ function MoveToFolderMenu({ folders, currentFolderId, locked, onMove }: {
               </button>
             ))}
           </div>
-        </>
+        </>,
+        document.body,
       )}
-    </div>
+    </>
   )
 }
 
@@ -410,7 +442,7 @@ function MapCard({
     <div
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      className="rounded-2xl border-2 transition-all duration-150 cursor-pointer overflow-hidden"
+      className="rounded-2xl border-2 transition-all duration-150 cursor-pointer"
       style={{
         background: hover ? '#6366f110' : 'var(--app-bg)',
         borderColor: hover ? '#6366f1AA' : 'rgba(var(--glass-tint), 0.12)',
@@ -423,7 +455,10 @@ function MapCard({
           on hover via the wrapper's bg shift. */}
       {/* Alto reducido junto con el grid de 4 columnas: con tarjetas más
           angostas, 140px de preview dejaba la card muy apaisada. */}
-      <button onClick={onOpen} className="block w-full">
+      {/* El overflow-hidden vive ACÁ y no en la tarjeta: en la tarjeta
+          recortaba el menú de "mover a carpeta", que se abre hacia afuera.
+          Acá solo redondea las esquinas de arriba de la miniatura. */}
+      <button onClick={onOpen} className="block w-full rounded-t-2xl overflow-hidden">
         <MindMapThumbnail map={map} height={112} hover={hover} />
       </button>
 

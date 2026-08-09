@@ -86,15 +86,21 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   //     del código que lee edges no se rompa.
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
   const [selection, setSelection] = useState<{ kind: 'edge' | 'shape'; id: string } | null>(null)
+  // Formas seleccionadas (multi). Van aparte de `selectedNodeIds` porque son
+  // otra entidad, pero se mueven y se borran JUNTO con los nodos: así se puede
+  // agarrar un marco con todo lo que encierra y moverlo o borrarlo de una.
+  const [selectedShapeIds, setSelectedShapeIds] = useState<string[]>([])
   // Helper para reemplazar el patrón viejo "seleccionar un solo nodo".
   const selectOnlyNode = (id: string) => {
     setSelection(null)
+    setSelectedShapeIds([])
     setSelectedNodeIds([id])
   }
   // Helper para limpiar TODO (deselect global).
   const clearSelection = () => {
     setSelection(null)
     setSelectedNodeIds([])
+    setSelectedShapeIds([])
   }
   // Box-select: el usuario arrastra desde el lienzo vacío para dibujar
   // un rectángulo de selección. Coordenadas en SCREEN px (no content),
@@ -232,6 +238,24 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
               if (intersects) hits.push(n.id)
             }
             setSelectedNodeIds(hits)
+
+            // Las formas se agarran por CONTENCIÓN, no por intersección como
+            // los nodos: un marco que encierra varios nodos intersecta
+            // cualquier box-select que se haga adentro suyo, y se lo llevaría
+            // puesto sin que el usuario lo pidiera. Exigiendo encerrarlo
+            // entero, seleccionar un par de nodos de adentro no lo toca, y
+            // rodear todo el conjunto sí se lleva el marco con su contenido.
+            const shapeHits: string[] = []
+            for (const sh of (map?.shapes ?? [])) {
+              const sMinX = Math.min(sh.x, sh.x + sh.width)
+              const sMaxX = Math.max(sh.x, sh.x + sh.width)
+              const sMinY = Math.min(sh.y, sh.y + sh.height)
+              const sMaxY = Math.max(sh.y, sh.y + sh.height)
+              const contained = sMinX >= cMinX && sMaxX <= cMaxX && sMinY >= cMinY && sMaxY <= cMaxY
+              if (contained) shapeHits.push(sh.id)
+            }
+            setSelectedShapeIds(shapeHits)
+            setSelection(null)
           }
         }
         setBoxSelect(null)
@@ -303,11 +327,15 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
         return
       }
       if (e.key !== 'Delete' && e.key !== 'Backspace') return
-      // Nodes — borrar TODOS los seleccionados de una.
-      if (selectedNodeIds.length > 0) {
+      // Nodos + formas — borrar TODA la selección de una. Van juntos a
+      // propósito: si encerraste un marco con sus nodos, Supr se lleva el
+      // conjunto entero, que es lo que uno espera.
+      if (selectedNodeIds.length > 0 || selectedShapeIds.length > 0) {
         e.preventDefault()
         for (const id of selectedNodeIds) removeNode(mapId, id)
+        for (const id of selectedShapeIds) removeShape(mapId, id)
         setSelectedNodeIds([])
+        setSelectedShapeIds([])
         return
       }
       // Edge selected
@@ -317,16 +345,10 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
         setSelection(null)
         return
       }
-      // Shape selected
-      if (selection?.kind === 'shape') {
-        e.preventDefault()
-        removeShape(mapId, selection.id)
-        setSelection(null)
-      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [selection, selectedNodeIds, drawingFromId, mapId, removeNode, removeEdge, removeShape])
+  }, [selection, selectedNodeIds, selectedShapeIds, drawingFromId, mapId, removeNode, removeEdge, removeShape])
 
   // Copiar / Pegar (Ctrl/Cmd + C / V) — copia los nodos seleccionados MÁS las
   // líneas internas (edges con ambos extremos seleccionados) a un "portapapeles"
@@ -724,8 +746,23 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     handle: 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'start' | 'end',
   ) => {
     e.stopPropagation()
-    setSelectedNodeIds([])
-    setSelection({ kind: 'shape', id: shape.id })
+
+    // Si la forma YA era parte de una selección múltiple, arrastrarla mueve
+    // todo el conjunto (nodos incluidos). Si no lo era, se pasa a seleccionar
+    // solo esta, igual que al clickear un nodo suelto.
+    const inSelection = selectedShapeIds.includes(shape.id)
+    const groupMove = handle === 'move' && inSelection && (selectedShapeIds.length > 1 || selectedNodeIds.length > 0)
+    const groupShapes = groupMove
+      ? (map?.shapes ?? []).filter((sh) => selectedShapeIds.includes(sh.id)).map((sh) => ({ id: sh.id, x: sh.x, y: sh.y }))
+      : []
+    const groupNodes = groupMove
+      ? (map?.nodes ?? []).filter((n) => selectedNodeIds.includes(n.id)).map((n) => ({ id: n.id, x: n.x, y: n.y }))
+      : []
+    if (!groupMove) {
+      setSelectedNodeIds([])
+      setSelectedShapeIds([shape.id])
+      setSelection(null)
+    }
 
     const s0 = { x: shape.x, y: shape.y, width: shape.width, height: shape.height }
     const startClientX = e.clientX
@@ -752,6 +789,17 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
         case 'se':    patch = { width: s0.width + dx, height: s0.height + dy }; break
       }
       updateShape(mapId, shape.id, patch)
+
+      // Arrastre de conjunto: el mismo delta al resto de lo seleccionado.
+      if (groupMove) {
+        for (const sh of groupShapes) {
+          if (sh.id === shape.id) continue
+          updateShape(mapId, sh.id, { x: sh.x + dx, y: sh.y + dy })
+        }
+        for (const n of groupNodes) {
+          updateNode(mapId, n.id, { x: n.x + dx, y: n.y + dy })
+        }
+      }
     }
     const onUp = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return
@@ -815,6 +863,13 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     // ancladas en su posición vieja, dando la sensación de que "no
     // siguen". Trasladamos por el mismo delta del drag.
     const movingSet = new Set(movingIds)
+
+    // Formas que viajan con la selección. Solo cuando el nodo agarrado es
+    // parte de la multi-selección: si clickeaste un nodo suelto, mover una
+    // forma que quedó seleccionada de antes sería un efecto sorpresa.
+    const movingShapes = (isAlreadySelected && selectedNodeIds.length > 1) || selectedShapeIds.length > 0
+      ? (map?.shapes ?? []).filter((sh) => selectedShapeIds.includes(sh.id)).map((sh) => ({ id: sh.id, x: sh.x, y: sh.y }))
+      : []
 
     // Vecinos contra los que alinear. Se calculan UNA vez al empezar el drag:
     // los nodos que no se mueven no cambian durante el arrastre.
@@ -881,6 +936,11 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
       // se mueven juntos manteniendo su disposición relativa.
       for (const [id, start] of startPositions) {
         updateNode(mapId, id, { x: start.x + cdx, y: start.y + cdy })
+      }
+      // Mismo delta para las formas seleccionadas: el marco acompaña a lo que
+      // encierra en vez de quedarse atrás.
+      for (const sh of movingShapes) {
+        updateShape(mapId, sh.id, { x: sh.x + cdx, y: sh.y + cdy })
       }
       // Aplicar el mismo delta a bend + anchors de las edges tocadas —
       // así las flechas con waypoint custom siguen al nodo en vez de
@@ -997,7 +1057,8 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
           const cy = rect ? (rect.height / 2 - pan.y) / zoom - h / 2 : 100
           const id = addShape(mapId, { kind, x: cx, y: cy, width: w, height: h })
           setSelectedNodeIds([])
-          setSelection({ kind: 'shape', id })
+          setSelection(null)
+          setSelectedShapeIds([id])
         }}
         onAddImage={() => imageInputRef.current?.click()}
         uploadingImage={uploadingImage}
@@ -1087,7 +1148,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
               <ShapeItem
                 key={sh.id}
                 shape={sh}
-                selected={selection?.kind === 'shape' && selection.id === sh.id}
+                selected={selectedShapeIds.includes(sh.id)}
                 zoom={zoom}
                 onHandleDown={startShapeDrag}
               />
