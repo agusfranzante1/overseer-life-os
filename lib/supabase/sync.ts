@@ -2675,8 +2675,25 @@ async function pushAppPrefs() {
     if (r.error) console.warn('[user_settings sync from pushAppPrefs] failed:', r.error.message)
   })
 
+  // MERGE en vez de pisar el blob entero.
+  //
+  // `app_preferences` es una fila única con un payload JSON: el upsert
+  // reemplaza TODO. Si un dispositivo corre una versión más vieja de la app,
+  // arma el payload sin los campos que todavía no conoce (las carpetas del
+  // sidebar, por ejemplo) y al pushear se los borra al resto — no es que "no
+  // se actualiza": los hace desaparecer también en el dispositivo que sí los
+  // tenía.
+  //
+  // Leyendo lo que hay y mergeando encima, un cliente solo pisa las claves
+  // que efectivamente conoce y deja intactas las que no.
+  const prev = await sb.from('app_preferences').select('payload').eq('user_id', uid).maybeSingle()
+  const prevPayload = (prev.data as { payload?: Record<string, unknown> } | null)?.payload
+  const merged = prevPayload && typeof prevPayload === 'object'
+    ? { ...prevPayload, ...payload }
+    : payload
+
   const r = await sb.from('app_preferences').upsert(
-    { user_id: uid, payload, updated_at: new Date().toISOString() },
+    { user_id: uid, payload: merged, updated_at: new Date().toISOString() },
     { onConflict: 'user_id' },
   )
   if (r.error) {
