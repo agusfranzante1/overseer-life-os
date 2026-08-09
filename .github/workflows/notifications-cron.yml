@@ -39,6 +39,12 @@ jobs:
             echo "::error::Falta el secret APP_URL (Settings → Secrets and variables → Actions)"
             exit 1
           fi
+          # Si este secret esta vacio, el header sale como "Bearer " y el
+          # endpoint devuelve 401 sin que quede claro por que.
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "::error::Falta el secret CRON_SECRET en GitHub (Settings → Secrets and variables → Actions). Tiene que ser EXACTAMENTE el mismo valor que la env var CRON_SECRET de Vercel."
+            exit 1
+          fi
 
           # --max-time es IMPRESCINDIBLE: sin él, si el endpoint se cuelga
           # curl espera para siempre y el job muere por `timeout-minutes`,

@@ -28,11 +28,18 @@ export const maxDuration = 60            // segundos — el dispatcher de pocos 
  *  cron lo manda automáticamente cuando configurás el cron en vercel.json
  *  y el secret en env vars (ver docs/notifications-dispatcher-plan.md
  *  Etapa 5). */
-function isAuthed(req: NextRequest): boolean {
+function checkAuth(req: NextRequest): { ok: true } | { ok: false; reason: string } {
   const auth = req.headers.get('authorization') ?? ''
   const expected = process.env.CRON_SECRET
-  if (!expected) return false  // sin secret configurado, NUNCA permitir
-  return auth === `Bearer ${expected}`
+  // Sin secret en el server NUNCA se permite. Pero se distingue del caso
+  // "mandaste el header mal": un 401 mudo no dice de qué lado está el
+  // problema, y con un cron cada 5 minutos eso son horas de adivinar.
+  // El motivo NO revela el secreto, solo qué falta.
+  if (!expected) return { ok: false, reason: 'server_missing_CRON_SECRET' }
+  if (!auth) return { ok: false, reason: 'request_missing_authorization_header' }
+  if (auth === 'Bearer' || auth === 'Bearer ') return { ok: false, reason: 'request_sent_empty_secret' }
+  if (auth !== `Bearer ${expected}`) return { ok: false, reason: 'secret_mismatch' }
+  return { ok: true }
 }
 
 const WINDOW_MIN = 5
@@ -52,8 +59,9 @@ interface DispatchStats {
 }
 
 export async function POST(req: NextRequest) {
-  if (!isAuthed(req)) {
-    return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 })
+  const auth = checkAuth(req)
+  if (!auth.ok) {
+    return NextResponse.json({ ok: false, error: 'unauthorized', reason: auth.reason }, { status: 401 })
   }
 
   const sb = getSupabaseAdmin()
