@@ -30,6 +30,7 @@ import {
   markModifiedIfNotPulling, markSynced, hasUnsyncedChanges,
   getBaseline, setBaseline,
 } from './syncTracking'
+import { mergePrefsByField, changedFields, stampFields, type FieldTimes } from './prefsMerge'
 import { mergeById, reconcileDeletes, mergeSpiSession, mergeProjectionPlan, mergeLabSession, mergeHabit, mergeContentProfile, toMs } from './syncMerge'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
@@ -2584,41 +2585,32 @@ async function pullConcepts(): Promise<boolean> {
 // so that a "collapsed" preference on a laptop doesn't override a "showing"
 // preference on a phone.
 
-/** The subset of appStore that gets synced. Adding a field here = it syncs;
- *  removing it = it stays device-local. */
-type AppPrefsPayload = {
-  language?: import('@/types').Language
-  timezone?: string
-  autoPurgeCompletedTasks?: boolean
-  idealSchedule?: import('@/lib/store/appStore').ScheduleSlot extends infer _ ? Record<string, import('@/lib/store/appStore').ScheduleSlot> : never
-  scheduleOrder?: string[]
-  dayTypes?: import('@/types').DayTypeConfig[]
-  navOrder?: string[]
-  navLabels?: Record<string, string>
-  hiddenNavKeys?: string[]
-  navGroups?: import('@/lib/store/appStore').NavGroup[]
-  navTopOrder?: string[]
-  offerStages?: import('@/lib/store/offersStore').OfferStage[]
-  offerCategories?: import('@/lib/store/offersStore').OfferCategory[]
-  offerGeos?: import('@/lib/store/offersStore').OfferGeo[]
-  onboardingDone?: boolean
-  contenidoTabOrder?: string[]
-  dailyReflectionPrompt?: string
-  aiProvider?: 'off' | 'ollama' | 'anthropic'
-  anthropicApiKey?: string
-  anthropicModel?: string
-  metrics?: import('@/types').MetricEntry
+// La lista de campos sincronizados vive en UNA sola función,
+// `appPrefsFields()`. Antes había además un tipo `AppPrefsPayload` con la
+// misma lista: dos lugares para actualizar, y por lo tanto un lugar para
+// olvidarse. Agregar un campo ahí y solo ahí = se sincroniza.
+
+/** Marcas de edición por campo, en este dispositivo. Viven en localStorage
+ *  porque tienen que sobrevivir a un reload: son la prueba de "yo edité esto".
+ *  Sin ellas, un dispositivo que nunca tocó un campo igual lo pisaba. */
+const PREFS_TIMES_KEY = 'overseer-prefs-field-times'
+
+function readPrefsTimes(): FieldTimes {
+  if (typeof window === 'undefined') return {}
+  try { return JSON.parse(localStorage.getItem(PREFS_TIMES_KEY) || '{}') as FieldTimes } catch { return {} }
+}
+function writePrefsTimes(t: FieldTimes): void {
+  if (typeof window === 'undefined') return
+  try { localStorage.setItem(PREFS_TIMES_KEY, JSON.stringify(t)) } catch { /* QuotaExceeded */ }
 }
 
-async function pushAppPrefs() {
-  if (!state.userId) return
-  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
-  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
-  const syncedAt = new Date().toISOString()
-  const sb = getSupabaseBrowser()
-  const uid = state.userId!
+/** Snapshot de los campos que viajan en el blob. Es la ÚNICA definición:
+ *  la usan el push, el pull y la detección de cambios, así que no se puede
+ *  agregar un campo en un lado y olvidarlo en otro. */
+function appPrefsFields(): Record<string, unknown> {
   const s = useAppStore.getState()
-  const payload: AppPrefsPayload = {
+  const o = useOffersStore.getState()
+  return {
     language: s.language,
     timezone: s.timezone,
     autoPurgeCompletedTasks: s.autoPurgeCompletedTasks,
@@ -2630,9 +2622,9 @@ async function pushAppPrefs() {
     hiddenNavKeys: s.hiddenNavKeys,
     navGroups: s.navGroups,
     navTopOrder: s.navTopOrder,
-    offerStages: useOffersStore.getState().stages,
-    offerCategories: useOffersStore.getState().categories,
-    offerGeos: useOffersStore.getState().geos,
+    offerStages: o.stages,
+    offerCategories: o.categories,
+    offerGeos: o.geos,
     onboardingDone: s.onboardingDone,
     contenidoTabOrder: s.contenidoTabOrder,
     dailyReflectionPrompt: s.dailyReflectionPrompt,
@@ -2641,6 +2633,69 @@ async function pushAppPrefs() {
     anthropicModel: s.anthropicModel,
     metrics: s.metrics,
   }
+}
+
+/** Mientras un merge escribe en los stores, los cambios que eso genera NO son
+ *  ediciones del usuario. Sin esta bandera, recibir datos de otro dispositivo
+ *  se sellaba como "yo edité esto", y ese sello después le ganaba al que sí lo
+ *  había editado — un dispositivo se apropiaba de lo que solo recibió. */
+let applyingPrefs = false
+
+/** Vuelca los campos ya mergeados a los stores. */
+function applyPrefsFields(f: Record<string, unknown>): void {
+  applyingPrefs = true
+  try {
+    applyPrefsFieldsInner(f)
+  } finally {
+    applyingPrefs = false
+    // El baseline queda en el estado ya aplicado: lo próximo que cambie sí es
+    // una edición de verdad.
+    appPrefsSnapshot = appPrefsFields()
+  }
+}
+
+function applyPrefsFieldsInner(f: Record<string, unknown>): void {
+  const { offerStages, offerCategories, offerGeos, ...appFields } = f as Record<string, unknown> & {
+    offerStages?: unknown; offerCategories?: unknown; offerGeos?: unknown
+  }
+  useAppStore.setState((prev) => ({ ...prev, ...appFields }))
+  useOffersStore.setState({
+    ...(Array.isArray(offerStages) && offerStages.length ? { stages: offerStages as never } : {}),
+    ...(Array.isArray(offerCategories) ? { categories: offerCategories as never } : {}),
+    ...(Array.isArray(offerGeos) ? { geos: offerGeos as never } : {}),
+  })
+}
+
+/** Trae el payload remoto separando las marcas de tiempo del resto. */
+async function fetchRemotePrefs(sb: ReturnType<typeof getSupabaseBrowser>, uid: string) {
+  const res = await sb.from('app_preferences').select('payload').eq('user_id', uid).maybeSingle()
+  const raw = (res.data as { payload?: Record<string, unknown> } | null)?.payload
+  if (!raw || typeof raw !== 'object') return { fields: null, times: {} as FieldTimes }
+  const { _t, ...fields } = raw
+  return { fields, times: (_t ?? {}) as FieldTimes }
+}
+
+async function pushAppPrefs() {
+  if (!state.userId) return
+  // Momento del snapshot: lo que se edite DURANTE el vuelo del push queda
+  // con lastModified > syncedAt → sigue contando como unsynced (no se pierde).
+  const syncedAt = new Date().toISOString()
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const s = useAppStore.getState()
+
+  // Merge POR CAMPO contra lo que hay en el server: gana el que editó más
+  // recientemente cada campo. Un dispositivo que nunca tocó un campo no tiene
+  // marca para él y por lo tanto no lo pisa. Ver prefsMerge.ts.
+  const remote = await fetchRemotePrefs(sb, uid)
+  const localTimes = readPrefsTimes()
+  const { merged, times } = mergePrefsByField(appPrefsFields(), localTimes, remote.fields, remote.times)
+  // Lo mergeado se aplica también localmente: si el server tenía algo más
+  // nuevo, este dispositivo se queda con eso en vez de divergir.
+  applyPrefsFields(merged)
+  writePrefsTimes(times)
+  const payload = { ...merged, _t: times }
+
   // Piggyback al sync de prefs: ALSO actualizamos `user_settings` que es
   // la tabla que lee el dispatcher de notificaciones del lado server.
   //
@@ -2675,25 +2730,8 @@ async function pushAppPrefs() {
     if (r.error) console.warn('[user_settings sync from pushAppPrefs] failed:', r.error.message)
   })
 
-  // MERGE en vez de pisar el blob entero.
-  //
-  // `app_preferences` es una fila única con un payload JSON: el upsert
-  // reemplaza TODO. Si un dispositivo corre una versión más vieja de la app,
-  // arma el payload sin los campos que todavía no conoce (las carpetas del
-  // sidebar, por ejemplo) y al pushear se los borra al resto — no es que "no
-  // se actualiza": los hace desaparecer también en el dispositivo que sí los
-  // tenía.
-  //
-  // Leyendo lo que hay y mergeando encima, un cliente solo pisa las claves
-  // que efectivamente conoce y deja intactas las que no.
-  const prev = await sb.from('app_preferences').select('payload').eq('user_id', uid).maybeSingle()
-  const prevPayload = (prev.data as { payload?: Record<string, unknown> } | null)?.payload
-  const merged = prevPayload && typeof prevPayload === 'object'
-    ? { ...prevPayload, ...payload }
-    : payload
-
   const r = await sb.from('app_preferences').upsert(
-    { user_id: uid, payload: merged, updated_at: new Date().toISOString() },
+    { user_id: uid, payload, updated_at: new Date().toISOString() },
     { onConflict: 'user_id' },
   )
   if (r.error) {
@@ -2712,40 +2750,17 @@ async function pullAppPrefs(): Promise<boolean> {
   const res = await sb.from('app_preferences').select('*').eq('user_id', uid).maybeSingle()
   if (res.error) { console.error('App prefs pull failed', res.error); return false }
   if (!res.data) { markSynced('appPrefs'); return false }
-  const p = ((res.data as { payload: unknown }).payload ?? {}) as AppPrefsPayload
-  // Merge: only overwrite fields actually present in the remote payload.
-  // Anything missing stays at the local/default value — important for
-  // forward/backward compat as we evolve the payload shape.
-  useAppStore.setState((prev) => ({
-    ...prev,
-    ...(p.language !== undefined ? { language: p.language } : {}),
-    ...(p.timezone !== undefined ? { timezone: p.timezone } : {}),
-    ...(p.autoPurgeCompletedTasks !== undefined ? { autoPurgeCompletedTasks: p.autoPurgeCompletedTasks } : {}),
-    ...(p.idealSchedule !== undefined ? { idealSchedule: p.idealSchedule } : {}),
-    ...(p.scheduleOrder !== undefined ? { scheduleOrder: p.scheduleOrder } : {}),
-    ...(p.dayTypes !== undefined ? { dayTypes: p.dayTypes } : {}),
-    ...(p.navOrder !== undefined ? { navOrder: p.navOrder } : {}),
-    ...(p.navLabels !== undefined ? { navLabels: p.navLabels } : {}),
-    ...(p.hiddenNavKeys !== undefined ? { hiddenNavKeys: p.hiddenNavKeys } : {}),
-    ...(p.navGroups !== undefined ? { navGroups: p.navGroups } : {}),
-    ...(p.navTopOrder !== undefined ? { navTopOrder: p.navTopOrder } : {}),
-    ...(p.onboardingDone !== undefined ? { onboardingDone: p.onboardingDone } : {}),
-    ...(p.contenidoTabOrder !== undefined ? { contenidoTabOrder: p.contenidoTabOrder } : {}),
-    ...(p.dailyReflectionPrompt !== undefined ? { dailyReflectionPrompt: p.dailyReflectionPrompt } : {}),
-    ...(p.aiProvider !== undefined ? { aiProvider: p.aiProvider } : {}),
-    ...(p.anthropicApiKey !== undefined ? { anthropicApiKey: p.anthropicApiKey } : {}),
-    ...(p.anthropicModel !== undefined ? { anthropicModel: p.anthropicModel } : {}),
-    ...(p.metrics !== undefined ? { metrics: p.metrics } : {}),
-  }))
-  // Catálogos del CRM de ofertas — viven en este blob porque son listas
-  // cortas compartidas por todos los sistemas; no ameritan tabla propia.
-  if (p.offerStages || p.offerCategories || p.offerGeos) {
-    useOffersStore.setState({
-      ...(p.offerStages?.length ? { stages: p.offerStages } : {}),
-      ...(p.offerCategories ? { categories: p.offerCategories } : {}),
-      ...(p.offerGeos ? { geos: p.offerGeos } : {}),
-    })
-  }
+  // Mismo merge POR CAMPO que el push: el remoto solo pisa un campo si se
+  // editó allá DESPUÉS que acá. Así traer datos de otro dispositivo nunca
+  // borra una edición local más reciente.
+  const raw = ((res.data as { payload: unknown }).payload ?? {}) as Record<string, unknown>
+  const { _t, ...remoteFields } = raw
+  const { merged, times } = mergePrefsByField(
+    appPrefsFields(), readPrefsTimes(), remoteFields, (_t ?? {}) as FieldTimes,
+  )
+  applyPrefsFields(merged)
+  writePrefsTimes(times)
+
   markSynced('appPrefs')
   return true
   } finally {
@@ -3626,39 +3641,33 @@ function scheduleAppPrefs()   { schedule(appPrefsPushTimer,   pushAppPrefs,   (t
 // ANTES de pullear → le pisa al servidor los cambios hechos en otro
 // dispositivo. Renombrás una sección en la compu, abrís el celu, navegás, y el
 // celu re-sube sus navLabels viejos: el rename se pierde.
-type AppPrefsSnapshot = ReturnType<typeof useAppStore.getState>
 
 /** Huella de los campos que SÍ se suben: el payload de app_preferences más
  *  notificationPrefs (que pushAppPrefs espeja en user_settings). Si agregás un
  *  campo a AppPrefsPayload, agregalo también acá o no va a disparar push. */
-function appPrefsFingerprint(s: AppPrefsSnapshot): string {
-  return JSON.stringify([
-    s.language, s.timezone, s.autoPurgeCompletedTasks, s.idealSchedule,
-    s.scheduleOrder, s.dayTypes, s.navOrder, s.navLabels, s.contenidoTabOrder,
-    s.dailyReflectionPrompt, s.aiProvider, s.anthropicApiKey, s.anthropicModel,
-    s.hiddenNavKeys, s.onboardingDone, s.navGroups, s.navTopOrder,
-    // Catálogos del CRM: viajan en este blob, así que un cambio de etapa o
-    // categoría tiene que ensuciar appPrefs o no se sube nunca.
-    useOffersStore.getState().stages,
-    useOffersStore.getState().categories,
-    useOffersStore.getState().geos,
-    s.metrics, s.notificationPrefs,
-  ])
-}
-
-// null = todavía no hay baseline (pre-hidratación del persist).
-let appPrefsFp: string | null = null
+// Snapshot del último estado conocido de los campos sincronizados, para
+// saber CUÁLES cambiaron y sellar solo esos. null = todavía sin baseline.
+let appPrefsSnapshot: Record<string, unknown> | null = null
 
 function onAppPrefsChange() {
-  const fp = appPrefsFingerprint(useAppStore.getState())
+  const next = appPrefsFields()
   // Primer fire (rehidratación del persist): fijamos baseline sin marcar
   // sucio — recuperar lo que ya estaba guardado no es una edición del usuario.
-  if (appPrefsFp === null) { appPrefsFp = fp; return }
-  if (fp === appPrefsFp) return  // solo cambió estado efímero → no tocar sync
-  appPrefsFp = fp
+  if (appPrefsSnapshot === null) { appPrefsSnapshot = next; return }
+  // Cambio provocado por un merge, no por el usuario: se actualiza el
+  // baseline y no se sella nada.
+  if (applyingPrefs) { appPrefsSnapshot = next; return }
+  const changed = changedFields(appPrefsSnapshot, next)
+  if (changed.length === 0) return  // solo cambió estado efímero → no tocar sync
+  appPrefsSnapshot = next
+  // Sellar QUÉ campos se editaron acá. Esta marca es lo que después le gana
+  // (o le cede) al otro dispositivo en el merge. Sin esto, un dispositivo que
+  // nunca tocó un campo igual lo pisaba: así se borraron las carpetas.
+  writePrefsTimes(stampFields(readPrefsTimes(), changed))
   markModifiedIfNotPulling('appPrefs')
   if (state.userId) scheduleAppPrefs()
 }
+
 function scheduleMindMaps()   { schedule(mindmapPushTimer,    pushMindMaps,   (t) => { mindmapPushTimer = t }) }
 function scheduleKpis()       { schedule(kpisPushTimer,       pushKpis,       (t) => { kpisPushTimer = t }) }
 function scheduleStudy()      { schedule(studyPushTimer,      pushStudy,      (t) => { studyPushTimer = t }) }
@@ -4029,12 +4038,16 @@ export function useSupabaseSync() {
       useSPIStore.subscribe(() => { markModifiedIfNotPulling('spi'); if (state.userId) scheduleSPI() })
       useProjectionStore.subscribe(() => { markModifiedIfNotPulling('projection'); if (state.userId) scheduleProjection() })
       useLabStore.subscribe(() => { markModifiedIfNotPulling('lab'); if (state.userId) scheduleLab() })
-      // appPrefs NO usa el patrón de arriba: filtra por huella de los campos
-      // sincronizados (ver onAppPrefsChange) para que el estado efímero de UI
-      // no ensucie el dominio y termine pisando al otro dispositivo.
-      if (useAppStore.persist.hasHydrated()) appPrefsFp = appPrefsFingerprint(useAppStore.getState())
-      else useAppStore.persist.onFinishHydration(() => { appPrefsFp = appPrefsFingerprint(useAppStore.getState()) })
+      // appPrefs NO usa el patrón de arriba: compara campo por campo (ver
+      // onAppPrefsChange) para que el estado efímero de UI no ensucie el
+      // dominio, y para sellar QUÉ se editó y no solo que hubo un cambio.
+      const seedPrefsBaseline = () => { appPrefsSnapshot = appPrefsFields() }
+      if (useAppStore.persist.hasHydrated()) seedPrefsBaseline()
+      else useAppStore.persist.onFinishHydration(seedPrefsBaseline)
       useAppStore.subscribe(onAppPrefsChange)
+      // Los catálogos del CRM viven en el mismo blob: si cambian, hay que
+      // sellar el campo igual que con cualquier otra pref.
+      useOffersStore.subscribe(onAppPrefsChange)
       useMindMapStore.subscribe(() => { markModifiedIfNotPulling('mindmaps'); if (state.userId) scheduleMindMaps() })
       useKpisStore.subscribe(() => { markModifiedIfNotPulling('kpis'); if (state.userId) scheduleKpis() })
       useStudyStore.subscribe(() => { markModifiedIfNotPulling('study'); if (state.userId) scheduleStudy() })
@@ -4043,13 +4056,7 @@ export function useSupabaseSync() {
       useJournalStore.subscribe(() => { markModifiedIfNotPulling('journal'); if (state.userId) scheduleJournal() })
       useMeditationsStore.subscribe(() => { markModifiedIfNotPulling('meditations'); if (state.userId) scheduleMeditations() })
       useYoutubeStore.subscribe(() => { markModifiedIfNotPulling('youtube'); if (state.userId) scheduleYoutube() })
-      useOffersStore.subscribe(() => {
-        markModifiedIfNotPulling('offers')
-        if (state.userId) scheduleOffers()
-        // Los catálogos (etapas/categorías/GEOs) viven en el blob de
-        // appPrefs, así que tocarlos también tiene que ensuciar ESE dominio.
-        onAppPrefsChange()
-      })
+      useOffersStore.subscribe(() => { markModifiedIfNotPulling('offers'); if (state.userId) scheduleOffers() })
       useFavoritesStore.subscribe(() => { markModifiedIfNotPulling('favorites'); if (state.userId) scheduleFavorites() })
       useConceptStore.subscribe(() => { markModifiedIfNotPulling('concepts'); if (state.userId) scheduleConcepts() })
     }
