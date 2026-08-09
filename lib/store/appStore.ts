@@ -214,6 +214,16 @@ export interface AppState {
   /** Borra la carpeta. Sus secciones NO se pierden: vuelven a quedar sueltas. */
   removeNavGroup: (id: string) => void
   toggleNavGroup: (id: string) => void
+  /** Orden del PRIMER NIVEL del menú, mezclando secciones sueltas y carpetas
+   *  en una sola secuencia. Cada token es `k:<clave>` (sección suelta) o
+   *  `g:<id>` (carpeta), así se pueden intercalar en cualquier orden.
+   *  Vacío = orden por defecto: primero lo suelto, después las carpetas. */
+  navTopOrder: string[]
+  setNavTopOrder: (tokens: string[]) => void
+  /** Reordena una sección DENTRO de su carpeta. */
+  moveKeyInGroup: (groupId: string, key: string, dir: -1 | 1) => void
+  /** Fija el orden completo de las secciones de una carpeta (usado al soltar). */
+  setNavGroupKeys: (groupId: string, keys: string[]) => void
   /** Mueve una sección a una carpeta. `groupId` null = sacarla de todas. */
   setNavItemGroup: (key: string, groupId: string | null) => void
   moveNavGroup: (id: string, dir: -1 | 1) => void
@@ -404,6 +414,22 @@ export const useAppStore = create<AppState>()(
       // Cuenta nueva = sidebar mínimo. El migrate de abajo se encarga de que
       // a una cuenta YA EXISTENTE no se le desaparezcan las secciones.
       navGroups: [],
+      navTopOrder: [],
+      setNavTopOrder: (tokens) => set({ navTopOrder: tokens }),
+      setNavGroupKeys: (groupId, keys) => set((s) => ({
+        navGroups: s.navGroups.map((g) => g.id !== groupId ? g : { ...g, keys }),
+      })),
+      moveKeyInGroup: (groupId, key, dir) => set((s) => ({
+        navGroups: s.navGroups.map((g) => {
+          if (g.id !== groupId) return g
+          const keys = [...g.keys]
+          const i = keys.indexOf(key)
+          const j = i + dir
+          if (i < 0 || j < 0 || j >= keys.length) return g
+          ;[keys[i], keys[j]] = [keys[j], keys[i]]
+          return { ...g, keys }
+        }),
+      })),
       addNavGroup: (name) => {
         const id = `g_${Math.random().toString(36).slice(2, 9)}`
         set((s) => ({
@@ -496,12 +522,13 @@ export const useAppStore = create<AppState>()(
         // onboarding por visto: ya conoce la app.
         const hiddenNavKeys = Array.isArray(p.hiddenNavKeys) ? p.hiddenNavKeys : []
         const navGroups = Array.isArray(p.navGroups) ? p.navGroups : []
+        const navTopOrder = Array.isArray(p.navTopOrder) ? p.navTopOrder : []
         const onboardingDone = typeof p.onboardingDone === 'boolean' ? p.onboardingDone : true
         return {
           ...p,
           idealSchedule: sched, scheduleOrder: order, dayTypes,
           timezone, autoPurgeCompletedTasks, theme, themeColors,
-          hiddenNavKeys, onboardingDone, navGroups,
+          hiddenNavKeys, onboardingDone, navGroups, navTopOrder,
         } as AppState
       },
       version: 6,

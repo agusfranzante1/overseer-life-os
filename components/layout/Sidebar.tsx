@@ -60,7 +60,7 @@ export function Sidebar({
   mobileOpen?: boolean
   onMobileClose?: () => void
 } = {}) {
-  const { sidebarCollapsed, toggleSidebar, language, setLanguage, navOrder, setNavOrder, navLabels, setNavLabel, theme, toggleTheme, hiddenNavKeys, hideNavItem, showNavItem, navGroups, addNavGroup, renameNavGroup, removeNavGroup, toggleNavGroup, setNavItemGroup, moveNavGroup } = useAppStore()
+  const { sidebarCollapsed, toggleSidebar, language, setLanguage, navOrder, setNavOrder, navLabels, setNavLabel, theme, toggleTheme, hiddenNavKeys, hideNavItem, showNavItem, navGroups, addNavGroup, renameNavGroup, removeNavGroup, toggleNavGroup, setNavItemGroup, navTopOrder, setNavTopOrder, moveKeyInGroup, setNavGroupKeys } = useAppStore()
   const { t } = useTranslation()
   const pathname = usePathname()
   const router = useRouter()
@@ -193,34 +193,60 @@ export function Sidebar({
    *  arriba porque son el índice — uno crea "NEGOCIOS" para encontrar sus
    *  cosas de una, no para tenerlas al fondo. */
   type NavEntry =
-    | { kind: 'group'; group: (typeof navGroups)[number]; count: number }
-    | { kind: 'item'; item: NavItem; inGroup: boolean }
-    | { kind: 'divider' }
+    | { kind: 'group'; group: (typeof navGroups)[number]; count: number; token: string }
+    | { kind: 'item'; item: NavItem; inGroup: boolean; token: string; groupId?: string }
+  /** Secuencia de PRIMER NIVEL: mezcla secciones sueltas y carpetas en un solo
+   *  orden reordenable. Se parte de lo guardado, se descarta lo que ya no
+   *  existe, y lo que falta se agrega al final — sueltas primero y carpetas
+   *  después, que es el orden por defecto. */
+  const topTokens = useMemo(() => {
+    const grouped = new Set((navGroups ?? []).flatMap((g) => g.keys))
+    const looseKeys = orderedNav.filter((n) => !grouped.has(n.key)).map((n) => n.key)
+    const groupIds = new Set((navGroups ?? []).map((g) => g.id))
+    const isValid = (t: string) =>
+      t.startsWith('g:') ? groupIds.has(t.slice(2)) : looseKeys.includes(t.slice(2))
+    const saved = (navTopOrder ?? []).filter(isValid)
+    const seen = new Set(saved)
+    const missing = [
+      ...looseKeys.map((k) => `k:${k}`),
+      ...[...(navGroups ?? [])].sort((a, b) => a.order - b.order).map((g) => `g:${g.id}`),
+    ].filter((t) => !seen.has(t))
+    return [...saved, ...missing]
+  }, [orderedNav, navGroups, navTopOrder])
+
+  /** Mueve un token (sección suelta o carpeta) dentro del primer nivel. */
+  const moveToken = (token: string, dir: -1 | 1) => {
+    const next = [...topTokens]
+    const i = next.indexOf(token)
+    const j = i + dir
+    if (i < 0 || j < 0 || j >= next.length) return
+    ;[next[i], next[j]] = [next[j], next[i]]
+    setNavTopOrder(next)
+  }
+
   const navRenderList = useMemo<NavEntry[]>(() => {
     const byKey = new Map(orderedNav.map((n) => [n.key, n]))
-    const used = new Set<string>()
+    const groupById = new Map((navGroups ?? []).map((g) => [g.id, g]))
     const out: NavEntry[] = []
-    for (const g of [...(navGroups ?? [])].sort((a, b) => a.order - b.order)) {
-      const items = g.keys.map((k) => byKey.get(k)).filter(Boolean) as NavItem[]
-      // Una carpeta vacía solo se muestra en modo edición: si no, quedaría un
-      // título suelto sin nada abajo.
-      if (items.length === 0 && !editMode) { continue }
-      out.push({ kind: 'group', group: g, count: items.length })
-      // Colapsada igual marca sus items como usados, para que no reaparezcan
-      // sueltos abajo.
-      for (const it of items) {
-        used.add(it.key)
-        if (!g.collapsed) out.push({ kind: 'item', item: it, inGroup: true })
+    for (const token of topTokens) {
+      if (token.startsWith('g:')) {
+        const g = groupById.get(token.slice(2))
+        if (!g) continue
+        const items = g.keys.map((k) => byKey.get(k)).filter(Boolean) as NavItem[]
+        // Una carpeta vacía solo se muestra en modo edición: si no, quedaría
+        // un título suelto sin nada abajo.
+        if (items.length === 0 && !editMode) continue
+        out.push({ kind: 'group', group: g, count: items.length, token })
+        if (!g.collapsed) {
+          for (const it of items) out.push({ kind: 'item', item: it, inGroup: true, groupId: g.id, token })
+        }
+        continue
       }
+      const it = byKey.get(token.slice(2))
+      if (it) out.push({ kind: 'item', item: it, inGroup: false, token })
     }
-    const loose = orderedNav.filter((it) => !used.has(it.key))
-    // Separador antes de lo suelto: si la última carpeta está contraída, sus
-    // ítems no se dibujan y los sueltos quedan pegados abajo del título,
-    // pareciendo que están adentro.
-    if (loose.length > 0 && out.length > 0) out.push({ kind: 'divider' })
-    for (const it of loose) out.push({ kind: 'item', item: it, inGroup: false })
     return out
-  }, [orderedNav, navGroups, editMode])
+  }, [orderedNav, navGroups, editMode, topTokens])
 
   /** Secciones sacadas, para el menú de "agregar" del modo edición. */
   const hiddenNavItems = useMemo(() => {
@@ -240,37 +266,38 @@ export function Sidebar({
     e.dataTransfer.dropEffect = 'move'
     if (overKey !== key) setOverKey(key)
   }
+  /** Soltar una sección sobre otra.
+   *
+   *  Trabaja sobre el MISMO modelo que las flechitas (primer nivel + orden
+   *  interno de cada carpeta). Antes escribía `navOrder`, que ya no manda en
+   *  el orden visible: arrastrar parecía no hacer nada.
+   *
+   *  Si soltás sobre una sección que está en una carpeta, la sección
+   *  arrastrada ENTRA a esa carpeta en esa posición. Si soltás sobre una
+   *  suelta, sale de la carpeta en la que estuviera. */
   const onDrop = (targetKey: string) => (e: React.DragEvent) => {
     e.preventDefault()
     const src = draggedRef.current
     if (!src || src === targetKey) { resetDrag(); return }
-    const currentOrder = orderedNav.map((n) => n.key)
-    const next = currentOrder.filter((k) => k !== src)
-    const idx = next.indexOf(targetKey)
-    next.splice(idx, 0, src)
-    setNavOrder(next)
+    const targetGroup = (navGroups ?? []).find((g) => g.keys.includes(targetKey)) ?? null
+
+    setNavItemGroup(src, targetGroup?.id ?? null)
+    if (targetGroup) {
+      const keys = targetGroup.keys.filter((k) => k !== src)
+      keys.splice(Math.max(0, keys.indexOf(targetKey)), 0, src)
+      setNavGroupKeys(targetGroup.id, keys)
+    } else {
+      const tokens = topTokens.filter((t) => t !== `k:${src}`)
+      const at = tokens.indexOf(`k:${targetKey}`)
+      tokens.splice(at < 0 ? tokens.length : at, 0, `k:${src}`)
+      setNavTopOrder(tokens)
+    }
     resetDrag()
   }
   const resetDrag = () => {
     draggedRef.current = null
     setDragKey(null)
     setOverKey(null)
-  }
-
-  /** Move an item one slot up or down. Used by the tap-arrow buttons —
-   *  the touch-friendly alternative to HTML5 drag-and-drop (which doesn't
-   *  work on mobile browsers). Snapshots the CURRENT visible order from
-   *  `orderedNav` so the move is correct even if the user hasn't fully
-   *  customized navOrder yet. */
-  const moveItem = (key: string, direction: -1 | 1) => {
-    const currentOrder = orderedNav.map((n) => n.key)
-    const idx = currentOrder.indexOf(key)
-    if (idx === -1) return
-    const targetIdx = idx + direction
-    if (targetIdx < 0 || targetIdx >= currentOrder.length) return
-    const next = [...currentOrder]
-    ;[next[idx], next[targetIdx]] = [next[targetIdx], next[idx]]
-    setNavOrder(next)
   }
 
   // ── Width: collapsed = icon rail (64px), expanded = full (220px).
@@ -403,10 +430,7 @@ export function Sidebar({
 
       {/* Nav */}
       <nav className="flex-1 py-2 space-y-0.5 overflow-y-auto px-3">
-        {navRenderList.map((entry, entryIdx) => {
-          if (entry.kind === 'divider') {
-            return <div key={`div-${entryIdx}`} className="my-2 mx-1 border-t border-zinc-800/70" />
-          }
+        {navRenderList.map((entry) => {
           if (entry.kind === 'group') {
             const g = entry.group
             return (
@@ -418,7 +442,7 @@ export function Sidebar({
                 editMode={editMode}
                 onToggle={() => toggleNavGroup(g.id)}
                 onRename={(n) => renameNavGroup(g.id, n)}
-                onMove={(d) => moveNavGroup(g.id, d)}
+                onMove={(d) => moveToken(entry.token, d)}
                 onDelete={() => {
                   if (confirm(`¿Borrar la carpeta "${g.name}"?
 
@@ -431,12 +455,22 @@ Las secciones que tiene adentro NO se borran: vuelven a quedar sueltas en el men
           }
           const { href, icon: Icon, key } = entry.item
           const inGroup = entry.inGroup
-          const idx = orderedNav.findIndex((n) => n.key === key)
           const active = pathname === href || (href === '/dashboard' && pathname === '/')
           const isDragging = dragKey === key
           const isOver = overKey === key && dragKey !== key
-          const isFirst = idx === 0
-          const isLast = idx === orderedNav.length - 1
+          // Dentro de una carpeta las flechas reordenan ENTRE HERMANOS de esa
+          // carpeta; sueltas, mueven la sección en el primer nivel (donde
+          // conviven con las carpetas y se pueden intercalar).
+          const siblings = entry.groupId
+            ? (navGroups.find((g) => g.id === entry.groupId)?.keys ?? [])
+            : topTokens
+          const myPos = entry.groupId ? siblings.indexOf(key) : siblings.indexOf(entry.token)
+          const isFirst = myPos <= 0
+          const isLast = myPos < 0 || myPos === siblings.length - 1
+          const moveMe = (dir: -1 | 1) => {
+            if (entry.groupId) moveKeyInGroup(entry.groupId, key, dir)
+            else moveToken(entry.token, dir)
+          }
 
           // Edit mode (only when labels are visible): render as draggable div
           // PLUS up/down arrow buttons. HTML5 drag-and-drop ONLY works on
@@ -535,7 +569,7 @@ Las secciones que tiene adentro NO se borran: vuelven a quedar sueltas en el men
                       <button
                         type="button"
                         disabled={isFirst}
-                        onClick={(e) => { e.stopPropagation(); moveItem(key, -1) }}
+                        onClick={(e) => { e.stopPropagation(); moveMe(-1) }}
                         onPointerDown={(e) => e.stopPropagation()}
                         title="Subir"
                         className="w-5 h-3.5 rounded flex items-center justify-center text-zinc-500 hover:text-indigo-300 hover:bg-zinc-800 active:bg-zinc-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
@@ -545,7 +579,7 @@ Las secciones que tiene adentro NO se borran: vuelven a quedar sueltas en el men
                       <button
                         type="button"
                         disabled={isLast}
-                        onClick={(e) => { e.stopPropagation(); moveItem(key, 1) }}
+                        onClick={(e) => { e.stopPropagation(); moveMe(1) }}
                         onPointerDown={(e) => e.stopPropagation()}
                         title="Bajar"
                         className="w-5 h-3.5 rounded flex items-center justify-center text-zinc-500 hover:text-indigo-300 hover:bg-zinc-800 active:bg-zinc-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
