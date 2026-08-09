@@ -218,6 +218,13 @@ export interface AppState {
    *  en una sola secuencia. Cada token es `k:<clave>` (sección suelta) o
    *  `g:<id>` (carpeta), así se pueden intercalar en cualquier orden.
    *  Vacío = orden por defecto: primero lo suelto, después las carpetas. */
+  /** Billeteras: lista colapsada y saldos ocultos. Se sincronizan como
+   *  cualquier otra preferencia — si ocultás los saldos en la compu, quedan
+   *  ocultos también en el celu. */
+  walletsCollapsed: boolean
+  toggleWalletsCollapsed: () => void
+  hideBalances: boolean
+  toggleHideBalances: () => void
   navTopOrder: string[]
   setNavTopOrder: (tokens: string[]) => void
   /** Reordena una sección DENTRO de su carpeta. */
@@ -414,6 +421,10 @@ export const useAppStore = create<AppState>()(
       // Cuenta nueva = sidebar mínimo. El migrate de abajo se encarga de que
       // a una cuenta YA EXISTENTE no se le desaparezcan las secciones.
       navGroups: [],
+      walletsCollapsed: false,
+      toggleWalletsCollapsed: () => set((s) => ({ walletsCollapsed: !s.walletsCollapsed })),
+      hideBalances: false,
+      toggleHideBalances: () => set((s) => ({ hideBalances: !s.hideBalances })),
       navTopOrder: [],
       setNavTopOrder: (tokens) => set({ navTopOrder: tokens }),
       setNavGroupKeys: (groupId, keys) => set((s) => ({

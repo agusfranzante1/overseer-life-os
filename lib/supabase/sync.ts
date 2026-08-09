@@ -2622,6 +2622,8 @@ function appPrefsFields(): Record<string, unknown> {
     hiddenNavKeys: s.hiddenNavKeys,
     navGroups: s.navGroups,
     navTopOrder: s.navTopOrder,
+    walletsCollapsed: s.walletsCollapsed,
+    hideBalances: s.hideBalances,
     offerStages: o.stages,
     offerCategories: o.categories,
     offerGeos: o.geos,

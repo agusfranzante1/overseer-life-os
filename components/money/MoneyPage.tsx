@@ -3,7 +3,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Wallet as WalletIcon, Plus, Trash2, ArrowLeftRight, TrendingUp, TrendingDown,
-  X, History, ChevronDown, ChevronUp, Settings, Check,
+  X, History, ChevronDown, ChevronUp, Settings, Check, Eye, EyeOff,
   Undo2, RotateCcw, AlertTriangle, Archive, Repeat, Pause, Play, Pencil,
 } from 'lucide-react'
 import {
@@ -11,12 +11,22 @@ import {
   Currency, Wallet, DEFAULT_CURRENCIES, type RecurringExpense,
 } from '@/lib/store/walletStore'
 import { useTranslation } from '@/hooks/useTranslation'
+import { useAppStore } from '@/lib/store/appStore'
 
 const MONTHS = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC']
 const WALLET_COLORS = ['#10b981','#6366f1','#f59e0b','#ef4444','#3b82f6','#ec4899','#f97316','#8b5cf6','#14b8a6','#64748b','#003087','#009ee3']
 const WALLET_ICONS  = ['💵','💶','💷','💴','🟡','🔵','💙','📈','🏦','💳','💰','🏧','🪙','💎']
 
 function fmt(n: number, sym = '') {
+  // El ojito de "ocultar saldos" se aplica ACÁ, en el único formateador de
+  // importes de la pantalla. Enmascarar sitio por sitio dejaba afuera los
+  // ingresos/egresos, la tabla mensual y la lista de movimientos — o sea que
+  // el saldo se deducía igual. Con un solo punto de paso no se escapa ninguno.
+  //
+  // La lectura no es reactiva a propósito: el toggle vive en MoneyPage, que al
+  // cambiar re-renderiza todo su árbol. Alcanza, y evita meter un hook en cada
+  // componente que muestre plata.
+  if (useAppStore.getState().hideBalances) return `${sym}••••`
   return `${sym}${Math.abs(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
@@ -1495,6 +1505,8 @@ function DeletedWalletsHistory() {
 
 // ─── MoneyPage (main) ─────────────────────────────────────────────────────────
 export function MoneyPage() {
+  // Preferencias de la vista de billeteras (sincronizadas).
+  const { walletsCollapsed, toggleWalletsCollapsed, hideBalances, toggleHideBalances } = useAppStore()
   const { t } = useTranslation()
   const { wallets, currencies, removeWallet, restoreWallet, processRecurringExpenses } = useWalletStore()
   const [selectedWalletId, setSelectedWalletId] = useState(wallets[0]?.id ?? '')
@@ -1641,10 +1653,29 @@ export function MoneyPage() {
 
       {/* Wallet Grid */}
       <div>
-        <p className="text-[10px] font-mono font-semibold uppercase tracking-[0.25em] text-zinc-500 mb-4">
-          Mis billeteras
-        </p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+        <div className="flex items-center gap-2 mb-4">
+          <button
+            onClick={toggleWalletsCollapsed}
+            title={walletsCollapsed ? 'Mostrar billeteras' : 'Contraer billeteras'}
+            className="flex items-center gap-2 text-[10px] font-mono font-semibold uppercase tracking-[0.25em] text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${walletsCollapsed ? '-rotate-90' : ''}`} />
+            Mis billeteras
+            <span className="tabular-nums text-zinc-600">{wallets.length}</span>
+          </button>
+          {/* Ojito — oculta TODOS los importes de la pantalla, para poder
+              abrir la sección con alguien mirando. */}
+          <button
+            onClick={toggleHideBalances}
+            title={hideBalances ? 'Mostrar saldos' : 'Ocultar saldos'}
+            className={`ml-auto p-1.5 rounded-lg transition-colors ${
+              hideBalances ? 'text-amber-400 bg-amber-500/10' : 'text-zinc-600 hover:text-zinc-300 hover:bg-white/[0.05]'
+            }`}
+          >
+            {hideBalances ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+          </button>
+        </div>
+        <div className={`${walletsCollapsed ? 'hidden' : 'grid'} grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3`}>
           {wallets.map(w => (
             <WalletCard key={w.id} wallet={w} selected={selectedWalletId === w.id}
               onClick={() => setSelectedWalletId(w.id)}
