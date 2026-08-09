@@ -10,7 +10,7 @@ import {
   TrendingUp, GripVertical, Check, RotateCcw, Settings2, Cog, LogOut,
   Clock, Search, X as XIcon, Infinity as InfinityIcon, Telescope, FlaskConical,
   Network, ChevronUp, ChevronDown, ChevronRight, Target, GraduationCap, Sparkles,
-  Sun, Moon, NotebookPen, Wind, Pencil, SquarePlay, Rocket,
+  Sun, Moon, NotebookPen, Wind, Pencil, SquarePlay, Rocket, FolderPlus,
 } from 'lucide-react'
 import { SidebarLinks } from './SidebarLinks'
 import { listTimezones, formatTzOffset, detectTimezone } from '@/lib/utils/dateInTz'
@@ -60,7 +60,7 @@ export function Sidebar({
   mobileOpen?: boolean
   onMobileClose?: () => void
 } = {}) {
-  const { sidebarCollapsed, toggleSidebar, language, setLanguage, navOrder, setNavOrder, navLabels, setNavLabel, theme, toggleTheme, hiddenNavKeys, hideNavItem, showNavItem } = useAppStore()
+  const { sidebarCollapsed, toggleSidebar, language, setLanguage, navOrder, setNavOrder, navLabels, setNavLabel, theme, toggleTheme, hiddenNavKeys, hideNavItem, showNavItem, navGroups, addNavGroup, renameNavGroup, removeNavGroup, toggleNavGroup, setNavItemGroup, moveNavGroup } = useAppStore()
   const { t } = useTranslation()
   const pathname = usePathname()
   const router = useRouter()
@@ -182,6 +182,40 @@ export function Sidebar({
     const hidden = new Set(hiddenNavKeys ?? [])
     return result.filter((item) => !hidden.has(item.key) || isCoreNavKey(item.key))
   }, [navOrder, hiddenNavKeys])
+
+  /** Lo que se dibuja en el nav: primero las carpetas con sus secciones
+   *  adentro, y al final las que no están en ninguna. Las carpetas van
+   *  arriba porque son el índice — uno crea "NEGOCIOS" para encontrar sus
+   *  cosas de una, no para tenerlas al fondo. */
+  type NavEntry =
+    | { kind: 'group'; group: (typeof navGroups)[number]; count: number }
+    | { kind: 'item'; item: NavItem; inGroup: boolean }
+    | { kind: 'divider' }
+  const navRenderList = useMemo<NavEntry[]>(() => {
+    const byKey = new Map(orderedNav.map((n) => [n.key, n]))
+    const used = new Set<string>()
+    const out: NavEntry[] = []
+    for (const g of [...(navGroups ?? [])].sort((a, b) => a.order - b.order)) {
+      const items = g.keys.map((k) => byKey.get(k)).filter(Boolean) as NavItem[]
+      // Una carpeta vacía solo se muestra en modo edición: si no, quedaría un
+      // título suelto sin nada abajo.
+      if (items.length === 0 && !editMode) { continue }
+      out.push({ kind: 'group', group: g, count: items.length })
+      // Colapsada igual marca sus items como usados, para que no reaparezcan
+      // sueltos abajo.
+      for (const it of items) {
+        used.add(it.key)
+        if (!g.collapsed) out.push({ kind: 'item', item: it, inGroup: true })
+      }
+    }
+    const loose = orderedNav.filter((it) => !used.has(it.key))
+    // Separador antes de lo suelto: si la última carpeta está contraída, sus
+    // ítems no se dibujan y los sueltos quedan pegados abajo del título,
+    // pareciendo que están adentro.
+    if (loose.length > 0 && out.length > 0) out.push({ kind: 'divider' })
+    for (const it of loose) out.push({ kind: 'item', item: it, inGroup: false })
+    return out
+  }, [orderedNav, navGroups, editMode])
 
   /** Secciones sacadas, para el menú de "agregar" del modo edición. */
   const hiddenNavItems = useMemo(() => {
@@ -364,7 +398,35 @@ export function Sidebar({
 
       {/* Nav */}
       <nav className="flex-1 py-2 space-y-0.5 overflow-y-auto px-3">
-        {orderedNav.map(({ href, icon: Icon, key }, idx) => {
+        {navRenderList.map((entry, entryIdx) => {
+          if (entry.kind === 'divider') {
+            return <div key={`div-${entryIdx}`} className="my-2 mx-1 border-t border-zinc-800/70" />
+          }
+          if (entry.kind === 'group') {
+            const g = entry.group
+            return (
+              <NavGroupHeader
+                key={g.id}
+                group={g}
+                count={entry.count}
+                showLabels={showLabels}
+                editMode={editMode}
+                onToggle={() => toggleNavGroup(g.id)}
+                onRename={(n) => renameNavGroup(g.id, n)}
+                onMove={(d) => moveNavGroup(g.id, d)}
+                onDelete={() => {
+                  if (confirm(`¿Borrar la carpeta "${g.name}"?
+
+Las secciones que tiene adentro NO se borran: vuelven a quedar sueltas en el menú.`)) {
+                    removeNavGroup(g.id)
+                  }
+                }}
+              />
+            )
+          }
+          const { href, icon: Icon, key } = entry.item
+          const inGroup = entry.inGroup
+          const idx = orderedNav.findIndex((n) => n.key === key)
           const active = pathname === href || (href === '/dashboard' && pathname === '/')
           const isDragging = dragKey === key
           const isOver = overKey === key && dragKey !== key
@@ -386,7 +448,7 @@ export function Sidebar({
                 onDragLeave={() => setOverKey((k) => k === key ? null : k)}
                 onDrop={onDrop(key)}
                 onDragEnd={resetDrag}
-                className={`flex items-center gap-2 px-2 py-2 rounded-lg border transition-all ${
+                className={`flex items-center gap-2 px-2 py-2 rounded-lg border transition-all ${inGroup ? 'ml-3' : ''} ${
                   isDragging
                     ? 'opacity-40 scale-95 border-indigo-500/50 bg-zinc-800'
                     : isOver
@@ -426,6 +488,23 @@ export function Sidebar({
                     >
                       <Pencil className="w-3 h-3" />
                     </button>
+                    {/* Carpeta a la que pertenece. Un <select> y no un menú
+                        propio: es compacto, no se recorta y anda en mobile. */}
+                    {(navGroups?.length ?? 0) > 0 && (
+                      <select
+                        value={navGroups.find((g) => g.keys.includes(key))?.id ?? ''}
+                        onChange={(e) => setNavItemGroup(key, e.target.value || null)}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                        title="Mover a una carpeta"
+                        className="shrink-0 bg-zinc-800 border border-zinc-700 rounded text-[10px] text-zinc-300 px-1 py-0.5 max-w-[5.5rem] outline-none focus:border-indigo-500"
+                      >
+                        <option value="">— suelta —</option>
+                        {[...navGroups].sort((a, b) => a.order - b.order).map((g) => (
+                          <option key={g.id} value={g.id}>{g.name}</option>
+                        ))}
+                      </select>
+                    )}
                     {/* Quitar la sección. Las core no se pueden sacar: sin
                         ellas quedan partes de la app inalcanzables. */}
                     {!isCoreNavKey(key) && (
@@ -489,9 +568,12 @@ export function Sidebar({
               title={!showLabels ? navLabel(key) : undefined}
               onClick={handleNavClick}
             >
+              {/* La sangría va acá y NO en el <Link>: el <a> es display:inline
+                  y su caja no se corre con margin, así que el indent no se
+                  veía. Esta div es la fila que el usuario realmente ve. */}
               <motion.div
                 whileTap={{ scale: 0.97 }}
-                className={`relative flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2 rounded-xl cursor-pointer transition-colors select-none ${
+                className={`relative flex items-center gap-3 ${inGroup && showLabels ? 'ml-3' : ''} ${showLabels ? 'px-3' : 'justify-center px-2'} py-2 rounded-xl cursor-pointer transition-colors select-none ${
                   active
                     ? 'text-white'
                     // Inactive: texto + icono; hover con fondo apenas
@@ -555,6 +637,21 @@ export function Sidebar({
             </Link>
           )
         })}
+
+        {/* Crear carpeta — solo en modo edición. Una vez creada, cada
+            sección se manda adentro con el selector de su fila. */}
+        {editMode && showLabels && (
+          <button
+            onClick={() => {
+              const name = prompt('Nombre de la carpeta (ej. NEGOCIOS, SALUD)')
+              if (name?.trim()) addNavGroup(name)
+            }}
+            className="w-full mt-3 flex items-center gap-2 px-2 py-2 rounded-lg border border-dashed border-zinc-800 hover:border-indigo-500/50 hover:bg-indigo-500/[0.06] text-zinc-500 hover:text-indigo-300 transition-colors"
+          >
+            <FolderPlus className="w-4 h-4 shrink-0" />
+            <span className="text-sm flex-1 text-left">Nueva carpeta</span>
+          </button>
+        )}
 
         {/* Secciones disponibles para agregar — solo en modo edición. Acá
             aparece todo lo que el usuario sacó, más lo que nunca activó
@@ -859,6 +956,72 @@ function TimezoneButton({ collapsed }: { collapsed: boolean }) {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+/** Encabezado de una carpeta del sidebar. Colapsa/expande con un click; en
+ *  modo edición se puede renombrar, reordenar y borrar. */
+function NavGroupHeader({ group, count, showLabels, editMode, onToggle, onRename, onMove, onDelete }: {
+  group: { id: string; name: string; collapsed: boolean }
+  count: number
+  showLabels: boolean
+  editMode: boolean
+  onToggle: () => void
+  onRename: (name: string) => void
+  onMove: (dir: -1 | 1) => void
+  onDelete: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(group.name)
+
+  // Con el sidebar en modo iconos no hay lugar para el título: una línea
+  // divisoria alcanza para que se note que ahí empieza otro grupo.
+  if (!showLabels) {
+    return <div className="my-2 mx-2 border-t border-zinc-800" />
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => { onRename(draft); setEditing(false) }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { onRename(draft); setEditing(false) }
+          if (e.key === 'Escape') { setDraft(group.name); setEditing(false) }
+        }}
+        className="w-full bg-zinc-800 border border-indigo-500/40 rounded px-2 py-1 text-[11px] font-semibold text-white outline-none mt-2"
+      />
+    )
+  }
+
+  return (
+    <div className="group/g flex items-center gap-1 mt-2 mb-0.5 px-1">
+      <button
+        onClick={onToggle}
+        onDoubleClick={() => { setDraft(group.name); setEditing(true) }}
+        title={group.collapsed ? 'Expandir' : 'Contraer'}
+        className="flex-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300 transition-colors min-w-0 py-1"
+      >
+        <ChevronRight className={`w-3 h-3 shrink-0 transition-transform ${group.collapsed ? '' : 'rotate-90'}`} />
+        <span className="truncate">{group.name}</span>
+        <span className="text-zinc-700 tabular-nums shrink-0">{count}</span>
+      </button>
+      {editMode && (
+        <span className="flex items-center shrink-0">
+          <button onClick={() => onMove(-1)} title="Subir carpeta" className="text-zinc-600 hover:text-zinc-300 p-0.5">
+            <ChevronUp className="w-3 h-3" />
+          </button>
+          <button onClick={() => onMove(1)} title="Bajar carpeta" className="text-zinc-600 hover:text-zinc-300 p-0.5">
+            <ChevronDown className="w-3 h-3" />
+          </button>
+          <button onClick={onDelete} title="Borrar carpeta" className="text-zinc-600 hover:text-red-400 p-0.5">
+            <XIcon className="w-3 h-3" />
+          </button>
+        </span>
+      )}
     </div>
   )
 }

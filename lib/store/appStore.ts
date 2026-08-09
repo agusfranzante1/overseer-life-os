@@ -35,6 +35,15 @@ export const OPTIONAL_NAV_KEYS = [
   'trading', 'health', 'estudio', 'contenido', 'ofertas', 'gym', 'food',
 ] as const
 
+export interface NavGroup {
+  id: string
+  name: string
+  order: number
+  collapsed: boolean
+  /** Claves de las secciones que viven adentro, en orden. */
+  keys: string[]
+}
+
 export function isCoreNavKey(key: string): boolean {
   return (CORE_NAV_KEYS as readonly string[]).includes(key)
 }
@@ -196,6 +205,18 @@ export interface AppState {
    *  solo deja de aparecer y se puede volver a agregar cuando quiera.
    *  Las de CORE_NAV_KEYS nunca entran acá. */
   hiddenNavKeys: string[]
+  /** Carpetas del sidebar (NEGOCIOS, SALUD, …). Cada una agrupa secciones y
+   *  se puede colapsar. El estado colapsado se guarda y se sincroniza, así
+   *  la carpeta queda como la dejaste también en el otro dispositivo. */
+  navGroups: NavGroup[]
+  addNavGroup: (name: string) => string
+  renameNavGroup: (id: string, name: string) => void
+  /** Borra la carpeta. Sus secciones NO se pierden: vuelven a quedar sueltas. */
+  removeNavGroup: (id: string) => void
+  toggleNavGroup: (id: string) => void
+  /** Mueve una sección a una carpeta. `groupId` null = sacarla de todas. */
+  setNavItemGroup: (key: string, groupId: string | null) => void
+  moveNavGroup: (id: string, dir: -1 | 1) => void
   hideNavItem: (key: string) => void
   showNavItem: (key: string) => void
   /** Si ya vio el recorrido inicial. Se sincroniza para que no se lo coma
@@ -382,6 +403,37 @@ export const useAppStore = create<AppState>()(
 
       // Cuenta nueva = sidebar mínimo. El migrate de abajo se encarga de que
       // a una cuenta YA EXISTENTE no se le desaparezcan las secciones.
+      navGroups: [],
+      addNavGroup: (name) => {
+        const id = `g_${Math.random().toString(36).slice(2, 9)}`
+        set((s) => ({
+          navGroups: [...s.navGroups, { id, name: name.trim() || 'Carpeta', order: s.navGroups.length, collapsed: false, keys: [] }],
+        }))
+        return id
+      },
+      renameNavGroup: (id, name) => set((s) => ({
+        navGroups: s.navGroups.map((g) => g.id !== id ? g : { ...g, name: name.trim() || g.name }),
+      })),
+      removeNavGroup: (id) => set((s) => ({ navGroups: s.navGroups.filter((g) => g.id !== id) })),
+      toggleNavGroup: (id) => set((s) => ({
+        navGroups: s.navGroups.map((g) => g.id !== id ? g : { ...g, collapsed: !g.collapsed }),
+      })),
+      setNavItemGroup: (key, groupId) => set((s) => ({
+        // Se saca de TODAS primero: una sección vive en una carpeta o en ninguna.
+        navGroups: s.navGroups.map((g) => {
+          const without = g.keys.filter((k) => k !== key)
+          return g.id === groupId ? { ...g, keys: [...without, key] } : { ...g, keys: without }
+        }),
+      })),
+      moveNavGroup: (id, dir) => set((s) => {
+        const sorted = [...s.navGroups].sort((a, b) => a.order - b.order)
+        const i = sorted.findIndex((g) => g.id === id)
+        const j = i + dir
+        if (i < 0 || j < 0 || j >= sorted.length) return {}
+        ;[sorted[i], sorted[j]] = [sorted[j], sorted[i]]
+        return { navGroups: sorted.map((g, k) => ({ ...g, order: k })) }
+      }),
+
       hiddenNavKeys: [...OPTIONAL_NAV_KEYS],
       hideNavItem: (key) => set((s) => {
         if (isCoreNavKey(key) || s.hiddenNavKeys.includes(key)) return {}
@@ -443,12 +495,13 @@ export const useAppStore = create<AppState>()(
         // media app de golpe, así que no ocultamos nada. Y damos el
         // onboarding por visto: ya conoce la app.
         const hiddenNavKeys = Array.isArray(p.hiddenNavKeys) ? p.hiddenNavKeys : []
+        const navGroups = Array.isArray(p.navGroups) ? p.navGroups : []
         const onboardingDone = typeof p.onboardingDone === 'boolean' ? p.onboardingDone : true
         return {
           ...p,
           idealSchedule: sched, scheduleOrder: order, dayTypes,
           timezone, autoPurgeCompletedTasks, theme, themeColors,
-          hiddenNavKeys, onboardingDone,
+          hiddenNavKeys, onboardingDone, navGroups,
         } as AppState
       },
       version: 6,

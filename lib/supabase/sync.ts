@@ -2594,6 +2594,7 @@ type AppPrefsPayload = {
   navOrder?: string[]
   navLabels?: Record<string, string>
   hiddenNavKeys?: string[]
+  navGroups?: import('@/lib/store/appStore').NavGroup[]
   offerStages?: import('@/lib/store/offersStore').OfferStage[]
   offerCategories?: import('@/lib/store/offersStore').OfferCategory[]
   offerGeos?: import('@/lib/store/offersStore').OfferGeo[]
@@ -2624,6 +2625,7 @@ async function pushAppPrefs() {
     navOrder: s.navOrder,
     navLabels: s.navLabels,
     hiddenNavKeys: s.hiddenNavKeys,
+    navGroups: s.navGroups,
     offerStages: useOffersStore.getState().stages,
     offerCategories: useOffersStore.getState().categories,
     offerGeos: useOffersStore.getState().geos,
@@ -2704,6 +2706,7 @@ async function pullAppPrefs(): Promise<boolean> {
     ...(p.navOrder !== undefined ? { navOrder: p.navOrder } : {}),
     ...(p.navLabels !== undefined ? { navLabels: p.navLabels } : {}),
     ...(p.hiddenNavKeys !== undefined ? { hiddenNavKeys: p.hiddenNavKeys } : {}),
+    ...(p.navGroups !== undefined ? { navGroups: p.navGroups } : {}),
     ...(p.onboardingDone !== undefined ? { onboardingDone: p.onboardingDone } : {}),
     ...(p.contenidoTabOrder !== undefined ? { contenidoTabOrder: p.contenidoTabOrder } : {}),
     ...(p.dailyReflectionPrompt !== undefined ? { dailyReflectionPrompt: p.dailyReflectionPrompt } : {}),
@@ -3611,7 +3614,7 @@ function appPrefsFingerprint(s: AppPrefsSnapshot): string {
     s.language, s.timezone, s.autoPurgeCompletedTasks, s.idealSchedule,
     s.scheduleOrder, s.dayTypes, s.navOrder, s.navLabels, s.contenidoTabOrder,
     s.dailyReflectionPrompt, s.aiProvider, s.anthropicApiKey, s.anthropicModel,
-    s.hiddenNavKeys, s.onboardingDone,
+    s.hiddenNavKeys, s.onboardingDone, s.navGroups,
     // Catálogos del CRM: viajan en este blob, así que un cambio de etapa o
     // categoría tiene que ensuciar appPrefs o no se sube nunca.
     useOffersStore.getState().stages,
