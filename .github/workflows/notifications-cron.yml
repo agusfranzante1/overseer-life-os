@@ -27,21 +27,49 @@ on:
 jobs:
   dispatch:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    # Holgado respecto del --max-time de curl (90s): así el que corta es
+    # curl, con un mensaje claro, y no el job, que solo dice "cancelled".
+    timeout-minutes: 5
     steps:
       - name: Call /api/notifications/dispatch
         run: |
-          response=$(curl -s -o /tmp/body.json -w "%{http_code}" \
-            -X POST \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "${{ secrets.APP_URL }}/api/notifications/dispatch")
-          echo "HTTP status: $response"
+          set -uo pipefail
+
+          if [ -z "${{ secrets.APP_URL }}" ]; then
+            echo "::error::Falta el secret APP_URL (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
+
+          # --max-time es IMPRESCINDIBLE: sin él, si el endpoint se cuelga
+          # curl espera para siempre y el job muere por `timeout-minutes`,
+          # que GitHub reporta como "cancelled" — un mensaje opaco que no
+          # dice nada. Con límite propio falla rápido y con motivo.
+          # 90s > los 60s de maxDuration del endpoint, así un 504 legítimo
+          # de Vercel llega como 504 y no como timeout de curl.
+          response=$(curl -sS -o /tmp/body.json -w "%{http_code}"             --connect-timeout 15             --max-time 90             --retry 2 --retry-delay 5 --retry-connrefused             -X POST             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"             "${{ secrets.APP_URL }}/api/notifications/dispatch")
+          curl_exit=$?
+
+          echo "HTTP status: $response (curl exit $curl_exit)"
           echo "Body:"
-          cat /tmp/body.json
-          # No fallamos el workflow si el body es ok=false — el dispatcher
-          # devuelve 200 con stats incluso cuando algunos canales skipean.
-          # Solo fallamos en errores HTTP duros (>= 500) o en timeouts.
+          cat /tmp/body.json 2>/dev/null || echo "(sin body)"
+          echo
+
+          # Si curl no pudo conectar, `response` queda en 000. Antes eso
+          # pasaba el chequeo de >=500 y el run salía VERDE: la app podía
+          # estar caída días sin mandar una sola notificación y todos los
+          # runs se veían bien. Ahora falla explícito.
+          if [ "$curl_exit" -ne 0 ] || [ "$response" = "000" ]; then
+            echo "::error::No se pudo contactar al dispatcher (curl exit $curl_exit). ¿App caída, URL mal o DNS?"
+            exit 1
+          fi
+
+          # 2xx = ok. El dispatcher devuelve 200 con stats aunque algunos
+          # canales skipeen, así que eso NO es un error.
           if [ "$response" -ge 500 ]; then
-            echo "::error::Dispatcher devolvió status $response"
+            echo "::error::Dispatcher devolvió $response"
+            exit 1
+          fi
+          if [ "$response" -ge 400 ]; then
+            echo "::error::Dispatcher rechazó la request ($response). ¿CRON_SECRET no coincide con el de Vercel?"
             exit 1
           fi
