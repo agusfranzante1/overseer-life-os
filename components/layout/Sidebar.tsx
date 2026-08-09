@@ -180,7 +180,12 @@ export function Sidebar({
     // Las secciones que el usuario sacó no se muestran. Las core nunca se
     // pueden ocultar, pero filtramos igual por si quedó basura guardada.
     const hidden = new Set(hiddenNavKeys ?? [])
-    return result.filter((item) => !hidden.has(item.key) || isCoreNavKey(item.key))
+    return result
+      // Configuración no va en la lista: vive en el panel "Opciones" de abajo,
+      // junto al resto de los ajustes. Sigue en NAV_ITEMS para conservar su
+      // ícono y su nombre (incluido el custom que le hayas puesto).
+      .filter((item) => item.key !== 'settings')
+      .filter((item) => !hidden.has(item.key) || isCoreNavKey(item.key))
   }, [navOrder, hiddenNavKeys])
 
   /** Lo que se dibuja en el nav: primero las carpetas con sus secciones
@@ -352,19 +357,15 @@ export function Sidebar({
             <span className="font-heading font-bold text-hero text-[15px] tracking-[0.28em] uppercase whitespace-nowrap flex-1 truncate">
               Overseer
             </span>
-            {/* El botón de configurar el menú se mudó a "Opciones", abajo:
-                el encabezado queda limpio y los ajustes viven todos juntos.
-                Acá solo se muestra un check cuando estás editando, para que
-                se note el modo activo sin volver a poner el engranaje. */}
-            {editMode && (
-              <button
-                onClick={() => setEditMode(false)}
-                title="Salir del modo edición"
-                className="p-1 rounded text-indigo-400 hover:text-indigo-300 transition-colors"
-              >
-                <Check className="w-3.5 h-3.5" />
-              </button>
-            )}
+            <button
+              onClick={() => setEditMode((v) => !v)}
+              title={editMode ? 'Salir del modo edición' : 'Reordenar menú'}
+              className={`p-1 rounded transition-colors ${
+                editMode ? 'text-indigo-400' : 'text-zinc-500 hover:text-white'
+              }`}
+            >
+              {editMode ? <Check className="w-3.5 h-3.5" /> : <Settings2 className="w-3.5 h-3.5" />}
+            </button>
           </>
         )}
       </div>
@@ -716,23 +717,22 @@ Las secciones que tiene adentro NO se borran: vuelven a quedar sueltas en el men
               exit={{ height: 0, opacity: 0 }}
               className="overflow-hidden space-y-0.5"
             >
-              {/* Configurar el menú: reordenar, renombrar, agrupar en
-                  carpetas, sacar y agregar secciones. */}
-              {showLabels && (
-                <motion.button
+              {/* Configuración de la app — vive acá, con el resto de los
+                  ajustes, en vez de ocupar un lugar en la lista de secciones. */}
+              <Link href="/settings" onClick={handleNavClick} title={!showLabels ? 'Configuración' : undefined}>
+                <motion.div
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.97 }}
-                  onClick={() => setEditMode((v) => !v)}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] transition-colors ${
-                    editMode ? 'text-indigo-300 bg-indigo-500/10' : 'text-zinc-500 hover:text-white'
+                  className={`w-full flex items-center gap-3 ${showLabels ? 'px-3' : 'justify-center px-2'} py-2 rounded-xl text-[13px] transition-colors ${
+                    pathname === '/settings' ? 'text-white bg-white/[0.06]' : 'text-zinc-500 hover:text-white'
                   }`}
                 >
-                  {editMode ? <Check className="w-4 h-4 shrink-0" /> : <Settings2 className="w-4 h-4 shrink-0" />}
-                  <span className="text-sm font-medium whitespace-nowrap">
-                    {editMode ? 'Listo' : 'Configurar menú'}
-                  </span>
-                </motion.button>
-              )}
+                  <Cog className="w-4 h-4 shrink-0" />
+                  {showLabels && (
+                    <span className="text-sm font-medium whitespace-nowrap">{navLabel('settings')}</span>
+                  )}
+                </motion.div>
+              </Link>
 
               <SyncNowButton collapsed={!showLabels} />
               <TimezoneButton collapsed={!showLabels} />
