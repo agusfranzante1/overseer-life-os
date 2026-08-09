@@ -2389,6 +2389,8 @@ async function pullOffers(): Promise<boolean> {
           categoryIds: Array.isArray(p.categoryIds) ? p.categoryIds : [],
           geoIds: Array.isArray(p.geoIds) ? p.geoIds : [],
           ...(typeof p.score === 'number' ? { score: p.score } : {}),
+          // Sin esto el pull borraba el documento de cada oferta.
+          ...(Array.isArray(p.doc) ? { doc: p.doc } : {}),
           order: typeof p.order === 'number' ? p.order : 0,
           createdAt: p.createdAt ?? new Date().toISOString(),
           updatedAt: p.updatedAt ?? new Date().toISOString(),

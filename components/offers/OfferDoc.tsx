@@ -1,9 +1,9 @@
 'use client'
 import { useState, useRef, useCallback, useLayoutEffect } from 'react'
-import { ChevronRight, ChevronDown, FileText, Plus, Trash2, ListTree, CornerDownRight } from 'lucide-react'
+import { ChevronRight, ChevronDown, FileText, Plus, Trash2, ListTree, CornerDownRight, List } from 'lucide-react'
 import {
-  type Block, emptyBlock, convertSelection, findBlock, setText, insertAfter,
-  appendChild, removeBlock, toggleCollapsed, blockLabel, countChildren,
+  type Block, type BlockType, emptyBlock, convertSelection, findBlock, setText, insertAfter,
+  appendChild, removeBlock, toggleCollapsed, blockLabel, countChildren, isLeaf,
 } from '@/lib/offers/blocks'
 
 /**
@@ -31,7 +31,7 @@ export function OfferDoc({ doc, onChange }: { doc: Block[]; onChange: (next: Blo
 
   const apply = useCallback((next: Block[]) => { setSel(null); onChange(next) }, [onChange])
 
-  const convert = (type: 'toggle' | 'page') => {
+  const convert = (type: Exclude<BlockType, 'text'>) => {
     if (!sel) return
     const r = convertSelection(doc, sel.blockId, sel.start, sel.end, type)
     apply(r.blocks)
@@ -78,6 +78,12 @@ export function OfferDoc({ doc, onChange }: { doc: Block[]; onChange: (next: Blo
           style={{ position: 'fixed', left: sel.x, top: sel.y }}
           className="z-[80] -translate-x-1/2 -translate-y-full mb-2 flex items-center gap-0.5 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-1"
         >
+          <button
+            onMouseDown={(e) => { e.preventDefault(); convert('bullet') }}
+            className="text-[11px] text-zinc-300 hover:text-white hover:bg-zinc-800 px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+          >
+            <List className="w-3.5 h-3.5 text-emerald-400" /> Viñeta
+          </button>
           <button
             onMouseDown={(e) => { e.preventDefault(); convert('toggle') }}
             className="text-[11px] text-zinc-300 hover:text-white hover:bg-zinc-800 px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
@@ -180,7 +186,8 @@ function BlockRow({ block, doc, depth, focusRef, onChange, onSelect, onOpenPage 
     const el = ev.currentTarget
     if (ev.key === 'Enter' && !ev.shiftKey) {
       ev.preventDefault()
-      const nb = emptyBlock('text')
+      // Enter en una viñeta crea otra viñeta; en un párrafo, otro párrafo.
+      const nb = emptyBlock(block.type === 'bullet' ? 'bullet' : 'text')
       focusRef.current = nb.id
       onChange(insertAfter(doc, block.id, nb))
       return
@@ -192,10 +199,16 @@ function BlockRow({ block, doc, depth, focusRef, onChange, onSelect, onOpenPage 
     }
   }
 
-  // ── Párrafo ──
-  if (block.type === 'text') {
+  // ── Párrafo y viñeta ──
+  // Comparten todo salvo el puntito: son el mismo textarea, así Enter,
+  // Backspace y la selección se comportan igual en los dos.
+  if (isLeaf(block.type)) {
+    const bullet = block.type === 'bullet'
     return (
-      <div className="group/row relative flex items-start gap-1">
+      <div className={`group/row relative flex items-start gap-1 ${bullet ? 'pl-3' : ''}`}>
+        {bullet && (
+          <span className="text-zinc-500 text-sm leading-relaxed pt-1 select-none shrink-0">•</span>
+        )}
         <textarea
           ref={ta}
           value={block.text}

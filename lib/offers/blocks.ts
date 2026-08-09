@@ -14,7 +14,7 @@
  * Todo acá es puro (sin React ni DOM) para poder testearlo solo.
  */
 
-export type BlockType = 'text' | 'toggle' | 'page'
+export type BlockType = 'text' | 'bullet' | 'toggle' | 'page'
 
 export interface Block {
   id: string
@@ -30,8 +30,13 @@ export function newId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
 }
 
+/** Los bloques "hoja" (texto y viñeta) no llevan hijos; los contenedores sí. */
+export function isLeaf(type: BlockType): boolean {
+  return type === 'text' || type === 'bullet'
+}
+
 export function emptyBlock(type: BlockType = 'text', text = ''): Block {
-  return type === 'text'
+  return isLeaf(type)
     ? { id: newId(), type, text }
     : { id: newId(), type, text, children: [], ...(type === 'toggle' ? { collapsed: false } : {}) }
 }
@@ -129,7 +134,8 @@ export function convertSelection(
   type: Exclude<BlockType, 'text'>,
 ): ConvertResult {
   const target = findBlock(blocks, blockId)
-  if (!target || target.type !== 'text') return { blocks, newBlockId: null }
+  // Se puede convertir desde un párrafo o desde una viñeta: los dos son texto.
+  if (!target || !isLeaf(target.type)) return { blocks, newBlockId: null }
 
   const from = Math.max(0, Math.min(start, end))
   const to = Math.min(target.text.length, Math.max(start, end))
@@ -146,7 +152,7 @@ export function convertSelection(
     parts.push(created)
     // El "resto" va en un bloque NUEVO (id nuevo) para no duplicar el id del
     // original si también hubo un pedazo antes.
-    if (after) parts.push(emptyBlock('text', after))
+    if (after) parts.push(emptyBlock(target.type, after))
     return parts
   })
   return { blocks: next, newBlockId: created.id }

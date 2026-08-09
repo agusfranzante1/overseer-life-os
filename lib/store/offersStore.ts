@@ -58,6 +58,9 @@ export interface Offer {
   geoIds: string[]
   /** Nota corta opcional (la que en Notion es el número al costado). */
   score?: number
+  /** Documento propio de la oferta: espionaje, keywords, resumen de
+   *  problemática, lo que sea. Mismos bloques que el del sistema. */
+  doc?: Block[]
   order: number
   createdAt: string
   updatedAt: string
@@ -110,6 +113,7 @@ interface State {
   addOffer: (systemId: string, name: string, stageId?: string) => string
   updateOffer: (id: string, patch: Partial<Pick<Offer, 'name' | 'stageId' | 'categoryIds' | 'geoIds' | 'score'>>) => void
   removeOffer: (id: string) => void
+  setOfferDoc: (id: string, doc: Block[]) => void
   /** Alterna una categoría o un GEO en la oferta (agrega si falta, saca si está). */
   toggleOfferCategory: (id: string, categoryId: string) => void
   toggleOfferGeo: (id: string, geoId: string) => void
@@ -179,6 +183,9 @@ export const useOffersStore = create<State>()(
         offers: s.offers.map((o) => o.id !== id ? o : { ...o, ...patch, updatedAt: nowISO() }),
       })),
       removeOffer: (id) => set((s) => ({ offers: s.offers.filter((o) => o.id !== id) })),
+      setOfferDoc: (id, doc) => set((s) => ({
+        offers: s.offers.map((o) => o.id !== id ? o : { ...o, doc, updatedAt: nowISO() }),
+      })),
       toggleOfferCategory: (id, categoryId) => set((s) => ({
         offers: s.offers.map((o) => {
           if (o.id !== id) return o

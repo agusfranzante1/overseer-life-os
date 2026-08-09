@@ -352,15 +352,19 @@ export function Sidebar({
             <span className="font-heading font-bold text-hero text-[15px] tracking-[0.28em] uppercase whitespace-nowrap flex-1 truncate">
               Overseer
             </span>
-            <button
-              onClick={() => setEditMode((v) => !v)}
-              title={editMode ? 'Salir del modo edición' : 'Reordenar menú'}
-              className={`p-1 rounded transition-colors ${
-                editMode ? 'text-indigo-400' : 'text-zinc-500 hover:text-white'
-              }`}
-            >
-              {editMode ? <Check className="w-3.5 h-3.5" /> : <Settings2 className="w-3.5 h-3.5" />}
-            </button>
+            {/* El botón de configurar el menú se mudó a "Opciones", abajo:
+                el encabezado queda limpio y los ajustes viven todos juntos.
+                Acá solo se muestra un check cuando estás editando, para que
+                se note el modo activo sin volver a poner el engranaje. */}
+            {editMode && (
+              <button
+                onClick={() => setEditMode(false)}
+                title="Salir del modo edición"
+                className="p-1 rounded text-indigo-400 hover:text-indigo-300 transition-colors"
+              >
+                <Check className="w-3.5 h-3.5" />
+              </button>
+            )}
           </>
         )}
       </div>
@@ -712,6 +716,24 @@ Las secciones que tiene adentro NO se borran: vuelven a quedar sueltas en el men
               exit={{ height: 0, opacity: 0 }}
               className="overflow-hidden space-y-0.5"
             >
+              {/* Configurar el menú: reordenar, renombrar, agrupar en
+                  carpetas, sacar y agregar secciones. */}
+              {showLabels && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => setEditMode((v) => !v)}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] transition-colors ${
+                    editMode ? 'text-indigo-300 bg-indigo-500/10' : 'text-zinc-500 hover:text-white'
+                  }`}
+                >
+                  {editMode ? <Check className="w-4 h-4 shrink-0" /> : <Settings2 className="w-4 h-4 shrink-0" />}
+                  <span className="text-sm font-medium whitespace-nowrap">
+                    {editMode ? 'Listo' : 'Configurar menú'}
+                  </span>
+                </motion.button>
+              )}
+
               <SyncNowButton collapsed={!showLabels} />
               <TimezoneButton collapsed={!showLabels} />
 

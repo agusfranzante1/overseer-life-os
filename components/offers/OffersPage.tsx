@@ -9,6 +9,7 @@ import {
   type Offer, type OfferStage, type OfferCategory, type OfferGeo,
 } from '@/lib/store/offersStore'
 import { OfferDoc } from './OfferDoc'
+import { type Block, emptyDoc } from '@/lib/offers/blocks'
 
 type View = 'board' | 'geo'
 
@@ -17,7 +18,7 @@ export function OffersPage() {
   const {
     systems, offers, stages, categories, geos,
     addSystem, updateSystem, removeSystem, setSystemDoc,
-    addOffer, updateOffer, removeOffer, toggleOfferCategory, toggleOfferGeo,
+    addOffer, updateOffer, removeOffer, toggleOfferCategory, toggleOfferGeo, setOfferDoc,
   } = st
 
   const sortedStages = stages.slice().sort((a, b) => a.order - b.order)
@@ -29,6 +30,7 @@ export function OffersPage() {
   const [query, setQuery] = useState('')
   const [showConfig, setShowConfig] = useState(false)
   const [editingOffer, setEditingOffer] = useState<string | null>(null)
+  const [openOfferId, setOpenOfferId] = useState<string | null>(null)
   const [activeGeoId, setActiveGeoId] = useState<string | null>(null)
 
   const catById = new Map(categories.map((c) => [c.id, c]))
@@ -63,6 +65,30 @@ export function OffersPage() {
           </button>
         </div>
       </motion.div>
+    )
+  }
+
+  // ── Detalle de una oferta ──
+  const openOffer = openOfferId ? offers.find((o) => o.id === openOfferId) ?? null : null
+  if (openOffer) {
+    return (
+      <OfferDetail
+        offer={openOffer}
+        systemName={system.name}
+        stages={sortedStages}
+        categories={categories}
+        geos={geos}
+        onBack={() => setOpenOfferId(null)}
+        onPatch={(p) => updateOffer(openOffer.id, p)}
+        onToggleCat={(id) => toggleOfferCategory(openOffer.id, id)}
+        onToggleGeo={(id) => toggleOfferGeo(openOffer.id, id)}
+        onDoc={(d) => setOfferDoc(openOffer.id, d)}
+        onDelete={() => {
+          if (confirm(`¿Borrar "${openOffer.name || 'esta oferta'}"?`)) {
+            removeOffer(openOffer.id); setOpenOfferId(null)
+          }
+        }}
+      />
     )
   }
 
@@ -167,7 +193,7 @@ export function OffersPage() {
                   stage={stageById.get(o.stageId)}
                   categories={o.categoryIds.map((id) => catById.get(id)).filter(Boolean) as OfferCategory[]}
                   geos={o.geoIds.map((id) => geoById.get(id)).filter(Boolean) as OfferGeo[]}
-                  onOpen={() => setEditingOffer(o.id)}
+                  onOpen={() => setOpenOfferId(o.id)}
                   onRename={(name) => updateOffer(o.id, { name })}
                 />
               ))}
@@ -179,7 +205,7 @@ export function OffersPage() {
             </div>
 
             <button
-              onClick={() => setEditingOffer(addOffer(system.id, '', stageFilter ?? undefined))}
+              onClick={() => setOpenOfferId(addOffer(system.id, '', stageFilter ?? undefined))}
               className="w-full text-xs text-zinc-600 hover:text-violet-300 hover:bg-violet-500/[0.06] py-2.5 transition-colors flex items-center justify-center gap-1.5 border-t border-zinc-800/50"
             >
               <Plus className="w-3.5 h-3.5" /> Nueva oferta
@@ -193,18 +219,26 @@ export function OffersPage() {
             catById={catById}
             activeGeoId={activeGeoId}
             onPickGeo={setActiveGeoId}
-            onOpenOffer={setEditingOffer}
+            onOpenOffer={setOpenOfferId}
           />
         )}
       </section>
 
-      {/* ── Documento libre ── */}
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-950/40 p-4">
-        <h2 className="text-[10px] uppercase tracking-wider text-zinc-600 mb-3">Notas del sistema</h2>
-        <OfferDoc doc={system.doc} onChange={(next) => setSystemDoc(system.id, next)} />
-        <p className="text-[10px] text-zinc-700 mt-3 border-t border-zinc-800/60 pt-2">
-          Seleccioná un texto para convertirlo en desplegable o en página.
-        </p>
+      {/* ── Documento libre ──
+          Ocupa TODO el ancho del área de contenido: `-mx-4` cancela el padding
+          del contenedor, y no hay borde lateral ni caja para que se sienta una
+          hoja y no una tarjeta.
+          NO se usa `w-screen`: mide contra la ventana, y como el área de
+          contenido está corrida por el sidebar, la sección se salía por la
+          derecha. */}
+      <section className="-mx-4 border-t border-zinc-800/60 bg-zinc-950/40 mt-2">
+        <div className="px-6 py-5">
+          <h2 className="text-[10px] uppercase tracking-wider text-zinc-600 mb-3">Notas del sistema</h2>
+          <OfferDoc doc={system.doc} onChange={(next) => setSystemDoc(system.id, next)} />
+          <p className="text-[10px] text-zinc-700 mt-3">
+            Seleccioná un texto para convertirlo en viñeta, desplegable o página.
+          </p>
+        </div>
       </section>
 
       {showConfig && <ConfigPanel onClose={() => setShowConfig(false)} />}
@@ -638,6 +672,126 @@ function Row({ color, onColor, onDelete, children }: {
       <button onClick={onDelete} className="shrink-0 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all">
         <Trash2 className="w-3.5 h-3.5" />
       </button>
+    </div>
+  )
+}
+
+/** Detalle de una oferta: propiedades arriba y su documento propio abajo,
+ *  a todo el ancho. Es la vista donde se guardan el espionaje, las keywords,
+ *  el resumen de problemática, etc. */
+function OfferDetail({ offer, systemName, stages, categories, geos, onBack, onPatch, onToggleCat, onToggleGeo, onDoc, onDelete }: {
+  offer: Offer
+  systemName: string
+  stages: OfferStage[]
+  categories: OfferCategory[]
+  geos: OfferGeo[]
+  onBack: () => void
+  onPatch: (p: Partial<Offer>) => void
+  onToggleCat: (id: string) => void
+  onToggleGeo: (id: string) => void
+  onDoc: (doc: Block[]) => void
+  onDelete: () => void
+}) {
+  const stage = stages.find((s) => s.id === offer.stageId)
+  return (
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="pb-10">
+      <div className="max-w-4xl mx-auto px-6 pt-6">
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-1.5 text-xs mb-4">
+          <button onClick={onBack} className="text-zinc-500 hover:text-zinc-200 transition-colors flex items-center gap-1">
+            <Rocket className="w-3.5 h-3.5" /> {systemName}
+          </button>
+          <ChevronRight className="w-3 h-3 text-zinc-700" />
+          <span className="text-zinc-300 font-semibold truncate">{offer.name || 'Sin nombre'}</span>
+          <button
+            onClick={onDelete}
+            title="Borrar oferta"
+            className="ml-auto text-zinc-700 hover:text-red-400 p-1 rounded transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Título grande, editable */}
+        <input
+          value={offer.name}
+          onChange={(e) => onPatch({ name: e.target.value })}
+          placeholder="Sin nombre"
+          className="w-full bg-transparent text-3xl font-bold text-zinc-100 placeholder-zinc-700 outline-none mb-5"
+        />
+
+        {/* Propiedades — una fila por atributo, como en Notion */}
+        <div className="space-y-1 mb-6">
+          <PropRow icon={<GitBranch className="w-3.5 h-3.5" />} label="Estado">
+            <div className="flex flex-wrap gap-1.5">
+              {stages.map((s) => (
+                <button key={s.id} onClick={() => onPatch({ stageId: s.id })}>
+                  <Chip label={s.name} color={s.color} dim={offer.stageId !== s.id} />
+                </button>
+              ))}
+            </div>
+          </PropRow>
+
+          <PropRow icon={<Tag className="w-3.5 h-3.5" />} label="Etiquetas">
+            <div className="flex flex-wrap gap-1.5">
+              {categories.map((c) => (
+                <button key={c.id} onClick={() => onToggleCat(c.id)}>
+                  <Chip label={c.name} color={c.color} dim={!offer.categoryIds.includes(c.id)} />
+                </button>
+              ))}
+              {categories.length === 0 && <span className="text-xs text-zinc-600">Vacío</span>}
+            </div>
+          </PropRow>
+
+          <PropRow icon={<Globe className="w-3.5 h-3.5" />} label="GEOs">
+            <div className="flex flex-wrap gap-1.5">
+              {geos.map((g) => (
+                <button key={g.id} onClick={() => onToggleGeo(g.id)}>
+                  <Chip label={`${g.code} · ${g.name}`} color={g.color} dim={!offer.geoIds.includes(g.id)} />
+                </button>
+              ))}
+              {geos.length === 0 && <span className="text-xs text-zinc-600">Vacío</span>}
+            </div>
+          </PropRow>
+
+          <PropRow icon={<Search className="w-3.5 h-3.5" />} label="Escala">
+            <input
+              type="number"
+              value={offer.score ?? ''}
+              onChange={(e) => onPatch({ score: e.target.value === '' ? undefined : Number(e.target.value) })}
+              placeholder="Vacío"
+              className="w-24 bg-transparent text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:bg-white/[0.04] rounded px-1.5 py-0.5 transition-colors"
+            />
+          </PropRow>
+        </div>
+
+        {stage?.discard && (
+          <p className="text-[11px] text-red-300/80 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 mb-4">
+            Esta oferta está marcada como descartada.
+          </p>
+        )}
+      </div>
+
+      {/* Documento de la oferta — a todo el ancho, sin bordes laterales */}
+      <div className="border-t border-zinc-800/60 bg-zinc-950/40">
+        <div className="max-w-4xl mx-auto px-6 py-5">
+          <OfferDoc doc={offer.doc ?? emptyDoc()} onChange={onDoc} />
+          <p className="text-[10px] text-zinc-700 mt-3">
+            Seleccioná un texto para convertirlo en viñeta, desplegable o página.
+          </p>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+function PropRow({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3 py-1.5 rounded-lg hover:bg-white/[0.02] px-1.5 transition-colors">
+      <span className="flex items-center gap-2 text-xs text-zinc-500 w-28 shrink-0 pt-1">
+        {icon}{label}
+      </span>
+      <div className="flex-1 min-w-0 pt-0.5">{children}</div>
     </div>
   )
 }
