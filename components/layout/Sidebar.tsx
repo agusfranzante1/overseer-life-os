@@ -334,6 +334,13 @@ export function Sidebar({
           var(--app-bg)
         `,
         boxShadow: 'inset -1px 0 0 rgba(var(--glass-tint), 0.10)',
+        // Área segura de iOS. Con `viewportFit: cover` (ver app/layout.tsx) el
+        // contenido se dibuja DEBAJO de la barra de estado y del notch, así que
+        // el logo y "OVERSEER" quedaban tapados por el reloj. El header
+        // principal ya lo contemplaba; el drawer no.
+        // Abajo, lo mismo con la barra de gestos: "Opciones" quedaba pegado.
+        paddingTop: 'env(safe-area-inset-top, 0px)',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}
       className={`
         flex flex-col h-screen shrink-0 overflow-hidden
