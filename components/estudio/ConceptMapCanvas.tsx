@@ -61,6 +61,9 @@ export function ConceptMapCanvas({ materiaId, accent }: { materiaId: string; acc
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [zoom, setZoom] = useState(1)
+  // Panel de áreas/autores en mobile: cerrado por defecto para que el mapa
+  // arranque con toda la pantalla. En `lg` siempre está visible.
+  const [sideOpen, setSideOpen] = useState(false)
   const zoomRef = useRef(zoom); useEffect(() => { zoomRef.current = zoom }, [zoom])
   const panRef = useRef(pan); useEffect(() => { panRef.current = pan }, [pan])
 
@@ -259,9 +262,24 @@ export function ConceptMapCanvas({ materiaId, accent }: { materiaId: string; acc
   }
 
   return (
-    <div className="flex gap-3 h-[calc(100vh-220px)] min-h-[520px]">
+    // En pantallas angostas la columna de áreas se llevaba 208px de 375 (64%)
+    // y al lienzo le quedaban 103px: imposible agregar ni leer un concepto.
+    // Abajo de `lg` se apila: las áreas quedan detrás de un botón (cerradas
+    // por defecto) y el lienzo se queda con todo el ancho. En escritorio no
+    // cambia nada.
+    <div className="flex flex-col lg:flex-row gap-3 lg:h-[calc(100vh-220px)] lg:min-h-[520px]">
+      {/* Acceso a las áreas en mobile — en escritorio la columna está siempre */}
+      <button
+        onClick={() => setSideOpen((v) => !v)}
+        className="lg:hidden w-full flex items-center justify-between px-3 py-2 rounded-xl text-[12px] font-semibold text-zinc-300"
+        style={{ background: 'var(--card-bg)', border: '1px solid rgba(255,255,255,0.10)' }}
+      >
+        <span>Áreas y autores</span>
+        <ChevronDown className={`w-4 h-4 transition-transform ${sideOpen ? 'rotate-180' : ''}`} />
+      </button>
+
       {/* ── Columna izquierda: áreas + autores ── */}
-      <div className="w-52 shrink-0 flex flex-col gap-3 min-h-0">
+      <div className={`${sideOpen ? 'flex' : 'hidden'} lg:flex w-full lg:w-52 shrink-0 flex-col gap-3 min-h-0 max-h-72 lg:max-h-none overflow-y-auto lg:overflow-visible`}>
         <AreaLegend
           materiaId={materiaId}
           areas={map.areas}
@@ -276,7 +294,9 @@ export function ConceptMapCanvas({ materiaId, accent }: { materiaId: string; acc
       </div>
 
       {/* ── Lienzo ── */}
-      <div className="relative flex-1 rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)', background: 'var(--card-bg)' }}>
+      {/* min-h en mobile: sin altura fija del contenedor, un flex-1 sin
+          contenido colapsaría a cero y el mapa no se vería. */}
+      <div className="relative flex-1 min-h-[65vh] lg:min-h-0 rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)', background: 'var(--card-bg)' }}>
         {/* Toolbar flotante */}
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-zinc-900/95 backdrop-blur border border-zinc-800 rounded-xl p-1 shadow-2xl">
           <button onClick={addConceptAtCenter}
