@@ -21,6 +21,7 @@ import { useBacktestStore } from '@/lib/store/backtestStore'
 import { useJournalStore } from '@/lib/store/journalStore'
 import { useMeditationsStore } from '@/lib/store/meditationsStore'
 import { useYoutubeStore } from '@/lib/store/youtubeStore'
+import { useOffersStore } from '@/lib/store/offersStore'
 import { useFavoritesStore } from '@/lib/store/favoritesStore'
 import { useConceptStore } from '@/lib/store/conceptStore'
 import { migrateMapNotes } from '@/lib/study/concepts'
@@ -56,6 +57,7 @@ interface SyncState {
   journalInit: boolean
   meditationsInit: boolean
   youtubeInit: boolean
+  offersInit: boolean
   favoritesInit: boolean
   conceptInit: boolean
 }
@@ -83,6 +85,7 @@ const state: SyncState = {
   journalInit: false,
   meditationsInit: false,
   youtubeInit: false,
+  offersInit: false,
   favoritesInit: false,
   conceptInit: false,
 }
@@ -109,6 +112,7 @@ let backtestPushTimer: ReturnType<typeof setTimeout> | null = null
 let journalPushTimer: ReturnType<typeof setTimeout> | null = null
 let meditationsPushTimer: ReturnType<typeof setTimeout> | null = null
 let youtubePushTimer: ReturnType<typeof setTimeout> | null = null
+let offersPushTimer: ReturnType<typeof setTimeout> | null = null
 let favoritesPushTimer: ReturnType<typeof setTimeout> | null = null
 let conceptPushTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -2301,6 +2305,124 @@ async function pullYoutube(): Promise<boolean> {
   }
 }
 
+// ─── OFERTAS (CRM) ───────────────────────────────────────────────────────────
+// Dos colecciones en un mismo dominio: sistemas (con su documento adentro) y
+// ofertas. Los catálogos (etapas / categorías / GEOs) son listas cortas y van
+// en el blob de app_preferences, no acá. Ver migration_offers.sql.
+
+async function pushOffers() {
+  if (!state.userId) return
+  const syncedAt = new Date().toISOString()
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { systems, offers } = useOffersStore.getState()
+
+  const sysRows = systems.map((x) => ({
+    id: x.id, user_id: uid, created_at: x.createdAt, updated_at: x.updatedAt, payload: x,
+  }))
+  if (sysRows.length > 0) {
+    const r = await sb.from('offer_systems').upsert(sysRows)
+    if (r.error) {
+      reportSyncError(`offer_systems upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_offers.sql.`)
+      throw r.error
+    }
+  }
+  await syncDeletes(sb, uid, 'offer_systems', sysRows.map((r) => r.id), 'offers:systems')
+
+  const offerRows = offers.map((o) => ({
+    id: o.id, user_id: uid, created_at: o.createdAt, updated_at: o.updatedAt, payload: o,
+  }))
+  if (offerRows.length > 0) {
+    const r = await sb.from('offers').upsert(offerRows)
+    if (r.error) {
+      reportSyncError(`offers upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_offers.sql.`)
+      throw r.error
+    }
+  }
+  await syncDeletes(sb, uid, 'offers', offerRows.map((r) => r.id), 'offers:offers')
+
+  markSynced('offers', syncedAt)
+}
+
+async function pullOffers(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('offers')
+  try {
+    const sb = getSupabaseBrowser()
+    const uid = state.userId!
+    type Row = { payload: unknown }
+
+    const sysRes = await sb.from('offer_systems').select('*').eq('user_id', uid)
+    if (sysRes.error) {
+      console.error('Offers pull failed (run migration_offers.sql?):', sysRes.error)
+      return false
+    }
+    const remoteSystems: import('@/lib/store/offersStore').OfferSystem[] =
+      (sysRes.data ?? []).map((r: Row) => {
+        const p = (r.payload ?? {}) as Partial<import('@/lib/store/offersStore').OfferSystem>
+        return {
+          id: p.id ?? '',
+          name: p.name ?? 'Sistema',
+          icon: p.icon ?? '⚙️',
+          order: typeof p.order === 'number' ? p.order : 0,
+          // El documento es el trabajo del usuario: si viene roto, mejor un
+          // documento vacío que reventar el pull entero.
+          doc: Array.isArray(p.doc) ? p.doc : [],
+          createdAt: p.createdAt ?? new Date().toISOString(),
+          updatedAt: p.updatedAt ?? new Date().toISOString(),
+        }
+      })
+
+    const offRes = await sb.from('offers').select('*').eq('user_id', uid)
+    if (offRes.error) {
+      console.error('Offers pull failed (run migration_offers.sql?):', offRes.error)
+      return false
+    }
+    const remoteOffers: import('@/lib/store/offersStore').Offer[] =
+      (offRes.data ?? []).map((r: Row) => {
+        const p = (r.payload ?? {}) as Partial<import('@/lib/store/offersStore').Offer>
+        return {
+          id: p.id ?? '',
+          systemId: p.systemId ?? '',
+          name: p.name ?? '',
+          stageId: p.stageId ?? 'stage_stock',
+          categoryIds: Array.isArray(p.categoryIds) ? p.categoryIds : [],
+          geoIds: Array.isArray(p.geoIds) ? p.geoIds : [],
+          ...(typeof p.score === 'number' ? { score: p.score } : {}),
+          order: typeof p.order === 'number' ? p.order : 0,
+          createdAt: p.createdAt ?? new Date().toISOString(),
+          updatedAt: p.updatedAt ?? new Date().toISOString(),
+        }
+      })
+
+    const tombs = await fetchTombstones(sb, uid, ['offer_systems', 'offers'])
+    useOffersStore.setState({
+      systems: mergeById<import('@/lib/store/offersStore').OfferSystem>({
+        local: useOffersStore.getState().systems,
+        remote: remoteSystems,
+        baseline: getBaseline('offers:systems'),
+        getId: (x) => x.id,
+        getUpdatedAt: (x) => x.updatedAt,
+        tombstones: tombs.get('offer_systems'),
+      }),
+      offers: mergeById<import('@/lib/store/offersStore').Offer>({
+        local: useOffersStore.getState().offers,
+        remote: remoteOffers,
+        baseline: getBaseline('offers:offers'),
+        getId: (x) => x.id,
+        getUpdatedAt: (x) => x.updatedAt,
+        tombstones: tombs.get('offers'),
+      }),
+    })
+    setBaseline('offers:systems', remoteSystems.map((x) => x.id))
+    setBaseline('offers:offers', remoteOffers.map((x) => x.id))
+    markSynced('offers')
+    return true
+  } finally {
+    endPulling('offers')
+  }
+}
+
 // ─── ENLACES / FAVORITOS (accesos rápidos del sidebar) ───────────────────────
 // Singleton por usuario: el array entero como blob JSONB (patrón food_data).
 // Ver migration_favorites.sql.
@@ -2472,6 +2594,9 @@ type AppPrefsPayload = {
   navOrder?: string[]
   navLabels?: Record<string, string>
   hiddenNavKeys?: string[]
+  offerStages?: import('@/lib/store/offersStore').OfferStage[]
+  offerCategories?: import('@/lib/store/offersStore').OfferCategory[]
+  offerGeos?: import('@/lib/store/offersStore').OfferGeo[]
   onboardingDone?: boolean
   contenidoTabOrder?: string[]
   dailyReflectionPrompt?: string
@@ -2499,6 +2624,9 @@ async function pushAppPrefs() {
     navOrder: s.navOrder,
     navLabels: s.navLabels,
     hiddenNavKeys: s.hiddenNavKeys,
+    offerStages: useOffersStore.getState().stages,
+    offerCategories: useOffersStore.getState().categories,
+    offerGeos: useOffersStore.getState().geos,
     onboardingDone: s.onboardingDone,
     contenidoTabOrder: s.contenidoTabOrder,
     dailyReflectionPrompt: s.dailyReflectionPrompt,
@@ -2584,6 +2712,15 @@ async function pullAppPrefs(): Promise<boolean> {
     ...(p.anthropicModel !== undefined ? { anthropicModel: p.anthropicModel } : {}),
     ...(p.metrics !== undefined ? { metrics: p.metrics } : {}),
   }))
+  // Catálogos del CRM de ofertas — viven en este blob porque son listas
+  // cortas compartidas por todos los sistemas; no ameritan tabla propia.
+  if (p.offerStages || p.offerCategories || p.offerGeos) {
+    useOffersStore.setState({
+      ...(p.offerStages?.length ? { stages: p.offerStages } : {}),
+      ...(p.offerCategories ? { categories: p.offerCategories } : {}),
+      ...(p.offerGeos ? { geos: p.offerGeos } : {}),
+    })
+  }
   markSynced('appPrefs')
   return true
   } finally {
@@ -3475,6 +3612,11 @@ function appPrefsFingerprint(s: AppPrefsSnapshot): string {
     s.scheduleOrder, s.dayTypes, s.navOrder, s.navLabels, s.contenidoTabOrder,
     s.dailyReflectionPrompt, s.aiProvider, s.anthropicApiKey, s.anthropicModel,
     s.hiddenNavKeys, s.onboardingDone,
+    // Catálogos del CRM: viajan en este blob, así que un cambio de etapa o
+    // categoría tiene que ensuciar appPrefs o no se sube nunca.
+    useOffersStore.getState().stages,
+    useOffersStore.getState().categories,
+    useOffersStore.getState().geos,
     s.metrics, s.notificationPrefs,
   ])
 }
@@ -3500,6 +3642,7 @@ function scheduleBacktests()  { schedule(backtestPushTimer,   pushBacktests,  (t
 function scheduleJournal()     { schedule(journalPushTimer,    pushJournal,    (t) => { journalPushTimer = t }) }
 function scheduleMeditations() { schedule(meditationsPushTimer, pushMeditations, (t) => { meditationsPushTimer = t }) }
 function scheduleYoutube()     { schedule(youtubePushTimer,     pushYoutube,     (t) => { youtubePushTimer = t }) }
+function scheduleOffers()      { schedule(offersPushTimer,      pushOffers,      (t) => { offersPushTimer = t }) }
 function scheduleFavorites()   { schedule(favoritesPushTimer,   pushFavorites,   (t) => { favoritesPushTimer = t }) }
 function scheduleConcepts()    { schedule(conceptPushTimer,    pushConcepts,   (t) => { conceptPushTimer = t }) }
 
@@ -3725,6 +3868,17 @@ async function initAllDomains() {
     if (hasLocal) await pushMeditations().catch((e) => console.error('Meditations post-pull push failed', e))
   }
 
+  // ─── Ofertas (CRM) ────────────────────────────────────────────────────
+  // Pull-first: LWW por updatedAt + tombstones. Dos colecciones (sistemas y
+  // ofertas) en el mismo dominio: son la misma cosa.
+  if (!state.offersInit) {
+    state.offersInit = true
+    const { systems, offers } = useOffersStore.getState()
+    const hasLocal = systems.length > 0 || offers.length > 0
+    await pullOffers()
+    if (hasLocal) await pushOffers().catch((e) => console.error('Offers post-pull push failed', e))
+  }
+
   // ─── YouTube ──────────────────────────────────────────────────────────
   // Pull-first: LWW por updatedAt + tombstones (mismo patrón que meditaciones).
   if (!state.youtubeInit) {
@@ -3864,6 +4018,13 @@ export function useSupabaseSync() {
       useJournalStore.subscribe(() => { markModifiedIfNotPulling('journal'); if (state.userId) scheduleJournal() })
       useMeditationsStore.subscribe(() => { markModifiedIfNotPulling('meditations'); if (state.userId) scheduleMeditations() })
       useYoutubeStore.subscribe(() => { markModifiedIfNotPulling('youtube'); if (state.userId) scheduleYoutube() })
+      useOffersStore.subscribe(() => {
+        markModifiedIfNotPulling('offers')
+        if (state.userId) scheduleOffers()
+        // Los catálogos (etapas/categorías/GEOs) viven en el blob de
+        // appPrefs, así que tocarlos también tiene que ensuciar ESE dominio.
+        onAppPrefsChange()
+      })
       useFavoritesStore.subscribe(() => { markModifiedIfNotPulling('favorites'); if (state.userId) scheduleFavorites() })
       useConceptStore.subscribe(() => { markModifiedIfNotPulling('concepts'); if (state.userId) scheduleConcepts() })
     }
@@ -3897,6 +4058,7 @@ export function useSupabaseSync() {
       state.journalInit = false
       state.meditationsInit = false
       state.youtubeInit = false
+      state.offersInit = false
       state.favoritesInit = false
       state.conceptInit = false
       if (newId) {
@@ -3952,6 +4114,7 @@ export function useSupabaseSync() {
       state.journalInit = false
       state.meditationsInit = false
       state.youtubeInit = false
+      state.offersInit = false
       state.favoritesInit = false
       state.conceptInit = false
       try {
@@ -4034,6 +4197,7 @@ export async function forceSyncAll(): Promise<void> {
   state.journalInit = false
   state.meditationsInit = false
   state.youtubeInit = false
+  state.offersInit = false
   state.favoritesInit = false
   state.conceptInit = false
   await initAllDomains()

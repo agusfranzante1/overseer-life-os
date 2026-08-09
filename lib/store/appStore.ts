@@ -32,7 +32,7 @@ export const CORE_NAV_KEYS = [
  *  Mantener en sync con NAV_ITEMS del Sidebar. */
 export const OPTIONAL_NAV_KEYS = [
   'lab', 'journal', 'meditaciones', 'youtube', 'mindmaps',
-  'trading', 'health', 'estudio', 'contenido', 'gym', 'food',
+  'trading', 'health', 'estudio', 'contenido', 'ofertas', 'gym', 'food',
 ] as const
 
 export function isCoreNavKey(key: string): boolean {

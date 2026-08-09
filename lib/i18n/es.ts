@@ -9,6 +9,7 @@ export const es: Translations = {
     journal: 'My Journal',
     meditaciones: 'Meditaciones',
     youtube: 'YouTube',
+    ofertas: 'Ofertas',
     mindmaps: 'Mapas Mentales',
     calendar: 'Calendario',
     tasks: 'Tareas',
