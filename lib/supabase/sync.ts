@@ -2637,6 +2637,22 @@ function appPrefsFields(): Record<string, unknown> {
   }
 }
 
+/** `onboardingDone` es un TRINQUETE: una vez que el recorrido se dio por visto,
+ *  ningún merge lo puede volver a abrir.
+ *
+ *  Sin esto, un dispositivo que arranca con el valor por defecto (`false` —
+ *  localStorage nuevo, o un push que salió antes de que el store rehidratara)
+ *  le reabre el recorrido a TODOS los demás. Y el recorrido no es solo un
+ *  cartel: navega, así que reabrirlo te saca de la sección donde estabas.
+ *
+ *  Es asimétrico a propósito. "Ya lo vi" es un hecho que no se deshace, y el
+ *  merge por campo no alcanza para protegerlo: ante un empate sin marcas gana
+ *  el remoto, y el remoto puede ser justamente el `false` por defecto. */
+function latchOnboarding(merged: Record<string, unknown>, local: Record<string, unknown>): Record<string, unknown> {
+  if (local.onboardingDone === true) merged.onboardingDone = true
+  return merged
+}
+
 /** Mientras un merge escribe en los stores, los cambios que eso genera NO son
  *  ediciones del usuario. Sin esta bandera, recibir datos de otro dispositivo
  *  se sellaba como "yo edité esto", y ese sello después le ganaba al que sí lo
@@ -2691,7 +2707,9 @@ async function pushAppPrefs() {
   // marca para él y por lo tanto no lo pisa. Ver prefsMerge.ts.
   const remote = await fetchRemotePrefs(sb, uid)
   const localTimes = readPrefsTimes()
-  const { merged, times } = mergePrefsByField(appPrefsFields(), localTimes, remote.fields, remote.times)
+  const localFields = appPrefsFields()
+  const { merged, times } = mergePrefsByField(localFields, localTimes, remote.fields, remote.times)
+  latchOnboarding(merged, localFields)
   // Lo mergeado se aplica también localmente: si el server tenía algo más
   // nuevo, este dispositivo se queda con eso en vez de divergir.
   applyPrefsFields(merged)
@@ -2757,9 +2775,11 @@ async function pullAppPrefs(): Promise<boolean> {
   // borra una edición local más reciente.
   const raw = ((res.data as { payload: unknown }).payload ?? {}) as Record<string, unknown>
   const { _t, ...remoteFields } = raw
+  const localFields = appPrefsFields()
   const { merged, times } = mergePrefsByField(
-    appPrefsFields(), readPrefsTimes(), remoteFields, (_t ?? {}) as FieldTimes,
+    localFields, readPrefsTimes(), remoteFields, (_t ?? {}) as FieldTimes,
   )
+  latchOnboarding(merged, localFields)
   applyPrefsFields(merged)
   writePrefsTimes(times)
 

@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRouter } from 'next/navigation'
 import { Compass, ChevronRight, ChevronLeft, X, Check } from 'lucide-react'
@@ -26,10 +26,26 @@ export function OnboardingTour() {
   const open = !onboardingDone
   const current = TOUR_STEPS[step]
 
-  // Navegar SÍ es un efecto secundario, va en un effect.
-  useEffect(() => {
-    if (open && current?.href) router.push(current.href)
-  }, [open, current?.href, router])
+  /**
+   * Avanzar/retroceder un paso. La navegación pasa ACÁ, en el click, y NO en
+   * un effect.
+   *
+   * Con el effect (`if (open && href) router.push(href)`) el recorrido se
+   * llevaba puesta la navegación del usuario: bastaba con que `open` pasara a
+   * true — por ejemplo cuando un pull de Supabase traía `onboardingDone: false`
+   * de otro dispositivo — para que te sacara de la sección donde estabas y te
+   * devolviera al Panel (el paso 0). Lo mismo al entrar directo a /tasks con el
+   * recorrido abierto: el effect corría al montar y te rebotaba al Panel.
+   *
+   * Ahora el recorrido solo navega cuando vos tocás Siguiente o Atrás.
+   */
+  const go = (delta: 1 | -1) => {
+    const next = step + delta
+    const target = TOUR_STEPS[next]
+    if (!target) return
+    setStep(next)
+    if (target.href) router.push(target.href)
+  }
 
   const finish = () => setOnboardingDone(true)
 
@@ -83,7 +99,7 @@ export function OnboardingTour() {
               </span>
               {step > 0 && (
                 <button
-                  onClick={() => setStep((s) => s - 1)}
+                  onClick={() => go(-1)}
                   className="text-xs text-zinc-400 hover:text-zinc-200 px-2 py-1.5 rounded-lg hover:bg-zinc-800 transition-colors flex items-center gap-1"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" /> Atrás
@@ -98,7 +114,7 @@ export function OnboardingTour() {
                 </button>
               ) : (
                 <button
-                  onClick={() => setStep((s) => s + 1)}
+                  onClick={() => go(1)}
                   className="text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
                 >
                   Siguiente <ChevronRight className="w-3.5 h-3.5" />
