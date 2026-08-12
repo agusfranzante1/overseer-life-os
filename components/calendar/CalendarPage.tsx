@@ -22,10 +22,46 @@ import {
   ChevronLeft, ChevronRight, Calendar, Plus, RefreshCw, Trash2, X,
   Link as LinkIcon, Eye, EyeOff, LogOut, ExternalLink, AlertCircle,
   LayoutGrid, Rows, Moon, Sun, Settings as SettingsIcon,
-  PanelRightOpen, PanelRightClose, Check, Circle, ChevronDown,
+  PanelRightOpen, PanelRightClose, Check, Circle, ChevronDown, ListTodo,
 } from 'lucide-react'
 
 type ViewMode = 'month' | 'week'
+
+type EventTaskDraft = {
+  title: string
+  description?: string
+  dueDate: string
+  dueTime?: string
+  durationMinutes?: number
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+function eventToTaskDraft(event: GEvent): EventTaskDraft {
+  const description = `${event.description ?? ''}${event.location ? `\n📍 ${event.location}` : ''}`.trim() || undefined
+
+  if (event.allDay) {
+    return {
+      title: event.summary,
+      description,
+      dueDate: event.start.slice(0, 10),
+    }
+  }
+
+  const start = new Date(event.start)
+  const end = new Date(event.end)
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw new Error('Fecha inválida en el evento de Google Calendar')
+  }
+
+  return {
+    title: event.summary,
+    description,
+    dueDate: `${start.getFullYear()}-${pad2(start.getMonth() + 1)}-${pad2(start.getDate())}`,
+    dueTime: `${pad2(start.getHours())}:${pad2(start.getMinutes())}`,
+    durationMinutes: Math.max(5, Math.round((end.getTime() - start.getTime()) / 60_000)),
+  }
+}
 
 export function CalendarPage() {
   // Gate de prioridades (misma fuente de verdad que Panel y Task Manager).
@@ -353,6 +389,61 @@ export function CalendarPage() {
     if (!confirm('¿Desconectar Google Calendar? Tus eventos seguirán en Google, sólo se desconecta acá.')) return
     await gcal.disconnect()
     setBanner({ kind: 'success', text: 'Desconectado de Google Calendar' })
+  }
+
+  const handleConvertEventToTask = async (ev: GEvent) => {
+    if (ev.isTask) return
+    setBanner({ kind: 'loading', text: `Convirtiendo "${ev.summary}" en tarea…` })
+
+    let taskId: string | null = null
+    try {
+      const draft = eventToTaskDraft(ev)
+      const tasksApi = useTasksStore.getState()
+      const existingCalendarProject = Object.values(tasksApi.projects).find(
+        (p) => !p.archived && p.name.trim().toLowerCase() === 'calendario'
+      )
+      const projectId = existingCalendarProject?.id ?? tasksApi.addProject({ name: 'Calendario' })
+      const project = useTasksStore.getState().projects[projectId]
+      if (!project) throw new Error('No se pudo crear el proyecto Calendario')
+      const status = project.statuses[0]?.label
+      if (!status) throw new Error('El proyecto Calendario no tiene estados')
+
+      taskId = useTasksStore.getState().addTask({
+        projectId,
+        title: draft.title,
+        description: draft.description,
+        status,
+        priority: 'medium',
+        importance: 'low',
+        subtasks: [],
+        dueDate: draft.dueDate,
+        dueTime: draft.dueTime,
+        durationMinutes: draft.durationMinutes,
+      })
+
+      if (!useTasksStore.getState().tasks[taskId]) {
+        throw new Error('No se pudo crear la tarea')
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'No se pudo crear la tarea'
+      console.error('[calendar] convertEventToTask create failed:', msg, ev)
+      setBanner({ kind: 'error', text: msg === 'No se pudo crear la tarea' ? msg : `No se pudo crear la tarea: ${msg}` })
+      return
+    }
+
+    try {
+      await useGoogleCalendarStore.getState().deleteEvent(ev.id, ev.calendarId)
+      setShowEventModal(null)
+      setBanner({ kind: 'success', text: 'Evento convertido en tarea ✓' })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'unknown'
+      console.error('[calendar] convertEventToTask delete failed after task created:', msg, { event: ev, taskId })
+      setShowEventModal(null)
+      setBanner({
+        kind: 'error',
+        text: 'La tarea se creó, pero no pude borrar el evento de Google Calendar. Borralo a mano o reintentá.',
+      })
+    }
   }
 
   return (
@@ -929,6 +1020,9 @@ export function CalendarPage() {
                 .then(() => setBanner({ kind: 'success', text: 'Evento eliminado ✓' }))
                 .catch((e) => setBanner({ kind: 'error', text: `Error: ${e instanceof Error ? e.message : 'unknown'}` }))
             }}
+            onConvertToTask={showEventModal.event && !showEventModal.event.isTask
+              ? () => handleConvertEventToTask(showEventModal.event!)
+              : undefined}
           />
         )}
       </AnimatePresence>
@@ -1129,6 +1223,7 @@ interface EventModalProps {
     durationMinutes?: number
   }) => void
   onDelete: () => void
+  onConvertToTask?: () => Promise<void>
 }
 
 /** UI options for the recurrence selector. The 'custom' option isn't
@@ -1162,7 +1257,7 @@ function buildRecurrenceRule(mode: RecurrenceMode, customDays?: number[]): strin
   }
 }
 
-function EventModal({ mode, event, date, startHour, calendars, projects, onClose, onSave, onSaveTask, onDelete }: EventModalProps) {
+function EventModal({ mode, event, date, startHour, calendars, projects, onClose, onSave, onSaveTask, onDelete, onConvertToTask }: EventModalProps) {
   const { t } = useTranslation()
   const writable = calendars.filter((c) => c.accessRole === 'owner' || c.accessRole === 'writer')
   const defaultCal = event?.calendarId
@@ -1210,6 +1305,17 @@ function EventModal({ mode, event, date, startHour, calendars, projects, onClose
     const wd = baseDate.getDay()
     return [wd]  // por defecto, el día de la fecha base
   })
+  const [convertBusy, setConvertBusy] = useState(false)
+
+  const handleConvertToTask = async () => {
+    if (!onConvertToTask || convertBusy) return
+    setConvertBusy(true)
+    try {
+      await onConvertToTask()
+    } finally {
+      setConvertBusy(false)
+    }
+  }
 
   const handleSave = () => {
     if (!summary.trim()) return
@@ -1533,11 +1639,17 @@ function EventModal({ mode, event, date, startHour, calendars, projects, onClose
           )}
         </div>
 
-        <div className="flex items-center gap-2 p-4 border-t border-white/[0.08]">
+        <div className="flex flex-wrap items-center gap-2 p-4 border-t border-white/[0.08]">
           {mode === 'edit' && (
             <button onClick={onDelete}
               className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 text-red-400 text-sm font-semibold transition-colors flex items-center gap-2">
               <Trash2 className="w-3.5 h-3.5" /> Eliminar
+            </button>
+          )}
+          {mode === 'edit' && event && !event.isTask && onConvertToTask && (
+            <button onClick={handleConvertToTask} disabled={convertBusy}
+              className="px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed text-emerald-300 text-sm font-semibold transition-colors flex items-center gap-2">
+              <ListTodo className="w-3.5 h-3.5" /> {convertBusy ? 'Convirtiendo…' : 'Convertir en tarea'}
             </button>
           )}
           <button onClick={onClose}

@@ -5,7 +5,7 @@
 > El método de trabajo está en [`instructions.md`](instructions.md); las reglas
 > técnicas no negociables en [`AGENTS.md`](AGENTS.md).
 
-**Última actualización:** 2026-08-12 · **Roadmap en curso:** 7 etapas, una por vez. **Etapas 1 y 2 COMPLETAS.** Próxima: Etapa 3 (Google Calendar: recordatorios + convertir evento en tarea) — NO empezada.
+**Última actualización:** 2026-08-12 · **Roadmap en curso:** 7 etapas, una por vez. **Etapas 1, 2 y 3 COMPLETAS.** Próxima: Etapa 4 (Mapas Mentales / Content Strategy / Estudio) — NO empezada.
 
 ---
 
@@ -37,6 +37,14 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **ETAPA 3 — Google Calendar:**
+  - Recordatorios: ya estaban implementados (nativos GCal, crear/editar,
+    5/10/15/30/1h/1día) → NO se tocaron (evitar duplicar).
+  - **Convertir evento en tarea** (nuevo, hecho por Codex): botón en el modal de
+    evento GCal real. Flujo seguro: crea la tarea en el proyecto "Calendario"
+    (find-or-create), confirma que persistió, y RECIÉN AHÍ borra el evento. Si
+    el borrado falla, la tarea queda intacta y muestra banner claro. Timezone
+    local para dueDate/dueTime, duración = fin−inicio.
 - [x] **ETAPA 2 — Priority Gate global:** una sola fuente de verdad
       (`usePriorityGate()`, hecho por Codex) + un wrapper visual reusable
       (`<PriorityGate>`) que difumina/bloquea el contenido y muestra el overlay
