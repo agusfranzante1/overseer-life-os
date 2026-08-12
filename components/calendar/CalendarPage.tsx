@@ -10,6 +10,8 @@ import { effectivePriority } from '@/lib/utils/taskPriority'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { useGoogleCalendarStore, resolveEventColor, contrastText, type GEvent, type GCalendar } from '@/lib/store/googleCalendarStore'
 import { snapDeltaMinutes, toLocalISO } from '@/lib/calendar/timeMath'
+import { PriorityGate } from '@/components/common/PriorityGate'
+import { usePriorityGate } from '@/lib/dashboard/priorityGate'
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, isSameMonth, isToday, isSameDay,
@@ -26,6 +28,8 @@ import {
 type ViewMode = 'month' | 'week'
 
 export function CalendarPage() {
+  // Gate de prioridades (misma fuente de verdad que Panel y Task Manager).
+  const gate = usePriorityGate()
   const { t, tArray, dfLocale } = useTranslation()
   const { tasks, projects, addTask, updateTask, updateSubtask, completeTask, toggleSubtask } = useTasksStore()
   // Selección de task para abrir el detalle al click en un bloque sintético.
@@ -352,11 +356,12 @@ export function CalendarPage() {
   }
 
   return (
-    // `h-full flex flex-col min-h-0`: the page fills the entire available
-    // height of the AppShell main area and uses a vertical flex layout so
-    // we can size the grid below as `flex-1`. Without this, the calendar
-    // grid had to hard-code `calc(100vh - 160px)` which left a black band
-    // at the bottom on routes where the ChatBox doesn't render.
+    <PriorityGate
+      locked={gate.locked} doneCount={gate.doneCount} total={gate.total}
+      label="tu calendario" className="h-full" contentClassName="h-full"
+    >
+    {/* `h-full flex flex-col min-h-0`: la página llena todo el alto disponible
+        del AppShell con un flex vertical para poder dar `flex-1` al grid. */}
     <motion.div
       initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
       className="p-3 sm:p-4 h-full flex flex-col min-h-0"
@@ -1093,6 +1098,7 @@ export function CalendarPage() {
         )
       })()}
     </motion.div>
+    </PriorityGate>
   )
 }
 

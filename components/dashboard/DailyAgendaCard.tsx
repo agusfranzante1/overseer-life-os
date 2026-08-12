@@ -1,12 +1,12 @@
 'use client'
 import { useMemo } from 'react'
-import { motion } from 'framer-motion'
-import { Clock, Lock, CalendarDays, Check } from 'lucide-react'
+import { Clock, CalendarDays, Check } from 'lucide-react'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useAppStore } from '@/lib/store/appStore'
 import { useGoogleCalendarStore, resolveEventColor } from '@/lib/store/googleCalendarStore'
 import { todayKeyInTz } from '@/lib/utils/dateInTz'
-import { useDailyPriorities } from '@/lib/dashboard/priorities'
+import { usePriorityGate } from '@/lib/dashboard/priorityGate'
+import { PriorityGate } from '@/components/common/PriorityGate'
 
 const TASK_ACCENT = '#8b5cf6'
 
@@ -37,7 +37,7 @@ function fmtTime(iso: string): string {
  *  completar. Al completar las prioridades se desbloquea. Si no hay prioridades
  *  marcadas, queda siempre desbloqueada. */
 export function DailyAgendaCard() {
-  const { hasPriorities, allDone, doneCount, items } = useDailyPriorities()
+  const { locked, doneCount, total } = usePriorityGate()
   const tasks = useTasksStore((s) => s.tasks)
   const completeTask = useTasksStore((s) => s.completeTask)
   const timezone = useAppStore((s) => s.timezone)
@@ -92,7 +92,6 @@ export function DailyAgendaCard() {
     return { timed, untimed }
   }, [gcalEvents, calendars, tasks, todayKey])
 
-  const locked = hasPriorities && !allDone
   const isEmpty = timed.length === 0 && untimed.length === 0
 
   return (
@@ -102,8 +101,9 @@ export function DailyAgendaCard() {
         <h3 className="text-sm font-semibold text-zinc-100">Tu día</h3>
       </div>
 
-      {/* Contenido — se difumina y deshabilita cuando está bloqueado. */}
-      <div className={locked ? 'blur-[6px] pointer-events-none select-none' : ''} aria-hidden={locked}>
+      {/* Contenido — bloqueado por el gate de prioridades compartido (mismo
+          wrapper que Task Manager y Calendario, una sola fuente de verdad). */}
+      <PriorityGate locked={locked} doneCount={doneCount} total={total} label="tu día" showCta={false}>
         {isEmpty ? (
           <p className="text-xs text-zinc-500 py-6 text-center">No hay nada agendado para hoy.</p>
         ) : (
@@ -169,22 +169,7 @@ export function DailyAgendaCard() {
             )}
           </div>
         )}
-      </div>
-
-      {/* Overlay de bloqueo */}
-      {locked && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center px-6 bg-zinc-950/40"
-        >
-          <div className="w-11 h-11 rounded-full bg-violet-500/15 border border-violet-500/40 flex items-center justify-center">
-            <Lock className="w-5 h-5 text-violet-300" />
-          </div>
-          <p className="text-sm font-medium text-zinc-100">Completá tus prioridades para desbloquear tu día</p>
-          <p className="text-xs text-violet-300/80 font-mono">{doneCount}/{items.length} prioridades hechas</p>
-        </motion.div>
-      )}
+      </PriorityGate>
     </div>
   )
 }

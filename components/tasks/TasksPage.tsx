@@ -12,6 +12,8 @@ import { RecurringSeriesRow } from './RecurringSeriesRow'
 import { groupRecurringSeries } from '@/lib/tasks/groupRecurring'
 import { TaskDetail } from './TaskDetail'
 import { BreakdownModal } from './BreakdownModal'
+import { PriorityGate } from '@/components/common/PriorityGate'
+import { usePriorityGate } from '@/lib/dashboard/priorityGate'
 import {
   Plus, FolderOpen, X, ChevronDown, ChevronRight, ChevronLeft, ChevronUp, Filter, Wand2, LayoutList, Columns3,
   Pencil, Trash2, MoreHorizontal, ArrowUpDown, RotateCcw, Check, Menu, Repeat, Eye, EyeOff,
@@ -697,6 +699,8 @@ const isDoneAndCalendarized = (t: Task) =>
   !!t.completedAt && !!t.dueDate && !!t.dueTime
 
 export function TasksPage() {
+  // Gate de prioridades (misma fuente de verdad que Panel y Calendario).
+  const gate = usePriorityGate()
   const tasksStoreApi = useTasksStore()
   const {
     projects, tasks, selectedProjectId, setSelectedProject, addProject, addTask,
@@ -988,6 +992,10 @@ export function TasksPage() {
   const selectedTaskProject = selectedTask ? projects[selectedTask.projectId] : null
 
   return (
+    <PriorityGate
+      locked={gate.locked} doneCount={gate.doneCount} total={gate.total}
+      label="tus tareas" className="h-full" contentClassName="h-full"
+    >
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
@@ -1717,6 +1725,7 @@ export function TasksPage() {
         )}
       </AnimatePresence>
     </motion.div>
+    </PriorityGate>
   )
 }
 

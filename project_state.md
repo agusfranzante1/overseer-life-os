@@ -5,7 +5,7 @@
 > El método de trabajo está en [`instructions.md`](instructions.md); las reglas
 > técnicas no negociables en [`AGENTS.md`](AGENTS.md).
 
-**Última actualización:** 2026-08-12 · **Roadmap en curso:** 7 etapas, una por vez. **Etapa 1 (Estabilidad del core) COMPLETA.** Próxima: Etapa 2 (Priority Gate global) — NO empezada.
+**Última actualización:** 2026-08-12 · **Roadmap en curso:** 7 etapas, una por vez. **Etapas 1 y 2 COMPLETAS.** Próxima: Etapa 3 (Google Calendar: recordatorios + convertir evento en tarea) — NO empezada.
 
 ---
 
@@ -37,6 +37,11 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **ETAPA 2 — Priority Gate global:** una sola fuente de verdad
+      (`usePriorityGate()`, hecho por Codex) + un wrapper visual reusable
+      (`<PriorityGate>`) que difumina/bloquea el contenido y muestra el overlay
+      violeta. Aplicado en Panel (refactor de `DailyAgendaCard`), Task Manager y
+      Calendario. El sidebar queda usable para ir al Panel a completar.
 - [x] **ETAPA 1 — Estabilidad del core:**
   - [x] Proyectos ocultos ahora sincronizan multi-device (viajan en el blob
         `app_preferences`, antes eran local-only en taskUiStore).
