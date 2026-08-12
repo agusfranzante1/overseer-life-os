@@ -646,16 +646,17 @@ export function HabitsPage() {
                     <button onClick={() => toggleDate(habit.id, selectedDayStr)}
                       disabled={reorderMode}
                       className={`md:hidden shrink-0 rounded-lg flex items-center justify-center transition-all w-10 h-10 hover:ring-1 hover:ring-white/70 ${reorderMode ? 'opacity-40 pointer-events-none' : ''}`}
-                      // Mismo lenguaje que el desktop: celda negra, punto
-                      // blanco sólido cuando está hecho, anillo blanco hueco
-                      // cuando está vacío. Hover = anillo blanco grueso + glow.
-                      style={{ backgroundColor: '#000000' }}>
+                      // Celda theme-aware (`--habit-cell-bg`): oscura en dark,
+                      // well clarito en light — antes era `#000000` fijo y en
+                      // modo claro parecía un hábito completado. El punto/anillo
+                      // usan el COLOR del hábito, que contrasta en ambos temas.
+                      style={{ backgroundColor: 'var(--habit-cell-bg)' }}>
                       {skippedToday ? (
                         <Minus className="w-4 h-4 text-zinc-500" />
                       ) : doneTodayHabit ? (
-                        <div className="rounded-full" style={{ width: 16, height: 16, backgroundColor: '#ffffff' }} />
+                        <div className="rounded-full" style={{ width: 16, height: 16, backgroundColor: habit.color, boxShadow: `0 0 8px ${habit.color}` }} />
                       ) : (
-                        <div className="rounded-full" style={{ width: 16, height: 16, border: '2px solid #ffffff', backgroundColor: 'transparent' }} />
+                        <div className="rounded-full" style={{ width: 16, height: 16, border: `2px solid ${habit.color}`, backgroundColor: 'transparent' }} />
                       )}
                     </button>
                   )

@@ -5,7 +5,7 @@
 > El método de trabajo está en [`instructions.md`](instructions.md); las reglas
 > técnicas no negociables en [`AGENTS.md`](AGENTS.md).
 
-**Última actualización:** 2026-08-12
+**Última actualización:** 2026-08-12 · **Roadmap en curso:** 7 etapas, una por vez. **Etapa 1 (Estabilidad del core) COMPLETA.** Próxima: Etapa 2 (Priority Gate global) — NO empezada.
 
 ---
 
@@ -37,6 +37,18 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **ETAPA 1 — Estabilidad del core:**
+  - [x] Proyectos ocultos ahora sincronizan multi-device (viajan en el blob
+        `app_preferences`, antes eran local-only en taskUiStore).
+  - [x] Subtareas nuevas caen al FINAL (`order = max+1`, sin colisiones) y los
+        procesos respetan el orden de inserción (desempate por `order`, no por
+        título, en `sortSubtasks`).
+  - [x] Modo claro/mobile: detalle de tarea ya no queda oscuro; X respeta
+        safe-area de iOS; dots de hábitos dejan de verse negros; botón de
+        selector de proyecto legible.
+  - [x] Calendario: matemática de tiempo extraída a `lib/calendar/timeMath.ts`
+        con tests que fijan el invariante (delta múltiplo de 15, sin corrimiento
+        de minutos). Sin cambio de comportamiento.
 - [x] Sync entre pestañas para **todos** los stores (arregla ofertas que
       desaparecían al tener 2 pestañas abiertas) — `f4c5d36`
 - [x] Onboarding: el recorrido ya no te saca de la sección donde estás; y

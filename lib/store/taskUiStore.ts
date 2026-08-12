@@ -21,8 +21,13 @@ interface TaskUIState {
   subtaskCollapsed: Record<string, boolean>
   /** Proyectos ocultados de la vista "Todas las tareas" (selector = null).
    *  Sus tareas no aparecen en el cross-project view, pero el proyecto sigue
-   *  seleccionable y visible al abrirlo directo. Preferencia de vista (local,
-   *  no se sincroniza). `hiddenProjects[projectId] === true` → oculto. */
+   *  seleccionable y visible al abrirlo directo.
+   *
+   *  A DIFERENCIA de taskExpanded/subtaskCollapsed (layout efímero por
+   *  dispositivo), esta ES una preferencia real del usuario y SÍ sincroniza
+   *  multi-device: viaja en el blob `app_preferences` (ver `appPrefsFields()`
+   *  en lib/supabase/sync.ts, merge por-campo). localStorage acá es solo
+   *  cache local. `hiddenProjects[projectId] === true` → oculto. */
   hiddenProjects: Record<string, boolean>
   setTaskExpanded: (taskId: string, expanded: boolean) => void
   toggleTaskExpanded: (taskId: string) => void

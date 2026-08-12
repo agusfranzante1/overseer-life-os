@@ -9,6 +9,7 @@ import { expandRecurrenceInRange } from '@/lib/utils/taskRecurrence'
 import { effectivePriority } from '@/lib/utils/taskPriority'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { useGoogleCalendarStore, resolveEventColor, contrastText, type GEvent, type GCalendar } from '@/lib/store/googleCalendarStore'
+import { snapDeltaMinutes, toLocalISO } from '@/lib/calendar/timeMath'
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, isSameMonth, isToday, isSameDay,
@@ -1945,17 +1946,9 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                   const visualHeight = isBeingDragged && dragState.mode === 'resize'
                     ? Math.max(18, dragState.originalHeight + dragState.offsetY)
                     : height
-                  // Helper compartido — convierte Date a ISO con offset local
-                  // explícito para que Google reciba el wall-clock correcto.
-                  const toLocalISO = (d: Date) => {
-                    const pad = (n: number) => String(n).padStart(2, '0')
-                    const offsetMin = -d.getTimezoneOffset()
-                    const sign = offsetMin >= 0 ? '+' : '-'
-                    const absMin = Math.abs(offsetMin)
-                    const offH = pad(Math.floor(absMin / 60))
-                    const offM = pad(absMin % 60)
-                    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00${sign}${offH}:${offM}`
-                  }
+                  // `toLocalISO` (offset local explícito para GCal) vive ahora
+                  // en lib/calendar/timeMath.ts, con tests que fijan el
+                  // invariante de que los minutos no se corren.
                   // Index original de la columna día en el array `days`
                   // — necesario para calcular dayShift al mover horizontal.
                   const originalDayIndex = days.findIndex((d) => isSameDay(d, day))
@@ -1998,9 +1991,9 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                         const offsetY = e.clientY - info.pointerStartY
                         const offsetX = e.clientX - info.pointerStartX
                         if (!dragState && Math.abs(offsetY) < 4 && Math.abs(offsetX) < 4) return // below threshold
-                        // Snap to 15-min increments.
+                        // Snap del DELTA a múltiplos de 15 min (ver timeMath.ts).
                         const minPerPx = 60 / HOUR_PX
-                        const deltaMin = Math.round((offsetY * minPerPx) / 15) * 15
+                        const deltaMin = snapDeltaMinutes(offsetY, HOUR_PX)
                         const snappedOffsetY = deltaMin / minPerPx
 
                         if (info.mode === 'resize') {

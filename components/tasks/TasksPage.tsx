@@ -1244,7 +1244,10 @@ export function TasksPage() {
           <button
             onClick={toggleProjectsPanel}
             aria-label="Abrir panel de proyectos"
-            className="sm:hidden mb-3 w-full flex items-center gap-2.5 px-3.5 py-3 rounded-xl bg-indigo-500/10 border border-indigo-500/25 active:bg-indigo-500/20 text-sm font-semibold text-indigo-100 transition-colors shadow-sm"
+            // `text-indigo-200` (no -100): en modo claro el shade 200 se
+            // remapea a tinta oscura legible; el -100 quedaba casi blanco e
+            // ilegible sobre el fondo lila claro. En oscuro sigue brillante.
+            className="sm:hidden mb-3 w-full flex items-center gap-2.5 px-3.5 py-3 rounded-xl bg-indigo-500/10 border border-indigo-500/25 active:bg-indigo-500/20 text-sm font-semibold text-indigo-200 transition-colors shadow-sm"
           >
             <FolderOpen className="w-4 h-4 text-indigo-400 shrink-0" />
             <span className="flex-1 text-left">

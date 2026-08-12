@@ -48,14 +48,17 @@ export function sortSubtasks(
     ? new Map(project.statuses.map((s) => [s.label, s.order]))
     : null
 
-  // Tiebreaker dentro del mismo bucket — MISMO criterio que las madres:
-  // 1º agrupa por NOMBRE igual/similar (collation numérica: "X 2" antes que
-  //    "X 10") para que subtareas con el mismo nombre queden PEGADAS.
-  // 2º si el nombre empata, por `order` (inserción: el campo lo setea
-  //    addSubtask a `subtasks.length`, ascendente = oldest → newest).
+  // Tiebreaker dentro del mismo bucket. A DIFERENCIA de las tasks madre, en
+  // subtareas manda el ORDEN DE INSERCIÓN (`order`), no el título.
+  //
+  // Por qué: las subtareas se usan como PASOS DE UN PROCESO. El usuario quiere
+  // que un ítem nuevo caiga al final y que la lista respete el orden en que la
+  // cargó (hasta que la reordene a mano), no que se reacomode alfabéticamente
+  // y "se pierda entre las demás". El título queda como desempate secundario
+  // por si dos comparten `order` (data vieja previa a addSubtask con max+1).
   const ageTiebreak = (a: Subtask, b: Subtask) =>
-    a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })
-    || (a.order - b.order)
+    (a.order - b.order)
+    || a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })
 
   // Dentro del mismo bucket de prioridad: con dueDate pesa más que sin.
   // Espejo de la regla en sortTasks (TasksPage.tsx).

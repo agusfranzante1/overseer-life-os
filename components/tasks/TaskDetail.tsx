@@ -183,19 +183,22 @@ export function TaskDetail({ task, project, onClose }: Props) {
           exit={{ x: '100%' }}
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-lg h-full overflow-y-auto"
-          style={{
-            // Panel lateral con glow violeta sutil desde la sup-izq +
-            // glass base. Más prominente que el bg-white/[0.03] anterior.
-            background: `
-              radial-gradient(circle at 0% 0%, rgba(99, 102, 241, 0.08), transparent 50%),
-              linear-gradient(180deg, rgba(20, 23, 30, 0.95), rgba(15, 17, 23, 0.98))
-            `,
-            borderLeft: '1px solid rgba(255, 255, 255, 0.10)',
-            boxShadow: '-24px 0 48px -8px rgba(0,0,0,0.6)',
-          }}
+          // `task-detail-panel`: el fondo/borde viven en globals.css para que
+          // flipeen con el tema. Antes eran un gradiente OSCURO inline, que el
+          // CSS de modo claro no puede pisar → el detalle quedaba oscuro en
+          // modo claro.
+          className="task-detail-panel w-full max-w-lg h-full overflow-y-auto"
         >
-          <div className="p-6 space-y-5">
+          {/* `env(safe-area-inset-top)`: en iPhone (viewportFit cover) el panel
+              arranca DEBAJO de la barra de estado/notch, y la X quedaba tapada.
+              En desktop / sin notch el env devuelve 0 y no cambia nada. */}
+          <div
+            className="p-6 space-y-5"
+            style={{
+              paddingTop: 'calc(1.5rem + env(safe-area-inset-top, 0px))',
+              paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))',
+            }}
+          >
             {/* Header */}
             <div className="flex items-start justify-between gap-3">
               <textarea

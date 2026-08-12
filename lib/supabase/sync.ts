@@ -24,6 +24,7 @@ import { useYoutubeStore } from '@/lib/store/youtubeStore'
 import { useOffersStore } from '@/lib/store/offersStore'
 import { useFavoritesStore } from '@/lib/store/favoritesStore'
 import { useConceptStore } from '@/lib/store/conceptStore'
+import { useTaskUiStore } from '@/lib/store/taskUiStore'
 import { migrateMapNotes } from '@/lib/study/concepts'
 import {
   startPulling, endPulling,
@@ -2611,6 +2612,11 @@ function appPrefsFields(): Record<string, unknown> {
   const s = useAppStore.getState()
   const o = useOffersStore.getState()
   return {
+    // Proyectos ocultados de la vista "Todas las tareas". Es una preferencia
+    // del usuario (no layout efímero por-dispositivo como taskExpanded), así
+    // que viaja en el blob y se mergea por-campo igual que el resto. El resto
+    // de taskUiStore (taskExpanded/subtaskCollapsed) queda LOCAL a propósito.
+    hiddenProjects: useTaskUiStore.getState().hiddenProjects,
     language: s.language,
     timezone: s.timezone,
     autoPurgeCompletedTasks: s.autoPurgeCompletedTasks,
@@ -2673,10 +2679,14 @@ function applyPrefsFields(f: Record<string, unknown>): void {
 }
 
 function applyPrefsFieldsInner(f: Record<string, unknown>): void {
-  const { offerStages, offerCategories, offerGeos, ...appFields } = f as Record<string, unknown> & {
-    offerStages?: unknown; offerCategories?: unknown; offerGeos?: unknown
+  const { offerStages, offerCategories, offerGeos, hiddenProjects, ...appFields } = f as Record<string, unknown> & {
+    offerStages?: unknown; offerCategories?: unknown; offerGeos?: unknown; hiddenProjects?: unknown
   }
   useAppStore.setState((prev) => ({ ...prev, ...appFields }))
+  // hiddenProjects vive en taskUiStore, no en appStore: lo ruteamos ahí.
+  if (hiddenProjects && typeof hiddenProjects === 'object') {
+    useTaskUiStore.setState({ hiddenProjects: hiddenProjects as Record<string, boolean> })
+  }
   useOffersStore.setState({
     ...(Array.isArray(offerStages) && offerStages.length ? { stages: offerStages as never } : {}),
     ...(Array.isArray(offerCategories) ? { categories: offerCategories as never } : {}),
@@ -4070,6 +4080,10 @@ export function useSupabaseSync() {
       // Los catálogos del CRM viven en el mismo blob: si cambian, hay que
       // sellar el campo igual que con cualquier otra pref.
       useOffersStore.subscribe(onAppPrefsChange)
+      // hiddenProjects (proyectos ocultos de "Todas las tareas") también vive
+      // en el blob. taskExpanded/subtaskCollapsed NO están en appPrefsFields(),
+      // así que tocarlos no genera changedFields → no ensucia el blob.
+      useTaskUiStore.subscribe(onAppPrefsChange)
       useMindMapStore.subscribe(() => { markModifiedIfNotPulling('mindmaps'); if (state.userId) scheduleMindMaps() })
       useKpisStore.subscribe(() => { markModifiedIfNotPulling('kpis'); if (state.userId) scheduleKpis() })
       useStudyStore.subscribe(() => { markModifiedIfNotPulling('study'); if (state.userId) scheduleStudy() })

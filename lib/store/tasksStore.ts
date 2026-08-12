@@ -1653,6 +1653,12 @@ export const useTasksStore = create<TasksState>()(
           const task = s.tasks[taskId]
           const proj = s.projects[task?.projectId]
           const defaultStatus = proj?.statuses[0]?.label ?? 'todo'
+          // Orden = 1 + el máximo existente, NO `subtasks.length`. Con length,
+          // si antes borraste una subtarea, la nueva reusaba un `order` que ya
+          // tenía otra (0,1,2 → borro la 1 → largo 2 → nueva order=2 =
+          // colisión), y el desempate la mandaba a una posición arbitraria.
+          // Con max+1 siempre queda estrictamente al final.
+          const nextOrder = task.subtasks.reduce((m, st) => Math.max(m, st.order ?? 0), -1) + 1
           return {
             tasks: {
               ...s.tasks,
@@ -1662,7 +1668,7 @@ export const useTasksStore = create<TasksState>()(
                   ...task.subtasks,
                   {
                     id, title, completed: false, status: defaultStatus,
-                    order: task.subtasks.length, notes: '',
+                    order: nextOrder, notes: '',
                     // Default priority LOW — mirror the parent Task default
                     // so capture stays off the radar until the user bumps it.
                     priority: 'low',
