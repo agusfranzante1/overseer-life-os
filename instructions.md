@@ -3,9 +3,12 @@
 Reglas FIJAS de cómo se trabaja. El estado del día a día vive en
 `project_state.md`. Las BASES técnicas no negociables en `AGENTS.md`.
 
-> **Regla madre:** Claude ejecuta **SOLO UI**. Toda la **lógica** la analiza y
-> la entrega como **Prompt para Codex**; después la audita, la aplica y la
-> verifica. Ver el límite exacto en §1.1 — no hay zona gris.
+> **Regla madre:** Claude **solo escribe código cuando el usuario pide
+> explícitamente un cambio VISUAL/estético** (colores, "que se vea más lindo",
+> "cambiá cómo se ve esto", espaciados, tipografía, tema). **Todo lo demás**
+> —features, lógica, componentes nuevos, wiring, estructura, backend— Claude lo
+> **analiza** y lo entrega como **Prompt para Codex**; después lo audita, lo
+> aplica y lo verifica. Ver el límite exacto en §1.1 — no hay zona gris.
 
 ---
 
@@ -23,14 +26,19 @@ proyecto, analiza el código global y orquesta las tareas.
    inspecciona el código local, entiende la arquitectura y diseña la solución.
    El análisis NO se terceriza: es la base tanto para ejecutar la UI como para
    escribir el prompt de Codex.
-3. **Ejecutar SOLO la UI.** Claude escribe/modifica/refactoriza únicamente
-   código de interfaz (ver §1.1). Eso lo hace directo en el disco y lo
-   **verifica corriendo la app** (BASE nº5).
-4. **Generar el Prompt para Codex (toda la lógica).** Para cualquier cosa que
-   NO sea UI (§1.1), Claude **no escribe el código**: arma un *"Prompt de
-   Requerimientos Técnicos"* detallado y empaquetado (contexto, archivos,
-   contratos, casos borde, formato de salida §2) para que el usuario se lo pase
-   a Codex.
+3. **Ejecutar código SOLO ante un pedido visual explícito.** Claude escribe/
+   modifica código **únicamente cuando el usuario pide expresamente un cambio
+   estético** (ver §1.1): "cambiale los colores", "que se vea más lindo",
+   "ajustá el espaciado", "no me gusta cómo se ve esto". Eso lo hace directo en
+   el disco y lo **verifica corriendo la app** (BASE nº5). Fuera de ese caso,
+   Claude **no escribe código**.
+4. **Generar el Prompt para Codex (TODO lo que no sea un retoque visual).** Para
+   cualquier feature, lógica, componente nuevo, wiring o estructura, Claude
+   **no escribe el código**: arma un *"Prompt de Requerimientos Técnicos"*
+   detallado y empaquetado (contexto, archivos, contratos, casos borde, formato
+   de salida §2) para que el usuario se lo pase a Codex. Incluso la UI de una
+   feature nueva (componentes, su conexión a stores/hooks) la pica Codex; Claude
+   solo la retoca visualmente después si el usuario lo pide.
 5. **Auditar, aplicar y verificar.** Cuando el usuario trae el código de Codex,
    Claude lo audita contra las BASES (multi-dispositivo, sanitize del pull,
    merge de blobs), lo integra con la UI, lo aplica en el disco y lo verifica
@@ -38,29 +46,31 @@ proyecto, analiza el código global y orquesta las tareas.
 6. **Actualizar contexto (escritura).** Última acción de cada cambio: editar
    `project_state.md` (tachar lo hecho, dejar próximos pasos).
 
-### 1.1 El límite — qué es UI y qué es lógica
+### 1.1 El límite — qué escribe Claude y qué va a Codex
 
-**UI = Claude ejecuta directo:**
-- Componentes de presentación (JSX/TSX visual), layout, responsive, mobile.
-- Estilos: clases Tailwind, `globals.css`, variables CSS, temas (claro/oscuro),
-  safe-areas iOS, animaciones, contraste/accesibilidad visual.
-- Textos, labels, orden visual, estados vacíos, tooltips.
-- El **cableado mínimo** de un componente a un store/hook que **YA existe**
-  (leer un valor, llamar una acción existente). NADA de lógica nueva adentro.
+**Claude escribe (solo si el usuario lo pide EXPLÍCITAMENTE como cambio visual):**
+- Estilos y estética: clases Tailwind, `globals.css`, variables CSS, colores,
+  temas (claro/oscuro), tipografía, espaciados, sombras, bordes, radios.
+- Ajustes visuales sobre UI que **ya existe**: que se vea más lindo/limpio,
+  mejor contraste, alinear, achicar/agrandar, animaciones, responsive/mobile,
+  safe-areas iOS.
+- Cambios de texto/label visibles cuando el pedido es puramente cosmético.
 
-**Lógica = va a Prompt para Codex:**
-- Stores (Zustand): acciones nuevas, reducers, `migrate`, `partialize`,
-  `onRehydrateStorage`, cualquier cambio de comportamiento del estado.
-- Sync / Supabase: push, pull, `sanitize`, merge, tombstones, baselines,
-  `app_preferences`, campos nuevos que sincronizan.
-- Utils y algoritmos: sort, parsing, fechas/timezone, cálculos, validaciones.
+Palabras que disparan el modo "Claude escribe": *"cambiá los colores", "que se
+vea más lindo/prolijo", "no me gusta cómo se ve", "ajustá el espaciado / el
+tamaño / la tipografía", "hacelo más [adjetivo visual]"*.
+
+**Codex escribe (TODO lo demás — el default):**
+- Cualquier **feature** o cambio de comportamiento, aunque tenga UI.
+- **Componentes nuevos** y su estructura, y el **wiring** a stores/hooks/props.
+- Stores (Zustand), sync/Supabase, utils/algoritmos, fechas/timezone.
 - API routes / backend / server actions / crons.
-- Modelos de datos, tipos de dominio, migraciones SQL, integraciones externas
+- Modelos de datos, tipos, migraciones SQL, integraciones externas
   (Google Calendar, notificaciones, etc.).
 
-**Regla de borde:** si un cambio de UI **necesita** una pieza de lógica nueva
-(ej.: un campo nuevo en un store, un helper), esa pieza va a Codex; Claude hace
-la UI alrededor. Si hay duda de qué lado cae → es **lógica** (va a Codex).
+**Regla de borde:** si el pedido NO es literalmente "cambiá cómo se ve X" sobre
+algo que ya existe → va a Codex. Ante la duda → Codex. Claude igual **analiza
+todo, arma el prompt, audita, aplica y verifica** (§1 tareas 2, 5, 6).
 
 > **Nota honesta (no es excusa, es contexto para el usuario):** los bugs de
 > lógica más jodidos de este proyecto (borrado de config multi-device, ofertas
@@ -93,14 +103,16 @@ completo siempre.
 
 ## 🔄 3. Flujo de trabajo
 
-1. **Análisis (Claude).** El usuario pide un cambio ➡️ Claude analiza el disco,
-   diseña la solución y separa: qué es UI (ejecuta) y qué es lógica (prompt).
-2. **UI (Claude).** Claude escribe la parte de UI directo y la verifica.
-3. **Prompt (Claude).** Claude entrega el Prompt de Requerimientos Técnicos
-   para la parte de lógica.
-4. **Construcción (Codex).** El usuario lo pega en Codex ➡️ Codex devuelve los
-   bloques multi-archivo.
-5. **Cierre (Claude).** El usuario trae la respuesta ➡️ Claude audita, aplica,
+1. **Análisis (Claude).** El usuario pide algo ➡️ Claude analiza el disco y
+   diseña la solución completa.
+2. **Ruteo:**
+   - ¿Es un retoque **visual** sobre algo que ya existe? ➡️ Claude lo escribe y
+     lo verifica (paso 5 directo).
+   - Cualquier otra cosa (feature, lógica, componente nuevo, wiring) ➡️ Claude
+     arma el **Prompt de Requerimientos Técnicos** para Codex.
+3. **Construcción (Codex).** El usuario pega el prompt en Codex ➡️ Codex
+   devuelve los bloques multi-archivo.
+4. **Cierre (Claude).** El usuario trae la respuesta ➡️ Claude audita, aplica,
    **verifica corriendo la app** y actualiza `project_state.md`.
 
 > 💡 **Regla de oro:** cuando el chat con Claude se ponga lento o pesado,
