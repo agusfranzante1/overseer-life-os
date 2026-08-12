@@ -9,7 +9,9 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { ConceptMap, ConceptArea, Concept, ConceptSource, MapNote } from '@/lib/study/concepts'
-import { AREA_PALETTE, makeDefaultAreas, normalizeConcept, migrateMapNotes, NODE_W_MIN, NODE_W_MAX } from '@/lib/study/concepts'
+import { AREA_PALETTE, makeDefaultAreas, normalizeConcept, migrateMapNotes, NODE_W_DEFAULT, NODE_W_MIN, NODE_W_MAX } from '@/lib/study/concepts'
+import type { Materia, Tema } from '@/lib/study/types'
+import { useStudyStore } from '@/lib/store/studyStore'
 
 function genId(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
@@ -17,6 +19,26 @@ function genId(): string {
 function nowISO(): string { return new Date().toISOString() }
 
 const NODE_W = 200  // ancho de referencia de una tarjeta (para colocar la primera)
+const DERIVED_CONCEPT_PREFIX = 'study_parcial_concept_'
+const DERIVED_NOTE_PREFIX = 'study_tema_note_'
+
+function derivedConceptId(parcialId: string): string {
+  return `${DERIVED_CONCEPT_PREFIX}${parcialId}`
+}
+
+function derivedNoteId(temaId: string): string {
+  return `${DERIVED_NOTE_PREFIX}${temaId}`
+}
+
+function byStudyOrder<T extends { sortOrder: number; createdAt: string; id: string }>(a: T, b: T): number {
+  return a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
+}
+
+export function materiaUsesConceptMap(materia: Pick<Materia, 'mode'> | null | undefined): boolean {
+  // La UI actual permite conceptos en materias legacy sin `mode`; `checklist`
+  // explícito queda fuera del puente para no crear mapas derivados ahí.
+  return !!materia && materia.mode !== 'checklist'
+}
 
 interface State {
   maps: ConceptMap[]
@@ -271,3 +293,135 @@ export const useConceptStore = create<State>()(
     },
   ),
 )
+
+/** Reconcilia Estudio → mapa de conceptos de una materia.
+ *
+ *  - Parcial → Concept con `parcialId`.
+ *  - Tema    → MapNote con `temaId`.
+ *
+ *  Idempotente y conservador: solo crea/renombra/elimina nodos derivados; los
+ *  nodos libres del usuario (sin `parcialId`/`temaId`) no se tocan jamás.
+ */
+export function reconcileStudyConceptMap(materiaId: string): void {
+  const study = useStudyStore.getState()
+  const materia = study.materias.find((m) => m.id === materiaId)
+  if (!materiaUsesConceptMap(materia)) return
+
+  const parciales = study.parciales
+    .filter((p) => p.materiaId === materiaId)
+    .sort(byStudyOrder)
+  const parcialById = new Map(parciales.map((p) => [p.id, p]))
+  const temas = study.temas
+    .filter((t) => parcialById.has(t.parcialId))
+    .sort(byStudyOrder)
+  const temaById = new Map(temas.map((t) => [t.id, t]))
+
+  useConceptStore.getState().ensureMap(materiaId)
+  useConceptStore.setState((state) => {
+    const mapIndex = state.maps.findIndex((m) => m.materiaId === materiaId)
+    if (mapIndex < 0) return state
+
+    const map = state.maps[mapIndex]
+    const ts = nowISO()
+    let changed = false
+
+    const conceptsByParcial = new Map<string, Concept>()
+    const seenParcialIds = new Set<string>()
+    let concepts = map.concepts.filter((concept) => {
+      if (!concept.parcialId) return true
+      if (!parcialById.has(concept.parcialId)) { changed = true; return false }
+      if (seenParcialIds.has(concept.parcialId)) { changed = true; return false }
+      seenParcialIds.add(concept.parcialId)
+      conceptsByParcial.set(concept.parcialId, concept)
+      return true
+    })
+
+    concepts = concepts.map((concept) => {
+      if (!concept.parcialId) return concept
+      const parcial = parcialById.get(concept.parcialId)
+      if (!parcial || concept.title === parcial.label) return concept
+      changed = true
+      const next = { ...concept, title: parcial.label, updatedAt: ts }
+      conceptsByParcial.set(concept.parcialId, next)
+      return next
+    })
+
+    parciales.forEach((parcial, index) => {
+      if (conceptsByParcial.has(parcial.id)) return
+      const col = index % 3
+      const row = Math.floor(index / 3)
+      const concept: Concept = {
+        id: derivedConceptId(parcial.id),
+        parcialId: parcial.id,
+        areaId: map.areas[0]?.id ?? null,
+        title: parcial.label,
+        sources: [],
+        x: 80 + col * 360,
+        y: 90 + row * 320,
+        w: NODE_W_DEFAULT,
+        createdAt: ts,
+        updatedAt: ts,
+      }
+      concepts.push(concept)
+      conceptsByParcial.set(parcial.id, concept)
+      changed = true
+    })
+
+    const temasByParcial = new Map<string, Tema[]>()
+    for (const tema of temas) {
+      const list = temasByParcial.get(tema.parcialId) ?? []
+      list.push(tema)
+      temasByParcial.set(tema.parcialId, list)
+    }
+
+    const notesByTema = new Map<string, MapNote>()
+    const seenTemaIds = new Set<string>()
+    let noteNodes = (map.noteNodes ?? []).filter((note) => {
+      if (!note.temaId) return true
+      if (!temaById.has(note.temaId)) { changed = true; return false }
+      if (seenTemaIds.has(note.temaId)) { changed = true; return false }
+      seenTemaIds.add(note.temaId)
+      notesByTema.set(note.temaId, note)
+      return true
+    })
+
+    noteNodes = noteNodes.map((note) => {
+      if (!note.temaId) return note
+      const tema = temaById.get(note.temaId)
+      if (!tema || note.text === tema.title) return note
+      changed = true
+      const next = { ...note, text: tema.title, updatedAt: ts }
+      notesByTema.set(note.temaId, next)
+      return next
+    })
+
+    for (const parcial of parciales) {
+      const concept = conceptsByParcial.get(parcial.id)
+      if (!concept) continue
+      const parcialTemas = temasByParcial.get(parcial.id) ?? []
+      parcialTemas.forEach((tema, index) => {
+        if (notesByTema.has(tema.id)) return
+        const col = Math.floor(index / 5)
+        const row = index % 5
+        const note: MapNote = {
+          id: derivedNoteId(tema.id),
+          temaId: tema.id,
+          text: tema.title,
+          x: concept.x + (concept.w ?? NODE_W_DEFAULT) + 48 + col * 248,
+          y: concept.y + row * 92,
+          w: NODE_W_DEFAULT,
+          createdAt: ts,
+          updatedAt: ts,
+        }
+        noteNodes.push(note)
+        notesByTema.set(tema.id, note)
+        changed = true
+      })
+    }
+
+    if (!changed) return state
+    const maps = state.maps.slice()
+    maps[mapIndex] = { ...map, concepts, noteNodes, updatedAt: ts }
+    return { maps }
+  })
+}

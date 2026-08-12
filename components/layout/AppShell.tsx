@@ -8,6 +8,8 @@ import { useTasksStore } from '@/lib/store/tasksStore'
 import { useWalletStore } from '@/lib/store/walletStore'
 import { useSPIStore } from '@/lib/store/spiStore'
 import { reconcileContentTasks } from '@/lib/content/contentTasks'
+import { useStudyStore } from '@/lib/store/studyStore'
+import { materiaUsesConceptMap, reconcileStudyConceptMap } from '@/lib/store/conceptStore'
 import { Sidebar } from './Sidebar'
 import { OnboardingTour } from '@/components/onboarding/OnboardingTour'
 import { TitleUpdater } from './TitleUpdater'
@@ -19,6 +21,11 @@ import { initMultitabSync } from '@/lib/utils/initMultitabSync'
 import { todayKeyInTz, dateKeyInTz } from '@/lib/utils/dateInTz'
 
 const AUTH_PATHS = ['/login', '/signup']
+
+function reconcileStudyConceptMaps(): void {
+  const materias = useStudyStore.getState().materias.filter(materiaUsesConceptMap)
+  for (const materia of materias) reconcileStudyConceptMap(materia.id)
+}
 
 /** Calcula la fecha "efectiva" para el spawn anticipado de recurrentes.
  *
@@ -131,6 +138,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     migrateRecurringHeads()
     reconcileRecurringSpiTasks()
     reconcileContentTasks()
+    reconcileStudyConceptMaps()
     const late = setTimeout(() => {
       ensureWaitingStatusInAllProjects()
       // Re-correr post sync de Supabase: las series viejas pulled del
@@ -140,6 +148,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       migrateRecurringHeads()
       reconcileRecurringSpiTasks()
       reconcileContentTasks()
+      reconcileStudyConceptMaps()
     }, 10_000)
     return () => clearTimeout(late)
   }, [ensureWaitingStatusInAllProjects, migrateRecurringHeads, reconcileRecurringSpiTasks])

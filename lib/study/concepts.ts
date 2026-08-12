@@ -36,6 +36,8 @@ export interface ConceptSource {
  *  autores, y un flag `studied` para el seguimiento de avance. */
 export interface Concept {
   id: string
+  /** Si existe, este concepto es espejo de un Parcial de Estudio. */
+  parcialId?: string
   /** Área a la que pertenece (null = sin área). Mover entre áreas = cambiar esto. */
   areaId: string | null
   title: string
@@ -69,6 +71,8 @@ export interface Concept {
  *  redimensiona en el lienzo como cualquier nodo. */
 export interface MapNote {
   id: string
+  /** Si existe, esta nota es espejo de un Tema de Estudio. */
+  temaId?: string
   text: string
   x: number
   y: number
@@ -125,7 +129,7 @@ export function normalizeConcept(c: Concept, genId: () => string): Concept {
       : [{ id: genId(), author: '', body: '' }]
   // Reconstrucción explícita → descarta author/body legacy sin binds sin usar.
   return {
-    id: c.id, areaId: c.areaId, title: c.title, sources, notes: c.notes,
+    id: c.id, parcialId: c.parcialId, areaId: c.areaId, title: c.title, sources, notes: c.notes,
     studied: c.studied, x: c.x, y: c.y, w: c.w,
     createdAt: c.createdAt, updatedAt: c.updatedAt,
   }

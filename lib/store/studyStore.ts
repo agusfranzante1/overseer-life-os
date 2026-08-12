@@ -10,6 +10,13 @@ function now(): string {
   return new Date().toISOString()
 }
 
+function reconcileConceptMapSoon(materiaId: string | null | undefined): void {
+  if (!materiaId) return
+  import('@/lib/store/conceptStore')
+    .then((m) => m.reconcileStudyConceptMap(materiaId))
+    .catch((err) => console.warn('[studyStore] reconcileStudyConceptMap failed:', err))
+}
+
 // ─── State ──────────────────────────────────────────────────────────────────
 
 interface StudyState {
@@ -51,6 +58,12 @@ interface StudyState {
   updateTemaItem: (temaId: string, itemId: string, patch: Partial<Omit<TemaItem, 'id'>>) => void
   toggleTemaItem: (temaId: string, itemId: string) => void
   deleteTemaItem: (temaId: string, itemId: string) => void
+}
+
+function materiaIdForTema(state: StudyState, temaId: string): string | null {
+  const tema = state.temas.find((t) => t.id === temaId)
+  if (!tema) return null
+  return state.parciales.find((p) => p.id === tema.parcialId)?.materiaId ?? null
 }
 
 // ─── Store ──────────────────────────────────────────────────────────────────
@@ -151,15 +164,24 @@ export const useStudyStore = create<StudyState>()(
           createdAt: ts, updatedAt: ts,
         }
         set((s) => ({ parciales: [...s.parciales, p] }))
+        reconcileConceptMapSoon(materiaId)
         return id
       },
-      updateParcial: (id, patch) => set((s) => ({
-        parciales: s.parciales.map((p) => p.id !== id ? p : { ...p, ...patch, updatedAt: now() }),
-      })),
-      deleteParcial: (id) => set((s) => ({
-        parciales: s.parciales.filter((p) => p.id !== id),
-        temas: s.temas.filter((t) => t.parcialId !== id),
-      })),
+      updateParcial: (id, patch) => {
+        const materiaId = get().parciales.find((p) => p.id === id)?.materiaId ?? null
+        set((s) => ({
+          parciales: s.parciales.map((p) => p.id !== id ? p : { ...p, ...patch, updatedAt: now() }),
+        }))
+        reconcileConceptMapSoon(materiaId)
+      },
+      deleteParcial: (id) => {
+        const materiaId = get().parciales.find((p) => p.id === id)?.materiaId ?? null
+        set((s) => ({
+          parciales: s.parciales.filter((p) => p.id !== id),
+          temas: s.temas.filter((t) => t.parcialId !== id),
+        }))
+        reconcileConceptMapSoon(materiaId)
+      },
 
       // ── Tema ─────────────────────────────────────────────────────────────
       addTema: ({ parcialId, title }) => {
@@ -171,15 +193,25 @@ export const useStudyStore = create<StudyState>()(
           createdAt: ts, updatedAt: ts,
         }
         set((s) => ({ temas: [...s.temas, t] }))
+        const materiaId = get().parciales.find((p) => p.id === parcialId)?.materiaId ?? null
+        reconcileConceptMapSoon(materiaId)
         return id
       },
-      updateTema: (id, patch) => set((s) => ({
-        temas: s.temas.map((t) => t.id !== id ? t : { ...t, ...patch, updatedAt: now() }),
-      })),
+      updateTema: (id, patch) => {
+        const materiaId = materiaIdForTema(get(), id)
+        set((s) => ({
+          temas: s.temas.map((t) => t.id !== id ? t : { ...t, ...patch, updatedAt: now() }),
+        }))
+        reconcileConceptMapSoon(materiaId)
+      },
       toggleTema: (id) => set((s) => ({
         temas: s.temas.map((t) => t.id !== id ? t : { ...t, done: !t.done, updatedAt: now() }),
       })),
-      deleteTema: (id) => set((s) => ({ temas: s.temas.filter((t) => t.id !== id) })),
+      deleteTema: (id) => {
+        const materiaId = materiaIdForTema(get(), id)
+        set((s) => ({ temas: s.temas.filter((t) => t.id !== id) }))
+        reconcileConceptMapSoon(materiaId)
+      },
 
       // ── Ítems del tema ───────────────────────────────────────────────────
       addTemaItem: (temaId, text) => set((s) => ({

@@ -2541,6 +2541,24 @@ async function pullConcepts(): Promise<boolean> {
   type MapRow = { payload: unknown }
   const sanitize = (raw: unknown): import('@/lib/study/concepts').ConceptMap => {
     const p = (raw ?? {}) as Partial<import('@/lib/study/concepts').ConceptMap>
+    const concepts: import('@/lib/study/concepts').Concept[] = Array.isArray(p.concepts)
+      ? p.concepts.map((rawConcept) => {
+        const c = (rawConcept ?? {}) as import('@/lib/study/concepts').Concept
+        return {
+          ...c,
+          ...(typeof c.parcialId === 'string' ? { parcialId: c.parcialId } : {}),
+        }
+      })
+      : []
+    const noteNodes: import('@/lib/study/concepts').MapNote[] | undefined = Array.isArray(p.noteNodes)
+      ? p.noteNodes.map((rawNote) => {
+        const n = (rawNote ?? {}) as import('@/lib/study/concepts').MapNote
+        return {
+          ...n,
+          ...(typeof n.temaId === 'string' ? { temaId: n.temaId } : {}),
+        }
+      })
+      : undefined
     // Spread del payload PRIMERO → preserva TODO campo (noteNodes y cualquier
     // agregado futuro). Evita el problema histórico de "campo dropeado en el
     // pull" (ya nos pasó con authors/mode). Después normalizamos los requeridos.
@@ -2548,8 +2566,8 @@ async function pullConcepts(): Promise<boolean> {
       ...p,
       materiaId: p.materiaId ?? '',
       areas: Array.isArray(p.areas) ? p.areas : [],
-      concepts: Array.isArray(p.concepts) ? p.concepts : [],
-      noteNodes: Array.isArray(p.noteNodes) ? p.noteNodes : undefined,
+      concepts,
+      noteNodes,
       createdAt: p.createdAt ?? new Date().toISOString(),
       updatedAt: p.updatedAt ?? new Date().toISOString(),
     }

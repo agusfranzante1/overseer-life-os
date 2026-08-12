@@ -5,7 +5,7 @@
 > El método de trabajo está en [`instructions.md`](instructions.md); las reglas
 > técnicas no negociables en [`AGENTS.md`](AGENTS.md).
 
-**Última actualización:** 2026-08-12 · **Roadmap en curso:** 7 etapas, una por vez. **Etapas 1, 2 y 3 COMPLETAS.** Próxima: Etapa 4 (Mapas Mentales / Content Strategy / Estudio) — NO empezada.
+**Última actualización:** 2026-08-12 · **Roadmap en curso:** 7 etapas, una por vez. **Etapas 1–4 COMPLETAS.** Próxima: Etapa 5 (Plantillas de Ofertas) — NO empezada.
 
 ---
 
@@ -37,6 +37,17 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **ETAPA 4 — Mapas Mentales / Content Strategy / Estudio:**
+  - Content Strategy → mapa mental: ya estaba (`ensureProfileMindMap`), no se tocó.
+  - **Nodo solo-texto** (Codex): shape `'text'` sin borde/fondo/caja, grabbable
+    por el texto. Verificado: borde 0px / bg transparente / sin sombra.
+  - **Pinch-to-zoom mobile** (Codex): 2 dedos, clamp ZOOM_MIN/MAX, anclaje al
+    punto medio, guards que suprimen pan/drag/select/box-select. Gesto real
+    multitouch NO probado (necesita device); typecheck/build OK.
+  - **Estudio ↔ conceptos** (Codex): `reconcileStudyConceptMap` auto-sync —
+    Parcial→Concepto (parcialId), Tema→nota (temaId), agrupadas cerca del
+    concepto. Idempotente, borra huérfanos, preserva nodos libres. Verificado
+    end-to-end. sanitize del pull preserva parcialId/temaId (BASE nº2).
 - [x] **ETAPA 3 — Google Calendar:**
   - Recordatorios: ya estaban implementados (nativos GCal, crear/editar,
     5/10/15/30/1h/1día) → NO se tocaron (evitar duplicar).

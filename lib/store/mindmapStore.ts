@@ -15,8 +15,9 @@ function genId(): string {
  *                 circle when width === height)
  *   - 'bracket' → corchete/llave/paréntesis vectorizado (SVG) para AGRUPAR
  *                 visualmente. No tiene texto; su tipo y orientación viven en
- *                 `bracketKind` / `bracketDir`. */
-export type MindMapNodeShape = 'rect' | 'circle' | 'bracket'
+ *                 `bracketKind` / `bracketDir`.
+ *   - 'text'    → texto puro, sin borde, fondo ni caja visible. */
+export type MindMapNodeShape = 'rect' | 'circle' | 'bracket' | 'text'
 
 export interface MindMapNode {
   id: string

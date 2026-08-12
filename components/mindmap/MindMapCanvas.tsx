@@ -188,9 +188,168 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     panStartX: number
     panStartY: number
   } | null>(null)
+  const activePointersRef = useRef<Map<number, { x: number; y: number }>>(new Map())
+  const pinchingRef = useRef(false)
+  const pinchStartRef = useRef<{
+    distance: number
+    zoom: number
+    pan: { x: number; y: number }
+  } | null>(null)
+  const suppressPinchClickRef = useRef(false)
+
+  const isPinchInteractionActive = () => pinchingRef.current || activePointersRef.current.size >= 2
+  const shouldSuppressPinchClick = () => isPinchInteractionActive() || suppressPinchClickRef.current
+
+  useEffect(() => {
+    const el = canvasRef.current
+    if (!el) return
+    const activePointers = activePointersRef.current
+
+    const distance = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+      Math.hypot(a.x - b.x, a.y - b.y)
+    const twoPointers = () => {
+      const points = Array.from(activePointers.values())
+      return points.length === 2 ? [points[0], points[1]] as const : null
+    }
+    const cancelCompetingGestures = () => {
+      dragPanRef.current = null
+      if (boxSelectRef.current) {
+        boxSelectRef.current = null
+        setBoxSelect(null)
+      }
+      setAlignGuides([])
+    }
+    const capturePinchPointers = () => {
+      for (const pointerId of activePointers.keys()) {
+        try { el.setPointerCapture(pointerId) } catch { /* noop */ }
+      }
+    }
+    const releasePinchPointers = () => {
+      for (const pointerId of activePointers.keys()) {
+        try {
+          if (el.hasPointerCapture(pointerId)) el.releasePointerCapture(pointerId)
+        } catch { /* noop */ }
+      }
+    }
+    const beginPinch = () => {
+      const pair = twoPointers()
+      if (!pair) return
+      const d = distance(pair[0], pair[1])
+      if (d <= 0) return
+      pinchingRef.current = true
+      suppressPinchClickRef.current = true
+      pinchStartRef.current = {
+        distance: d,
+        zoom: zoomRef.current,
+        pan: panRef.current,
+      }
+      cancelCompetingGestures()
+      capturePinchPointers()
+    }
+    const applyPinch = () => {
+      const pair = twoPointers()
+      const start = pinchStartRef.current
+      if (!pair || !start || start.distance <= 0 || start.zoom <= 0) return
+
+      const rect = el.getBoundingClientRect()
+      const currentDistance = distance(pair[0], pair[1])
+      const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, start.zoom * (currentDistance / start.distance)))
+      const ratio = newZoom / start.zoom
+      const anchorX = (pair[0].x + pair[1].x) / 2 - rect.left
+      const anchorY = (pair[0].y + pair[1].y) / 2 - rect.top
+      const nextPan = {
+        x: anchorX - (anchorX - start.pan.x) * ratio,
+        y: anchorY - (anchorY - start.pan.y) * ratio,
+      }
+
+      zoomRef.current = newZoom
+      panRef.current = nextPan
+      setZoom(newZoom)
+      setPan(nextPan)
+    }
+    const endPinch = () => {
+      releasePinchPointers()
+      pinchingRef.current = false
+      pinchStartRef.current = null
+      suppressPinchClickRef.current = true
+      cancelCompetingGestures()
+    }
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (activePointers.size === 0 && !pinchingRef.current) suppressPinchClickRef.current = false
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (activePointers.size === 2) {
+        e.preventDefault()
+        beginPinch()
+        applyPinch()
+      } else if (activePointers.size > 2) {
+        e.preventDefault()
+        pinchingRef.current = true
+        suppressPinchClickRef.current = true
+        pinchStartRef.current = null
+        cancelCompetingGestures()
+      }
+    }
+    const onPointerMove = (e: PointerEvent) => {
+      if (!activePointers.has(e.pointerId)) return
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (activePointers.size >= 2) {
+        e.preventDefault()
+        if (activePointers.size === 2) {
+          if (!pinchingRef.current || !pinchStartRef.current) beginPinch()
+          applyPinch()
+        } else {
+          pinchingRef.current = true
+          suppressPinchClickRef.current = true
+          cancelCompetingGestures()
+        }
+      }
+    }
+    const onPointerEnd = (e: PointerEvent) => {
+      if (!activePointers.has(e.pointerId)) return
+      activePointers.delete(e.pointerId)
+      if (activePointers.size === 2) {
+        beginPinch()
+        applyPinch()
+      } else if (activePointers.size < 2) {
+        if (pinchingRef.current || pinchStartRef.current) {
+          e.preventDefault()
+          endPinch()
+        }
+      }
+    }
+
+    const options: AddEventListenerOptions = { capture: true, passive: false }
+    el.addEventListener('pointerdown', onPointerDown, options)
+    el.addEventListener('pointermove', onPointerMove, options)
+    el.addEventListener('pointerup', onPointerEnd, options)
+    el.addEventListener('pointercancel', onPointerEnd, options)
+    window.addEventListener('pointerup', onPointerEnd, options)
+    window.addEventListener('pointercancel', onPointerEnd, options)
+    return () => {
+      releasePinchPointers()
+      el.removeEventListener('pointerdown', onPointerDown, true)
+      el.removeEventListener('pointermove', onPointerMove, true)
+      el.removeEventListener('pointerup', onPointerEnd, true)
+      el.removeEventListener('pointercancel', onPointerEnd, true)
+      window.removeEventListener('pointerup', onPointerEnd, true)
+      window.removeEventListener('pointercancel', onPointerEnd, true)
+      activePointers.clear()
+      pinchingRef.current = false
+      pinchStartRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
+      if (pinchingRef.current) {
+        dragPanRef.current = null
+        if (boxSelectRef.current) {
+          boxSelectRef.current = null
+          setBoxSelect(null)
+        }
+        return
+      }
       if (dragPanRef.current) {
         const d = dragPanRef.current
         setPan({
@@ -465,6 +624,10 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   // ── Empty-canvas pointer-down ──
   const onCanvasPointerDown = (e: React.PointerEvent) => {
     if (e.target !== e.currentTarget) return
+    if (isPinchInteractionActive()) {
+      e.preventDefault()
+      return
+    }
     if (drawingFromId) {
       // Drawing + click en lienzo vacío → CREAR un nodo nuevo donde se
       // hizo click y conectarlo automáticamente desde el origen.
@@ -503,6 +666,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
 
   // ── Mouse move on the canvas — track cursor for the ghost edge ──
   const onCanvasPointerMove = (e: React.PointerEvent) => {
+    if (pinchingRef.current) return
     if (!drawingFromId) return
     const p = screenToContent(e.clientX, e.clientY)
     if (p) setCursorPos(p)
@@ -511,6 +675,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   // ── Double-click empty canvas → create node ──
   const onCanvasDoubleClick = (e: React.MouseEvent) => {
     if (e.target !== e.currentTarget) return
+    if (shouldSuppressPinchClick()) return
     const p = screenToContent(e.clientX, e.clientY)
     if (!p) return
     const id = addNode(mapId, { x: p.x - 80, y: p.y - 32 })
@@ -522,6 +687,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   // If drawing → commit edge. Else → just select (drag is also handled).
   // Shift/Cmd/Ctrl + click → TOGGLE en la selección múltiple (add/remove).
   const handleNodeClick = (nodeId: string, modifiers?: { multi?: boolean }) => {
+    if (shouldSuppressPinchClick()) return
     if (drawingFromId) {
       if (drawingFromId !== nodeId) {
         addEdge(mapId, drawingFromId, nodeId)
@@ -542,6 +708,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
 
   // ── Click the "+" handle below a hovered/selected node → start drawing ──
   const startDrawingFrom = (node: MindMapNode) => {
+    if (isPinchInteractionActive()) return
     clearSelection()
     setDrawingFromId(node.id)
     // Seed cursor at the node's bottom-center so the ghost line doesn't
@@ -558,6 +725,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   // doesn't fire. The NodeBox forwards client coords here so the ghost
   // arrow can keep tracking the cursor.
   const handleConnectorMove = (clientX: number, clientY: number) => {
+    if (pinchingRef.current) return
     const p = screenToContent(clientX, clientY)
     if (p) setCursorPos(p)
   }
@@ -570,6 +738,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   //     so the user can immediately type its label.
   //   - Released on the source itself or elsewhere weird → cancel.
   const handleConnectorDrop = (sourceNodeId: string, clientX: number, clientY: number) => {
+    if (shouldSuppressPinchClick()) return
     // Figure out what's under the cursor at release time. Looking up via
     // `elementFromPoint` is robust to nested transforms/zoom — the browser
     // does the inverse geometry for us.
@@ -605,6 +774,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   const startBendDrag = (e: React.PointerEvent, edgeId: string) => {
     e.stopPropagation()
     e.preventDefault()
+    if (isPinchInteractionActive()) return
     setSelection({ kind: 'edge', id: edgeId })
     const pointerId = e.pointerId
     const el = e.currentTarget as SVGElement
@@ -616,6 +786,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     }
     const onMove = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return
+      if (pinchingRef.current) return
       apply(ev)
     }
     const onUp = (ev: PointerEvent) => {
@@ -638,6 +809,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   const startEdgeAnchorDrag = (e: React.PointerEvent, edgeId: string, side: 'from' | 'to') => {
     e.stopPropagation()
     e.preventDefault()
+    if (isPinchInteractionActive()) return
     setSelection({ kind: 'edge', id: edgeId })
     const pointerId = e.pointerId
     const el = e.currentTarget as SVGElement
@@ -649,6 +821,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     }
     const onMove = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return
+      if (pinchingRef.current) return
       apply(ev)
     }
     const onUp = (ev: PointerEvent) => {
@@ -673,6 +846,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   const startNodeResize = (e: React.PointerEvent, node: MindMapNode) => {
     e.stopPropagation()
     e.preventDefault()
+    if (isPinchInteractionActive()) return
     selectOnlyNode(node.id)
 
     const startClientX = e.clientX
@@ -683,9 +857,10 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     // El bracket se redimensiona LIBRE en ancho y alto (puede ser flaco y alto,
     // o ancho y bajo). No tiene texto que lo condicione.
     const isBracketNode = node.shape === 'bracket'
-    // Los nodos imagen (no-círculo) conservan su aspect ratio al redimensionar
-    // para que la foto nunca se deforme. El círculo ya fuerza 1:1 más abajo.
-    const isAspectLocked = !!node.imageUrl && !isCircle
+    // Los nodos imagen (no-círculo / no-texto) conservan su aspect ratio al
+    // redimensionar para que la foto nunca se deforme. El círculo ya fuerza
+    // 1:1 más abajo; "solo texto" se comporta como rect aunque tenga imagen.
+    const isAspectLocked = !!node.imageUrl && !isCircle && node.shape !== 'text'
     const aspect = startH > 0 ? startW / startH : 1
     const pointerId = e.pointerId
     const el = e.currentTarget as HTMLElement
@@ -694,6 +869,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
 
     const onMove = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return
+      if (pinchingRef.current) return
       const z = zoomRef.current
       const dx = (ev.clientX - startClientX) / z
       const dy = (ev.clientY - startClientY) / z
@@ -746,6 +922,10 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     handle: 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'start' | 'end',
   ) => {
     e.stopPropagation()
+    if (isPinchInteractionActive()) {
+      e.preventDefault()
+      return
+    }
 
     // Si la forma YA era parte de una selección múltiple, arrastrarla mueve
     // todo el conjunto (nodos incluidos). Si no lo era, se pasa a seleccionar
@@ -773,6 +953,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
 
     const onMove = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return
+      if (pinchingRef.current) return
       const z = zoomRef.current
       const dx = (ev.clientX - startClientX) / z
       const dy = (ev.clientY - startClientY) / z
@@ -815,6 +996,10 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
 
   const startNodeDrag = (e: React.PointerEvent, node: MindMapNode) => {
     e.stopPropagation()
+    if (isPinchInteractionActive()) {
+      e.preventDefault()
+      return
+    }
     if (drawingFromId) {
       // While drawing, treat tap on node as "commit edge" instead of drag.
       handleNodeClick(node.id)
@@ -899,6 +1084,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
 
     const onMove = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return
+      if (pinchingRef.current) return
       const dx = ev.clientX - startClientX
       const dy = ev.clientY - startClientY
       if (!hasMoved && Math.hypot(dx, dy) < 4) return
@@ -1222,6 +1408,7 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
                     className="pointer-events-auto cursor-pointer"
                     onPointerDown={(e) => {
                       e.stopPropagation()
+                      if (isPinchInteractionActive()) return
                       setSelection({ kind: 'edge', id: edge.id })
                     }}
                   />
@@ -1380,8 +1567,9 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
                 onClick={(modifierKey) => handleNodeClick(node.id, { multi: modifierKey })}
                 onDoubleClick={() => {
                   // Imágenes y brackets no tienen texto editable — doble-click
-                  // solo selecciona (no abre textarea).
-                  if (node.imageUrl || node.shape === 'bracket') { selectOnlyNode(node.id); return }
+                  // solo selecciona (no abre textarea). "Solo texto" sí abre
+                  // edición aunque el nodo conserve una imagen vieja.
+                  if ((node.imageUrl && node.shape !== 'text') || node.shape === 'bracket') { selectOnlyNode(node.id); return }
                   setEditingNodeId(node.id)
                   selectOnlyNode(node.id)
                 }}
@@ -1887,6 +2075,7 @@ function NodeShapePicker({
     { key: 'rect',    label: 'Rectángulo', Icon: Square },
     { key: 'circle',  label: 'Círculo',    Icon: Circle },
     { key: 'bracket', label: 'Corchete',   Icon: Brackets },
+    { key: 'text',    label: 'Solo texto', Icon: Type },
   ]
   return (
     <div className="flex items-center gap-0.5 bg-zinc-950/60 border border-zinc-800 rounded-lg p-0.5">
@@ -2094,9 +2283,11 @@ function NodeBox({
   const color = node.color ?? DEFAULT_NODE_COLOR
   const borderColor = selected ? color : color + '70'
   const fontSize = node.fontSize ?? DEFAULT_FONT_SIZE
+  const isTextOnly = node.shape === 'text'
   // "Nodo imagen": tiene foto → se renderiza la imagen en vez del texto, y el
-  // auto-grow de altura (que mide el texto) queda desactivado.
-  const isImage = !!node.imageUrl
+  // auto-grow de altura (que mide el texto) queda desactivado. La variante
+  // "solo texto" manda sobre la imagen para que realmente sea texto puro.
+  const isImage = !!node.imageUrl && !isTextOnly
   // Los CÍRCULOS tampoco auto-crecen por texto: width y height están acoplados
   // (size = max(width, needed)), y realimentar el ancho con el alto del texto
   // producía un bucle de renders que nunca converge (el texto reflowa distinto
@@ -2191,14 +2382,15 @@ function NodeBox({
     // 2) scrollHeight INCLUYE el padding del textarea (`p-2` = 16px total
     //    vertical) — no sumamos nada extra. Sumar padding adicional acá
     //    era lo que hacía la caja crecer ~16px en CADA cambio.
-    const needed = Math.max(NODE_MIN_HEIGHT, ta.scrollHeight)
+    const minHeight = isTextOnly ? Math.ceil(fontSize * 1.25) : NODE_MIN_HEIGHT
+    const needed = Math.max(minHeight, ta.scrollHeight)
     // 3) Restaurar el inline style (vacío → vuelve a CSS `h-full`).
     ta.style.height = previousHeight
     // Sync up-and-down. `!==` en vez de `>` para que también achique
     // cuando el usuario borra texto.
     if (needed !== node.height) onAutoGrowHeightRef.current(needed)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, editing, fontSize, node.width])
+  }, [draft, editing, fontSize, node.width, isTextOnly])
 
   // Auto-fit (view-mode): si el texto cambia fuera del modo edit (cambio
   // de fontSize desde la toolbar, importación, etc.), también ajustamos.
@@ -2210,10 +2402,12 @@ function NodeBox({
     if (editing) return
     const el = viewMeasureRef.current
     if (!el) return
-    const needed = Math.max(NODE_MIN_HEIGHT, el.scrollHeight + NODE_TEXT_PADDING_Y)
+    const needed = isTextOnly
+      ? Math.max(Math.ceil(fontSize * 1.25), el.scrollHeight)
+      : Math.max(NODE_MIN_HEIGHT, el.scrollHeight + NODE_TEXT_PADDING_Y)
     if (needed !== node.height) onAutoGrowHeightRef.current(needed)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [node.text, fontSize, node.width, editing])
+  }, [node.text, fontSize, node.width, editing, isTextOnly])
 
   return (
     <>
@@ -2221,13 +2415,13 @@ function NodeBox({
         // Used by the drag-to-create-node flow on the `+` handle to detect
         // what node (if any) the user released the pointer over.
         data-node-id={node.id}
-        onPointerDown={onPointerDown}
-        onClick={(e) => { e.stopPropagation(); onClick(e.shiftKey || e.metaKey || e.ctrlKey) }}
-        onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick() }}
-        onPointerEnter={() => onHover(true)}
-        onPointerLeave={() => onHover(false)}
-        className={`absolute transition-shadow ${isBracket ? '' : 'border-2 shadow-lg'} ${
-          node.shape === 'circle' ? 'rounded-full' : isBracket ? 'rounded-lg' : 'rounded-2xl'
+        onPointerDown={isTextOnly ? undefined : onPointerDown}
+        onClick={isTextOnly ? undefined : (e) => { e.stopPropagation(); onClick(e.shiftKey || e.metaKey || e.ctrlKey) }}
+        onDoubleClick={isTextOnly ? undefined : (e) => { e.stopPropagation(); onDoubleClick() }}
+        onPointerEnter={isTextOnly ? undefined : () => onHover(true)}
+        onPointerLeave={isTextOnly ? undefined : () => onHover(false)}
+        className={`absolute transition-shadow ${isBracket || isTextOnly ? '' : 'border-2 shadow-lg'} ${
+          node.shape === 'circle' ? 'rounded-full' : isBracket ? 'rounded-lg' : isTextOnly ? '' : 'rounded-2xl'
         }`}
         style={{
           left: node.x + pan.x,
@@ -2235,15 +2429,18 @@ function NodeBox({
           width: node.width,
           height: node.height,
           // Estilo "Miro" (lienzo crema): tarjeta casi blanca con borde fino del
-          // color de acento y sombra suave. El bracket no tiene caja.
-          background: isBracket ? 'transparent' : 'rgba(255,255,255,0.82)',
-          borderColor: isBracket ? 'transparent' : borderColor,
-          boxShadow: isBracket
+          // color de acento y sombra suave. Bracket y texto puro no tienen caja.
+          background: isBracket || isTextOnly ? 'transparent' : 'rgba(255,255,255,0.82)',
+          borderColor: isBracket || isTextOnly ? undefined : borderColor,
+          boxShadow: isTextOnly
+            ? 'none'
+            : isBracket
             ? (selected ? `0 0 0 2px ${color}66` : 'none')
             : selected
               ? `0 0 0 3px ${color}55, 0 8px 20px -8px rgba(0,0,0,0.25)`
               : `0 2px 8px -2px rgba(0,0,0,0.12)`,
           cursor: drawingMode ? 'crosshair' : editing ? 'text' : 'move',
+          pointerEvents: isTextOnly ? 'none' : undefined,
           touchAction: 'none',
         }}
       >
@@ -2285,6 +2482,7 @@ function NodeBox({
           </div>
         ) : editing ? (
           <textarea
+            data-node-id={isTextOnly ? node.id : undefined}
             ref={textareaRef}
             autoFocus
             value={draft}
@@ -2308,13 +2506,17 @@ function NodeBox({
             }}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            className="w-full h-full bg-transparent font-heading font-bold text-center p-2 focus:outline-none resize-none leading-snug placeholder:opacity-40 placeholder:italic"
-            style={{ color: '#20202e', fontSize }}
+            className={`w-full h-full bg-transparent font-heading font-bold text-center focus:outline-none resize-none leading-snug placeholder:opacity-40 placeholder:italic ${
+              isTextOnly ? 'p-0' : 'p-2'
+            }`}
+            style={{ color: '#20202e', fontSize, pointerEvents: isTextOnly ? 'auto' : undefined }}
           />
         ) : (
           <div
-            className="w-full h-full flex items-center justify-center text-center px-2 font-heading font-bold leading-snug select-none break-words"
-            style={{ color: '#20202e', fontSize }}
+            className={`w-full h-full flex items-center justify-center text-center font-heading font-bold leading-snug select-none break-words ${
+              isTextOnly ? '' : 'px-2'
+            }`}
+            style={{ color: '#20202e', fontSize, pointerEvents: isTextOnly ? 'none' : undefined }}
           >
             {/* Inner wrapper with NATURAL height — this is the element the
                 auto-grow effect measures. The outer flex container is h-full
@@ -2322,7 +2524,20 @@ function NodeBox({
                 current node height and loop forever. The inner div sits at
                 full width but only as tall as the text needs to be, so
                 `scrollHeight` returns the true content height. */}
-            <div ref={viewMeasureRef} className="w-full">
+            <div
+              ref={viewMeasureRef}
+              data-node-id={isTextOnly ? node.id : undefined}
+              onPointerDown={isTextOnly ? onPointerDown : undefined}
+              onClick={isTextOnly ? (e) => { e.stopPropagation(); onClick(e.shiftKey || e.metaKey || e.ctrlKey) } : undefined}
+              onDoubleClick={isTextOnly ? (e) => { e.stopPropagation(); onDoubleClick() } : undefined}
+              onPointerEnter={isTextOnly ? () => onHover(true) : undefined}
+              onPointerLeave={isTextOnly ? () => onHover(false) : undefined}
+              className={isTextOnly ? 'inline-block max-w-full whitespace-pre-wrap rounded-[3px]' : 'w-full'}
+              style={isTextOnly ? {
+                pointerEvents: 'auto',
+                ...(selected ? { outline: `1px dashed ${color}99`, outlineOffset: 3 } : {}),
+              } : undefined}
+            >
               {/* Empty-text placeholder. Matches the textarea's placeholder
                   "Idea" so the visual is consistent between view and edit modes. */}
               {node.text || <span className="opacity-40 italic">Idea</span>}
@@ -2342,7 +2557,7 @@ function NodeBox({
               onDoubleClick={(e) => e.stopPropagation()}
               title="Arrastrá para cambiar el tamaño"
               className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 bg-zinc-900 cursor-nwse-resize z-[5]"
-              style={{ borderColor: color, touchAction: 'none' }}
+              style={{ borderColor: color, touchAction: 'none', pointerEvents: isTextOnly ? 'auto' : undefined }}
             />
           ) : (
             <div
@@ -2351,7 +2566,7 @@ function NodeBox({
               onDoubleClick={(e) => e.stopPropagation()}
               title="Arrastrá para cambiar el ancho (la altura crece sola con el texto)"
               className="absolute top-1/2 -right-1 -translate-y-1/2 w-4 h-4 rounded-full border-2 bg-zinc-900 cursor-ew-resize z-[5]"
-              style={{ borderColor: color, touchAction: 'none' }}
+              style={{ borderColor: color, touchAction: 'none', pointerEvents: isTextOnly ? 'auto' : undefined }}
             />
           )
         )}
@@ -2366,7 +2581,7 @@ function NodeBox({
             onDoubleClick={(e) => e.stopPropagation()}
             title="Duplicar nodo"
             className="absolute -top-2 -right-2 w-6 h-6 rounded-full border-2 bg-zinc-900 flex items-center justify-center shadow-lg transition-transform hover:scale-110 active:scale-95 z-[5]"
-            style={{ borderColor: color, color, touchAction: 'none' }}
+            style={{ borderColor: color, color, touchAction: 'none', pointerEvents: isTextOnly ? 'auto' : undefined }}
           >
             <Copy className="w-3 h-3" strokeWidth={2.5} />
           </button>
@@ -2381,7 +2596,7 @@ function NodeBox({
             onDoubleClick={(e) => e.stopPropagation()}
             title={linkedMap ? `Abrir mapa "${linkedMap.title}"` : 'Mapa vinculado no encontrado'}
             className="absolute -top-2 -left-2 w-6 h-6 rounded-full border-2 bg-zinc-900 flex items-center justify-center shadow-lg transition-transform hover:scale-110 active:scale-95 z-[6]"
-            style={{ borderColor: linkedMap ? color : '#52525b', color: linkedMap ? color : '#52525b', touchAction: 'none' }}
+            style={{ borderColor: linkedMap ? color : '#52525b', color: linkedMap ? color : '#52525b', touchAction: 'none', pointerEvents: isTextOnly ? 'auto' : undefined }}
           >
             <Link2 className="w-3 h-3" strokeWidth={2.5} />
           </button>
