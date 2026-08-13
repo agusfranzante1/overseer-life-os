@@ -49,8 +49,9 @@ proyecto, analiza el código global y orquesta las tareas.
 6. **Actualizar contexto (escritura).** Última acción de cada cambio: editar
    `project_state.md` (tachar lo hecho, dejar próximos pasos). Y **solo si el
    cambio fue estructural** (un dominio/sección nuevo, o cambió un patrón
-   transversal como el sync/nav), actualizar `ARCHITECTURE.md`. **NO** tocar el
-   mapa en cada bug fix — un mapa que crece en cada fix se pudre y miente.
+   transversal como el sync/nav), actualizar `ARCHITECTURE.md` según la
+   **política de §1.2**. **NO** tocar el mapa en cada bug fix — un mapa que crece
+   en cada fix se pudre y miente.
 
 ### 1.1 El límite — qué escribe Claude y qué va a Codex
 
@@ -77,6 +78,48 @@ tamaño / la tipografía", "hacelo más [adjetivo visual]"*.
 **Regla de borde:** si el pedido NO es literalmente "cambiá cómo se ve X" sobre
 algo que ya existe → va a Codex. Ante la duda → Codex. Claude igual **analiza
 todo, arma el prompt, audita, aplica y verifica** (§1 tareas 2, 5, 6).
+
+### 1.2 Política de mantenimiento del `ARCHITECTURE.md` (el mapa)
+
+El `ARCHITECTURE.md` es el **mapa grueso y estable** del código: el "dónde vive
+cada cosa" + los patrones transversales (sync, nav). Se carga solo vía
+`CLAUDE.md`, así que sirve para ir directo al archivo sin re-explorar. Un mapa
+bien mantenido ahorra tokens; un mapa mal mantenido **miente y hace perder
+tiempo**. Por eso el mantenimiento tiene reglas, no es a gusto.
+
+**Cuándo SÍ actualizarlo** (última acción del cambio, junto con
+`project_state.md`, y solo si aplica):
+
+- Se agregó un **dominio/sección nuevo** (store + UI + sync). Sumarlo a la tabla
+  "Feature → archivos" y, si es sincronizado, no repetir el playbook: ya está.
+- Cambió un **patrón transversal**: el flujo de sync (per-fila/blob), la
+  navegación (`CORE_NAV_KEYS`/`OPTIONAL_NAV_KEYS`), el sync entre pestañas, el
+  layout de carpetas de alto nivel.
+- Se **movió o renombró** algo que el mapa nombra explícitamente (un archivo
+  clave, un store, una carpeta). Si el mapa apunta a un lugar que ya no existe,
+  corregirlo o borrar esa línea.
+
+**Cuándo NO tocarlo** (dejar el mapa quieto):
+
+- Bug fixes, retoques visuales, ajustes de lógica dentro de un dominio que ya
+  está mapeado. **Un mapa que crece en cada fix se pudre.** Eso va en
+  `project_state.md`, no acá.
+- Detalles finos que el código ya dice mejor (nombres de props, firmas, valores).
+  El mapa **orienta**; ante la duda, `grep` — el código manda.
+- El "por qué" / las reglas no negociables: eso vive en `AGENTS.md`, no se
+  duplica en el mapa.
+
+**Cómo escribirlo** (mismos lineamientos que el resto del contexto):
+
+- **Grueso y estable.** Frases cortas, el "dónde" y el patrón, no el detalle.
+- **No duplicar** lo que ya está en `AGENTS.md` (el porqué) ni en
+  `project_state.md` (el estado del día). Si algo pertenece a otro archivo, va
+  ahí y desde el mapa se **linkea**, no se copia.
+- **Actualizar en vez de agregar.** Si ya hay una línea/fila para ese dominio,
+  editarla; no crear una entrada paralela que diga casi lo mismo.
+- **Podar lo que miente.** Si una línea quedó vieja (archivo movido, patrón
+  cambiado), corregirla o borrarla en el mismo cambio. Un mapa desactualizado
+  es peor que no tener mapa.
 
 > **Nota honesta (no es excusa, es contexto para el usuario):** los bugs de
 > lógica más jodidos de este proyecto (borrado de config multi-device, ofertas
