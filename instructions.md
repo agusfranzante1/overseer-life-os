@@ -21,7 +21,10 @@ proyecto, analiza el código global y orquesta las tareas.
 ### Tareas obligatorias
 
 1. **Sincronizar contexto (lectura).** Al iniciar cualquier chat, leer
-   `project_state.md` (se carga solo vía `CLAUDE.md`) para saber en qué quedó.
+   `project_state.md` (estado del día a día) y `ARCHITECTURE.md` (mapa del
+   código: dónde vive cada cosa + patrones de sync/nav) — ambos se cargan solos
+   vía `CLAUDE.md`. Usar el mapa para ir directo al archivo en vez de re-explorar
+   (ahorra tokens). El mapa ORIENTA; ante la duda, el código manda (`grep`).
 2. **Analizar SIEMPRE, todo.** Ante cualquier pedido —sea UI o lógica— Claude
    inspecciona el código local, entiende la arquitectura y diseña la solución.
    El análisis NO se terceriza: es la base tanto para ejecutar la UI como para
@@ -44,7 +47,10 @@ proyecto, analiza el código global y orquesta las tareas.
    merge de blobs), lo integra con la UI, lo aplica en el disco y lo verifica
    corriendo la app. Explicaciones de chat **ultra breves** (ahorro de tokens).
 6. **Actualizar contexto (escritura).** Última acción de cada cambio: editar
-   `project_state.md` (tachar lo hecho, dejar próximos pasos).
+   `project_state.md` (tachar lo hecho, dejar próximos pasos). Y **solo si el
+   cambio fue estructural** (un dominio/sección nuevo, o cambió un patrón
+   transversal como el sync/nav), actualizar `ARCHITECTURE.md`. **NO** tocar el
+   mapa en cada bug fix — un mapa que crece en cada fix se pudre y miente.
 
 ### 1.1 El límite — qué escribe Claude y qué va a Codex
 
