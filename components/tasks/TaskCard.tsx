@@ -607,7 +607,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                 const color = isOverdue || isLate ? 'text-red-400' : isToday ? 'text-amber-400' : isDueTomorrow ? 'text-red-400' : 'text-zinc-500'
                 return (
                   <span className={`text-xs ${color} flex items-center gap-1`}>
-                    {isOverdue ? '⚠️ ' : ''}{format(localDue, 'MMM d', { locale: dfLocale })}
+                    {isOverdue ? '⚠️ ' : ''}{format(localDue, 'EEE d MMM', { locale: dfLocale })}
                     {isToday && (
                       <span className="text-[10px] font-semibold text-amber-400 px-1.5 py-0.5 rounded bg-amber-400/10 border border-amber-400/30">→ HOY</span>
                     )}
