@@ -2,11 +2,11 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Rocket, Plus, Trash2, Settings2, Globe, X, Check, ChevronRight, Tag, GitBranch, Search,
+  Rocket, Plus, Trash2, Settings2, Globe, X, Check, ChevronRight, Tag, GitBranch, Search, BookTemplate, Save,
 } from 'lucide-react'
 import {
   useOffersStore, OFFER_PALETTE,
-  type Offer, type OfferStage, type OfferCategory, type OfferGeo,
+  type Offer, type OfferStage, type OfferCategory, type OfferGeo, type OfferTemplate,
 } from '@/lib/store/offersStore'
 import { OfferDoc } from './OfferDoc'
 import { type Block, emptyDoc } from '@/lib/offers/blocks'
@@ -16,9 +16,10 @@ type View = 'board' | 'geo'
 export function OffersPage() {
   const st = useOffersStore()
   const {
-    systems, offers, stages, categories, geos,
+    systems, offers, templates, stages, categories, geos,
     addSystem, updateSystem, removeSystem, setSystemDoc,
     addOffer, updateOffer, removeOffer, toggleOfferCategory, toggleOfferGeo, setOfferDoc,
+    saveOfferAsTemplate, applyTemplate, renameTemplate, removeTemplate,
   } = st
 
   const sortedStages = stages.slice().sort((a, b) => a.order - b.order)
@@ -78,11 +79,16 @@ export function OffersPage() {
         stages={sortedStages}
         categories={categories}
         geos={geos}
+        templates={templates}
         onBack={() => setOpenOfferId(null)}
         onPatch={(p) => updateOffer(openOffer.id, p)}
         onToggleCat={(id) => toggleOfferCategory(openOffer.id, id)}
         onToggleGeo={(id) => toggleOfferGeo(openOffer.id, id)}
         onDoc={(d) => setOfferDoc(openOffer.id, d)}
+        onSaveTemplate={(name) => saveOfferAsTemplate(openOffer.id, name)}
+        onApplyTemplate={(templateId) => applyTemplate(openOffer.id, templateId)}
+        onRenameTemplate={renameTemplate}
+        onRemoveTemplate={removeTemplate}
         onDelete={() => {
           if (confirm(`¿Borrar "${openOffer.name || 'esta oferta'}"?`)) {
             removeOffer(openOffer.id); setOpenOfferId(null)
@@ -679,20 +685,49 @@ function Row({ color, onColor, onDelete, children }: {
 /** Detalle de una oferta: propiedades arriba y su documento propio abajo,
  *  a todo el ancho. Es la vista donde se guardan el espionaje, las keywords,
  *  el resumen de problemática, etc. */
-function OfferDetail({ offer, systemName, stages, categories, geos, onBack, onPatch, onToggleCat, onToggleGeo, onDoc, onDelete }: {
+function OfferDetail({
+  offer,
+  systemName,
+  stages,
+  categories,
+  geos,
+  templates,
+  onBack,
+  onPatch,
+  onToggleCat,
+  onToggleGeo,
+  onDoc,
+  onSaveTemplate,
+  onApplyTemplate,
+  onRenameTemplate,
+  onRemoveTemplate,
+  onDelete,
+}: {
   offer: Offer
   systemName: string
   stages: OfferStage[]
   categories: OfferCategory[]
   geos: OfferGeo[]
+  templates: OfferTemplate[]
   onBack: () => void
   onPatch: (p: Partial<Offer>) => void
   onToggleCat: (id: string) => void
   onToggleGeo: (id: string) => void
   onDoc: (doc: Block[]) => void
+  onSaveTemplate: (name: string) => string | null
+  onApplyTemplate: (templateId: string) => void
+  onRenameTemplate: (id: string, name: string) => void
+  onRemoveTemplate: (id: string) => void
   onDelete: () => void
 }) {
   const stage = stages.find((s) => s.id === offer.stageId)
+  const handleSaveTemplate = () => {
+    const fallback = offer.name.trim() ? `${offer.name.trim()} plantilla` : 'Plantilla de oferta'
+    const name = window.prompt('Nombre de la plantilla', fallback)
+    if (name === null) return
+    onSaveTemplate(name)
+  }
+
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="pb-10">
       <div className="max-w-4xl mx-auto px-6 pt-6">
@@ -775,6 +810,57 @@ function OfferDetail({ offer, systemName, stages, categories, geos, onBack, onPa
       {/* Documento de la oferta — a todo el ancho, sin bordes laterales */}
       <div className="border-t border-zinc-800/60 bg-zinc-950/40">
         <div className="max-w-4xl mx-auto px-6 py-5">
+          <div className="mb-4 rounded-xl border border-zinc-800 bg-zinc-950/70 p-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300 mr-auto">
+                <BookTemplate className="w-4 h-4 text-violet-300" />
+                Plantillas de hoja
+              </div>
+              <button
+                onClick={handleSaveTemplate}
+                className="text-xs font-semibold text-violet-200 bg-violet-500/15 border border-violet-500/35 hover:bg-violet-500/25 rounded-lg px-2.5 py-1.5 transition-colors flex items-center gap-1.5"
+              >
+                <Save className="w-3.5 h-3.5" /> Guardar como plantilla
+              </button>
+              <select
+                value=""
+                disabled={templates.length === 0}
+                onChange={(e) => {
+                  const templateId = e.currentTarget.value
+                  if (templateId) onApplyTemplate(templateId)
+                }}
+                className="bg-zinc-900 border border-zinc-800 disabled:opacity-45 disabled:cursor-not-allowed focus:border-violet-500/50 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 outline-none"
+              >
+                <option value="">Aplicar plantilla</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>{template.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {templates.length > 0 && (
+              <div className="mt-3 space-y-1.5">
+                {templates.map((template) => (
+                  <div key={template.id} className="flex items-center gap-2 rounded-lg border border-zinc-800/80 bg-zinc-900/60 px-2 py-1.5">
+                    <input
+                      value={template.name}
+                      onChange={(e) => onRenameTemplate(template.id, e.target.value)}
+                      className="flex-1 min-w-0 bg-transparent text-xs text-zinc-200 outline-none"
+                    />
+                    <button
+                      onClick={() => {
+                        if (confirm(`Borrar la plantilla "${template.name}"?`)) onRemoveTemplate(template.id)
+                      }}
+                      title="Borrar plantilla"
+                      className="text-zinc-600 hover:text-red-400 p-1 rounded transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <OfferDoc doc={offer.doc ?? emptyDoc()} onChange={onDoc} />
           <p className="text-[10px] text-zinc-700 mt-3">
             Seleccioná un texto para convertirlo en viñeta, desplegable o página.

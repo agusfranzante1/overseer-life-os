@@ -5,7 +5,9 @@
 > El método de trabajo está en [`instructions.md`](instructions.md); las reglas
 > técnicas no negociables en [`AGENTS.md`](AGENTS.md).
 
-**Última actualización:** 2026-08-12 · **Roadmap en curso:** 7 etapas, una por vez. **Etapas 1–4 COMPLETAS.** Próxima: Etapa 5 (Plantillas de Ofertas) — NO empezada.
+**Última actualización:** 2026-08-12 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado.
+
+⚠️ **PENDIENTE del usuario:** correr en Supabase `supabase/migration_offer_templates.sql` (Etapa 5) y `supabase/migration_books.sql` (Etapa 6), si no plantillas y libros no sincronizan.
 
 ---
 
@@ -37,6 +39,18 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **ETAPA 6 — Seguimiento de Libros** (Codex): sección `/libros` nueva
+      (opcional en el nav, oculta por default para cuentas existentes — migrate
+      appStore v6→v7). Estados Quiero leer/Leyendo/Leído, alta rápida, fechas y
+      notas. Sync per-fila (tabla `books`) + multitab. Verificado: crear libro
+      persiste. **Correr migration_books.sql.**
+- [x] **ETAPA 5 — Plantillas de Ofertas** (Codex): guardar el doc de una oferta
+      como plantilla global reutilizable y aplicarla a otra. Clona con ids
+      frescos (no comparte referencias), aplica appendeando (o reemplaza si el
+      doc destino está vacío). Sync per-fila (tabla `offer_templates`) + endurece
+      el sanitize del doc de ofertas (recursivo, valida tipos, preserva children/
+      collapsed). Verificado end-to-end: guardar→aplicar copia estructura+
+      contenido sin tocar el original. **Correr migration_offer_templates.sql.**
 - [x] **ETAPA 4 — Mapas Mentales / Content Strategy / Estudio:**
   - Content Strategy → mapa mental: ya estaba (`ensureProfileMindMap`), no se tocó.
   - **Nodo solo-texto** (Codex): shape `'text'` sin borde/fondo/caja, grabbable

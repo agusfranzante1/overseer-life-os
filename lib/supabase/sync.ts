@@ -18,6 +18,7 @@ import { useKpisStore } from '@/lib/store/kpisStore'
 import { useStudyStore } from '@/lib/store/studyStore'
 import { useContentStore } from '@/lib/store/contentStore'
 import { useBacktestStore } from '@/lib/store/backtestStore'
+import { type Book, type BookStatus, useBooksStore } from '@/lib/store/booksStore'
 import { useJournalStore } from '@/lib/store/journalStore'
 import { useMeditationsStore } from '@/lib/store/meditationsStore'
 import { useYoutubeStore } from '@/lib/store/youtubeStore'
@@ -26,6 +27,7 @@ import { useFavoritesStore } from '@/lib/store/favoritesStore'
 import { useConceptStore } from '@/lib/store/conceptStore'
 import { useTaskUiStore } from '@/lib/store/taskUiStore'
 import { migrateMapNotes } from '@/lib/study/concepts'
+import type { Block, BlockType } from '@/lib/offers/blocks'
 import {
   startPulling, endPulling,
   markModifiedIfNotPulling, markSynced, hasUnsyncedChanges,
@@ -56,6 +58,7 @@ interface SyncState {
   studyInit: boolean
   contentInit: boolean
   backtestInit: boolean
+  booksInit: boolean
   journalInit: boolean
   meditationsInit: boolean
   youtubeInit: boolean
@@ -84,6 +87,7 @@ const state: SyncState = {
   studyInit: false,
   contentInit: false,
   backtestInit: false,
+  booksInit: false,
   journalInit: false,
   meditationsInit: false,
   youtubeInit: false,
@@ -111,6 +115,7 @@ let kpisPushTimer: ReturnType<typeof setTimeout> | null = null
 let studyPushTimer: ReturnType<typeof setTimeout> | null = null
 let contentPushTimer: ReturnType<typeof setTimeout> | null = null
 let backtestPushTimer: ReturnType<typeof setTimeout> | null = null
+let booksPushTimer: ReturnType<typeof setTimeout> | null = null
 let journalPushTimer: ReturnType<typeof setTimeout> | null = null
 let meditationsPushTimer: ReturnType<typeof setTimeout> | null = null
 let youtubePushTimer: ReturnType<typeof setTimeout> | null = null
@@ -2307,17 +2312,121 @@ async function pullYoutube(): Promise<boolean> {
   }
 }
 
+// ─── LIBROS (seguimiento simple de lectura) ─────────────────────────────────
+// Una fila por libro. Ver migration_books.sql.
+
+async function pushBooks() {
+  if (!state.userId) return
+  const syncedAt = new Date().toISOString()
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { books } = useBooksStore.getState()
+
+  const rows = books.map((book) => ({
+    id: book.id,
+    user_id: uid,
+    created_at: book.createdAt,
+    updated_at: book.updatedAt,
+    payload: book,
+  }))
+
+  if (rows.length > 0) {
+    const r = await sb.from('books').upsert(rows)
+    if (r.error) {
+      reportSyncError(`books upsert failed: ${r.error.message}. Likely missing migration - run supabase/migration_books.sql.`)
+      throw r.error
+    }
+  }
+  await syncDeletes(sb, uid, 'books', rows.map((r) => r.id), 'books:items')
+  markSynced('books', syncedAt)
+}
+
+async function pullBooks(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('books')
+  try {
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('books').select('*').eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+  if (res.error) {
+    console.error('Books pull failed (run migration_books.sql?):', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) { markSynced('books'); return false }
+
+  type Row = { id: string; created_at?: string | null; updated_at?: string | null; payload: unknown }
+  const sanitize = (row: Row): Book => {
+    const p = (row.payload ?? {}) as Partial<Book>
+    const now = new Date().toISOString()
+    const status: BookStatus =
+      p.status === 'reading' || p.status === 'read' ? p.status : 'want'
+    return {
+      id: typeof p.id === 'string' && p.id ? p.id : row.id,
+      title: typeof p.title === 'string' ? p.title : '',
+      author: typeof p.author === 'string' ? p.author : '',
+      status,
+      ...(typeof p.startDate === 'string' ? { startDate: p.startDate } : {}),
+      ...(typeof p.endDate === 'string' ? { endDate: p.endDate } : {}),
+      ...(typeof p.notes === 'string' ? { notes: p.notes } : {}),
+      createdAt: typeof p.createdAt === 'string' ? p.createdAt : row.created_at ?? now,
+      updatedAt: typeof p.updatedAt === 'string' ? p.updatedAt : row.updated_at ?? now,
+    }
+  }
+  const remote: Book[] = (res.data ?? []).map((r: Row) => sanitize(r))
+  const tombs = await fetchTombstones(sb, uid, ['books'])
+  const merged = mergeById<Book>({
+    local: useBooksStore.getState().books,
+    remote,
+    baseline: getBaseline('books:items'),
+    getId: (x) => x.id,
+    getUpdatedAt: (x) => x.updatedAt,
+    tombstones: tombs.get('books'),
+  })
+  useBooksStore.setState({ books: merged })
+  setBaseline('books:items', remote.map((x) => x.id))
+  markSynced('books')
+  return true
+  } finally {
+    endPulling('books')
+  }
+}
+
 // ─── OFERTAS (CRM) ───────────────────────────────────────────────────────────
 // Dos colecciones en un mismo dominio: sistemas (con su documento adentro) y
 // ofertas. Los catálogos (etapas / categorías / GEOs) son listas cortas y van
 // en el blob de app_preferences, no acá. Ver migration_offers.sql.
+
+const OFFER_BLOCK_TYPES = new Set<BlockType>(['text', 'bullet', 'toggle', 'page'])
+
+function sanitizeOfferDoc(raw: unknown): Block[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((item) => sanitizeOfferBlock(item))
+    .filter((item): item is Block => item !== null)
+}
+
+function sanitizeOfferBlock(raw: unknown): Block | null {
+  if (!raw || typeof raw !== 'object') return null
+  const p = raw as Partial<Block>
+  if (!p.type || !OFFER_BLOCK_TYPES.has(p.type)) return null
+  const block: Block = {
+    id: typeof p.id === 'string' && p.id.trim() ? p.id : `${p.type}_${Math.random().toString(36).slice(2, 10)}`,
+    type: p.type,
+    text: typeof p.text === 'string' ? p.text : '',
+  }
+  if (Array.isArray(p.children)) block.children = sanitizeOfferDoc(p.children)
+  if (typeof p.collapsed === 'boolean') block.collapsed = p.collapsed
+  return block
+}
 
 async function pushOffers() {
   if (!state.userId) return
   const syncedAt = new Date().toISOString()
   const sb = getSupabaseBrowser()
   const uid = state.userId!
-  const { systems, offers } = useOffersStore.getState()
+  const { systems, offers, templates } = useOffersStore.getState()
 
   const sysRows = systems.map((x) => ({
     id: x.id, user_id: uid, created_at: x.createdAt, updated_at: x.updatedAt, payload: x,
@@ -2342,6 +2451,18 @@ async function pushOffers() {
     }
   }
   await syncDeletes(sb, uid, 'offers', offerRows.map((r) => r.id), 'offers:offers')
+
+  const templateRows = templates.map((template) => ({
+    id: template.id, user_id: uid, created_at: template.createdAt, updated_at: template.updatedAt, payload: template,
+  }))
+  if (templateRows.length > 0) {
+    const r = await sb.from('offer_templates').upsert(templateRows)
+    if (r.error) {
+      reportSyncError(`offer_templates upsert failed: ${r.error.message}. Likely missing migration - run supabase/migration_offer_templates.sql.`)
+      throw r.error
+    }
+  }
+  await syncDeletes(sb, uid, 'offer_templates', templateRows.map((r) => r.id), 'offers:templates')
 
   markSynced('offers', syncedAt)
 }
@@ -2369,7 +2490,7 @@ async function pullOffers(): Promise<boolean> {
           order: typeof p.order === 'number' ? p.order : 0,
           // El documento es el trabajo del usuario: si viene roto, mejor un
           // documento vacío que reventar el pull entero.
-          doc: Array.isArray(p.doc) ? p.doc : [],
+          doc: sanitizeOfferDoc(p.doc),
           createdAt: p.createdAt ?? new Date().toISOString(),
           updatedAt: p.updatedAt ?? new Date().toISOString(),
         }
@@ -2392,14 +2513,31 @@ async function pullOffers(): Promise<boolean> {
           geoIds: Array.isArray(p.geoIds) ? p.geoIds : [],
           ...(typeof p.score === 'number' ? { score: p.score } : {}),
           // Sin esto el pull borraba el documento de cada oferta.
-          ...(Array.isArray(p.doc) ? { doc: p.doc } : {}),
+          ...(Array.isArray(p.doc) ? { doc: sanitizeOfferDoc(p.doc) } : {}),
           order: typeof p.order === 'number' ? p.order : 0,
           createdAt: p.createdAt ?? new Date().toISOString(),
           updatedAt: p.updatedAt ?? new Date().toISOString(),
         }
       })
 
-    const tombs = await fetchTombstones(sb, uid, ['offer_systems', 'offers'])
+    const templateRes = await sb.from('offer_templates').select('*').eq('user_id', uid)
+    if (templateRes.error) {
+      console.error('Offer templates pull failed (run migration_offer_templates.sql?):', templateRes.error)
+      return false
+    }
+    const remoteTemplates: import('@/lib/store/offersStore').OfferTemplate[] =
+      (templateRes.data ?? []).map((r: Row) => {
+        const p = (r.payload ?? {}) as Partial<import('@/lib/store/offersStore').OfferTemplate>
+        return {
+          id: p.id ?? '',
+          name: p.name ?? 'Plantilla',
+          doc: sanitizeOfferDoc(p.doc),
+          createdAt: p.createdAt ?? new Date().toISOString(),
+          updatedAt: p.updatedAt ?? new Date().toISOString(),
+        }
+      })
+
+    const tombs = await fetchTombstones(sb, uid, ['offer_systems', 'offers', 'offer_templates'])
     useOffersStore.setState({
       systems: mergeById<import('@/lib/store/offersStore').OfferSystem>({
         local: useOffersStore.getState().systems,
@@ -2417,9 +2555,18 @@ async function pullOffers(): Promise<boolean> {
         getUpdatedAt: (x) => x.updatedAt,
         tombstones: tombs.get('offers'),
       }),
+      templates: mergeById<import('@/lib/store/offersStore').OfferTemplate>({
+        local: useOffersStore.getState().templates,
+        remote: remoteTemplates,
+        baseline: getBaseline('offers:templates'),
+        getId: (x) => x.id,
+        getUpdatedAt: (x) => x.updatedAt,
+        tombstones: tombs.get('offer_templates'),
+      }),
     })
     setBaseline('offers:systems', remoteSystems.map((x) => x.id))
     setBaseline('offers:offers', remoteOffers.map((x) => x.id))
+    setBaseline('offers:templates', remoteTemplates.map((x) => x.id))
     markSynced('offers')
     return true
   } finally {
@@ -3723,6 +3870,7 @@ function scheduleKpis()       { schedule(kpisPushTimer,       pushKpis,       (t
 function scheduleStudy()      { schedule(studyPushTimer,      pushStudy,      (t) => { studyPushTimer = t }) }
 function scheduleContent()    { schedule(contentPushTimer,    pushContent,    (t) => { contentPushTimer = t }) }
 function scheduleBacktests()  { schedule(backtestPushTimer,   pushBacktests,  (t) => { backtestPushTimer = t }) }
+function scheduleBooks()      { schedule(booksPushTimer,      pushBooks,      (t) => { booksPushTimer = t }) }
 function scheduleJournal()     { schedule(journalPushTimer,    pushJournal,    (t) => { journalPushTimer = t }) }
 function scheduleMeditations() { schedule(meditationsPushTimer, pushMeditations, (t) => { meditationsPushTimer = t }) }
 function scheduleYoutube()     { schedule(youtubePushTimer,     pushYoutube,     (t) => { youtubePushTimer = t }) }
@@ -3932,6 +4080,16 @@ async function initAllDomains() {
     if (hasLocal) await pushBacktests().catch((e) => console.error('Backtests post-pull push failed', e))
   }
 
+  // ─── Libros ────────────────────────────────────────────────────────────────
+  // Pull-first: LWW por updatedAt + tombstones (mismo patrón que YouTube).
+  if (!state.booksInit) {
+    state.booksInit = true
+    const { books } = useBooksStore.getState()
+    const hasLocal = books.length > 0
+    await pullBooks()
+    if (hasLocal) await pushBooks().catch((e) => console.error('Books post-pull push failed', e))
+  }
+
   // ─── My Journal ───────────────────────────────────────────────────────
   // Pull-first: LWW por updatedAt + tombstones (mismo patrón que mindmaps).
   if (!state.journalInit) {
@@ -3957,8 +4115,8 @@ async function initAllDomains() {
   // ofertas) en el mismo dominio: son la misma cosa.
   if (!state.offersInit) {
     state.offersInit = true
-    const { systems, offers } = useOffersStore.getState()
-    const hasLocal = systems.length > 0 || offers.length > 0
+    const { systems, offers, templates } = useOffersStore.getState()
+    const hasLocal = systems.length > 0 || offers.length > 0 || templates.length > 0
     await pullOffers()
     if (hasLocal) await pushOffers().catch((e) => console.error('Offers post-pull push failed', e))
   }
@@ -4107,6 +4265,7 @@ export function useSupabaseSync() {
       useStudyStore.subscribe(() => { markModifiedIfNotPulling('study'); if (state.userId) scheduleStudy() })
       useContentStore.subscribe(() => { markModifiedIfNotPulling('content'); if (state.userId) scheduleContent() })
       useBacktestStore.subscribe(() => { markModifiedIfNotPulling('backtests'); if (state.userId) scheduleBacktests() })
+      useBooksStore.subscribe(() => { markModifiedIfNotPulling('books'); if (state.userId) scheduleBooks() })
       useJournalStore.subscribe(() => { markModifiedIfNotPulling('journal'); if (state.userId) scheduleJournal() })
       useMeditationsStore.subscribe(() => { markModifiedIfNotPulling('meditations'); if (state.userId) scheduleMeditations() })
       useYoutubeStore.subscribe(() => { markModifiedIfNotPulling('youtube'); if (state.userId) scheduleYoutube() })
@@ -4141,6 +4300,7 @@ export function useSupabaseSync() {
       state.studyInit = false
       state.contentInit = false
       state.backtestInit = false
+      state.booksInit = false
       state.journalInit = false
       state.meditationsInit = false
       state.youtubeInit = false
@@ -4197,6 +4357,7 @@ export function useSupabaseSync() {
       state.studyInit = false
       state.contentInit = false
       state.backtestInit = false
+      state.booksInit = false
       state.journalInit = false
       state.meditationsInit = false
       state.youtubeInit = false
@@ -4280,6 +4441,7 @@ export async function forceSyncAll(): Promise<void> {
   state.studyInit = false
   state.contentInit = false
   state.backtestInit = false
+  state.booksInit = false
   state.journalInit = false
   state.meditationsInit = false
   state.youtubeInit = false

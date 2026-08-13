@@ -2,6 +2,7 @@
 import { wireCrossTabSync } from './multitabSync'
 import { useAppStore } from '@/lib/store/appStore'
 import { useBacktestStore } from '@/lib/store/backtestStore'
+import { useBooksStore } from '@/lib/store/booksStore'
 import { useChatStore } from '@/lib/store/chatStore'
 import { useConceptStore } from '@/lib/store/conceptStore'
 import { useContentStore } from '@/lib/store/contentStore'
@@ -54,6 +55,7 @@ export function initMultitabSync(): void {
 
   wireCrossTabSync(useAppStore, 'overseer-app')
   wireCrossTabSync(useBacktestStore, 'overseer-backtest')
+  wireCrossTabSync(useBooksStore, 'overseer-books')
   wireCrossTabSync(useChatStore, 'overseer-chat')
   wireCrossTabSync(useConceptStore, 'overseer-concepts')
   wireCrossTabSync(useContentStore, 'overseer-content')

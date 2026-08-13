@@ -5,10 +5,10 @@ import { useAppStore, isCoreNavKey } from '@/lib/store/appStore'
 import { useTranslation } from '@/hooks/useTranslation'
 import { usePendingReviews } from '@/hooks/usePendingReviews'
 import {
-  LayoutDashboard, Calendar, CheckSquare,
+  LayoutDashboard, Calendar, CheckSquare, BookOpen,
   Globe, WalletCards, Activity, Dumbbell, Utensils, HeartPulse, Menu,
   TrendingUp, GripVertical, Check, RotateCcw, Settings2, Cog, LogOut,
-  Clock, Search, X as XIcon, Infinity as InfinityIcon, Telescope, FlaskConical,
+  Clock, Search, X as XIcon, Infinity as InfinityIcon, FlaskConical,
   Network, ChevronUp, ChevronDown, ChevronRight, Target, GraduationCap, Sparkles,
   Sun, Moon, NotebookPen, Wind, Pencil, SquarePlay, Rocket, FolderPlus,
 } from 'lucide-react'
@@ -35,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/journal',     icon: NotebookPen,     key: 'journal' },
   { href: '/meditaciones', icon: Wind,           key: 'meditaciones' },
   { href: '/youtube',    icon: SquarePlay,       key: 'youtube' },
+  { href: '/libros',     icon: BookOpen,         key: 'books' },
   { href: '/mapas',       icon: Network,         key: 'mindmaps' },
   { href: '/tasks',      icon: CheckSquare,     key: 'tasks' },
   { href: '/calendar',  icon: Calendar,        key: 'calendar' },
@@ -103,7 +104,10 @@ export function Sidebar({
   // (no en el init) para no romper la hidratación SSR de Next.
   const [footerOpen, setFooterOpenState] = useState(false)
   useEffect(() => {
-    try { setFooterOpenState(localStorage.getItem('overseer-sidebar-footer-open') === '1') } catch { /* noop */ }
+    const id = window.setTimeout(() => {
+      try { setFooterOpenState(localStorage.getItem('overseer-sidebar-footer-open') === '1') } catch { /* noop */ }
+    }, 0)
+    return () => window.clearTimeout(id)
   }, [])
   const setFooterOpen = (v: boolean) => {
     setFooterOpenState(v)

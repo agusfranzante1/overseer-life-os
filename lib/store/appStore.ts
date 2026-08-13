@@ -31,7 +31,7 @@ export const CORE_NAV_KEYS = [
  *  estas (sidebar mínimo) y el usuario va agregando las que le sirven.
  *  Mantener en sync con NAV_ITEMS del Sidebar. */
 export const OPTIONAL_NAV_KEYS = [
-  'lab', 'journal', 'meditaciones', 'youtube', 'mindmaps',
+  'lab', 'journal', 'meditaciones', 'youtube', 'books', 'mindmaps',
   'trading', 'health', 'estudio', 'contenido', 'ofertas', 'gym', 'food',
 ] as const
 
@@ -532,6 +532,7 @@ export const useAppStore = create<AppState>()(
         // media app de golpe, así que no ocultamos nada. Y damos el
         // onboarding por visto: ya conoce la app.
         const hiddenNavKeys = Array.isArray(p.hiddenNavKeys) ? p.hiddenNavKeys : []
+        const nextHiddenNavKeys = hiddenNavKeys.includes('books') ? hiddenNavKeys : [...hiddenNavKeys, 'books']
         const navGroups = Array.isArray(p.navGroups) ? p.navGroups : []
         const navTopOrder = Array.isArray(p.navTopOrder) ? p.navTopOrder : []
         const onboardingDone = typeof p.onboardingDone === 'boolean' ? p.onboardingDone : true
@@ -539,10 +540,10 @@ export const useAppStore = create<AppState>()(
           ...p,
           idealSchedule: sched, scheduleOrder: order, dayTypes,
           timezone, autoPurgeCompletedTasks, theme, themeColors,
-          hiddenNavKeys, onboardingDone, navGroups, navTopOrder,
+          hiddenNavKeys: nextHiddenNavKeys, onboardingDone, navGroups, navTopOrder,
         } as AppState
       },
-      version: 6,
+      version: 7,
     }
   )
 )

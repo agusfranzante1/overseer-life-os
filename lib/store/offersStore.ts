@@ -15,7 +15,7 @@
  */
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { type Block, emptyDoc } from '@/lib/offers/blocks'
+import { type Block, emptyDoc, newId } from '@/lib/offers/blocks'
 
 function genId() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4) }
 function nowISO() { return new Date().toISOString() }
@@ -71,6 +71,35 @@ export interface Offer {
 // si no a No traccionó. "Stock" es el pozo de ofertas sin empezar y
 // "Seleccionado" las elegidas para largar.
 
+export interface OfferTemplate {
+  id: string
+  name: string
+  doc: Block[]
+  createdAt: string
+  updatedAt: string
+}
+
+function cloneBlocksWithNewIds(blocks: Block[]): Block[] {
+  return blocks.map((b) => ({
+    id: newId(),
+    type: b.type,
+    text: b.text,
+    ...(b.children ? { children: cloneBlocksWithNewIds(b.children) } : {}),
+    ...(typeof b.collapsed === 'boolean' ? { collapsed: b.collapsed } : {}),
+  }))
+}
+
+function blockHasContent(block: Block): boolean {
+  if (block.text.trim().length > 0) return true
+  if (block.type === 'toggle' || block.type === 'page') return true
+  return (block.children ?? []).some(blockHasContent)
+}
+
+function docIsEmpty(doc: Block[] | undefined): boolean {
+  if (!doc || doc.length === 0) return true
+  return !doc.some(blockHasContent)
+}
+
 function seedStages(): OfferStage[] {
   return [
     { id: 'stage_stock', name: 'Stock', color: '#64748b', order: 0 },
@@ -101,6 +130,7 @@ function seedGeos(): OfferGeo[] {
 interface State {
   systems: OfferSystem[]
   offers: Offer[]
+  templates: OfferTemplate[]
   stages: OfferStage[]
   categories: OfferCategory[]
   geos: OfferGeo[]
@@ -114,6 +144,10 @@ interface State {
   updateOffer: (id: string, patch: Partial<Pick<Offer, 'name' | 'stageId' | 'categoryIds' | 'geoIds' | 'score'>>) => void
   removeOffer: (id: string) => void
   setOfferDoc: (id: string, doc: Block[]) => void
+  saveOfferAsTemplate: (offerId: string, name: string) => string | null
+  applyTemplate: (offerId: string, templateId: string) => void
+  renameTemplate: (id: string, name: string) => void
+  removeTemplate: (id: string) => void
   /** Alterna una categoría o un GEO en la oferta (agrega si falta, saca si está). */
   toggleOfferCategory: (id: string, categoryId: string) => void
   toggleOfferGeo: (id: string, geoId: string) => void
@@ -138,6 +172,7 @@ export const useOffersStore = create<State>()(
     (set, get) => ({
       systems: [],
       offers: [],
+      templates: [],
       stages: seedStages(),
       categories: seedCategories(),
       geos: seedGeos(),
@@ -185,6 +220,45 @@ export const useOffersStore = create<State>()(
       removeOffer: (id) => set((s) => ({ offers: s.offers.filter((o) => o.id !== id) })),
       setOfferDoc: (id, doc) => set((s) => ({
         offers: s.offers.map((o) => o.id !== id ? o : { ...o, doc, updatedAt: nowISO() }),
+      })),
+      saveOfferAsTemplate: (offerId, name) => {
+        const offer = get().offers.find((o) => o.id === offerId)
+        if (!offer) return null
+        const id = genId()
+        const now = nowISO()
+        const sourceDoc = Array.isArray(offer.doc) ? offer.doc : emptyDoc()
+        set((s) => ({
+          templates: [...s.templates, {
+            id,
+            name: name.trim() || 'Plantilla',
+            doc: cloneBlocksWithNewIds(sourceDoc),
+            createdAt: now,
+            updatedAt: now,
+          }],
+        }))
+        return id
+      },
+      applyTemplate: (offerId, templateId) => {
+        const template = get().templates.find((t) => t.id === templateId)
+        if (!template) return
+        set((s) => ({
+          offers: s.offers.map((o) => {
+            if (o.id !== offerId) return o
+            const currentDoc = Array.isArray(o.doc) ? o.doc : emptyDoc()
+            const freshDoc = cloneBlocksWithNewIds(template.doc)
+            return {
+              ...o,
+              doc: docIsEmpty(currentDoc) ? freshDoc : [...currentDoc, ...freshDoc],
+              updatedAt: nowISO(),
+            }
+          }),
+        }))
+      },
+      renameTemplate: (id, name) => set((s) => ({
+        templates: s.templates.map((t) => t.id !== id ? t : { ...t, name: name.trim() || 'Plantilla', updatedAt: nowISO() }),
+      })),
+      removeTemplate: (id) => set((s) => ({
+        templates: s.templates.filter((t) => t.id !== id),
       })),
       toggleOfferCategory: (id, categoryId) => set((s) => ({
         offers: s.offers.map((o) => {
@@ -250,7 +324,7 @@ export const useOffersStore = create<State>()(
     {
       name: 'overseer-offers',
       partialize: (s) => ({
-        systems: s.systems, offers: s.offers,
+        systems: s.systems, offers: s.offers, templates: s.templates,
         stages: s.stages, categories: s.categories, geos: s.geos,
       }),
       onRehydrateStorage: () => (state) => {
@@ -258,6 +332,7 @@ export const useOffersStore = create<State>()(
         // Defensas por si el storage quedó a medias.
         if (!Array.isArray(state.systems)) state.systems = []
         if (!Array.isArray(state.offers)) state.offers = []
+        if (!Array.isArray(state.templates)) state.templates = []
         if (!Array.isArray(state.stages) || state.stages.length === 0) state.stages = seedStages()
         // Si el campo NO EXISTE (storage viejo o a medias) se reponen las
         // semillas. Si existe pero está vacío, se respeta: significa que el
