@@ -600,15 +600,15 @@ function sortTasks(
 ): Task[] {
   const arr = [...tasks]
 
-  // Tiebreaker dentro del mismo bucket (misma prioridad, mismo status, etc).
-  // 1º agrupa por NOMBRE igual/similar (collation numérica: "X 2" antes que
-  //    "X 10") para que las tareas con el mismo nombre queden PEGADAS.
-  // 2º si el nombre también empata, las RECIÉN AGREGADAS al final, las viejas
-  //    arriba (createdAt ascendente). El nombre desempata "aparte" de la
-  //    prioridad/fecha: solo agrupa DENTRO del mismo bucket.
+  // Desempate dentro del mismo bucket (misma prioridad, mismo status, etc) =
+  // ORDEN DE INSERCIÓN (createdAt ascendente), igual que `sortSubtasks`. Así la
+  // tarea agregada última cae ABAJO y un proceso pegado mantiene su orden.
+  // Antes desempataba por TÍTULO primero → las tareas salían ALFABÉTICAS (y una
+  // nueva no caía al final). Para empates de createdAt (import en lote, mismo
+  // milisegundo) el sort estable preserva el orden de `taskIds` — `getProjectTasks`
+  // usa `Object.values`, que conserva el orden de inserción.
   const ageTiebreak = (a: Task, b: Task) =>
-    a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })
-    || a.createdAt.localeCompare(b.createdAt)
+    a.createdAt.localeCompare(b.createdAt)
 
   // Dentro del mismo bucket de prioridad: tarea CON dueDate pesa más que
   // tarea sin nada. Entre dos con fecha, la más próxima primero (hoy >
@@ -1042,10 +1042,6 @@ export function TasksPage() {
         // de hoy — no queremos agendar los ~60 pasos para el día de hoy.
       })
     }
-    // Mostrar el proceso EN EL ORDEN PEGADO (arriba→abajo). El sort por defecto
-    // ("Urgencia") desempata por título → salía alfabético. `taskIds` ya guarda
-    // el orden de pegado (addTask appendea); el modo Manual lo respeta.
-    changeSort('manual')
     setShowImportOutline(false)
   }
 
