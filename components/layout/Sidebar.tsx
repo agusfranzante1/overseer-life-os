@@ -437,7 +437,7 @@ export function Sidebar({
       )}
 
       {/* Nav */}
-      <nav className="flex-1 py-2 space-y-0.5 overflow-y-auto px-3">
+      <nav className="flex-1 py-2 space-y-0.5 overflow-y-auto overflow-x-hidden px-3">
         {navRenderList.map((entry) => {
           if (entry.kind === 'group') {
             const g = entry.group
@@ -982,7 +982,7 @@ function TimezoneButton({ collapsed }: { collapsed: boolean }) {
               </div>
             </div>
 
-            <div className="overflow-y-auto" style={{ maxHeight: '30vh' }}>
+            <div className="overflow-y-auto overflow-x-hidden" style={{ maxHeight: '30vh' }}>
               {filtered.map((tz) => (
                 <button
                   key={tz}
