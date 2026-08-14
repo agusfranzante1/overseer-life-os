@@ -1038,9 +1038,14 @@ export function TasksPage() {
         priority: 'low',
         importance: 'low',
         subtasks: flattenImportedSubtasks(item.subtasks, status),
-        scheduledFor: 'today',
+        // Sin `scheduledFor`: un proceso pegado es un checklist, no la agenda
+        // de hoy — no queremos agendar los ~60 pasos para el día de hoy.
       })
     }
+    // Mostrar el proceso EN EL ORDEN PEGADO (arriba→abajo). El sort por defecto
+    // ("Urgencia") desempata por título → salía alfabético. `taskIds` ya guarda
+    // el orden de pegado (addTask appendea); el modo Manual lo respeta.
+    changeSort('manual')
     setShowImportOutline(false)
   }
 

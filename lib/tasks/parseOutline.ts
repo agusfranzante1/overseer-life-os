@@ -24,7 +24,10 @@ const NUMBER_KEYCAP_RE = /^(?:\d\ufe0f?\u20e3|\u{1F51F})\s*/u
 const NUMBER_PREFIX_RE = /^\d+[\.)]\s+/u
 const CHECKBOX_RE = /^\s*(?:\[[ xX]\]|☐|☑|✅)\s*/u
 const BULLET_RE = /^\s*(?:[-*•▪◦‣]+)\s*/u
-const EMOJI_PREFIX_RE = /^(?:\p{Extended_Pictographic}\ufe0f?|\d\ufe0f?\u20e3|\u{1F51F})\s*/u
+// Consume el CLUSTER de emoji completo: base pictogr\u00e1fica + modificadores de
+// tono de piel (U+1F3FB\u20131F3FF), VS16 y secuencias ZWJ. Sin el cluster, "\ud83e\udd33\ud83c\udffc"
+// dejaba el modificador de tono colgado en el t\u00edtulo ("\ud83c\udffc Modelado").
+const EMOJI_PREFIX_RE = /^(?:\p{Extended_Pictographic}(?:[\u{1F3FB}-\u{1F3FF}]|\ufe0f|\u200d\p{Extended_Pictographic})*|\d\ufe0f?\u20e3|\u{1F51F})\s*/u
 
 function countIndent(raw: string): number {
   let count = 0
