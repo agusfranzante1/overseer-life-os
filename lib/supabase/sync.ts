@@ -274,6 +274,33 @@ function surfaceSyncToast(message: string) {
 
 type Row = Record<string, unknown>
 
+function orderRowsParentsFirst<T extends { id: string; parent_id?: string | null }>(rows: T[]): T[] {
+  const byId = new Map(rows.map((row) => [row.id, row]))
+  const visited = new Set<string>()
+  const visiting = new Set<string>()
+  const ordered: T[] = []
+
+  const visit = (row: T) => {
+    if (visited.has(row.id)) return
+    if (visiting.has(row.id)) {
+      ordered.push(row)
+      visited.add(row.id)
+      return
+    }
+    visiting.add(row.id)
+    const parent = row.parent_id ? byId.get(row.parent_id) : null
+    if (parent) visit(parent)
+    visiting.delete(row.id)
+    if (!visited.has(row.id)) {
+      visited.add(row.id)
+      ordered.push(row)
+    }
+  }
+
+  for (const row of rows) visit(row)
+  return ordered
+}
+
 // El viejo `deleteSurplus` (snapshot completo + borrado de todo lo ausente en
 // local) fue reemplazado por `reconcileDeletes` (en syncMerge.ts), que solo
 // borra lo que el user quitó a propósito (baseline ∩ ¬local). Todos los
@@ -533,6 +560,7 @@ async function pushTasks() {
   const taskRowsValid = taskRowsU.filter((t) => validProjectIds.has(t.project_id))
   const validTaskIds = new Set(taskRowsValid.map((t) => t.id))
   const subtaskRowsValid = subtaskRowsU.filter((st) => validTaskIds.has(st.task_id))
+  const subtaskRowsOrdered = orderRowsParentsFirst(subtaskRowsValid)
 
   if (projectRowsU.length > 0) {
     const r = await sb.from('projects').upsert(projectRowsU)
@@ -542,8 +570,8 @@ async function pushTasks() {
     const r = await sb.from('tasks').upsert(taskRowsValid)
     if (r.error) { reportSyncError(`tasks upsert failed: ${r.error.message}`); throw r.error }
   }
-  if (subtaskRowsValid.length > 0) {
-    const r = await sb.from('subtasks').upsert(subtaskRowsValid)
+  if (subtaskRowsOrdered.length > 0) {
+    const r = await sb.from('subtasks').upsert(subtaskRowsOrdered)
     if (r.error) {
       reportSyncError(`subtasks upsert failed: ${r.error.message}. ¿Falta correr migration_subtasks_completion_fields.sql?`)
       throw r.error

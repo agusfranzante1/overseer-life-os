@@ -6,6 +6,7 @@ import { DEFAULT_STATUSES, PROJECT_COLORS } from '@/lib/utils/constants'
 import { dateKeyInTz } from '@/lib/utils/dateInTz'
 import { nextRecurrenceDueDate } from '@/lib/utils/taskRecurrence'
 import { syncTaskToGcal, unlinkTaskFromGcal } from '@/lib/utils/taskGcalSync'
+import { collectDescendantSubtaskIds } from '@/lib/tasks/subtaskTree'
 
 function genId() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
@@ -356,7 +357,8 @@ export const useTasksStore = create<TasksState>()(
           // to exist. The UI already disables the delete button, but we
           // guard at the store too in case someone calls programmatically.
           if (s.projects[id]?.isSystemProject) return s
-          const { [id]: _, ...rest } = s.projects
+          const rest = { ...s.projects }
+          delete rest[id]
           const tasks = Object.fromEntries(
             Object.entries(s.tasks).filter(([, t]) => t.projectId !== id)
           )
@@ -930,9 +932,6 @@ export const useTasksStore = create<TasksState>()(
         if (taskBefore.gcalEventId && taskBefore.gcalCalendarId) {
           unlinkTaskFromGcal(taskBefore).catch(() => { /* noop */ })
         }
-        // Captura del id de la instancia spawneada (si hay) — lo seteamos
-        // adentro del set() y lo leemos después para fillear su semana.
-        let postSpawnedId: string | null = null
         set((s) => {
           const task = s.tasks[id]
           if (!task) return s
@@ -952,7 +951,7 @@ export const useTasksStore = create<TasksState>()(
               rescheduledFrom: undefined,
             },
           }
-          let updatedProjects = s.projects
+          const updatedProjects = s.projects
 
           // NO spawn aquí. Completar una recurrente NO crea nada nuevo.
           // - La siguiente instancia de la SEMANA EN CURSO ya existe
@@ -966,11 +965,6 @@ export const useTasksStore = create<TasksState>()(
           return { tasks: updatedTasks, projects: updatedProjects }
         })
 
-        // postSpawnedId nunca se asigna ahora — el bloque condicional fue
-        // removido. La variable queda solo por compatibilidad de signature.
-        if (postSpawnedId) {
-          get().ensureRecurringBuffer(postSpawnedId, 14)
-        }
       },
 
       duplicateTask: (id) => {
@@ -1064,7 +1058,8 @@ export const useTasksStore = create<TasksState>()(
           // papelera), this is a hard delete. Otherwise, soft-delete: move it
           // to the archive so the user can recover it from the papelera.
           if (task.archivedAt) {
-            const { [id]: _gone, ...tasks } = s.tasks
+            const tasks = { ...s.tasks }
+            delete tasks[id]
             return {
               tasks,
               projects: {
@@ -1370,7 +1365,8 @@ export const useTasksStore = create<TasksState>()(
         set((s) => {
           const task = s.tasks[id]
           if (!task) return s
-          const { [id]: _gone, ...tasks } = s.tasks
+          const tasks = { ...s.tasks }
+          delete tasks[id]
           return {
             tasks,
             projects: {
@@ -1471,14 +1467,19 @@ export const useTasksStore = create<TasksState>()(
           // only supports 1 level of nesting). This loses the "subtask of
           // subtask" relationships but preserves all the data — typically
           // the user can rebuild the structure visually after the move.
-          const childSubs: Subtask[] = source.subtasks
-            .filter((sub) => !sub.archivedAt)
-            .map((sub, idx) => ({
+          const liveSubs = source.subtasks.filter((sub) => !sub.archivedAt)
+          const subIdMap = new Map<string, string>()
+          for (const sub of liveSubs) subIdMap.set(sub.id, genId())
+
+          const childSubs: Subtask[] = liveSubs.map((sub, idx) => {
+            const mappedParentId = sub.parentId ? subIdMap.get(sub.parentId) : undefined
+            return {
               ...sub,
-              id: genId(),       // fresh ids so they don't collide with anything
-              parentId: newRootId,
-              order: baseOrder + 1 + idx,
-            }))
+              id: subIdMap.get(sub.id)!,
+              parentId: mappedParentId ?? newRootId,
+              order: sub.order ?? (baseOrder + 1 + idx),
+            }
+          })
 
           const newTarget: Task = {
             ...target,
@@ -1507,10 +1508,6 @@ export const useTasksStore = create<TasksState>()(
         if (!source) return null
         const sub = source.subtasks.find((st) => st.id === subtaskId)
         if (!sub) return null
-        // Solo subtask1 (top-level) puede promoverse. Si es una subtask2
-        // (tiene parentId), el user debería primero "desagrupar" (sacarle
-        // el parentId) y después promover.
-        if (sub.parentId) return null
         if (sub.archivedAt) return null
 
         const proj = get().projects[source.projectId]
@@ -1518,23 +1515,19 @@ export const useTasksStore = create<TasksState>()(
 
         const nowIso = new Date().toISOString()
         const newTaskId = genId()
-
-        // Children directos de la subtask que estamos promoviendo
-        // (subtask2 con parentId === subtaskId). Estos se vuelven
-        // subtask1 top-level de la nueva madre. Archivados se descartan.
-        const childSubs = source.subtasks.filter(
-          (st) => st.parentId === subtaskId && !st.archivedAt
-        )
-        // Mapeo old → new id por si en el futuro se permite más
-        // anidamiento. Hoy es plano (1 nivel) — solo evita colisiones.
+        const descendantIds = collectDescendantSubtaskIds(source.subtasks, subtaskId)
+        const liveDescendants = source.subtasks.filter((st) => descendantIds.has(st.id) && !st.archivedAt)
         const childIdMap = new Map<string, string>()
-        for (const c of childSubs) childIdMap.set(c.id, genId())
+        for (const child of liveDescendants) childIdMap.set(child.id, genId())
 
-        const newRootSubs: Subtask[] = childSubs.map((c, idx) => ({
-          ...c,
-          id: childIdMap.get(c.id)!,
-          parentId: undefined,  // ahora son top-level de la NUEVA madre
-          order: idx,
+        const newRootSubs: Subtask[] = liveDescendants.map((child) => ({
+          ...child,
+          id: childIdMap.get(child.id)!,
+          parentId: child.parentId === subtaskId
+            ? undefined
+            : child.parentId
+              ? childIdMap.get(child.parentId)
+              : undefined,
         }))
 
         // Inferir importance — Subtask no la tiene, así que defaulteamos
@@ -1559,10 +1552,9 @@ export const useTasksStore = create<TasksState>()(
         }
 
         set((s) => {
-          // Sacar de la task madre: la propia subtask + todos sus children.
           const sourceTask = s.tasks[taskId]
           if (!sourceTask) return s
-          const removeIds = new Set<string>([subtaskId, ...childSubs.map((c) => c.id)])
+          const removeIds = new Set<string>([subtaskId, ...descendantIds])
           const updatedSource: Task = {
             ...sourceTask,
             subtasks: sourceTask.subtasks.filter((st) => !removeIds.has(st.id)),
@@ -1833,15 +1825,9 @@ export const useTasksStore = create<TasksState>()(
         set((s) => {
           const t = s.tasks[taskId]
           if (!t) return s
-          // Al borrar una subtask que tenía hijas (otras subtasks con
-          // parentId === subtaskId), promovemos a esas hijas a top-level
-          // limpiando su parentId. Sin esto quedaban huérfanas con un
-          // parentId apuntando a nada — la UI las ocultaba (filtra por
-          // !parentId) y al sync el upsert fallaba con FK violation
-          // `subtasks_parent_id_fkey`.
-          const next = t.subtasks
-            .filter((st) => st.id !== subtaskId)
-            .map((st) => (st.parentId === subtaskId ? { ...st, parentId: undefined } : st))
+          const removeIds = collectDescendantSubtaskIds(t.subtasks, subtaskId)
+          removeIds.add(subtaskId)
+          const next = t.subtasks.filter((st) => !removeIds.has(st.id))
           return {
             tasks: {
               ...s.tasks,
