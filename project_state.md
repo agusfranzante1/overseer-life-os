@@ -39,6 +39,18 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Recurrentes — blindaje del `recurringHeadId` (incidente + fix)** (Claude directo):
+      Tras el deploy de subtareas, las series recurrentes del usuario aparecieron
+      **separadas** (cada instancia como tarea suelta). Autopsia línea por línea: el
+      feature de subtareas NO tocaba recurrentes — fue un **clobber de sync multi-device**
+      que borró el `recurringHeadId` de las instancias. El bug latente: `migrateRecurringHeads`
+      (auto-heal en cada mount) exigía `recurrence` en la tarea, pero las **instancias no la
+      llevan** (agrupan solo por `recurringHeadId`), así que una instancia clobbeada quedaba
+      suelta para siempre. **Fix:** ampliado para re-linkear instancias por `proyecto+título`
+      a una madre que aún tenga `recurrence`, con guarda anti-absorción (una tarea sin
+      recurrence solo se absorbe si tiene `dueDate`). Idempotente. **Verificado corriendo la
+      app:** instancia stripped → re-linkeada + serie re-agrupada; one-off sin dueDate NO
+      absorbido; heal persiste entre reloads. Repara datos existentes y previene a futuro.
 - [x] **Task Manager — subtareas anidadas SIN límite + importar listas** (Codex,
       auditado+verificado por Claude corriendo la app):
   - Árbol de subtareas **recursivo** (antes tope de 2 niveles). `lib/tasks/subtaskTree.ts`

@@ -1868,30 +1868,50 @@ export const useTasksStore = create<TasksState>()(
           // ningún cambio. Safe de correr en cada mount.
           const norm = (t: string) =>
             t.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-          const groups = new Map<string, Task[]>()
+          // 1) Elegir la MADRE de cada serie (key = proyecto + título norm).
+          //    Prioridad: madre ya establecida (recurringHeadId === id); si no,
+          //    la tarea con `recurrence` de dueDate más vieja. Si NINGUNA tarea
+          //    del grupo tiene recurrence, no es una serie → no se toca.
+          const byKey = new Map<string, Task[]>()
           for (const t of Object.values(s.tasks)) {
-            if (!t.recurrence) continue
-            if (t.recurringHeadId) continue       // ya migrada
             if (t.archivedAt) continue
             const key = `${t.projectId}::${norm(t.title)}`
-            if (!groups.has(key)) groups.set(key, [])
-            groups.get(key)!.push(t)
+            if (!byKey.has(key)) byKey.set(key, [])
+            byKey.get(key)!.push(t)
           }
-          if (groups.size === 0) return s
-          const tasks = { ...s.tasks }
-          for (const arr of groups.values()) {
-            // Madre = dueDate más vieja. Empate → createdAt.
-            const sorted = [...arr].sort((a, b) => {
+          const motherByKey = new Map<string, string>()
+          for (const [key, arr] of byKey) {
+            const established = arr.find((t) => t.recurringHeadId && t.recurringHeadId === t.id)
+            if (established) { motherByKey.set(key, established.id); continue }
+            const recurring = arr.filter((t) => t.recurrence)
+            if (recurring.length === 0) continue
+            const sorted = [...recurring].sort((a, b) => {
               const da = (a.dueDate ?? '9999-99-99')
               const db = (b.dueDate ?? '9999-99-99')
               if (da !== db) return da.localeCompare(db)
               return (a.createdAt ?? '').localeCompare(b.createdAt ?? '')
             })
-            const motherId = sorted[0].id
-            for (const t of arr) {
-              tasks[t.id] = { ...t, recurringHeadId: motherId }
-            }
+            motherByKey.set(key, sorted[0].id)
           }
+          if (motherByKey.size === 0) return s
+          // 2) Re-linkear toda tarea SIN recurringHeadId cuya key tenga madre.
+          //    Incluye instancias que perdieron su `recurrence` en un clobber de
+          //    sync multi-device (antes quedaban sueltas para siempre porque el
+          //    heal viejo exigía `recurrence`). Una tarea sin recurrence solo se
+          //    absorbe si tiene dueDate (parece instancia), para no tragarse
+          //    one-offs que casualmente compartan título con una serie.
+          let changed = false
+          const tasks = { ...s.tasks }
+          for (const t of Object.values(s.tasks)) {
+            if (t.archivedAt) continue
+            if (t.recurringHeadId) continue                       // ya linkeada (idempotente)
+            const motherId = motherByKey.get(`${t.projectId}::${norm(t.title)}`)
+            if (!motherId) continue
+            if (!t.recurrence && !t.dueDate) continue             // guarda anti-absorción
+            tasks[t.id] = { ...t, recurringHeadId: motherId }
+            changed = true
+          }
+          if (!changed) return s
           return { tasks }
         }),
     }),
