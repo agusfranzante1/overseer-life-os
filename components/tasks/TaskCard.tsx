@@ -6,8 +6,7 @@ import { Task, Project, Priority, Subtask } from '@/types'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTaskUiStore } from '@/lib/store/taskUiStore'
 import { effectivePriority } from '@/lib/utils/taskPriority'
-import { type KanbanSort } from '@/lib/utils/taskSort'
-import { buildSubtaskTree, isDescendantSubtask, type SubtaskTreeNode } from '@/lib/tasks/subtaskTree'
+import { sortSubtasks, type KanbanSort } from '@/lib/utils/taskSort'
 import { useTranslation } from '@/hooks/useTranslation'
 import { CheckCircle2, Clock, Trash2, ChevronDown, ChevronUp, Plus, Flag, GripVertical, CornerDownRight, MoreHorizontal, ChevronRight, Calendar, X, Copy, ClipboardCopy, Check } from 'lucide-react'
 import { taskToClipboardText, copyTextToClipboard } from '@/lib/tasks/taskClipboard'
@@ -54,11 +53,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
   const [shouldFocusSubtaskInput, setShouldFocusSubtaskInput] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState(task.title)
-  useEffect(() => {
-    if (editingTitle) return
-    const id = window.setTimeout(() => setTitleDraft(task.title), 0)
-    return () => window.clearTimeout(id)
-  }, [task.title, editingTitle])
+  useEffect(() => { if (!editingTitle) setTitleDraft(task.title) }, [task.title, editingTitle])
 
   // Cuando el user clickea el "+" de la fila de acciones queremos
   // que la card quede expandida Y el input de "Nueva subtarea" esté
@@ -78,6 +73,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
   // them there one day after completion (same contract as tasks).
   const visibleSubtasks = task.subtasks.filter((s) => !s.archivedAt)
   const completedSubtasks = visibleSubtasks.filter((s) => s.completed).length
+  const archivedSubtasksCount = task.subtasks.length - visibleSubtasks.length
 
   // Due-date state — computed in LOCAL time to avoid the timezone bug
   // where `new Date('2026-05-27')` is parsed as UTC midnight, which
@@ -217,23 +213,34 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
   const [detailSubtaskId, setDetailSubtaskId] = useState<string | null>(null)
   const detailSubtask = task.subtasks.find((s) => s.id === detailSubtaskId) ?? null
 
+  // Build tree: roots + children grouped by parentId. Archived subtasks
+  // are excluded so el tree solo renderea lo activo.
+  //
+  // Sort: aplicamos `sortSubtasks` con el modo que viene del proyecto
+  // (subtaskSortMode). La regla "completadas primero" es inquebrantable
+  // y vive dentro del helper. El modo decide el ordenamiento SECUNDARIO
+  // dentro de cada grupo (completas vs incompletas).
+  //
+  // Aplica a ambos niveles: roots (subtask1) Y children (subtask2). Así
+  // si el user elige "urgente arriba", las subtask1 ordenan por urgencia,
+  // y dentro de cada subtask1 sus subtask2 también ordenan por urgencia.
   const subtaskTree = useMemo(() => {
-    const nodes = buildSubtaskTree(task.subtasks, { sortMode: subtaskSortMode, project })
+    // Orden ÚNICO via sortSubtasks (prioridad → fecha → nombre → orden), el
+    // MISMO criterio que las madres. NO reordenamos por "tener hijos": una
+    // subtask1 de prioridad media con una subtask2 hija sin prioridad debe
+    // quedar ARRIBA de una subtask1 de prioridad baja sin hijos. Tener una
+    // hija no baja la prioridad de la madre.
+    const sorted = sortSubtasks(visibleSubtasks, subtaskSortMode, project)
+    const roots = sorted.filter((s) => !s.parentId)
     const childrenByParent = new Map<string, Subtask[]>()
-    const nodeById = new Map<string, SubtaskTreeNode>()
-    const visit = (node: SubtaskTreeNode) => {
-      nodeById.set(node.subtask.id, node)
-      childrenByParent.set(node.subtask.id, node.children.map((child) => child.subtask))
-      for (const child of node.children) visit(child)
+    for (const s of sorted) {
+      if (s.parentId) {
+        if (!childrenByParent.has(s.parentId)) childrenByParent.set(s.parentId, [])
+        childrenByParent.get(s.parentId)!.push(s)
+      }
     }
-    for (const node of nodes) visit(node)
-    return {
-      nodes,
-      roots: nodes.map((node) => node.subtask),
-      childrenByParent,
-      nodeById,
-    }
-  }, [task.subtasks, subtaskSortMode, project])
+    return { roots, childrenByParent }
+  }, [visibleSubtasks, subtaskSortMode, project])
 
   const handleAddSubtask = (e: React.FormEvent) => {
     e.preventDefault()
@@ -259,8 +266,12 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
   }
 
   // ── Subtask DnD handlers ──
-  const onSubDragStart = (subId: string, _hasChildren?: boolean) => (e: React.DragEvent) => {
-    void _hasChildren
+  const onSubDragStart = (subId: string, hasChildren: boolean) => (e: React.DragEvent) => {
+    // Disallow dragging subtasks that have children (would create grandchildren)
+    if (hasChildren) {
+      e.preventDefault()
+      return
+    }
     draggedSubRef.current = subId
     setDragSubId(subId)
     e.dataTransfer.effectAllowed = 'move'
@@ -268,7 +279,6 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
   }
   const onSubDragOver = (subId: string) => (e: React.DragEvent) => {
     if (!draggedSubRef.current || draggedSubRef.current === subId) return
-    if (isDescendantSubtask(task.subtasks, subId, draggedSubRef.current)) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
     if (overSubId !== subId) setOverSubId(subId)
@@ -277,121 +287,19 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
     e.preventDefault()
     const src = draggedSubRef.current
     if (!src || src === targetSubId) { resetSubDrag(); return }
-    if (isDescendantSubtask(task.subtasks, targetSubId, src)) { resetSubDrag(); return }
+    // Target: if it's a child, parent it to the same parent (sibling)
+    //         if it's a root, parent it to that root
     const target = task.subtasks.find((s) => s.id === targetSubId)
     if (!target) { resetSubDrag(); return }
-    updateSubtask(task.id, src, { parentId: target.id })
+    const newParentId = target.parentId ?? target.id
+    if (newParentId === src) { resetSubDrag(); return }  // no self-parenting
+    updateSubtask(task.id, src, { parentId: newParentId })
     resetSubDrag()
   }
   const resetSubDrag = () => {
     draggedSubRef.current = null
     setDragSubId(null)
     setOverSubId(null)
-  }
-
-  const renderSubtaskNode = (node: SubtaskTreeNode, depth = 0): React.ReactNode => {
-    const subtask = node.subtask
-    const children = node.children
-    const doneChildren = children.filter((child) => child.subtask.completed).length
-    const hasChildren = children.length > 0
-    const isCollapsed = isParentCollapsed(subtask.id)
-    const relativeIndent = depth > 0 && depth <= 6 ? 16 : 0
-    const childInputIndent = depth < 6 ? 16 : 0
-
-    return (
-      <div key={subtask.id} className="space-y-1" style={{ paddingLeft: relativeIndent }}>
-        <InlineSubtask
-          subtask={subtask}
-          depth={depth}
-          hasChildren={hasChildren}
-          childrenCollapsed={isCollapsed}
-          onToggleCollapse={hasChildren ? () => toggleParentCollapse(subtask.id) : undefined}
-          progressLabel={hasChildren ? `${doneChildren}/${children.length}` : undefined}
-          isDragging={dragSubId === subtask.id}
-          isOver={overSubId === subtask.id}
-          projectStatuses={project.statuses}
-          onToggle={() => toggleSubtask(task.id, subtask.id)}
-          onRename={(nextTitle) => {
-            const trimmed = nextTitle.trim()
-            if (trimmed && trimmed !== subtask.title) updateSubtask(task.id, subtask.id, { title: trimmed })
-          }}
-          onPriorityChange={(priority) => updateSubtask(task.id, subtask.id, { priority: priority || undefined })}
-          onStatusChange={(status) => updateSubtask(task.id, subtask.id, { status })}
-          onDueDateChange={(dueDate) => updateSubtask(task.id, subtask.id, { dueDate })}
-          onDelete={() => {
-            const msg = hasChildren
-              ? `Eliminar "${subtask.title}" y todas sus subtareas internas?`
-              : `Eliminar "${subtask.title}"?`
-            if (confirm(msg)) deleteSubtask(task.id, subtask.id)
-          }}
-          onUngroup={subtask.parentId ? () => updateSubtask(task.id, subtask.id, { parentId: undefined }) : undefined}
-          onPromoteToTask={() => promoteSubtaskToTask(task.id, subtask.id)}
-          onAddChild={() => { setAddingChildTo(subtask.id); setChildDraft('') }}
-          onOpenDetail={() => setDetailSubtaskId(subtask.id)}
-          onDragStart={onSubDragStart(subtask.id)}
-          onDragOver={onSubDragOver(subtask.id)}
-          onDragLeave={() => setOverSubId((key) => key === subtask.id ? null : key)}
-          onDrop={onSubDrop(subtask.id)}
-          onDragEnd={resetSubDrag}
-        />
-
-        {hasChildren && !isCollapsed && (
-          <div className="border-t border-white/[0.05] ml-5 my-1" />
-        )}
-
-        {hasChildren && !isCollapsed && (
-          <div className="space-y-1">
-            {children.map((child) => renderSubtaskNode(child, depth + 1))}
-          </div>
-        )}
-
-        {!isCollapsed && addingChildTo === subtask.id && (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              const text = childDraft.trim()
-              if (!text) { setAddingChildTo(null); return }
-              addSubtask(task.id, text, subtask.id)
-              setChildDraft('')
-            }}
-            className="flex items-center gap-1.5 px-2 py-1"
-            style={{ marginLeft: childInputIndent }}
-          >
-            <CornerDownRight className="w-3 h-3 text-zinc-600 shrink-0" />
-            <input
-              autoFocus
-              value={childDraft}
-              onChange={(e) => setChildDraft(e.target.value)}
-              onPaste={(e) => {
-                const lines = e.clipboardData.getData('text').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-                if (lines.length > 1) {
-                  e.preventDefault()
-                  for (const line of lines) addSubtask(task.id, line, subtask.id)
-                  setChildDraft('')
-                }
-              }}
-              onKeyDown={(e) => {
-                e.stopPropagation()
-                if (e.key === 'Escape') { setAddingChildTo(null); setChildDraft('') }
-              }}
-              onBlur={() => {
-                if (!childDraft.trim()) setAddingChildTo(null)
-              }}
-              placeholder="Nueva subtarea..."
-              className="flex-1 bg-transparent border-b border-indigo-500/40 focus:border-indigo-500 outline-none text-base text-zinc-200 placeholder:text-zinc-700 py-0.5"
-            />
-            <button
-              type="button"
-              onClick={() => { setAddingChildTo(null); setChildDraft('') }}
-              title="Cerrar"
-              className="text-zinc-600 hover:text-zinc-300 text-[10px]"
-            >
-              Esc
-            </button>
-          </form>
-        )}
-      </div>
-    )
   }
 
   // Color del border-top según prioridad EFECTIVA.
@@ -897,10 +805,34 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                       because they're flex-positioned to the right edge,
                       which is the same in both rows (ml only shifts the
                       left side). */}
-                  {hasChildren && !isCollapsed && children.map((child) => {
-                    const childNode = subtaskTree.nodeById.get(child.id)
-                    return childNode ? renderSubtaskNode(childNode, 1) : null
-                  })}
+                  {hasChildren && !isCollapsed && children.map((child) => (
+                    <div key={child.id} className="ml-12">
+                      <InlineSubtask
+                        subtask={child}
+                        hasChildren={false}
+                        isChild
+                        isDragging={dragSubId === child.id}
+                        isOver={overSubId === child.id}
+                        projectStatuses={project.statuses}
+                        onToggle={() => toggleSubtask(task.id, child.id)}
+                        onRename={(nt) => {
+                          const tt = nt.trim()
+                          if (tt && tt !== child.title) updateSubtask(task.id, child.id, { title: tt })
+                        }}
+                        onPriorityChange={(p) => updateSubtask(task.id, child.id, { priority: p || undefined })}
+                        onStatusChange={(s) => updateSubtask(task.id, child.id, { status: s })}
+                        onDueDateChange={(d) => updateSubtask(task.id, child.id, { dueDate: d })}
+                        onDelete={() => deleteSubtask(task.id, child.id)}
+                        onUngroup={() => updateSubtask(task.id, child.id, { parentId: undefined })}
+                        onOpenDetail={() => setDetailSubtaskId(child.id)}
+                        onDragStart={onSubDragStart(child.id, false)}
+                        onDragOver={onSubDragOver(child.id)}
+                        onDragLeave={() => setOverSubId((k) => k === child.id ? null : k)}
+                        onDrop={onSubDrop(child.id)}
+                        onDragEnd={resetSubDrag}
+                      />
+                    </div>
+                  ))}
 
                   {/* CTA inline "+ subtarea" eliminado — el acceso para
                       agregar subtask2 vive ahora 100% en el botón Plus de
@@ -943,8 +875,8 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                           // so blurred-but-typed values don't get lost.
                           if (!childDraft.trim()) setAddingChildTo(null)
                         }}
-                        placeholder="Nueva subtarea..."
-                        className="flex-1 bg-transparent border-b border-indigo-500/40 focus:border-indigo-500 outline-none text-base text-zinc-200 placeholder:text-zinc-700 py-0.5"
+                        placeholder="Nueva subtarea…"
+                        className="flex-1 bg-transparent border-b border-indigo-500/40 focus:border-indigo-500 outline-none text-[14px] text-zinc-200 placeholder:text-zinc-700 py-0.5"
                       />
                       <button
                         type="button"
@@ -967,7 +899,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
               onChange={(e) => setNewSubtask(e.target.value)}
               onPaste={handleSubtaskPaste}
               placeholder={t('tasks.addSubtask')}
-              className="flex-1 bg-transparent border-b border-white/[0.12] focus:border-indigo-500 outline-none text-base text-zinc-300 placeholder-zinc-600 py-0.5"
+              className="flex-1 bg-transparent border-b border-white/[0.12] focus:border-indigo-500 outline-none text-sm text-zinc-300 placeholder-zinc-600 py-0.5"
             />
             <button type="submit" className="text-zinc-600 hover:text-indigo-400 transition-colors">
               <Plus className="w-3.5 h-3.5" />
@@ -991,7 +923,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
               onChange={(e) => setNewSubtask(e.target.value)}
               onPaste={handleSubtaskPaste}
               placeholder={t('tasks.addSubtask')}
-              className="flex-1 bg-transparent border-b border-white/[0.12] focus:border-indigo-500 outline-none text-base text-zinc-300 placeholder-zinc-600 py-0.5"
+              className="flex-1 bg-transparent border-b border-white/[0.12] focus:border-indigo-500 outline-none text-sm text-zinc-300 placeholder-zinc-600 py-0.5"
             />
             <button type="submit" className="text-zinc-600 hover:text-indigo-400 transition-colors">
               <Plus className="w-3.5 h-3.5" />
@@ -1056,10 +988,7 @@ function InlineSelectBadge({ value, options, onChange, bgColor, fgColor, renderL
   const [pos, setPos] = useState<{ top: number; left: number; minWidth: number } | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
 
-  useEffect(() => {
-    const id = window.setTimeout(() => setMounted(true), 0)
-    return () => window.clearTimeout(id)
-  }, [])
+  useEffect(() => setMounted(true), [])
 
   // Compute portal position relative to viewport
   const openMenu = () => {
@@ -1096,11 +1025,7 @@ function InlineSelectBadge({ value, options, onChange, bgColor, fgColor, renderL
       <button
         ref={btnRef}
         data-interactive
-        onClick={(e) => {
-          e.stopPropagation()
-          if (open) setOpen(false)
-          else openMenu()
-        }}
+        onClick={(e) => { e.stopPropagation(); open ? setOpen(false) : openMenu() }}
         className="text-xs px-1.5 py-0.5 rounded font-medium hover:brightness-125 transition-all"
         style={{ background: bgColor, color: fgColor }}
         title="Click para cambiar"
@@ -1157,10 +1082,7 @@ function TaskScheduleButton({
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
 
-  useEffect(() => {
-    const id = window.setTimeout(() => setMounted(true), 0)
-    return () => window.clearTimeout(id)
-  }, [])
+  useEffect(() => setMounted(true), [])
 
   const POPOVER_W = 220
   const openMenu = () => {
@@ -1209,11 +1131,7 @@ function TaskScheduleButton({
       <button
         ref={btnRef}
         data-interactive
-        onClick={(e) => {
-          e.stopPropagation()
-          if (open) setOpen(false)
-          else openMenu()
-        }}
+        onClick={(e) => { e.stopPropagation(); open ? setOpen(false) : openMenu() }}
         title={scheduleLabel ? `Programada: ${scheduleLabel} — click para cambiar` : 'Poner fecha y hora'}
         className={`transition-colors p-1 ${hasSchedule ? 'text-indigo-300 hover:text-indigo-200' : 'text-zinc-600 hover:text-indigo-300'}`}
       >
@@ -1287,7 +1205,6 @@ interface InlineSubtaskProps {
   hasChildren: boolean
   childrenCollapsed?: boolean
   onToggleCollapse?: () => void
-  depth?: number
   isChild?: boolean
   progressLabel?: string
   isDragging?: boolean
@@ -1319,7 +1236,7 @@ interface InlineSubtaskProps {
 }
 
 function InlineSubtask({
-  subtask, hasChildren, childrenCollapsed, onToggleCollapse, depth = 0, isChild, progressLabel, isDragging, isOver,
+  subtask, hasChildren, childrenCollapsed, onToggleCollapse, isChild, progressLabel, isDragging, isOver,
   projectStatuses,
   onToggle, onRename, onPriorityChange, onStatusChange, onDueDateChange,
   onDelete, onUngroup, onPromoteToTask, onAddChild, onOpenDetail,
@@ -1329,14 +1246,11 @@ function InlineSubtask({
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(subtask.title)
   const dateInputRef = useRef<HTMLInputElement>(null)
-  useEffect(() => {
-    if (editing) return
-    const id = window.setTimeout(() => setDraft(subtask.title), 0)
-    return () => window.clearTimeout(id)
-  }, [subtask.title, editing])
+  useEffect(() => { if (!editing) setDraft(subtask.title) }, [subtask.title, editing])
 
   const commit = () => { setEditing(false); onRename(draft) }
   const prioColor = subtask.priority ? PRIORITY_COLORS[subtask.priority] : null
+  const canDrag = !hasChildren
 
   // Status pill — find the matching project status for color + cycle on click
   const currentStatusObj = projectStatuses.find((s) => s.label === subtask.status) ?? projectStatuses[0]
@@ -1396,8 +1310,7 @@ function InlineSubtask({
 
   return (
     <div
-      data-depth={depth}
-      draggable
+      draggable={canDrag}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
@@ -1407,7 +1320,7 @@ function InlineSubtask({
         isDragging ? 'opacity-40' :
         isOver ? 'bg-indigo-500/20 ring-1 ring-indigo-500/60' : ''
       }`}
-      style={{ cursor: 'grab' }}
+      style={{ cursor: canDrag ? 'grab' : 'default' }}
     >
       {/* Left gutter — three modes:
             (a) `isChild` → CornerDownRight arrow, flush against the check.
@@ -1423,7 +1336,9 @@ function InlineSubtask({
         <>
           {/* Drag handle — only on hover, hidden by default */}
           <span className="w-3 shrink-0 flex items-center justify-center">
-            <GripVertical className="w-3 h-3 text-zinc-700 opacity-0 group-hover:opacity-100 transition-opacity" />
+            {canDrag && (
+              <GripVertical className="w-3 h-3 text-zinc-700 opacity-0 group-hover:opacity-100 transition-opacity" />
+            )}
           </span>
 
           {/* Collapse/expand toggle for parent subtasks */}
@@ -1477,7 +1392,7 @@ function InlineSubtask({
             if (e.key === 'Escape') { setDraft(subtask.title); setEditing(false) }
           }}
           onClick={(e) => e.stopPropagation()}
-          className={`flex-1 bg-zinc-800 border border-indigo-500 rounded px-1.5 py-0.5 text-base focus:outline-none ${
+          className={`flex-1 bg-zinc-800 border border-indigo-500 rounded px-1.5 py-0.5 text-[15px] focus:outline-none ${
             subtask.completed ? 'line-through text-zinc-500' : 'text-zinc-100'
           }`}
         />
@@ -1486,7 +1401,7 @@ function InlineSubtask({
           data-interactive
           onClick={(e) => { e.stopPropagation(); setEditing(true) }}
           title={`Click para renombrar · ${subtask.title}`}
-          className={`flex-1 text-base text-left px-1.5 py-0.5 rounded hover:bg-white/[0.05]/60 transition-colors min-w-0 truncate ${
+          className={`flex-1 text-[15px] text-left px-1.5 py-0.5 rounded hover:bg-white/[0.05]/60 transition-colors min-w-0 truncate ${
             subtask.completed ? 'line-through text-zinc-500' : 'text-zinc-200'
           } ${hasChildren ? 'font-semibold' : ''}`}
         >
