@@ -1,5 +1,6 @@
 'use client'
 import { useState, useRef, useCallback, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronRight, ChevronDown, FileText, Plus, Trash2, ListTree, CornerDownRight, List } from 'lucide-react'
 import {
   type Block, type BlockType, emptyBlock, convertSelection, findBlock, setText, insertAfter,
@@ -72,8 +73,16 @@ export function OfferDoc({ doc, onChange }: { doc: Block[]; onChange: (next: Blo
         containerId={openId}
       />
 
-      {/* Barra flotante de conversión */}
-      {sel && (
+      {/* Barra flotante de conversión — PORTALEADA a <body>. El panel principal
+          tiene backdrop-filter (liquid glass), que convierte al panel en el
+          containing block de sus descendientes position:fixed → la barrita
+          quedaba clipeada/desposicionada dentro del doc del SISTEMA (que vive
+          en el panel), aunque en el modal de la oferta funcionaba. Portalear a
+          body la saca de ese containing block y la ancla al viewport de nuevo.
+          `sel` es null en SSR y en el primer render (solo se activa tras
+          interacción del usuario) → createPortal nunca toca `document` en el
+          server, sin necesidad de un guard `mounted`. */}
+      {sel && createPortal(
         <div
           style={{ position: 'fixed', left: sel.x, top: sel.y }}
           className="z-[80] -translate-x-1/2 -translate-y-full mb-2 flex items-center gap-0.5 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-1"
@@ -96,7 +105,8 @@ export function OfferDoc({ doc, onChange }: { doc: Block[]; onChange: (next: Blo
           >
             <FileText className="w-3.5 h-3.5 text-amber-400" /> Página
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
