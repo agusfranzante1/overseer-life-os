@@ -12,11 +12,13 @@ import { RecurringSeriesRow } from './RecurringSeriesRow'
 import { groupRecurringSeries } from '@/lib/tasks/groupRecurring'
 import { TaskDetail } from './TaskDetail'
 import { BreakdownModal } from './BreakdownModal'
+import { ImportOutlineModal } from './ImportOutlineModal'
 import { PriorityGate } from '@/components/common/PriorityGate'
 import { usePriorityGate } from '@/lib/dashboard/priorityGate'
+import type { BuiltOutline, ParsedOutlineSubtask } from '@/lib/tasks/parseOutline'
 import {
   Plus, FolderOpen, X, ChevronDown, ChevronRight, ChevronLeft, ChevronUp, Filter, Wand2, LayoutList, Columns3,
-  Pencil, Trash2, MoreHorizontal, ArrowUpDown, RotateCcw, Check, Menu, Repeat, Eye, EyeOff,
+  Pencil, Trash2, MoreHorizontal, ArrowUpDown, RotateCcw, Check, Repeat, Eye, EyeOff, ClipboardPaste,
 } from 'lucide-react'
 import { PROJECT_COLORS } from '@/lib/utils/constants'
 import { effectivePriority } from '@/lib/utils/taskPriority'
@@ -368,8 +370,14 @@ function ProjectHeader({ project, onRename, onUpdateDescription, onUpdateColor, 
   const menuRef = useRef<HTMLDivElement>(null)
 
   // Resync drafts when the active project changes
-  useEffect(() => { setNameDraft(project.name) }, [project.id, project.name])
-  useEffect(() => { setDescDraft(project.description ?? '') }, [project.id, project.description])
+  useEffect(() => {
+    const id = window.setTimeout(() => setNameDraft(project.name), 0)
+    return () => window.clearTimeout(id)
+  }, [project.id, project.name])
+  useEffect(() => {
+    const id = window.setTimeout(() => setDescDraft(project.description ?? ''), 0)
+    return () => window.clearTimeout(id)
+  }, [project.id, project.description])
 
   // Close the kebab menu on outside click
   useEffect(() => {
@@ -698,6 +706,33 @@ const RECURRING_SENTINEL = '__recurring__'
 const isDoneAndCalendarized = (t: Task) =>
   !!t.completedAt && !!t.dueDate && !!t.dueTime
 
+function genImportedSubtaskId() {
+  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
+}
+
+function flattenImportedSubtasks(
+  items: ParsedOutlineSubtask[],
+  status: string,
+  parentId?: string,
+): Task['subtasks'] {
+  const subtasks: Task['subtasks'] = []
+  items.forEach((item, index) => {
+    const id = genImportedSubtaskId()
+    subtasks.push({
+      id,
+      title: item.title,
+      completed: false,
+      status,
+      order: index,
+      notes: '',
+      priority: 'low',
+      ...(parentId ? { parentId } : {}),
+    })
+    subtasks.push(...flattenImportedSubtasks(item.subtasks, status, id))
+  })
+  return subtasks
+}
+
 export function TasksPage() {
   // Gate de prioridades (misma fuente de verdad que Panel y Calendario).
   const gate = usePriorityGate()
@@ -737,6 +772,7 @@ export function TasksPage() {
   const [newTaskProjectId, setNewTaskProjectId] = useState<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [showBreakdown, setShowBreakdown] = useState<{ task?: Task | null } | null>(null)
+  const [showImportOutline, setShowImportOutline] = useState(false)
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>(() => {
     if (typeof window === 'undefined') return 'list'
     return (localStorage.getItem('overseer-tasks-view') as 'list' | 'kanban') ?? 'list'
@@ -820,28 +856,31 @@ export function TasksPage() {
   const [loadedKey, setLoadedKey] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!filterStorageKey || typeof window === 'undefined') {
-      setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([])
-      setLoadedKey(null)
-      return
-    }
-    // Back-compat: el formato viejo guardaba un string (o null) por filtro;
-    // el nuevo guarda un array. Normalizamos ambos a array.
-    const toArr = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : (typeof v === 'string' && v ? [v] : [])
-    try {
-      const raw = localStorage.getItem(filterStorageKey)
-      if (!raw) {
+    const id = window.setTimeout(() => {
+      if (!filterStorageKey || typeof window === 'undefined') {
         setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([])
-      } else {
-        const parsed = JSON.parse(raw) as { status?: unknown; priority?: unknown; category?: unknown }
-        setStatusFilter(toArr(parsed.status))
-        setPriorityFilter(toArr(parsed.priority))
-        setCategoryFilter(toArr(parsed.category))
+        setLoadedKey(null)
+        return
       }
-    } catch {
-      setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([])
-    }
-    setLoadedKey(filterStorageKey)
+      // Back-compat: el formato viejo guardaba un string (o null) por filtro;
+      // el nuevo guarda un array. Normalizamos ambos a array.
+      const toArr = (v: unknown): string[] => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : (typeof v === 'string' && v ? [v] : [])
+      try {
+        const raw = localStorage.getItem(filterStorageKey)
+        if (!raw) {
+          setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([])
+        } else {
+          const parsed = JSON.parse(raw) as { status?: unknown; priority?: unknown; category?: unknown }
+          setStatusFilter(toArr(parsed.status))
+          setPriorityFilter(toArr(parsed.priority))
+          setCategoryFilter(toArr(parsed.category))
+        }
+      } catch {
+        setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([])
+      }
+      setLoadedKey(filterStorageKey)
+    }, 0)
+    return () => window.clearTimeout(id)
   }, [filterStorageKey])
 
   // Persist filter selections whenever they change — gated by loadedKey.
@@ -890,7 +929,6 @@ export function TasksPage() {
    *    urgent → 3 · high → 2 · medium → 1 · low / undefined → 0
    *  Done tasks are excluded — a completed urgent task doesn't bump
    *  the project anymore. */
-  const PRIO_RANK: Record<string, number> = { urgent: 3, high: 2, medium: 1, low: 0 }
   /** Project list re-sorted: contamos CUÁNTAS open tasks de cada prioridad
    *  hay y comparamos vector-style (urgent count first, luego high, etc).
    *  Así un proyecto con 6 urgentes queda arriba de uno con 1 urgente —
@@ -987,6 +1025,23 @@ export function TasksPage() {
       subtasks: [],
       scheduledFor: 'today',
     })
+  }
+
+  const handleImportOutline = (outline: BuiltOutline) => {
+    if (!activeProject) return
+    const status = activeProject.statuses[0]?.label ?? 'To Do'
+    for (const item of outline.tasks) {
+      addTask({
+        title: item.title,
+        projectId: activeProject.id,
+        status,
+        priority: 'low',
+        importance: 'low',
+        subtasks: flattenImportedSubtasks(item.subtasks, status),
+        scheduledFor: 'today',
+      })
+    }
+    setShowImportOutline(false)
   }
 
   const selectedTaskProject = selectedTask ? projects[selectedTask.projectId] : null
@@ -1320,6 +1375,16 @@ export function TasksPage() {
                 <Wand2 className="w-4 h-4 shrink-0" />
                 <span className="hidden lg:inline">Desglosar con IA</span>
               </button>
+              {activeProject && (
+                <button
+                  onClick={() => setShowImportOutline(true)}
+                  className="flex items-center gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 bg-white/[0.04] border border-white/[0.08] hover:border-emerald-400/40 hover:bg-emerald-500/10 text-zinc-200 hover:text-emerald-200 rounded-xl text-sm font-medium transition-all"
+                  title="Importar o pegar una lista jerárquica"
+                >
+                  <ClipboardPaste className="w-4 h-4 shrink-0" />
+                  <span className="hidden lg:inline">Importar lista</span>
+                </button>
+              )}
               <button
                 onClick={() => setNewTaskProjectId(activeProject?.id ?? projectList[0]?.id ?? null)}
                 className="flex items-center gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 text-white rounded-xl text-sm font-semibold transition-all shrink-0"
@@ -1724,6 +1789,14 @@ export function TasksPage() {
           />
         )}
       </AnimatePresence>
+
+      {showImportOutline && activeProject && (
+        <ImportOutlineModal
+          projectName={activeProject.name}
+          onClose={() => setShowImportOutline(false)}
+          onConfirm={handleImportOutline}
+        />
+      )}
     </motion.div>
     </PriorityGate>
   )
@@ -1791,7 +1864,6 @@ function RecurringView({
   onOpenTask: (t: Task) => void
   onClose: () => void
 }) {
-  const updateTask = useTasksStore((s) => s.updateTask)
   const updateSubtask = useTasksStore((s) => s.updateSubtask)
   const removeRecurringSeries = useTasksStore((s) => s.removeRecurringSeries)
   const deleteSubtask = useTasksStore((s) => s.deleteSubtask)
@@ -2603,7 +2675,7 @@ function SnapshotControls() {
             </div>
             {snapshots.length === 0 ? (
               <div className="p-4 text-xs text-zinc-500 text-center">
-                No hay snapshots todavía.<br />Tocá "Guardar ahora" para crear el primero.
+                No hay snapshots todavía.<br />Tocá &quot;Guardar ahora&quot; para crear el primero.
               </div>
             ) : (
               <div className="divide-y divide-white/[0.05]">

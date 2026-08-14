@@ -39,6 +39,23 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Task Manager — subtareas anidadas SIN límite + importar listas** (Codex,
+      auditado+verificado por Claude corriendo la app):
+  - Árbol de subtareas **recursivo** (antes tope de 2 niveles). `lib/tasks/subtaskTree.ts`
+    (build + `collectDescendantSubtaskIds` + `isDescendantSubtask`, cycle-safe) con test.
+  - Render recursivo en `TaskCard` con **letra `text-base` (16px) a TODO nivel** (no se
+    achica al anidar) e indent 16px/nivel (tope visual depth 6). Verificado en DOM: 4
+    niveles, 16px parejo.
+  - Drag multinivel con **prevención de ciclos** (no soltar en un descendiente), **delete
+    en cascada** del subárbol, y promoción/conversión que **preserva el subárbol** (remapea
+    ids manteniendo la cadena de `parentId`).
+  - **Importar/pegar lista jerárquica** (`ImportOutlineModal` + `lib/tasks/parseOutline.ts`
+    con test): indent primario; si no hay sangría, heurística de emojis (emoji=tarea madre,
+    emoji-número=subtask1, sin emoji=subtask2). Limpia `Hacer/Copied/Anotacion` y ruido de
+    export (TickTick). Preserva orden. Verificado en DOM con lista real.
+  - Sync: `sync.ts` ordena las subtasks **padres-antes-que-hijos** antes del upsert (por el
+    FK `subtasks_parent_id_fkey`); pull preserva `parentId`+`order`. **Sin migración nueva**
+    (el FK ya es self-referente). Fecha de tarea ahora con día de semana (`EEE d MMM`).
 - [x] **ETAPA 6 — Seguimiento de Libros** (Codex): sección `/libros` nueva
       (opcional en el nav, oculta por default para cuentas existentes — migrate
       appStore v6→v7). Estados Quiero leer/Leyendo/Leído, alta rápida, fechas y

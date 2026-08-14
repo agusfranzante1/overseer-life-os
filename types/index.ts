@@ -31,7 +31,7 @@ export interface Subtask {
   order: number
   notes?: string
   priority?: Priority
-  /** ID of parent subtask (for grouping). Only 1 level of nesting allowed. */
+  /** ID of parent subtask. Subtasks are stored flat and can nest arbitrarily. */
   parentId?: string
   /** Timestamp when this subtask was marked complete. Mirrors the
    *  parent Task contract — used by the auto-archive purge to decide
