@@ -321,36 +321,33 @@ export function Sidebar({
 
   return (
     <motion.aside
-      animate={{ width }}
-      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
       style={{
+        // Ancho determinístico + transición CSS. Antes se animaba con framer
+        // (`animate={{ width }}`) pero en este stack no aplicaba el width inline
+        // y el panel expandido auto-crecía al contenido (~485px). Fijamos width +
+        // min/max al MISMO valor: como es flex-item, `min-width:auto` dejaba que
+        // el contenido mandara; con min=max=width el ancho es exacto (64 colapsado
+        // / 220 expandido / 260 mobile) y el colapso sigue suave por transition.
+        width,
+        minWidth: width,
+        maxWidth: width,
         ...(dragX !== 0 ? { transform: `translateX(${dragX}px)`, transition: 'none' } : {}),
-        // Superficie PROPIA del sidebar — panel glass diferenciado del body
-        // (antes era el mismo color y el sidebar "no existía" visualmente).
-        // Gradiente vertical sutil + tinte del acento arriba + borde derecho
-        // marcado. Se ve también colapsado como rail de íconos.
-        background: `
-          radial-gradient(320px 220px at 50% 0%, color-mix(in srgb, var(--app-accent) 10%, transparent), transparent 70%),
-          linear-gradient(180deg, rgba(var(--glass-tint), 0.045), rgba(var(--glass-tint), 0.015)),
-          var(--app-bg)
-        `,
-        boxShadow: 'inset -1px 0 0 rgba(var(--glass-tint), 0.10)',
-        // Área segura de iOS. Con `viewportFit: cover` (ver app/layout.tsx) el
-        // contenido se dibuja DEBAJO de la barra de estado y del notch, así que
-        // el logo y "OVERSEER" quedaban tapados por el reloj. El header
-        // principal ya lo contemplaba; el drawer no.
-        // Abajo, lo mismo con la barra de gestos: "Opciones" quedaba pegado.
+        // El fondo/borde/sombra del vidrio los da `.lg-panel` (translúcido +
+        // backdrop-blur que refracta la aurora del body). Acá solo quedan las
+        // áreas seguras de iOS: con `viewportFit: cover` el contenido se dibuja
+        // DEBAJO del notch, y el logo/"OVERSEER" quedaban tapados por el reloj.
         paddingTop: 'env(safe-area-inset-top, 0px)',
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}
       className={`
-        flex flex-col h-screen shrink-0 overflow-hidden
-        fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-out
+        lg-panel flex flex-col h-screen shrink-0 overflow-hidden
+        fixed inset-y-0 left-0 z-50 transition-[width,transform] duration-200 ease-out
         ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
         sm:relative sm:translate-x-0 sm:z-20
+        sm:my-2.5 sm:ml-2.5 sm:h-[calc(100vh-1.25rem)] sm:rounded-[26px]
       `}
     >
       {/* Top bar: menu button (collapse on desktop / close drawer on mobile)

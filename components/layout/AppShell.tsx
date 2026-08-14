@@ -338,7 +338,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (isAuthPage) return <><ThemeStyleInjector />{children}</>
 
   return (
-    <div className="flex h-screen bg-zinc-950 overflow-hidden">
+    <div className="flex h-screen bg-transparent overflow-hidden">
       {/* Inyecta los overrides de color custom (Configuración → Apariencia).
           Renderiza un <style> global o null si no hay customización. */}
       <ThemeStyleInjector />
@@ -427,7 +427,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           const showChatBox = !!pathname?.startsWith('/gym')
           return (
             <>
-              <div className={`flex-1 overflow-y-auto ${showChatBox ? 'pb-20' : ''}`}>
+              <div className={`lg-panel flex-1 overflow-y-auto sm:my-2.5 sm:mr-2.5 sm:ml-2.5 sm:rounded-[26px] ${showChatBox ? 'pb-20' : ''}`}>
                 {children}
               </div>
               {showChatBox && <ChatBox />}
