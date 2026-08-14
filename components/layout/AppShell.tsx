@@ -6,6 +6,7 @@ import { Menu, AlertTriangle, X as XIcon } from 'lucide-react'
 import { useAppStore } from '@/lib/store/appStore'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useWalletStore } from '@/lib/store/walletStore'
+import { useOffersStore } from '@/lib/store/offersStore'
 import { useSPIStore } from '@/lib/store/spiStore'
 import { reconcileContentTasks } from '@/lib/content/contentTasks'
 import { useStudyStore } from '@/lib/store/studyStore'
@@ -106,6 +107,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const dedupeRecurringInstances = useTasksStore((s) => s.dedupeRecurringInstances)
   const migrateRecurringHeads = useTasksStore((s) => s.migrateRecurringHeads)
   const ensureWaitingStatusInAllProjects = useTasksStore((s) => s.ensureWaitingStatusInAllProjects)
+  const normalizeSeedCatalogIds = useOffersStore((s) => s.normalizeSeedCatalogIds)
   const processRecurringExpenses = useWalletStore((s) => s.processRecurringExpenses)
   const reconcileRecurringSpiTasks = useSPIStore((s) => s.reconcileRecurringSpiTasks)
   const sidebarWidth = sidebarCollapsed ? 64 : 220
@@ -136,11 +138,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     ensureWaitingStatusInAllProjects()
     migrateRecurringHeads()
+    normalizeSeedCatalogIds()
     reconcileRecurringSpiTasks()
     reconcileContentTasks()
     reconcileStudyConceptMaps()
     const late = setTimeout(() => {
       ensureWaitingStatusInAllProjects()
+      // Las ofertas pulled de Supabase pueden traer ids random viejos → re-heal.
+      normalizeSeedCatalogIds()
       // Re-correr post sync de Supabase: las series viejas pulled del
       // backend también necesitan el backfill de recurringHeadId. Y las
       // sesiones SPI / items de contenido pulled recién ahí pueden
@@ -151,7 +156,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       reconcileStudyConceptMaps()
     }, 10_000)
     return () => clearTimeout(late)
-  }, [ensureWaitingStatusInAllProjects, migrateRecurringHeads, reconcileRecurringSpiTasks])
+  }, [ensureWaitingStatusInAllProjects, migrateRecurringHeads, normalizeSeedCatalogIds, reconcileRecurringSpiTasks])
 
   // Auto-purge completed tasks. Three triggers, layered for robustness:
   //   1. On mount (immediately) — covers most refreshes/visits

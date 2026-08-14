@@ -111,19 +111,26 @@ function seedStages(): OfferStage[] {
 }
 
 function seedCategories(): OfferCategory[] {
+  // IDs FIJOS (no genId()): las etapas ya los tenían fijos, pero categorías y
+  // geos usaban ids random → cada dispositivo sembraba ids distintos para las
+  // MISMAS categorías, y las selecciones de las ofertas (categoryIds) no
+  // resolvían en el otro device (caían al default). Con ids fijos, "Salud" es
+  // `cat_salud` en todos lados y la selección sincroniza siempre.
   return [
-    { id: genId(), name: 'Salud & Bienestar', color: '#ec4899' },
-    { id: genId(), name: 'Alimentación', color: '#f59e0b' },
-    { id: genId(), name: 'Manifestación', color: '#10b981' },
-    { id: genId(), name: 'Crianza', color: '#a855f7' },
+    { id: 'cat_salud', name: 'Salud & Bienestar', color: '#ec4899' },
+    { id: 'cat_alim', name: 'Alimentación', color: '#f59e0b' },
+    { id: 'cat_manif', name: 'Manifestación', color: '#10b981' },
+    { id: 'cat_crianza', name: 'Crianza', color: '#a855f7' },
   ]
 }
 
 function seedGeos(): OfferGeo[] {
+  // IDs FIJOS por código (ver nota en seedCategories). "Español" = `geo_es` en
+  // todos los dispositivos → la selección de idioma de una oferta sincroniza.
   return [
-    { id: genId(), code: 'ES', name: 'Español', color: '#f59e0b' },
-    { id: genId(), code: 'EN', name: 'Inglés', color: '#6366f1' },
-    { id: genId(), code: 'PT', name: 'Portugués', color: '#10b981' },
+    { id: 'geo_es', code: 'ES', name: 'Español', color: '#f59e0b' },
+    { id: 'geo_en', code: 'EN', name: 'Inglés', color: '#6366f1' },
+    { id: 'geo_pt', code: 'PT', name: 'Portugués', color: '#10b981' },
   ]
 }
 
@@ -163,6 +170,13 @@ interface State {
   addGeo: (code: string, name: string) => void
   updateGeo: (id: string, patch: Partial<Omit<OfferGeo, 'id'>>) => void
   removeGeo: (id: string) => void
+
+  /** Heal one-shot idempotente: remapea categorías/geos SEMBRADAS que quedaron
+   *  con id random (datos viejos) a los ids fijos, y actualiza las referencias
+   *  de las ofertas (categoryIds/geoIds). Deduplica si ya existe el id fijo.
+   *  Corre en cada mount; si ya está todo canónico, es no-op. Arregla que las
+   *  selecciones de idioma/categoría no sincronizaban entre dispositivos. */
+  normalizeSeedCatalogIds: () => void
 }
 
 const pick = (i: number) => OFFER_PALETTE[i % OFFER_PALETTE.length]
@@ -320,6 +334,52 @@ export const useOffersStore = create<State>()(
         geos: s.geos.filter((g) => g.id !== id),
         offers: s.offers.map((o) => !o.geoIds.includes(id) ? o : { ...o, geoIds: o.geoIds.filter((g) => g !== id), updatedAt: nowISO() }),
       })),
+
+      normalizeSeedCatalogIds: () => set((s) => {
+        const norm = (t: string) => (t ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+        // Claves ESTABLES: categorías por nombre, geos por código.
+        const CAT_CANON: Record<string, string> = {
+          'salud & bienestar': 'cat_salud', 'alimentacion': 'cat_alim',
+          'manifestacion': 'cat_manif', 'crianza': 'cat_crianza',
+        }
+        const GEO_CANON: Record<string, string> = { es: 'geo_es', en: 'geo_en', pt: 'geo_pt' }
+
+        const idRemap = new Map<string, string>()
+
+        const catSeen = new Set<string>()
+        const categories: OfferCategory[] = []
+        for (const c of s.categories) {
+          const canon = CAT_CANON[norm(c.name)]
+          if (canon && c.id !== canon) idRemap.set(c.id, canon)
+          const finalId = canon ?? c.id
+          if (canon) { if (catSeen.has(canon)) continue; catSeen.add(canon) }   // dedup el fijo
+          categories.push(finalId === c.id ? c : { ...c, id: finalId })
+        }
+
+        const geoSeen = new Set<string>()
+        const geos: OfferGeo[] = []
+        for (const g of s.geos) {
+          const canon = GEO_CANON[norm(g.code)]
+          if (canon && g.id !== canon) idRemap.set(g.id, canon)
+          const finalId = canon ?? g.id
+          if (canon) { if (geoSeen.has(canon)) continue; geoSeen.add(canon) }
+          geos.push(finalId === g.id ? g : { ...g, id: finalId })
+        }
+
+        if (idRemap.size === 0) return {}   // ya canónico → no-op idempotente
+
+        const mapId = (id: string) => idRemap.get(id) ?? id
+        const dedupe = (arr: string[]) => [...new Set(arr.map(mapId))]
+        // NO bumpeamos updatedAt: el heal es determinista (mismos ids fijos en
+        // todo dispositivo), así cada device converge solo sin pelear el LWW.
+        const offers = s.offers.map((o) => {
+          const nextCats = dedupe(o.categoryIds)
+          const nextGeos = dedupe(o.geoIds)
+          const changed = nextCats.join() !== o.categoryIds.join() || nextGeos.join() !== o.geoIds.join()
+          return changed ? { ...o, categoryIds: nextCats, geoIds: nextGeos } : o
+        })
+        return { categories, geos, offers }
+      }),
     }),
     {
       name: 'overseer-offers',
