@@ -1294,6 +1294,139 @@ function TaskActionsMenu({
   )
 }
 
+// ─── Subtask actions menu (⋯) — dropdown por portal ──────────────────────────
+// Espejo de TaskActionsMenu pero para una fila de subtarea. Colapsa las
+// acciones (abrir detalle · agregar subtarea · promover a tarea madre · sacar
+// del grupo · eliminar) que antes vivían sueltas en la fila. Los ítems que no
+// aplican (según sea subtask1 o subtask2) no se muestran.
+function SubtaskActionsMenu({
+  isChild, hasChildren, onOpenDetail, onAddChild, onPromoteToTask, onUngroup, onDelete,
+}: {
+  isChild: boolean
+  hasChildren: boolean
+  onOpenDetail: () => void
+  onAddChild?: () => void
+  onPromoteToTask?: () => void
+  onUngroup?: () => void
+  onDelete: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setMounted(true), 0)
+    return () => window.clearTimeout(id)
+  }, [])
+
+  const POPOVER_W = 216
+  const openMenu = () => {
+    const r = btnRef.current?.getBoundingClientRect()
+    if (!r) return
+    const left = Math.max(8, r.right - POPOVER_W)
+    const estH = 176
+    const top = (r.bottom + estH > window.innerHeight && r.top - estH > 8)
+      ? r.top - estH - 4
+      : r.bottom + 4
+    setPos({ top, left })
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const onClickOutside = (e: MouseEvent) => {
+      const target = e.target as Element | null
+      if (target && target.closest('[data-subactions-popover]')) return
+      if (btnRef.current && btnRef.current.contains(target as Node)) return
+      setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    const onScroll = () => setOpen(false)
+    window.addEventListener('mousedown', onClickOutside)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onScroll, true)
+    return () => {
+      window.removeEventListener('mousedown', onClickOutside)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', onScroll, true)
+    }
+  }, [open])
+
+  const run = (fn: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation()
+    fn()
+    setOpen(false)
+  }
+
+  const rowClass = 'w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-left transition-colors'
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        data-interactive
+        onClick={(e) => { e.stopPropagation(); if (open) setOpen(false); else openMenu() }}
+        title="Acciones"
+        className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-zinc-600 hover:text-zinc-200 transition-all p-0.5 shrink-0"
+      >
+        <MoreHorizontal className="w-3.5 h-3.5" />
+      </button>
+      {mounted && open && pos && createPortal(
+        <div
+          data-subactions-popover
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            top: pos.top,
+            left: pos.left,
+            width: POPOVER_W,
+            zIndex: 9999,
+            background: 'var(--surface-popover)',
+            boxShadow: '0 10px 32px -8px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.04), 0 0 24px -8px rgba(99,102,241,0.35)',
+          }}
+          className="rounded-lg border border-white/[0.14] overflow-hidden py-1"
+        >
+          <button onClick={run(onOpenDetail)} className={`${rowClass} text-zinc-200 hover:bg-white/[0.06]`}>
+            <Maximize2 className="w-3.5 h-3.5 text-zinc-400" /> Abrir detalle
+          </button>
+          {onAddChild && (
+            <button onClick={run(onAddChild)} className={`${rowClass} text-zinc-200 hover:bg-white/[0.06]`}>
+              <Plus className="w-3.5 h-3.5 text-zinc-400" /> Agregar subtarea
+            </button>
+          )}
+          {onPromoteToTask && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                const msg = hasChildren
+                  ? 'Promover esta subtarea a tarea madre del proyecto?\n\nSus subtareas internas también se mudan con ella como subtareas de la nueva madre.'
+                  : 'Promover esta subtarea a tarea madre del proyecto?'
+                if (confirm(msg)) onPromoteToTask()
+                setOpen(false)
+              }}
+              className={`${rowClass} text-zinc-200 hover:bg-white/[0.06]`}
+            >
+              <ArrowUpToLine className="w-3.5 h-3.5 text-emerald-400" /> Promover a tarea madre
+            </button>
+          )}
+          {onUngroup && (
+            <button onClick={run(onUngroup)} className={`${rowClass} text-zinc-200 hover:bg-white/[0.06]`}>
+              <CornerDownRight className="w-3.5 h-3.5 text-zinc-400 rotate-180" /> Sacar del grupo
+            </button>
+          )}
+          <div className="border-t border-white/[0.08] mt-1 pt-1">
+            <button onClick={run(onDelete)} className={`${rowClass} text-red-300 hover:bg-red-500/10 hover:text-red-200`}>
+              <Trash2 className="w-3.5 h-3.5" /> Eliminar
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
+
 // ─── Inline subtask row (with priority + drag) ────────────────────────────────
 
 interface InlineSubtaskProps {
@@ -1605,86 +1738,19 @@ function InlineSubtask({
         </div>
       )}
 
-      {/* Action buttons (on hover).
-          The "ungroup" button only makes sense for child subtasks, but we
-          ALWAYS reserve its slot (using `invisible` for non-children) so
-          that every row's action column has the same width. Otherwise the
-          status/date chips end up at slightly different horizontal
-          positions between parent and child rows. */}
-      <div className="flex items-center gap-0.5 shrink-0">
-        {/* Slot izquierdo: dos botones distintos según sea subtask1 o subtask2.
-            - subtask2 (isChild): ↶ "Sacar del grupo" — quita parentId, queda subtask1.
-            - subtask1 (!isChild): ↗ "Promover a tarea madre" — saca la
-              subtask de la task madre y la convierte en una nueva task
-              top-level del proyecto, llevándose sus subtask2 como subtask1
-              de la nueva madre.
-            Cuando no aplica, el slot queda invisible (no `display:none`)
-            así no corre los chips de status/fecha de su columna. */}
-        {isChild ? (
-          <button
-            data-interactive
-            onClick={(e) => { e.stopPropagation(); if (onUngroup) onUngroup() }}
-            title={onUngroup ? 'Sacar del grupo (queda como subtarea de la madre)' : ''}
-            aria-hidden={!onUngroup}
-            tabIndex={!onUngroup ? -1 : undefined}
-            className={`text-zinc-600 hover:text-zinc-200 transition-all text-[11px] px-1 ${
-              onUngroup ? 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100' : 'invisible pointer-events-none'
-            }`}
-          >
-            ↶
-          </button>
-        ) : (
-          <button
-            data-interactive
-            onClick={(e) => {
-              e.stopPropagation()
-              if (!onPromoteToTask) return
-              const msg = hasChildren
-                ? 'Promover esta subtarea a tarea madre del proyecto?\n\nSus subtareas internas también se mudan con ella como subtareas de la nueva madre.'
-                : 'Promover esta subtarea a tarea madre del proyecto?'
-              if (confirm(msg)) onPromoteToTask()
-            }}
-            title={onPromoteToTask ? 'Promover a tarea madre del proyecto (se lleva sus subtareas)' : ''}
-            aria-hidden={!onPromoteToTask}
-            tabIndex={!onPromoteToTask ? -1 : undefined}
-            className={`text-zinc-600 hover:text-emerald-300 transition-all text-[11px] px-1 ${
-              onPromoteToTask ? 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100' : 'invisible pointer-events-none'
-            }`}
-          >
-            ↗
-          </button>
-        )}
-        {/* "+" para agregar subtask2 — solo aparece en subtask1 (!isChild).
-            Para subtask2 (isChild=true) no tiene sentido porque el nesting
-            es de 1 solo nivel. La acción dispara onAddChild que el parent
-            (TaskCard) wirea al flujo inline existente (setAddingChildTo). */}
-        {!isChild && onAddChild && (
-          <button
-            data-interactive
-            onClick={(e) => { e.stopPropagation(); onAddChild() }}
-            title="Agregar subtarea adentro"
-            className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-zinc-600 hover:text-indigo-300 transition-all p-0.5"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
-        )}
-        <button
-          data-interactive
-          onClick={(e) => { e.stopPropagation(); onOpenDetail() }}
-          title="Abrir detalle"
-          className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-zinc-600 hover:text-zinc-200 transition-all p-0.5"
-        >
-          <MoreHorizontal className="w-3.5 h-3.5" />
-        </button>
-        <button
-          data-interactive
-          onClick={(e) => { e.stopPropagation(); onDelete() }}
-          title="Eliminar"
-          className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"
-        >
-          <Trash2 className="w-3 h-3" />
-        </button>
-      </div>
+      {/* Acciones de la subtarea colapsadas en un único menú ⋯ (dropdown por
+          portal) — mismo criterio que la card madre: antes eran ↶/↗ + «+» +
+          detalle + 🗑 sueltos comiéndole ancho al título. Los chips de
+          prioridad/estado/fecha quedan afuera (edición rápida glanceable). */}
+      <SubtaskActionsMenu
+        isChild={!!isChild}
+        hasChildren={hasChildren}
+        onOpenDetail={onOpenDetail}
+        onAddChild={!isChild ? onAddChild : undefined}
+        onPromoteToTask={!isChild ? onPromoteToTask : undefined}
+        onUngroup={isChild ? onUngroup : undefined}
+        onDelete={onDelete}
+      />
     </div>
   )
 }
