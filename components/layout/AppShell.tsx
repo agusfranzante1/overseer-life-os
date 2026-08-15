@@ -432,7 +432,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           const showChatBox = !!pathname?.startsWith('/gym')
           return (
             <>
-              <div className={`lg-panel flex-1 overflow-y-auto sm:my-2.5 sm:mr-2.5 sm:ml-2.5 sm:rounded-[26px] ${showChatBox ? 'pb-20' : ''}`}>
+              <div className={`lg-surface flex-1 overflow-y-auto sm:my-2.5 sm:mr-2.5 sm:ml-2.5 sm:rounded-[26px] ${showChatBox ? 'pb-20' : ''}`}>
                 {children}
               </div>
               {showChatBox && <ChatBox />}

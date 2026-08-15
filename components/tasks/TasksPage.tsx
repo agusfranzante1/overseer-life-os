@@ -966,12 +966,18 @@ export function TasksPage() {
     .filter((t) => !!t.archivedAt)
     .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''))
 
+  // Una tarea pasa el filtro de prioridad si su prioridad EFECTIVA coincide
+  // (escala a 'high' con subtarea urgente) O si ALGUNA subtarea abierta tiene
+  // una prioridad del filtro. Así filtrar "Alta" muestra la madre aunque solo
+  // una subtarea sea alta o urgente — a cualquier nivel (subtasks es plano).
+  const matchesPriorityFilter = (t: typeof tasks[string]) =>
+    priorityFilter.length === 0
+    || priorityFilter.includes(effectivePriority(t))
+    || t.subtasks.some((s) => !s.completed && !s.archivedAt && !!s.priority && priorityFilter.includes(s.priority))
+
   const passesFilters = (t: typeof tasks[string]) =>
     (statusFilter.length === 0 || statusFilter.includes(t.status)) &&
-    // Filtra por la prioridad EFECTIVA (escala a 'high' si tiene una
-    // subtarea urgente abierta). Así una tarea madre con priority='low'
-    // pero con sub1 urgent aparece cuando filtrás por "Alta".
-    (priorityFilter.length === 0 || priorityFilter.includes(effectivePriority(t))) &&
+    matchesPriorityFilter(t) &&
     (categoryFilter.length === 0 || categoryFilter.includes(t.category ?? ''))
 
   // Status order map for sortTasks: built from the active project's statuses
@@ -1531,9 +1537,9 @@ export function TasksPage() {
               // (Status filter is intentionally not applied here — each column
               // already represents one status, so it'd be confusing.)
               tasks={getProjectTasks(activeProject.id).filter((t) =>
-                // Misma lógica que `passesFilters`: usa la prioridad
-                // efectiva (escala a 'high' por subtarea urgente).
-                (priorityFilter.length === 0 || priorityFilter.includes(effectivePriority(t))) &&
+                // Misma lógica que `passesFilters`: prioridad efectiva O de
+                // cualquier subtarea abierta (helper matchesPriorityFilter).
+                matchesPriorityFilter(t) &&
                 (categoryFilter.length === 0 || categoryFilter.includes(t.category ?? ''))
               )}
               sortMode={sortMode}

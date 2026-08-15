@@ -225,6 +225,20 @@ html.theme-light {
 }
 .lg-panel-strong { background: var(--lg-fill-strong); }
 
+/* Variante SIN backdrop-filter para el panel principal. El blur del panel
+   creaba un containing block + capa compuesta que rompía el REPINTADO de los
+   descendientes que usan `var(--card-bg)` en el shorthand `background`: al
+   cambiar de tema, las tarjetas quedaban pintadas con el valor viejo (oscuras
+   en modo claro) aunque la variable ya era blanca. Sin backdrop-filter el
+   panel sigue siendo una superficie translúcida flotante (fill algo más opaco
+   para que no se enturbie con la aurora), y las tarjetas se repintan bien. El
+   sidebar mantiene el glass completo (`.lg-panel`). */
+.lg-surface {
+  background: var(--lg-fill-strong);
+  border: 1px solid var(--lg-rim);
+  box-shadow: var(--lg-shadow), inset 0 1px 0 var(--lg-sheen);
+}
+
 /* ── Glass cards en modo claro → superficie blanca sólida ─────────────
    Las cards "glass" usan bg-white/[0.0x] (un tinte blanco muy bajo sobre
    el navy). En claro ese tinte daba gris muddy. Acá forzamos las
