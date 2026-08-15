@@ -14,6 +14,7 @@ export type KanbanSort =
   | 'statusReverse'    // orden de proyecto invertido
   | 'dueDate'          // próximas primero, sin fecha al final
   | 'alphabetical'     // por título A→Z
+  | 'alphabeticalReverse' // por título Z→A
   | 'newest'           // creadas más recientes primero
   | 'oldest'           // más viejas primero
   | 'manual'           // respeta el orden manual del usuario
@@ -109,6 +110,10 @@ export function sortSubtasks(
         return a.dueDate.localeCompare(b.dueDate) || ageTiebreak(a, b)
       case 'alphabetical': {
         const d = a.title.localeCompare(b.title)
+        return d !== 0 ? d : ageTiebreak(a, b)
+      }
+      case 'alphabeticalReverse': {
+        const d = b.title.localeCompare(a.title)
         return d !== 0 ? d : ageTiebreak(a, b)
       }
       case 'newest':

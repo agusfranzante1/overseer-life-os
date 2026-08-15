@@ -39,6 +39,68 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Tanda de 7 mejoras de Tareas + KPIs + Mapas** (Claude directo, verificado corriendo la app):
+  1. **Orden alfabético inverso (Z→A):** nuevo modo `alphabeticalReverse` en
+     `lib/utils/taskSort.ts` (subtasks) + `sortTasks` de `TasksPage` + opción en el
+     dropdown ("Alfabético A→Z" / "Z→A"). Verificado: opción presente.
+  2. **Favoritos en subtasks (⭐):** campo `favorite?` en `Subtask` (`types/index.ts`),
+     acción `toggleSubtaskFavorite` (bumpea `updatedAt` de la madre → merge LWW), toggle
+     en el menú ⋯ de la subtarea + estrella persistente en la fila. **Sync:** push/pull de
+     `subtasks.favorite` en `sync.ts`. **Panel "Favoritas" del Dashboard** ahora lista
+     también las subtasks favoritas SOLAS, con su proyecto + tarea madre ("en X").
+     **Requiere `migration_subtasks_favorite.sql`.** Verificado: estrella + aparece en panel.
+  3. **Botón `+` directo en la card:** acceso rápido para agregar subtarea sin abrir el
+     menú ⋯ (antes había que desplegarlo). Verificado: 1 botón directo por card.
+  4. **Etiquetas (tags) transversales a proyectos:** campo `tags?: string[]` en `Task`,
+     editor de etiquetas en `TaskDetail` (chips removibles + autocompletado de tags
+     existentes), chips `#tag` en la `TaskCard`, y **filtro "Etiqueta"** en el toolbar
+     (multi-select, persistido). En "Todos los proyectos" el filtro **cruza proyectos** →
+     ves juntas todas las tareas de una etiqueta. **Sync:** push/pull de `tasks.tags`
+     (jsonb). **Requiere `migration_tasks_tags.sql`.** Verificado end-to-end: filtrar
+     "software" muestra tareas de 2 proyectos distintos y oculta las demás.
+  5. **Mapas mentales — bug de formato al salir de edición:** el `<textarea>` preservaba
+     los saltos de línea pero el display de los nodos normales colapsaba los `\n` ("se
+     ponía todo junto"). Fix de 1 línea: `whitespace-pre-wrap` en el display del nodo
+     (`MindMapCanvas.tsx`). El texto nunca se perdía — era CSS.
+  6. **Bloqueo de completar en cascada:** una subtarea que tiene subtareas internas sin
+     completar ya NO se puede marcar hecha (espeja el bloqueo de la madre). Check
+     deshabilitado con tooltip "Faltan subtareas internas por completar". Un-completar
+     sigue permitido. Verificado: madre-con-hijas deshabilitada, hojas habilitadas.
+  7. **KPIs — un SPI nuevo arranca SIN KPIs seleccionados:** se sacó la auto-herencia de
+     `selectedKpiIds` en `createOrOpenCurrentWeek` (`spiStore.ts`). Antes una semana nueva
+     heredaba los KPIs de la anterior (venían pre-encendidos); ahora arranca vacía y el
+     usuario los enciende a mano cada semana. Verificado: sesión nueva `selectedKpiIds:[]`,
+     no hereda de la vieja.
+
+⚠️ **PENDIENTE del usuario — correr 2 migraciones NUEVAS en Supabase** (hasta correrlas, el
+push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se corta):
+`supabase/migration_subtasks_favorite.sql` y `supabase/migration_tasks_tags.sql`.
+
+- [x] **Recurrentes — mover una serie entre proyectos ya no la parte** (Claude directo, verificado corriendo la app):
+  - **Bug:** `moveTask` movía UNA sola tarea (cambiaba `projectId`+`status`). Al mover
+    un miembro de una serie recurrente, la serie quedaba **partida entre dos proyectos**;
+    como el 🔁 solo se dibuja cuando `groupRecurringSeries` junta 2+ miembros en la lista
+    de UN proyecto (una `TaskCard` suelta NO tiene indicador de recurrencia), los miembros
+    quedaban en grupos de 1 → **ambos perdían el icono** y la tarea "aparecía duplicada"
+    (una por proyecto). En **Recurrentes** seguían juntas porque ahí se agrupa por
+    `recurringHeadId` global.
+  - **Fix** (`lib/store/tasksStore.ts`, `moveTask`): ahora es *series-aware*. Si la task
+    movida participa de una serie (`recurrence` o `recurringHeadId`), mueve **TODA la
+    serie** (madre + instancias, incluidas completadas/archivadas) al proyecto destino,
+    matcheando miembros con el MISMO criterio que `removeRecurringSeries` (por
+    `recurringHeadId`, con fallback legacy `projectId`+título normalizado). Preserva
+    `recurringHeadId`/`recurrence`/`subtasks` y la done-ness de cada miembro (no re-abre
+    completadas). Saca los ids de los `taskIds` de **cualquier** proyecto (por si ya venía
+    splinterado) y los agrega al destino.
+  - **Multi-device (BASE nº1):** bumpea `updatedAt` en cada miembro movido (antes NO lo
+    hacía → el pull podía pisar el cambio de `projectId` con una copia remota más vieja;
+    en el pull `project.taskIds` se recomputa desde `project_id`, así que la verdad es
+    `projectId`+`updatedAt`). Sin migración (solo se reescriben campos que ya existían).
+  - **Verificado corriendo la app (sin auth):** serie daily de 10 tareas en PROJ →
+    mover a DEST desde TaskDetail → los 10 miembros quedan en DEST con `recurringHeadId`
+    intacto, PROJ vacío (sin fantasma), DEST muestra UNA fila de serie con 🔁 (no 10
+    cards sueltas), la instancia completada mantuvo Done+completedAt. `tsc --noEmit` OK.
+
 - [x] **Ofertas — arrastrar renglones (Notion) + doble-click «convertir a texto»** (Claude directo, verificado corriendo la app):
   - `lib/offers/blocks.ts`: dos funciones PURAS nuevas — `unwrapBlock` (desarma un
     toggle/page: su título pasa a párrafo y sus hijos suben un nivel EN SU LUGAR;

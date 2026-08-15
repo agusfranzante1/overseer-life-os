@@ -62,6 +62,11 @@ export interface Subtask {
   /** True cuando la siguiente instancia recurrente ya fue spawneada
    *  desde esta subtarea. Evita duplicados. */
   recurrenceSpawnedNext?: boolean
+  /** Marcada como favorita (⭐) — aparece en el widget "Favoritas" del
+   *  Dashboard mostrando de qué tarea madre / proyecto viene. Sincroniza
+   *  vía la columna `favorite` de la tabla `subtasks`
+   *  (migration_subtasks_favorite.sql). */
+  favorite?: boolean
 }
 
 /** Recurrence rule for a Task. Used by the store to auto-spawn the next
@@ -163,6 +168,12 @@ export interface Task {
    *  TARDÍA y generar urgencia visual sobre tareas que arrastra. Se
    *  limpia al completarse. */
   rescheduledFrom?: string
+  /** Etiquetas libres (tags) transversales a los proyectos. A diferencia
+   *  del `status` (que es por-proyecto), las etiquetas permiten agrupar
+   *  tareas de DISTINTOS proyectos bajo un mismo criterio (ej. "software")
+   *  y verlas todas juntas filtrando por la etiqueta. Viajan en el push/
+   *  pull de tasks (columna `tags` jsonb, migration_tasks_tags.sql). */
+  tags?: string[]
   /** Marca de "favorita" — la tarea aparece en el widget "Favoritas" del
    *  Dashboard para tenerla a la vista sin importar en qué proyecto vive.
    *  Se togglea desde el menú de acciones (⋯) de la TaskCard. Viaja en el

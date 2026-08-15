@@ -4,7 +4,6 @@ import { persist } from 'zustand/middleware'
 import { DEFAULT_SPI_TEMPLATE } from '@/lib/spi/template'
 import type { SPISession, SPITask, SPITemplate, BitacoraEntry } from '@/lib/spi/types'
 import { useTasksStore } from './tasksStore'
-import { useKpisStore } from './kpisStore'
 import { computeSessionXP, totalXPFromSessions, levelFromXP, didLevelUp, type SessionXP } from '@/lib/spi/gamification'
 import { buildWeekSnapshot } from '@/lib/spi/weekSnapshot'
 import { buildCalendarSnapshot, calendarMondayForSpiWeek } from '@/lib/spi/calendarSnapshot'
@@ -245,29 +244,13 @@ export const useSPIStore = create<SPIState>()(
           return existing.id
         }
         const fresh = emptySession(get().template, target)
-        // ── Auto-herencia de KPIs activos ─────────────────────────────
-        // La sesión nueva arranca con los mismos KPIs que tenía activos
-        // la sesión más reciente ANTERIOR + cualquier KPI nuevo creado
-        // desde entonces (cuyo `activatedAt <= target`). Así NO hay que
-        // re-elegir todos los KPIs cada sábado — la continuidad es por
-        // default; el usuario solo edita si esta semana hace algún cambio
-        // (sacar guitarra, sumar piano, etc.).
-        const prevSession = [...get().sessions]
-          .sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate))
-          .find((s) => s.weekStartDate < target)
-        const inheritedIds = new Set(prevSession?.selectedKpiIds ?? [])
-        // Sumamos también los KPIs activos creados en la library DESPUÉS
-        // del weekStartDate de la sesión previa (o si no hay previa,
-        // todos los activos hasta hoy). Leemos via getState() para no
-        // suscribirnos — es un cálculo one-shot al crear la sesión.
-        const allActive = useKpisStore.getState().definitions.filter(
-          (d) => !d.archivedAt && d.activatedAt <= target
-        )
-        const prevCutoff = prevSession?.weekStartDate ?? ''
-        for (const d of allActive) {
-          if (d.activatedAt > prevCutoff) inheritedIds.add(d.id)
-        }
-        fresh.selectedKpiIds = Array.from(inheritedIds)
+        // ── KPIs arrancan APAGADOS en cada semana nueva ───────────────
+        // Decisión del usuario: una sesión SPI nueva NO hereda los KPIs de
+        // la semana anterior. Arranca con `selectedKpiIds` vacío (default de
+        // `emptySession`) y el usuario ENCIENDE a mano los que va a trackear
+        // esta semana desde el scoreboard ("Encender KPIs" / "Activar todos").
+        // Antes se auto-heredaban de la sesión previa y aparecían
+        // pre-seleccionados — eso es lo que el usuario quería evitar.
 
         set((s) => ({
           sessions: [fresh, ...s.sessions],

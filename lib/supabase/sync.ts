@@ -501,6 +501,9 @@ async function pushTasks() {
     // Marca de favorita (⭐) — widget "Favoritas" del Dashboard. Requiere
     // migration_tasks_favorite.sql aplicada.
     favorite:              t.favorite ?? false,
+    // Etiquetas libres transversales a proyectos. Requiere
+    // migration_tasks_tags.sql aplicada.
+    tags:                  t.tags ?? [],
     created_at: t.createdAt,
     updated_at: t.updatedAt,
   }))
@@ -539,6 +542,7 @@ async function pushTasks() {
       duration_minutes: s.durationMinutes ?? null,
       description:      s.description     ?? null,
       recurrence:       s.recurrence      ?? null,
+      favorite:         s.favorite        ?? false,
     }))
   )
 
@@ -681,6 +685,7 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
       durationMinutes: (s.duration_minutes as number) ?? undefined,
       description:     (s.description      as string) ?? undefined,
       recurrence:      (s.recurrence       as import('@/types').TaskRecurrence) ?? undefined,
+      favorite:        (s.favorite         as boolean) ?? undefined,
     })),
     createdAt: t.created_at as string,
     scheduledFor: (t.scheduled_for as 'today' | 'tomorrow') ?? undefined,
@@ -699,6 +704,7 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
     rescheduledFrom:      (t.rescheduled_from      as string) ?? undefined,
     recurringHeadId:      (t.recurring_head_id     as string) ?? undefined,
     favorite:             (t.favorite              as boolean) ?? undefined,
+    tags:                 (Array.isArray(t.tags) ? (t.tags as string[]) : undefined),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any)) as LocalTask[]
 

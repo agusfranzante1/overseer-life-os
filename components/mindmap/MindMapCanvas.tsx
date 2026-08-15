@@ -2532,7 +2532,7 @@ function NodeBox({
               onDoubleClick={isTextOnly ? (e) => { e.stopPropagation(); onDoubleClick() } : undefined}
               onPointerEnter={isTextOnly ? () => onHover(true) : undefined}
               onPointerLeave={isTextOnly ? () => onHover(false) : undefined}
-              className={isTextOnly ? 'inline-block max-w-full whitespace-pre-wrap rounded-[3px]' : 'w-full'}
+              className={isTextOnly ? 'inline-block max-w-full whitespace-pre-wrap rounded-[3px]' : 'w-full whitespace-pre-wrap'}
               style={isTextOnly ? {
                 pointerEvents: 'auto',
                 ...(selected ? { outline: `1px dashed ${color}99`, outlineOffset: 3 } : {}),

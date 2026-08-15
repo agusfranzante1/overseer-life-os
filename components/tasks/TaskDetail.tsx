@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Task, Project, Priority, TaskRecurrence, TaskRecurrenceKind } from '@/types'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTranslation } from '@/hooks/useTranslation'
-import { X, Plus, Trash2, CheckCircle2, ChevronRight, ArrowRightLeft, Check, GitMerge, Repeat, Bell, Copy, ClipboardCopy } from 'lucide-react'
+import { X, Plus, Trash2, CheckCircle2, ChevronRight, ArrowRightLeft, Check, GitMerge, Repeat, Bell, Copy, ClipboardCopy, Tag } from 'lucide-react'
 import { taskToClipboardText, copyTextToClipboard } from '@/lib/tasks/taskClipboard'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { SubtaskDetailModal } from './SubtaskDetailModal'
@@ -26,6 +26,11 @@ export function TaskDetail({ task, project, onClose }: Props) {
   const liveTask = useTasksStore((s) => (task ? s.tasks[task.id] : undefined))
   const effective = liveTask ?? task
   const [copiedToClipboard, setCopiedToClipboard] = useState(false)
+  // Todas las etiquetas existentes (cualquier proyecto) — para autocompletar
+  // y reutilizar en vez de crear duplicados con tipeos distintos.
+  const allTags = Array.from(new Set(Object.values(tasks).flatMap((t) => t.tags ?? [])))
+    .filter((x) => x.trim().length > 0)
+    .sort()
 
   // ── Buffered local state for the text inputs ──
   // We use local state for the VISIBLE value (so cursor position is
@@ -454,6 +459,13 @@ export function TaskDetail({ task, project, onClose }: Props) {
                 </div>
               </div>
             </div>
+
+            {/* Etiquetas (tags) — transversales a proyectos. */}
+            <TagsEditor
+              tags={effective.tags ?? []}
+              allTags={allTags}
+              onChange={(next) => updateTask(effective.id, { tags: next.length > 0 ? next : undefined })}
+            />
 
             {/* Schedule */}
             <div>
@@ -1018,6 +1030,96 @@ function NotifyLeadTimePicker({
       </select>
       <p className="text-[10px] text-zinc-600 mt-1 italic">
         Sobrescribe el ajuste global de notificaciones para esta tarea.
+      </p>
+    </div>
+  )
+}
+
+// ─── Editor de etiquetas (tags) ──────────────────────────────────────────────
+// Chips removibles + input con autocompletado de etiquetas existentes. Las
+// etiquetas son transversales a los proyectos: sirven para agrupar tareas de
+// distintos proyectos bajo un criterio (ej. "software") y filtrarlas juntas.
+function TagsEditor({
+  tags, allTags, onChange,
+}: {
+  tags: string[]
+  allTags: string[]
+  onChange: (next: string[]) => void
+}) {
+  const [draft, setDraft] = useState('')
+
+  const norm = (s: string) => s.trim()
+  const addTag = (raw: string) => {
+    const v = norm(raw)
+    if (!v) return
+    // Evitar duplicados case-insensitive — reusar la etiqueta existente si
+    // ya está (con su capitalización original).
+    const existing = tags.find((t) => t.toLowerCase() === v.toLowerCase())
+    if (existing) { setDraft(''); return }
+    onChange([...tags, v])
+    setDraft('')
+  }
+  const removeTag = (tag: string) => onChange(tags.filter((t) => t !== tag))
+
+  // Sugerencias: etiquetas existentes que matchean el draft y no están puestas.
+  const suggestions = draft.trim()
+    ? allTags
+        .filter((t) => t.toLowerCase().includes(draft.trim().toLowerCase()))
+        .filter((t) => !tags.some((x) => x.toLowerCase() === t.toLowerCase()))
+        .slice(0, 6)
+    : []
+
+  return (
+    <div>
+      <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
+        <Tag className="w-3 h-3" /> Etiquetas
+      </label>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {tags.map((tag) => (
+          <span
+            key={tag}
+            className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-full bg-indigo-500/12 border border-indigo-500/30 text-indigo-200"
+          >
+            {tag}
+            <button
+              onClick={() => removeTag(tag)}
+              title="Quitar etiqueta"
+              className="text-indigo-300/70 hover:text-red-300 transition-colors"
+            >
+              <X className="w-2.5 h-2.5" />
+            </button>
+          </span>
+        ))}
+        <div className="relative">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); addTag(draft) }
+              if (e.key === 'Backspace' && !draft && tags.length > 0) removeTag(tags[tags.length - 1])
+              if (e.key === 'Escape') setDraft('')
+            }}
+            placeholder="+ etiqueta"
+            className="w-28 bg-transparent border-b border-white/[0.12] focus:border-indigo-500 outline-none text-xs text-zinc-200 placeholder:text-zinc-600 py-1"
+          />
+          {suggestions.length > 0 && (
+            <div className="absolute left-0 top-full mt-1 z-30 min-w-[140px] bg-white/[0.04] border border-white/[0.12] rounded-lg shadow-2xl py-1 backdrop-blur-sm">
+              {suggestions.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => addTag(s)}
+                  className="w-full text-left px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/[0.06] transition-colors"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      <p className="text-[10px] text-zinc-600 mt-1.5 italic">
+        Transversales a los proyectos — filtrá por etiqueta para ver tareas de
+        varios proyectos juntas (ej. &quot;software&quot;).
       </p>
     </div>
   )

@@ -668,6 +668,10 @@ function sortTasks(
         const td = a.title.localeCompare(b.title)
         return td !== 0 ? td : ageTiebreak(a, b)
       }
+      case 'alphabeticalReverse': {
+        const td = b.title.localeCompare(a.title)
+        return td !== 0 ? td : ageTiebreak(a, b)
+      }
       case 'newest':
         return b.createdAt.localeCompare(a.createdAt)
       case 'oldest':
@@ -831,6 +835,10 @@ export function TasksPage() {
   const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [priorityFilter, setPriorityFilter] = useState<string[]>([])
   const [categoryFilter, setCategoryFilter] = useState<string[]>([])
+  // Filtro por etiqueta (tag). Transversal a proyectos: en la vista
+  // "Todos los proyectos" permite ver juntas todas las tareas de una etiqueta
+  // (ej. "software") sin importar en qué proyecto viven.
+  const [tagFilter, setTagFilter] = useState<string[]>([])
   // Alterna un valor dentro de un filtro (agrega si falta, saca si está).
   const toggleFilterValue = (
     setter: React.Dispatch<React.SetStateAction<string[]>>,
@@ -858,7 +866,7 @@ export function TasksPage() {
   useEffect(() => {
     const id = window.setTimeout(() => {
       if (!filterStorageKey || typeof window === 'undefined') {
-        setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([])
+        setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([]); setTagFilter([])
         setLoadedKey(null)
         return
       }
@@ -868,15 +876,16 @@ export function TasksPage() {
       try {
         const raw = localStorage.getItem(filterStorageKey)
         if (!raw) {
-          setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([])
+          setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([]); setTagFilter([])
         } else {
-          const parsed = JSON.parse(raw) as { status?: unknown; priority?: unknown; category?: unknown }
+          const parsed = JSON.parse(raw) as { status?: unknown; priority?: unknown; category?: unknown; tags?: unknown }
           setStatusFilter(toArr(parsed.status))
           setPriorityFilter(toArr(parsed.priority))
           setCategoryFilter(toArr(parsed.category))
+          setTagFilter(toArr(parsed.tags))
         }
       } catch {
-        setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([])
+        setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([]); setTagFilter([])
       }
       setLoadedKey(filterStorageKey)
     }, 0)
@@ -892,9 +901,10 @@ export function TasksPage() {
         status: statusFilter,
         priority: priorityFilter,
         category: categoryFilter,
+        tags: tagFilter,
       }))
     } catch { /* ignore quota errors */ }
-  }, [loadedKey, filterStorageKey, statusFilter, priorityFilter, categoryFilter])
+  }, [loadedKey, filterStorageKey, statusFilter, priorityFilter, categoryFilter, tagFilter])
 
   // Proyectos top-level del task manager: excluimos los que tienen
   // parentProjectId (materias bajo "Estudios", piezas bajo "Contenido",
@@ -975,10 +985,16 @@ export function TasksPage() {
     || priorityFilter.includes(effectivePriority(t))
     || t.subtasks.some((s) => !s.completed && !s.archivedAt && !!s.priority && priorityFilter.includes(s.priority))
 
+  // Una tarea pasa el filtro de etiquetas si tiene AL MENOS una de las
+  // etiquetas seleccionadas (OR). Vacío = sin filtro.
+  const matchesTagFilter = (t: typeof tasks[string]) =>
+    tagFilter.length === 0 || (t.tags ?? []).some((tag) => tagFilter.includes(tag))
+
   const passesFilters = (t: typeof tasks[string]) =>
     (statusFilter.length === 0 || statusFilter.includes(t.status)) &&
     matchesPriorityFilter(t) &&
-    (categoryFilter.length === 0 || categoryFilter.includes(t.category ?? ''))
+    (categoryFilter.length === 0 || categoryFilter.includes(t.category ?? '')) &&
+    matchesTagFilter(t)
 
   // Status order map for sortTasks: built from the active project's statuses
   // when a project is selected. In "All Projects" view we have no global
@@ -1004,6 +1020,18 @@ export function TasksPage() {
     )
       .map((t) => t.category)
       .filter((c): c is string => !!c && c.trim().length > 0)
+  )).sort()
+
+  // Todas las etiquetas distintas en el scope actual. En "Todos los proyectos"
+  // unimos las de TODAS las tareas → así el filtro por etiqueta cruza proyectos
+  // y podés ver juntas las tareas de una misma etiqueta.
+  const availableTags = Array.from(new Set(
+    (activeProject
+      ? getProjectTasks(activeProject.id)
+      : Object.values(tasks).filter((t) => !t.archivedAt)
+    )
+      .flatMap((t) => t.tags ?? [])
+      .filter((tag): tag is string => !!tag && tag.trim().length > 0)
   )).sort()
 
   // All distinct status labels across all projects (used by the "All Projects"
@@ -1441,7 +1469,8 @@ export function TasksPage() {
                 <option value="status">Estado ↓</option>
                 <option value="statusReverse">Estado ↑</option>
                 <option value="dueDate">Fecha límite</option>
-                <option value="alphabetical">Alfabético</option>
+                <option value="alphabetical">Alfabético A→Z</option>
+                <option value="alphabeticalReverse">Alfabético Z→A</option>
                 <option value="newest">Más recientes</option>
                 <option value="oldest">Más antiguas</option>
                 <option value="manual">Sin orden (creación)</option>
@@ -1498,9 +1527,20 @@ export function TasksPage() {
                   />
                 )}
 
-                {(statusFilter.length > 0 || priorityFilter.length > 0 || categoryFilter.length > 0) && (
+                {availableTags.length > 0 && (
+                  <MultiSelectFilter
+                    label="Etiqueta"
+                    allLabel="Etiqueta: todas"
+                    options={availableTags.map((tag) => ({ value: tag, label: tag }))}
+                    selected={tagFilter}
+                    onToggle={(v) => toggleFilterValue(setTagFilter, v)}
+                    onClear={() => setTagFilter([])}
+                  />
+                )}
+
+                {(statusFilter.length > 0 || priorityFilter.length > 0 || categoryFilter.length > 0 || tagFilter.length > 0) && (
                   <button
-                    onClick={() => { setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([]) }}
+                    onClick={() => { setStatusFilter([]); setPriorityFilter([]); setCategoryFilter([]); setTagFilter([]) }}
                     title="Limpiar filtros"
                     className="text-[10px] font-mono uppercase tracking-wider text-blue-300 hover:text-blue-100 px-2 py-1 rounded hover:bg-blue-500/10 transition-colors"
                   >
@@ -1540,7 +1580,8 @@ export function TasksPage() {
                 // Misma lógica que `passesFilters`: prioridad efectiva O de
                 // cualquier subtarea abierta (helper matchesPriorityFilter).
                 matchesPriorityFilter(t) &&
-                (categoryFilter.length === 0 || categoryFilter.includes(t.category ?? ''))
+                (categoryFilter.length === 0 || categoryFilter.includes(t.category ?? '')) &&
+                matchesTagFilter(t)
               )}
               sortMode={sortMode}
               onTaskClick={(t) => setSelectedTask(t)}

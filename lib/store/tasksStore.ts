@@ -204,6 +204,10 @@ interface TasksState {
   addSubtask: (taskId: string, title: string, parentId?: string) => void
   updateSubtask: (taskId: string, subtaskId: string, patch: Partial<Subtask>) => void
   toggleSubtask: (taskId: string, subtaskId: string) => void
+  /** Marca/desmarca una subtarea como favorita (⭐). Bumpea el `updatedAt`
+   *  de la tarea madre para que el merge LWW del sync propague el cambio
+   *  (las subtareas se mergean bajo su tarea). */
+  toggleSubtaskFavorite: (taskId: string, subtaskId: string) => void
   deleteSubtask: (taskId: string, subtaskId: string) => void
 }
 
@@ -1451,23 +1455,78 @@ export const useTasksStore = create<TasksState>()(
         set((s) => {
           const task = s.tasks[taskId]
           if (!task) return s
-          const oldProject = s.projects[task.projectId]
           const newProject = s.projects[newProjectId]
-          const newStatus = newProject?.statuses[0]?.label ?? task.status
-          return {
-            tasks: { ...s.tasks, [taskId]: { ...task, projectId: newProjectId, status: newStatus } },
-            projects: {
-              ...s.projects,
-              [task.projectId]: {
-                ...oldProject,
-                taskIds: oldProject?.taskIds.filter((id) => id !== taskId) ?? [],
-              },
-              [newProjectId]: {
-                ...newProject,
-                taskIds: [...(newProject?.taskIds ?? []), taskId],
-              },
-            },
+          if (!newProject) return s
+
+          const now = new Date().toISOString()
+
+          // Normalización de título idéntica a `removeRecurringSeries` — caza
+          // instancias legacy (pre-`recurringHeadId`) por proyecto + título.
+          const normTitle = (str: string) =>
+            str.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+
+          // Una serie recurrente pertenece a UN proyecto. Si la task movida
+          // participa de una serie, movemos TODA la serie junta; si moviéramos
+          // solo un miembro, la serie queda partida entre proyectos y pierde el
+          // ícono 🔁 (los grupos de 1 miembro se dibujan como TaskCard suelta,
+          // sin indicador de recurrencia) y "aparece duplicada".
+          const isRecurring = !!task.recurrence || !!task.recurringHeadId
+          let memberIds: string[]
+          if (isRecurring) {
+            const motherId = task.recurringHeadId ?? task.id
+            const mother = s.tasks[motherId] ?? task
+            const motherTitleN = normTitle(mother.title)
+            memberIds = Object.values(s.tasks)
+              .filter((t) =>
+                t.id === motherId
+                || (t.recurringHeadId != null && t.recurringHeadId === motherId)
+                || (!t.recurringHeadId && !!t.recurrence
+                    && t.projectId === mother.projectId
+                    && normTitle(t.title) === motherTitleN),
+              )
+              .map((t) => t.id)
+            // La task disparadora entra siempre (defensivo).
+            if (!memberIds.includes(taskId)) memberIds.push(taskId)
+          } else {
+            memberIds = [taskId]
           }
+          const moving = new Set(memberIds)
+
+          // Status del proyecto destino (preservamos done-ness de cada miembro
+          // para no re-abrir instancias completadas/archivadas del historial).
+          const destFirst = newProject.statuses[0]?.label
+          const destDone = newProject.statuses.find((st) => st.countsAsDone)?.label
+
+          // Reasignar cada miembro al proyecto destino. `updatedAt` bumpeado en
+          // TODOS (CRÍTICO multi-device: el merge LWW pisaría el cambio de
+          // `projectId` con una copia remota más vieja; en el pull, `taskIds`
+          // se recomputa desde `projectId`, así que la verdad es projectId+updatedAt).
+          const tasks = { ...s.tasks }
+          for (const id of moving) {
+            const t = tasks[id]
+            if (!t) continue
+            const oldProj = s.projects[t.projectId]
+            const wasDone = !!oldProj?.statuses.find((st) => st.label === t.status)?.countsAsDone
+            const nextStatus = wasDone ? (destDone ?? t.status) : (destFirst ?? t.status)
+            tasks[id] = { ...t, projectId: newProjectId, status: nextStatus, updatedAt: now }
+          }
+
+          // `taskIds`: sacar los miembros de CUALQUIER proyecto (por si la serie
+          // ya venía splinterada por este mismo bug) y agregarlos al destino.
+          const projects: typeof s.projects = {}
+          for (const [pid, proj] of Object.entries(s.projects)) {
+            projects[pid] = {
+              ...proj,
+              taskIds: (proj.taskIds ?? []).filter((tid) => !moving.has(tid)),
+            }
+          }
+          const destExisting = projects[newProjectId].taskIds
+          projects[newProjectId] = {
+            ...projects[newProjectId],
+            taskIds: [...destExisting, ...memberIds.filter((id) => !destExisting.includes(id))],
+          }
+
+          return { tasks, projects }
         }),
 
       convertTaskToSubtask: (sourceTaskId, targetTaskId) =>
@@ -1861,6 +1920,27 @@ export const useTasksStore = create<TasksState>()(
           }
         }
       },
+
+      toggleSubtaskFavorite: (taskId, subtaskId) =>
+        set((s) => {
+          const t = s.tasks[taskId]
+          if (!t) return s
+          const now = new Date().toISOString()
+          return {
+            tasks: {
+              ...s.tasks,
+              [taskId]: {
+                ...t,
+                // Bump del updatedAt de la madre → el merge LWW propaga las
+                // subtasks (se mergean bajo su tarea).
+                updatedAt: now,
+                subtasks: t.subtasks.map((st) =>
+                  st.id === subtaskId ? { ...st, favorite: !st.favorite } : st,
+                ),
+              },
+            },
+          }
+        }),
 
       deleteSubtask: (taskId, subtaskId) =>
         set((s) => {

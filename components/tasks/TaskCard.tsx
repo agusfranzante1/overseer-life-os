@@ -35,7 +35,7 @@ interface Props {
 const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
 export function TaskCard({ task, project, onClick, showProjectBadge = false, subtaskSortMode = 'manual' }: Props) {
-  const { completeTask, postponeTask, deleteTask, duplicateTask, toggleSubtask, addSubtask, updateSubtask, deleteSubtask, updateTask, convertTaskToSubtask, promoteSubtaskToTask, toggleFavorite, sendTaskToTop } = useTasksStore()
+  const { completeTask, postponeTask, deleteTask, duplicateTask, toggleSubtask, addSubtask, updateSubtask, deleteSubtask, updateTask, convertTaskToSubtask, promoteSubtaskToTask, toggleFavorite, toggleSubtaskFavorite, sendTaskToTop } = useTasksStore()
   const { t, dfLocale } = useTranslation()
   // Estado de UI (expanded del card, colapso de cada sub-tarea-1) vive
   // en su propio store persistido. Refrescar la página ya no resetea el
@@ -234,6 +234,18 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
     }
   }, [task.subtasks, subtaskSortMode, project])
 
+  // ¿La subtarea `id` tiene descendientes (a cualquier nivel) sin completar?
+  // Espeja el bloqueo de la madre: no dejar marcar "hecha" una subtarea cuyo
+  // sub-proceso interno todavía no terminó. Un-completar siempre se permite.
+  // Ignora subtareas archivadas (y sus subárboles).
+  const hasOpenDescendant = (id: string): boolean => {
+    const node = subtaskTree.nodeById.get(id)
+    if (!node) return false
+    return node.children.some((c) =>
+      c.subtask.archivedAt ? false : (!c.subtask.completed || hasOpenDescendant(c.subtask.id)),
+    )
+  }
+
   const handleAddSubtask = (e: React.FormEvent) => {
     e.preventDefault()
     if (!newSubtask.trim()) return
@@ -303,6 +315,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
           subtask={subtask}
           depth={depth}
           hasChildren={hasChildren}
+          blockComplete={!subtask.completed && hasOpenDescendant(subtask.id)}
           childrenCollapsed={isCollapsed}
           onToggleCollapse={hasChildren ? () => toggleParentCollapse(subtask.id) : undefined}
           progressLabel={hasChildren ? `${doneChildren}/${children.length}` : undefined}
@@ -325,6 +338,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
           }}
           onUngroup={subtask.parentId ? () => updateSubtask(task.id, subtask.id, { parentId: undefined }) : undefined}
           onPromoteToTask={() => promoteSubtaskToTask(task.id, subtask.id)}
+          onToggleFavorite={() => toggleSubtaskFavorite(task.id, subtask.id)}
           onAddChild={() => { setAddingChildTo(subtask.id); setChildDraft('') }}
           onOpenDetail={() => setDetailSubtaskId(subtask.id)}
           onDragStart={onSubDragStart(subtask.id)}
@@ -718,6 +732,17 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                   {completedSubtasks}/{visibleSubtasks.length}
                 </span>
               )}
+              {/* Chips de etiquetas — transversales a proyectos. Se clipean si
+                  no entran (la fila es flex-nowrap overflow-hidden). */}
+              {(task.tags ?? []).map((tag) => (
+                <span
+                  key={tag}
+                  className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/25 text-indigo-300/90"
+                  title={`Etiqueta: ${tag}`}
+                >
+                  #{tag}
+                </span>
+              ))}
             </div>
           </div>
 
@@ -756,6 +781,24 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                 <Star className="w-3.5 h-3.5 fill-current" />
               </button>
             )}
+            {/* Acceso directo "+" para agregar subtarea — el ícono más usado,
+                afuera del menú ⋯ para no tener que abrir el desplegable cada
+                vez. Misma visibilidad que el menú (mobile siempre, desktop al
+                hover). Expande la card y foca el input de subtarea. */}
+            <div className="opacity-100 sm:opacity-0 sm:group-hover/card:opacity-100 transition-opacity bg-zinc-900/85 backdrop-blur-sm rounded-md">
+              <button
+                data-interactive
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (!expanded) setExpanded(true)
+                  setShouldFocusSubtaskInput(true)
+                }}
+                title="Agregar subtarea"
+                className="text-zinc-500 hover:text-indigo-400 transition-colors p-1"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
             {/* Menú ⋯ — en mobile SIEMPRE visible; en desktop solo al hover.
                 El backdrop-blur da legibilidad sobre el contenido de la card. */}
             <div className="opacity-100 sm:opacity-0 sm:group-hover/card:opacity-100 transition-opacity bg-zinc-900/85 backdrop-blur-sm rounded-md">
@@ -816,6 +859,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                   <InlineSubtask
                     subtask={root}
                     hasChildren={hasChildren}
+                    blockComplete={!root.completed && hasOpenDescendant(root.id)}
                     childrenCollapsed={isCollapsed}
                     onToggleCollapse={hasChildren ? () => toggleParentCollapse(root.id) : undefined}
                     progressLabel={hasChildren ? `${doneChildren}/${children.length}` : undefined}
@@ -832,6 +876,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                     onDueDateChange={(d) => updateSubtask(task.id, root.id, { dueDate: d })}
                     onDelete={() => deleteSubtask(task.id, root.id)}
                     onPromoteToTask={() => promoteSubtaskToTask(task.id, root.id)}
+                    onToggleFavorite={() => toggleSubtaskFavorite(task.id, root.id)}
                     onAddChild={() => { setAddingChildTo(root.id); setChildDraft('') }}
                     onOpenDetail={() => setDetailSubtaskId(root.id)}
                     onDragStart={onSubDragStart(root.id, hasChildren)}
@@ -1300,10 +1345,12 @@ function TaskActionsMenu({
 // del grupo · eliminar) que antes vivían sueltas en la fila. Los ítems que no
 // aplican (según sea subtask1 o subtask2) no se muestran.
 function SubtaskActionsMenu({
-  isChild, hasChildren, onOpenDetail, onAddChild, onPromoteToTask, onUngroup, onDelete,
+  isChild, hasChildren, favorite, onToggleFavorite, onOpenDetail, onAddChild, onPromoteToTask, onUngroup, onDelete,
 }: {
   isChild: boolean
   hasChildren: boolean
+  favorite?: boolean
+  onToggleFavorite?: () => void
   onOpenDetail: () => void
   onAddChild?: () => void
   onPromoteToTask?: () => void
@@ -1390,6 +1437,12 @@ function SubtaskActionsMenu({
           <button onClick={run(onOpenDetail)} className={`${rowClass} text-zinc-200 hover:bg-white/[0.06]`}>
             <Maximize2 className="w-3.5 h-3.5 text-zinc-400" /> Abrir detalle
           </button>
+          {onToggleFavorite && (
+            <button onClick={run(onToggleFavorite)} className={`${rowClass} hover:bg-white/[0.06] ${favorite ? 'text-amber-300' : 'text-zinc-200'}`}>
+              <Star className={`w-3.5 h-3.5 ${favorite ? 'text-amber-400 fill-current' : 'text-zinc-400'}`} />
+              {favorite ? 'Quitar de favoritas' : 'Marcar favorita'}
+            </button>
+          )}
           {onAddChild && (
             <button onClick={run(onAddChild)} className={`${rowClass} text-zinc-200 hover:bg-white/[0.06]`}>
               <Plus className="w-3.5 h-3.5 text-zinc-400" /> Agregar subtarea
@@ -1432,6 +1485,10 @@ function SubtaskActionsMenu({
 interface InlineSubtaskProps {
   subtask: Subtask
   hasChildren: boolean
+  /** True cuando la subtarea tiene descendientes sin completar → se
+   *  bloquea marcarla como hecha (espeja el bloqueo de la tarea madre).
+   *  Un-completar sigue permitido. */
+  blockComplete?: boolean
   childrenCollapsed?: boolean
   onToggleCollapse?: () => void
   depth?: number
@@ -1454,6 +1511,8 @@ interface InlineSubtaskProps {
    *  task madre nueva en el mismo proyecto, llevándose sus subtask2
    *  como subtask1 de la nueva madre. */
   onPromoteToTask?: () => void
+  /** Marca/desmarca la subtarea como favorita (⭐). */
+  onToggleFavorite?: () => void
   /** Para subtask1 (root): dispara el flujo de agregar una subtask2
    *  child. El parent (TaskCard) abre el input inline correspondiente. */
   onAddChild?: () => void
@@ -1466,10 +1525,10 @@ interface InlineSubtaskProps {
 }
 
 function InlineSubtask({
-  subtask, hasChildren, childrenCollapsed, onToggleCollapse, depth = 0, isChild, progressLabel, isDragging, isOver,
+  subtask, hasChildren, blockComplete, childrenCollapsed, onToggleCollapse, depth = 0, isChild, progressLabel, isDragging, isOver,
   projectStatuses,
   onToggle, onRename, onPriorityChange, onStatusChange, onDueDateChange,
-  onDelete, onUngroup, onPromoteToTask, onAddChild, onOpenDetail,
+  onDelete, onUngroup, onPromoteToTask, onToggleFavorite, onAddChild, onOpenDetail,
   onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd,
 }: InlineSubtaskProps) {
   const { t, tStatus, locale } = useTranslation()
@@ -1586,8 +1645,19 @@ function InlineSubtask({
         </>
       )}
 
-      <button data-interactive onClick={(e) => { e.stopPropagation(); onToggle() }}>
-        <CheckCircle2 className={`w-4 h-4 transition-colors ${subtask.completed ? 'text-emerald-400' : 'text-zinc-600 hover:text-zinc-400'}`} />
+      <button
+        data-interactive
+        disabled={blockComplete}
+        onClick={(e) => { e.stopPropagation(); if (blockComplete) return; onToggle() }}
+        title={blockComplete ? 'Faltan subtareas internas por completar' : subtask.completed ? 'Marcar como pendiente' : 'Marcar como completada'}
+      >
+        <CheckCircle2 className={`w-4 h-4 transition-colors ${
+          subtask.completed
+            ? 'text-emerald-400'
+            : blockComplete
+              ? 'text-zinc-700 cursor-not-allowed'
+              : 'text-zinc-600 hover:text-zinc-400'
+        }`} />
       </button>
 
       {/* Priority dot — click to cycle. Hidden once the subtask is
@@ -1742,9 +1812,24 @@ function InlineSubtask({
           portal) — mismo criterio que la card madre: antes eran ↶/↗ + «+» +
           detalle + 🗑 sueltos comiéndole ancho al título. Los chips de
           prioridad/estado/fecha quedan afuera (edición rápida glanceable). */}
+      {/* Estrella persistente cuando la subtarea es favorita — glanceable
+          sin abrir el menú. Toque rápido = quitar de favoritas. */}
+      {subtask.favorite && (
+        <button
+          data-interactive
+          onClick={(e) => { e.stopPropagation(); onToggleFavorite?.() }}
+          title="Favorita — click para quitar"
+          className="shrink-0 text-amber-400 hover:text-amber-300 transition-colors p-0.5"
+        >
+          <Star className="w-3 h-3 fill-current" />
+        </button>
+      )}
+
       <SubtaskActionsMenu
         isChild={!!isChild}
         hasChildren={hasChildren}
+        favorite={!!subtask.favorite}
+        onToggleFavorite={onToggleFavorite}
         onOpenDetail={onOpenDetail}
         onAddChild={!isChild ? onAddChild : undefined}
         onPromoteToTask={!isChild ? onPromoteToTask : undefined}
