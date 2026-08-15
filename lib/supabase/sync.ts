@@ -498,6 +498,9 @@ async function pushTasks() {
     // recurringHeadId === id; las hijas apuntan a su id. Requiere
     // migration_recurring_head_id.sql aplicada.
     recurring_head_id:     t.recurringHeadId      ?? null,
+    // Marca de favorita (⭐) — widget "Favoritas" del Dashboard. Requiere
+    // migration_tasks_favorite.sql aplicada.
+    favorite:              t.favorite ?? false,
     created_at: t.createdAt,
     updated_at: t.updatedAt,
   }))
@@ -695,6 +698,7 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
     parcialId:            (t.parcial_id            as string) ?? undefined,
     rescheduledFrom:      (t.rescheduled_from      as string) ?? undefined,
     recurringHeadId:      (t.recurring_head_id     as string) ?? undefined,
+    favorite:             (t.favorite              as boolean) ?? undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any)) as LocalTask[]
 

@@ -55,6 +55,13 @@ interface TasksState {
   addTask: (t: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => string
   updateTask: (id: string, patch: Partial<Task>) => void
   completeTask: (id: string) => void
+  /** Marca/desmarca una tarea como favorita (⭐). Bumpea `updatedAt` para
+   *  que el merge LWW del sync propague el cambio entre dispositivos. */
+  toggleFavorite: (id: string) => void
+  /** Mueve una tarea al INICIO del orden manual de su proyecto (`taskIds`).
+   *  Solo tiene efecto visible en el modo de orden "manual"; en los demás
+   *  modos el orden lo decide el comparator. Bumpea `updatedAt`. */
+  sendTaskToTop: (id: string) => void
   deleteTask: (id: string) => void
   /** Duplica una task COMPLETA con todas sus subtareas (1 y 2 nivel),
    *  generando nuevos ids para todos. Útil para usar tasks como plantilla
@@ -966,6 +973,40 @@ export const useTasksStore = create<TasksState>()(
         })
 
       },
+
+      toggleFavorite: (id) =>
+        set((s) => {
+          const task = s.tasks[id]
+          if (!task) return s
+          return {
+            tasks: {
+              ...s.tasks,
+              [id]: { ...task, favorite: !task.favorite, updatedAt: new Date().toISOString() },
+            },
+          }
+        }),
+
+      sendTaskToTop: (id) =>
+        set((s) => {
+          const task = s.tasks[id]
+          if (!task) return s
+          const proj = s.projects[task.projectId]
+          if (!proj) return s
+          const rest = (proj.taskIds ?? []).filter((tid) => tid !== id)
+          const now = new Date().toISOString()
+          return {
+            projects: {
+              ...s.projects,
+              [proj.id]: { ...proj, taskIds: [id, ...rest] },
+            },
+            // Bump updatedAt para que el merge LWW no pise el reorder con
+            // una copia remota más vieja en el próximo pull.
+            tasks: {
+              ...s.tasks,
+              [id]: { ...task, updatedAt: now },
+            },
+          }
+        }),
 
       duplicateTask: (id) => {
         const source = get().tasks[id]

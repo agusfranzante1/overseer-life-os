@@ -5,9 +5,9 @@
 > El método de trabajo está en [`instructions.md`](instructions.md); las reglas
 > técnicas no negociables en [`AGENTS.md`](AGENTS.md).
 
-**Última actualización:** 2026-08-12 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado.
+**Última actualización:** 2026-08-15 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
 
-⚠️ **PENDIENTE del usuario:** correr en Supabase `supabase/migration_offer_templates.sql` (Etapa 5) y `supabase/migration_books.sql` (Etapa 6), si no plantillas y libros no sincronizan.
+⚠️ **PENDIENTE del usuario:** correr en Supabase `supabase/migration_offer_templates.sql` (Etapa 5), `supabase/migration_books.sql` (Etapa 6) y **`supabase/migration_tasks_favorite.sql`** (⭐ favoritas) — este último es CRÍTICO: hasta correrlo, el push de tareas FALLA (columna `favorite` desconocida) y el sync de tareas se corta.
 
 ---
 
@@ -38,6 +38,31 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 ---
 
 ## ✅ Hecho recientemente
+
+- [x] **Tareas favoritas (⭐) — full-stack + widget en Dashboard** (Claude directo, verificado corriendo la app):
+  - Campo `favorite?: boolean` en `Task` (`types/index.ts`). Store `tasksStore`:
+    `toggleFavorite(id)` (bumpea `updatedAt` → merge LWW propaga) + `sendTaskToTop(id)`
+    (mueve al inicio de `taskIds`, visible solo en orden "manual").
+  - **Sync (BASE nº1/2):** `favorite` agregado al **push** (`favorite: t.favorite ?? false`)
+    y al **pull/sanitize** (`favorite: (t.favorite as boolean) ?? undefined`) en `sync.ts`.
+    Multitab ya cubierto (viaja en el blob `overseer-tasks`). **Requiere
+    `migration_tasks_favorite.sql`** (`ALTER TABLE tasks ADD COLUMN favorite`) — la tabla
+    `tasks` usa columnas reales, NO payload jsonb, así que sí hace falta migración.
+  - **TaskCard — menú de acciones (⋯):** los 6 botones sueltos (que le comían ancho al
+    título en Kanban) colapsan en un único dropdown por portal (`TaskActionsMenu`): abrir
+    detalle · agregar subtarea · ⭐ favorito · enviar arriba · duplicar · copiar checklist ·
+    postergar · **calendarizar con fecha + hora inline** · eliminar. Estrella persistente
+    (glanceable, sin hover) cuando la tarea es favorita. Reemplazó a `TaskScheduleButton`.
+  - **Dashboard — widget "Favoritas":** `FavoriteTasksPanel` (nuevo, registrado en `WIDGETS`
+    de `DashboardPage`, se apila al final → additivo, no rompe cuentas existentes por BASE nº4).
+    Lista todas las tareas ⭐ (cualquier proyecto), pendientes primero, con checkbox para
+    completar/re-abrir desde ahí y estrella para quitar de favoritas.
+  - **Verificado corriendo la app (BASE nº5):** menú abre con todos los ítems + fecha/hora
+    inline; toggle favorita persiste (`favorite:true`, `updatedAt` bumpeado) y muestra estrella;
+    widget lista la tarea, completar la marca Done (line-through, al fondo), quitar de favoritas
+    la saca. `tsc --noEmit` OK + `next build` OK. (Los errores de hidratación en consola son
+    pre-existentes — script de tema en `app/layout.tsx`, ajenos a este cambio.)
+  - **NO se tocó `ARCHITECTURE.md`** (no es dominio nuevo ni patrón transversal — §1.2).
 
 - [x] **Recurrentes — blindaje del `recurringHeadId` (incidente + fix)** (Claude directo):
       Tras el deploy de subtareas, las series recurrentes del usuario aparecieron

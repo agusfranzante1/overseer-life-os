@@ -8,6 +8,7 @@ import { IdealScheduleCard } from './IdealScheduleCard'
 import { DailyPriorities } from './DailyPriorities'
 import { DailyReflection } from './DailyReflection'
 import { DailyAgendaCard } from './DailyAgendaCard'
+import { FavoriteTasksPanel } from './FavoriteTasksPanel'
 import { format } from 'date-fns'
 import { GripVertical, LayoutGrid, RotateCcw, Check, Eye, EyeOff } from 'lucide-react'
 
@@ -49,6 +50,11 @@ const WIDGETS: WidgetDef[] = [
     id: 'daily-priorities',
     label: '⚡ Prioridades de hoy',
     render: () => <DailyPriorities />,
+  },
+  {
+    id: 'favorite-tasks',
+    label: '⭐ Tareas favoritas',
+    render: () => <FavoriteTasksPanel />,
   },
   {
     id: 'daily-reflection',

@@ -9,7 +9,7 @@ import { effectivePriority } from '@/lib/utils/taskPriority'
 import { type KanbanSort } from '@/lib/utils/taskSort'
 import { buildSubtaskTree, isDescendantSubtask, type SubtaskTreeNode } from '@/lib/tasks/subtaskTree'
 import { useTranslation } from '@/hooks/useTranslation'
-import { CheckCircle2, Clock, Trash2, ChevronDown, ChevronUp, Plus, Flag, GripVertical, CornerDownRight, MoreHorizontal, ChevronRight, Calendar, X, Copy, ClipboardCopy, Check } from 'lucide-react'
+import { CheckCircle2, Clock, Trash2, ChevronDown, ChevronUp, Plus, Flag, GripVertical, CornerDownRight, MoreHorizontal, ChevronRight, Calendar, X, Copy, ClipboardCopy, Check, Star, ArrowUpToLine, Maximize2 } from 'lucide-react'
 import { taskToClipboardText, copyTextToClipboard } from '@/lib/tasks/taskClipboard'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { format } from 'date-fns'
@@ -35,12 +35,11 @@ interface Props {
 const PRIORITIES: Priority[] = ['low', 'medium', 'high', 'urgent']
 
 export function TaskCard({ task, project, onClick, showProjectBadge = false, subtaskSortMode = 'manual' }: Props) {
-  const { completeTask, postponeTask, deleteTask, duplicateTask, toggleSubtask, addSubtask, updateSubtask, deleteSubtask, updateTask, convertTaskToSubtask, promoteSubtaskToTask } = useTasksStore()
+  const { completeTask, postponeTask, deleteTask, duplicateTask, toggleSubtask, addSubtask, updateSubtask, deleteSubtask, updateTask, convertTaskToSubtask, promoteSubtaskToTask, toggleFavorite, sendTaskToTop } = useTasksStore()
   const { t, dfLocale } = useTranslation()
   // Estado de UI (expanded del card, colapso de cada sub-tarea-1) vive
   // en su propio store persistido. Refrescar la página ya no resetea el
   // layout — recordamos qué quedó abierto/cerrado.
-  const [copiedToClipboard, setCopiedToClipboard] = useState(false)
   const expanded = useTaskUiStore((s) => !!s.taskExpanded[task.id])
   const setExpanded = (next: boolean | ((v: boolean) => boolean)) => {
     const value = typeof next === 'function' ? next(expanded) : next
@@ -737,82 +736,44 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
               </button>
             )}
           </div>
-          {/* Action buttons (Plus / Clock / Copy / Trash) — POSICIONADOS
-              ABSOLUTOS arriba a la derecha de la card. Antes con `shrink-0
-              opacity-0` igual ocupaban su ancho en el layout, dejándole
-              al título solo 70px en Kanban. Ahora flotan encima sin
-              comerse espacio. El offset `right-9` (36px) deja libre el
-              espacio del chevron de expand/collapse (que sigue en el
-              flow del flex row) para que no se choquen visualmente. */}
-          {/* En mobile SIEMPRE visibles (antes eran invisibles pero clickeables:
-              al tocar el chevron para colapsar se tocaba el tachito invisible y
-              se borraba la tarea). En desktop siguen apareciendo solo al hover. */}
-          <div className={`absolute top-3 flex items-center gap-0.5 shrink-0 opacity-100 sm:opacity-0 sm:group-hover/card:opacity-100 transition-opacity bg-zinc-900/85 backdrop-blur-sm rounded-md px-1 ${
+          {/* Cluster de acciones — POSICIONADO ABSOLUTO arriba a la derecha.
+              Antes eran 6 botones sueltos que le comían ancho al título en
+              Kanban; ahora colapsan en un único menú ⋯ (dropdown por portal),
+              dejándole todo el ancho al nombre de la tarea. El offset
+              `right-9` (36px) libera el chevron de expand/collapse. */}
+          <div className={`absolute top-3 flex items-center gap-0.5 shrink-0 ${
             visibleSubtasks.length > 0 ? 'right-9' : 'right-3'
           }`}>
-            {/* "+" rápido para agregar subtask1 sin abrir el modal de
-                detalle. Si la card está colapsada, la expandimos. El
-                flag `shouldFocusSubtaskInput` triggera el useEffect que
-                fija el foco una vez que el input ya está montado. */}
-            <button
-              data-interactive
-              onClick={(e) => {
-                e.stopPropagation()
-                if (!expanded) setExpanded(true)
-                setShouldFocusSubtaskInput(true)
-              }}
-              className="text-zinc-600 hover:text-indigo-300 transition-colors p-1"
-              title="Agregar subtarea"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-            {/* Programar fecha + hora directo desde la card, sin abrir el
-                detalle. Abre un popover (portal, para escapar el
-                overflow-hidden de la card) con inputs de fecha y hora. */}
-            <TaskScheduleButton task={task} updateTask={updateTask} />
-            <button
-              data-interactive
-              onClick={(e) => { e.stopPropagation(); postponeTask(task.id) }}
-              className="text-zinc-600 hover:text-amber-400 transition-colors p-1"
-              title={t('tasks.postpone')}
-            >
-              <Clock className="w-3.5 h-3.5" />
-            </button>
-            {/* Duplicar tarea madre completa con todas sus subtasks — para
-                usar tasks como plantilla de proceso. La copia se inserta
-                inmediatamente debajo de la original con título "X (copia)"
-                y estado reseteado a "To Do" para arrancar limpia. */}
-            <button
-              data-interactive
-              onClick={(e) => { e.stopPropagation(); duplicateTask(task.id) }}
-              className="text-zinc-600 hover:text-indigo-300 transition-colors p-1"
-              title="Duplicar tarea con todas sus subtareas (plantilla de proceso)"
-            >
-              <Copy className="w-3.5 h-3.5" />
-            </button>
-            {/* Copiar al portapapeles como checklist de texto (madre + subtareas). */}
-            <button
-              data-interactive
-              onClick={async (e) => {
-                e.stopPropagation()
-                const ok = await copyTextToClipboard(taskToClipboardText(task))
-                if (ok) { setCopiedToClipboard(true); setTimeout(() => setCopiedToClipboard(false), 1500) }
-              }}
-              className={`transition-colors p-1 ${copiedToClipboard ? 'text-emerald-400' : 'text-zinc-600 hover:text-indigo-300'}`}
-              title="Copiar al portapapeles (tarea + subtareas como checklist)"
-            >
-              {copiedToClipboard ? <Check className="w-3.5 h-3.5" /> : <ClipboardCopy className="w-3.5 h-3.5" />}
-            </button>
-            {/* Eliminar — oculto en mobile (ahí se borra deslizando la tarjeta,
-                y así un toque cerca del chevron no puede borrar por accidente). */}
-            <button
-              data-interactive
-              onClick={(e) => { e.stopPropagation(); deleteTask(task.id) }}
-              className="hidden sm:block text-zinc-600 hover:text-red-400 transition-colors p-1"
-              title={t('tasks.delete')}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            {/* Estrella PERSISTENTE cuando es favorita — glanceable sin hover.
+                Toque rápido = quitar de favoritas. */}
+            {task.favorite && (
+              <button
+                data-interactive
+                onClick={(e) => { e.stopPropagation(); toggleFavorite(task.id) }}
+                className="text-amber-400 hover:text-amber-300 transition-colors p-1"
+                title="Favorita — click para quitar"
+              >
+                <Star className="w-3.5 h-3.5 fill-current" />
+              </button>
+            )}
+            {/* Menú ⋯ — en mobile SIEMPRE visible; en desktop solo al hover.
+                El backdrop-blur da legibilidad sobre el contenido de la card. */}
+            <div className="opacity-100 sm:opacity-0 sm:group-hover/card:opacity-100 transition-opacity bg-zinc-900/85 backdrop-blur-sm rounded-md">
+              <TaskActionsMenu
+                task={task}
+                updateTask={updateTask}
+                onOpenDetail={onClick}
+                onAddSubtask={() => {
+                  if (!expanded) setExpanded(true)
+                  setShouldFocusSubtaskInput(true)
+                }}
+                onToggleFavorite={() => toggleFavorite(task.id)}
+                onSendTop={() => sendTaskToTop(task.id)}
+                onPostpone={() => postponeTask(task.id)}
+                onDuplicate={() => duplicateTask(task.id)}
+                onDelete={() => deleteTask(task.id)}
+              />
+            </div>
           </div>
         </div>
 
@@ -1139,22 +1100,32 @@ function InlineSelectBadge({ value, options, onChange, bgColor, fgColor, renderL
   )
 }
 
-// ─── Task schedule button (date + time inline popover) ───────────────────────
-// Botón de calendario en la fila de acciones de la tarea madre. Abre un
-// popover (vía portal, para escapar del overflow-hidden de la card) con
-// inputs de fecha y hora, así el user agenda la tarea en el calendario sin
-// tener que abrir el detalle. Si la tarea ya tiene fecha, el icono se tiñe.
+// ─── Task actions menu (⋯) — dropdown por portal ─────────────────────────────
+// Colapsa TODAS las acciones de la tarjeta en un único menú para que el título
+// gane ancho (antes eran 6 botones sueltos comiéndose el espacio del nombre):
+// abrir detalle · agregar subtarea · favorito · enviar arriba · duplicar ·
+// copiar · postergar · calendarizar (fecha + hora inline) · eliminar. El
+// dropdown va por portal para escapar el overflow-hidden de la card.
 
-function TaskScheduleButton({
-  task, updateTask,
+function TaskActionsMenu({
+  task, updateTask, onOpenDetail, onAddSubtask, onToggleFavorite, onSendTop,
+  onPostpone, onDuplicate, onDelete,
 }: {
   task: Task
   updateTask: (id: string, patch: Partial<Task>) => void
+  onOpenDetail: () => void
+  onAddSubtask: () => void
+  onToggleFavorite: () => void
+  onSendTop: () => void
+  onPostpone: () => void
+  onDuplicate: () => void
+  onDelete: () => void
 }) {
-  const { dfLocale } = useTranslation()
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const [copied, setCopied] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -1162,47 +1133,53 @@ function TaskScheduleButton({
     return () => window.clearTimeout(id)
   }, [])
 
-  const POPOVER_W = 220
+  const POPOVER_W = 232
   const openMenu = () => {
     const r = btnRef.current?.getBoundingClientRect()
     if (!r) return
-    // Right-align el popover contra el botón; clamp para no salirse por
-    // el borde izquierdo de la ventana.
+    // Right-align contra el botón; clamp para no salirse por el borde
+    // izquierdo. Si no hay lugar abajo, abrimos hacia arriba.
     const left = Math.max(8, r.right - POPOVER_W)
-    setPos({ top: r.bottom + 4, left })
+    const estH = 380
+    const top = (r.bottom + estH > window.innerHeight && r.top - estH > 8)
+      ? r.top - estH - 4
+      : r.bottom + 4
+    setPos({ top, left })
     setOpen(true)
   }
 
   // Cerrar al click afuera / Escape / scroll — mismo patrón que InlineSelectBadge.
   useEffect(() => {
     if (!open) return
-    const onClick = (e: MouseEvent) => {
+    const onClickOutside = (e: MouseEvent) => {
       const target = e.target as Element | null
-      if (target && target.closest('[data-schedule-popover]')) return
+      if (target && target.closest('[data-actions-popover]')) return
       if (btnRef.current && btnRef.current.contains(target as Node)) return
       setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
     const onScroll = () => setOpen(false)
-    window.addEventListener('mousedown', onClick)
+    window.addEventListener('mousedown', onClickOutside)
     window.addEventListener('keydown', onKey)
     window.addEventListener('scroll', onScroll, true)
     return () => {
-      window.removeEventListener('mousedown', onClick)
+      window.removeEventListener('mousedown', onClickOutside)
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('scroll', onScroll, true)
     }
   }, [open])
 
+  const close = () => setOpen(false)
+  // Corre la acción y cierra el menú. Envolvemos con stopPropagation para no
+  // disparar el onClick de la card (abrir detalle).
+  const run = (fn: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation()
+    fn()
+    close()
+  }
+
   const hasSchedule = !!task.dueDate
-  const scheduleLabel = task.dueDate
-    ? (() => {
-        const [y, m, d] = task.dueDate.split('-').map(Number)
-        const dt = new Date(y, m - 1, d)
-        const base = format(dt, 'EEE d MMM', { locale: dfLocale })
-        return task.dueTime ? `${base} · ${task.dueTime}` : base
-      })()
-    : null
+  const rowClass = 'w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-left transition-colors'
 
   return (
     <>
@@ -1214,14 +1191,14 @@ function TaskScheduleButton({
           if (open) setOpen(false)
           else openMenu()
         }}
-        title={scheduleLabel ? `Programada: ${scheduleLabel} — click para cambiar` : 'Poner fecha y hora'}
-        className={`transition-colors p-1 ${hasSchedule ? 'text-indigo-300 hover:text-indigo-200' : 'text-zinc-600 hover:text-indigo-300'}`}
+        title="Acciones"
+        className="text-zinc-500 hover:text-zinc-200 transition-colors p-1"
       >
-        <Calendar className="w-3.5 h-3.5" />
+        <MoreHorizontal className="w-4 h-4" />
       </button>
       {mounted && open && pos && createPortal(
         <div
-          data-schedule-popover
+          data-actions-popover
           onClick={(e) => e.stopPropagation()}
           style={{
             position: 'fixed',
@@ -1232,25 +1209,55 @@ function TaskScheduleButton({
             background: 'var(--surface-popover)',
             boxShadow: '0 10px 32px -8px rgba(0,0,0,0.65), 0 0 0 1px rgba(255,255,255,0.04), 0 0 24px -8px rgba(99,102,241,0.35)',
           }}
-          className="rounded-lg border border-white/[0.14] p-3 space-y-2"
+          className="rounded-lg border border-white/[0.14] overflow-hidden py-1"
         >
-          <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Programar</p>
-          <div>
-            <label className="text-[10px] text-zinc-500 mb-1 block">Fecha</label>
+          <button onClick={run(onOpenDetail)} className={`${rowClass} text-zinc-200 hover:bg-white/[0.06]`}>
+            <Maximize2 className="w-3.5 h-3.5 text-zinc-400" /> Abrir detalle
+          </button>
+          <button onClick={run(onAddSubtask)} className={`${rowClass} text-zinc-200 hover:bg-white/[0.06]`}>
+            <Plus className="w-3.5 h-3.5 text-zinc-400" /> Agregar subtarea
+          </button>
+          <button onClick={run(onToggleFavorite)} className={`${rowClass} hover:bg-white/[0.06] ${task.favorite ? 'text-amber-300' : 'text-zinc-200'}`}>
+            <Star className={`w-3.5 h-3.5 ${task.favorite ? 'text-amber-400 fill-current' : 'text-zinc-400'}`} />
+            {task.favorite ? 'Quitar de favoritas' : 'Marcar favorita'}
+          </button>
+          <button onClick={run(onSendTop)} className={`${rowClass} text-zinc-200 hover:bg-white/[0.06]`}>
+            <ArrowUpToLine className="w-3.5 h-3.5 text-zinc-400" /> Enviar arriba
+          </button>
+          <button onClick={run(onDuplicate)} className={`${rowClass} text-zinc-200 hover:bg-white/[0.06]`}>
+            <Copy className="w-3.5 h-3.5 text-zinc-400" /> Duplicar
+          </button>
+          {/* Copiar — NO cierra el menú, así se ve el ✓ de confirmación. */}
+          <button
+            onClick={async (e) => {
+              e.stopPropagation()
+              const ok = await copyTextToClipboard(taskToClipboardText(task))
+              if (ok) { setCopied(true); setTimeout(() => setCopied(false), 1500) }
+            }}
+            className={`${rowClass} hover:bg-white/[0.06] ${copied ? 'text-emerald-400' : 'text-zinc-200'}`}
+          >
+            {copied ? <Check className="w-3.5 h-3.5" /> : <ClipboardCopy className="w-3.5 h-3.5 text-zinc-400" />}
+            {copied ? 'Copiado' : 'Copiar checklist'}
+          </button>
+          <button onClick={run(onPostpone)} className={`${rowClass} text-zinc-200 hover:bg-white/[0.06]`}>
+            <Clock className="w-3.5 h-3.5 text-zinc-400" /> {t('tasks.postpone')}
+          </button>
+
+          {/* ── Calendarizar: fecha + hora inline ── */}
+          <div className="border-t border-white/[0.08] mt-1 pt-2 px-3 pb-2 space-y-2">
+            <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
+              <Calendar className="w-3 h-3" /> Programar
+            </p>
             <input
               type="date"
               value={task.dueDate ?? ''}
               onChange={(e) => {
                 const v = e.target.value || undefined
-                // Si se borra la fecha, la hora pierde sentido → limpiamos
-                // ambas para que la tarea no quede con hora colgada sin día.
+                // Si se borra la fecha, la hora pierde sentido → limpiamos ambas.
                 updateTask(task.id, v ? { dueDate: v } : { dueDate: undefined, dueTime: undefined })
               }}
               className="w-full text-xs bg-black/30 border border-white/[0.12] rounded px-2 py-1.5 text-zinc-200 focus:outline-none focus:border-indigo-500/60"
             />
-          </div>
-          <div>
-            <label className="text-[10px] text-zinc-500 mb-1 block">Hora (opcional)</label>
             <input
               type="time"
               value={task.dueTime ?? ''}
@@ -1259,20 +1266,27 @@ function TaskScheduleButton({
               className="w-full text-xs bg-black/30 border border-white/[0.12] rounded px-2 py-1.5 text-zinc-200 focus:outline-none focus:border-indigo-500/60 disabled:opacity-40"
             />
             {!task.dueDate && (
-              <p className="text-[9px] text-zinc-600 mt-1">Elegí una fecha primero.</p>
+              <p className="text-[9px] text-zinc-600">Elegí una fecha para habilitar la hora.</p>
             )}
             {task.dueDate && task.dueTime && (
-              <p className="text-[9px] text-indigo-300/80 mt-1">Aparece como bloque en el calendario.</p>
+              <p className="text-[9px] text-indigo-300/80">Aparece como bloque en el calendario.</p>
+            )}
+            {hasSchedule && (
+              <button
+                onClick={run(() => updateTask(task.id, { dueDate: undefined, dueTime: undefined }))}
+                className="w-full flex items-center justify-center gap-1 text-[10px] text-zinc-500 hover:text-red-400 transition-colors"
+              >
+                <X className="w-2.5 h-2.5" /> Quitar fecha
+              </button>
             )}
           </div>
-          {hasSchedule && (
-            <button
-              onClick={() => { updateTask(task.id, { dueDate: undefined, dueTime: undefined }); setOpen(false) }}
-              className="w-full flex items-center justify-center gap-1 text-[10px] text-zinc-500 hover:text-red-400 transition-colors pt-1"
-            >
-              <X className="w-2.5 h-2.5" /> Quitar fecha
+
+          {/* ── Eliminar ── */}
+          <div className="border-t border-white/[0.08] mt-1 pt-1">
+            <button onClick={run(onDelete)} className={`${rowClass} text-red-300 hover:bg-red-500/10 hover:text-red-200`}>
+              <Trash2 className="w-3.5 h-3.5" /> {t('tasks.delete')}
             </button>
-          )}
+          </div>
         </div>,
         document.body
       )}

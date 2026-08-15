@@ -163,6 +163,11 @@ export interface Task {
    *  TARDÍA y generar urgencia visual sobre tareas que arrastra. Se
    *  limpia al completarse. */
   rescheduledFrom?: string
+  /** Marca de "favorita" — la tarea aparece en el widget "Favoritas" del
+   *  Dashboard para tenerla a la vista sin importar en qué proyecto vive.
+   *  Se togglea desde el menú de acciones (⋯) de la TaskCard. Viaja en el
+   *  push/pull de tasks (columna `favorite`, migration_tasks_favorite.sql). */
+  favorite?: boolean
 }
 
 export interface Project {
