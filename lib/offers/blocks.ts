@@ -158,6 +158,54 @@ export function convertSelection(
   return { blocks: next, newBlockId: created.id }
 }
 
+/**
+ * "Desarma" un toggle/page y lo vuelve texto: el bloque contenedor se
+ * reemplaza, EN SU MISMA POSICIÓN, por un párrafo con su título + todos sus
+ * hijos spliceados a ese nivel. Los hijos CONSERVAN su tipo — un texto queda
+ * texto, un toggle interno sigue siendo toggle pero ahora "afuera" (subió un
+ * nivel), igual que en Notion al convertir un bloque de vuelta a texto.
+ *
+ * Reverso conceptual de `convertSelection`. No-op sobre bloques hoja (ya son
+ * texto). Si el contenedor no tenía título ni hijos, deja un párrafo vacío
+ * para que el renglón no desaparezca en silencio.
+ */
+export function unwrapBlock(blocks: Block[], id: string): Block[] {
+  return replaceBlock(blocks, id, (b) => {
+    if (isLeaf(b.type)) return b
+    const out: Block[] = []
+    if (b.text.trim()) out.push({ id: newId(), type: 'text', text: b.text })
+    out.push(...(b.children ?? []))
+    if (out.length === 0) out.push(emptyBlock('text'))
+    return out
+  })
+}
+
+/**
+ * Mueve el bloque `dragId` para que quede justo antes/después de `targetId`,
+ * a cualquier nivel del árbol (soporta sacar un bloque de adentro de un
+ * contenedor y viceversa, como el drag de Notion).
+ *
+ * Guardas: no hace nada si arrastrás sobre vos mismo, si el bloque no existe,
+ * o si el target está DENTRO del subárbol del bloque arrastrado (meter un
+ * contenedor en su propio hijo = ciclo).
+ */
+export function moveBlock(
+  blocks: Block[],
+  dragId: string,
+  targetId: string,
+  position: 'before' | 'after',
+): Block[] {
+  if (dragId === targetId) return blocks
+  const dragged = findBlock(blocks, dragId)
+  if (!dragged) return blocks
+  // Ciclo: el target vive adentro del que arrastramos → abortar.
+  if (findBlock(dragged.children ?? [], targetId)) return blocks
+  const without = removeBlock(blocks, dragId)
+  return replaceBlock(without, targetId, (b) =>
+    position === 'before' ? [dragged, b] : [b, dragged],
+  )
+}
+
 /** Título que se muestra para una página/toggle sin texto. */
 export function blockLabel(b: Block): string {
   return b.text.trim() || (b.type === 'page' ? 'Página sin título' : 'Sin título')

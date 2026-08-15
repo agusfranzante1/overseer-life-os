@@ -39,6 +39,37 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Ofertas — arrastrar renglones (Notion) + doble-click «convertir a texto»** (Claude directo, verificado corriendo la app):
+  - `lib/offers/blocks.ts`: dos funciones PURAS nuevas — `unwrapBlock` (desarma un
+    toggle/page: su título pasa a párrafo y sus hijos suben un nivel EN SU LUGAR;
+    los hijos conservan su tipo → un desplegable interno sigue siendo desplegable
+    pero afuera) y `moveBlock` (mueve un renglón antes/después de otro a cualquier
+    nivel, con guarda anti-ciclo). Reverso conceptual de `convertSelection`.
+  - `components/offers/OfferDoc.tsx`: DnD estilo Notion — manija de arrastre
+    (`GripVertical`, hover, ÚNICO elemento draggable para no romper la selección
+    del textarea) + indicador de drop (línea inset arriba/abajo) + estado `dnd`
+    en OfferDoc que baja por props a todo el árbol (reordena dentro/fuera de
+    desplegables). Doble-click en la barra del desplegable o en la tarjeta de
+    página → `unwrapBlock`. La página usa timer 220ms para separar «abrir» (1
+    click) de «convertir» (doble). Aplica a las notas del sistema Y al doc de
+    cada oferta (mismo componente) y adentro de páginas anidadas.
+  - **Sync:** SIN cambios ni migración — solo se reordenan/reacomodan campos que
+    ya existían (`type/text/children/collapsed`); `sanitizeOfferBlock` ya los
+    preserva recursivo (BASE nº2). Las mutaciones pasan por `setSystemDoc`/
+    `setOfferDoc` (ya bumpean `updatedAt`).
+  - **Verificado:** 15 asserts puros OK (`npx tsx lib/offers/blocks.test.ts`);
+    corriendo la app: 5 grips renderizados, doble-click página→texto (hijos
+    preservados, toggle interno queda afuera), doble-click desplegable→texto,
+    drag reordena end-to-end, sin errores de consola. `tsc` OK.
+
+- [x] **Subtareas — menú de acciones (⋯)** (Claude directo, verificado): mismo
+  tratamiento que la card madre. Los botones sueltos de la fila de subtarea
+  (↶/↗ promover/sacar del grupo · «+» · detalle · 🗑) colapsan en un dropdown
+  `SubtaskActionsMenu` (portal), dejándole ancho al título. Los chips de
+  prioridad/estado/fecha quedan afuera (edición rápida). Ítems según sea
+  subtask1 (promover/agregar) o subtask2 (sacar del grupo). Verificado corriendo
+  la app: menú abre con los ítems correctos, cierra y ejecuta (abre detalle).
+
 - [x] **Tareas favoritas (⭐) — full-stack + widget en Dashboard** (Claude directo, verificado corriendo la app):
   - Campo `favorite?: boolean` en `Task` (`types/index.ts`). Store `tasksStore`:
     `toggleFavorite(id)` (bumpea `updatedAt` → merge LWW propaga) + `sendTaskToTop(id)`

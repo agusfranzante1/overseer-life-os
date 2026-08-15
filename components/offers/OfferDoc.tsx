@@ -1,11 +1,23 @@
 'use client'
 import { useState, useRef, useCallback, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, ChevronDown, FileText, Plus, Trash2, ListTree, CornerDownRight, List } from 'lucide-react'
+import { ChevronRight, ChevronDown, FileText, Plus, Trash2, ListTree, CornerDownRight, List, GripVertical } from 'lucide-react'
 import {
   type Block, type BlockType, emptyBlock, convertSelection, findBlock, setText, insertAfter,
-  appendChild, removeBlock, toggleCollapsed, blockLabel, countChildren, isLeaf,
+  appendChild, removeBlock, toggleCollapsed, blockLabel, countChildren, isLeaf, moveBlock, unwrapBlock,
 } from '@/lib/offers/blocks'
+
+/** Estado + handlers de drag-and-drop compartidos por todo el árbol de bloques.
+ *  Vive en OfferDoc y baja por props para que se pueda arrastrar un renglón de
+ *  cualquier nivel a cualquier otro (dentro/fuera de desplegables). */
+interface BlockDnd {
+  dragId: string | null
+  dropTarget: { id: string; pos: 'before' | 'after' } | null
+  begin: (id: string) => void
+  end: () => void
+  over: (id: string, e: React.DragEvent) => void
+  drop: (id: string, e: React.DragEvent) => void
+}
 
 /**
  * Editor de bloques tipo Notion.
@@ -24,6 +36,32 @@ export function OfferDoc({ doc, onChange }: { doc: Block[]; onChange: (next: Blo
   const [path, setPath] = useState<string[]>([])
   const [sel, setSel] = useState<{ blockId: string; start: number; end: number; x: number; y: number } | null>(null)
   const focusRef = useRef<string | null>(null)
+
+  // ── Drag-and-drop de renglones (estilo Notion) ──
+  const draggedRef = useRef<string | null>(null)
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ id: string; pos: 'before' | 'after' } | null>(null)
+  const dnd: BlockDnd = {
+    dragId,
+    dropTarget,
+    begin: (id) => { draggedRef.current = id; setDragId(id); setSel(null) },
+    end: () => { draggedRef.current = null; setDragId(null); setDropTarget(null) },
+    over: (id, e) => {
+      if (!draggedRef.current || draggedRef.current === id) return
+      e.preventDefault()
+      const r = e.currentTarget.getBoundingClientRect()
+      const pos: 'before' | 'after' = e.clientY < r.top + r.height / 2 ? 'before' : 'after'
+      setDropTarget((cur) => (cur && cur.id === id && cur.pos === pos ? cur : { id, pos }))
+    },
+    drop: (id, e) => {
+      e.preventDefault()
+      const src = draggedRef.current
+      const pos = dropTarget && dropTarget.id === id ? dropTarget.pos : 'after'
+      draggedRef.current = null; setDragId(null); setDropTarget(null)
+      if (!src || src === id) return
+      onChange(moveBlock(doc, src, id, pos))
+    },
+  }
 
   // Bloques que se están mostrando: la raíz, o los hijos de la página abierta.
   const openId = path[path.length - 1] ?? null
@@ -71,6 +109,7 @@ export function OfferDoc({ doc, onChange }: { doc: Block[]; onChange: (next: Blo
         onSelect={setSel}
         onOpenPage={(id) => { setSel(null); setPath([...path, id]) }}
         containerId={openId}
+        dnd={dnd}
       />
 
       {/* Barra flotante de conversión — PORTALEADA a <body>. El panel principal
@@ -114,7 +153,7 @@ export function OfferDoc({ doc, onChange }: { doc: Block[]; onChange: (next: Blo
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-function BlockList({ blocks, doc, depth, focusRef, onChange, onSelect, onOpenPage, containerId }: {
+function BlockList({ blocks, doc, depth, focusRef, onChange, onSelect, onOpenPage, containerId, dnd }: {
   blocks: Block[]
   doc: Block[]
   depth: number
@@ -123,6 +162,7 @@ function BlockList({ blocks, doc, depth, focusRef, onChange, onSelect, onOpenPag
   onSelect: (s: { blockId: string; start: number; end: number; x: number; y: number } | null) => void
   onOpenPage: (id: string) => void
   containerId: string | null
+  dnd: BlockDnd
 }) {
   const addAtEnd = () => {
     const nb = emptyBlock('text')
@@ -144,6 +184,7 @@ function BlockList({ blocks, doc, depth, focusRef, onChange, onSelect, onOpenPag
           onChange={onChange}
           onSelect={onSelect}
           onOpenPage={onOpenPage}
+          dnd={dnd}
         />
       ))}
       <button
@@ -157,7 +198,7 @@ function BlockList({ blocks, doc, depth, focusRef, onChange, onSelect, onOpenPag
   )
 }
 
-function BlockRow({ block, doc, depth, focusRef, onChange, onSelect, onOpenPage }: {
+function BlockRow({ block, doc, depth, focusRef, onChange, onSelect, onOpenPage, dnd }: {
   block: Block
   doc: Block[]
   depth: number
@@ -165,8 +206,23 @@ function BlockRow({ block, doc, depth, focusRef, onChange, onSelect, onOpenPage 
   onChange: (next: Block[]) => void
   onSelect: (s: { blockId: string; start: number; end: number; x: number; y: number } | null) => void
   onOpenPage: (id: string) => void
+  dnd: BlockDnd
 }) {
   const ta = useRef<HTMLTextAreaElement>(null)
+  // Timer para distinguir click (abrir página) de doble-click (desarmar a texto)
+  // en el bloque `page`, que con un solo click ya navega adentro.
+  const clickTimer = useRef<number | null>(null)
+
+  // Indicador visual de drop (línea arriba/abajo del renglón), sin correr layout.
+  const isDropTarget = dnd.dropTarget?.id === block.id
+  const dropStyle: React.CSSProperties = isDropTarget
+    ? { boxShadow: dnd.dropTarget!.pos === 'before' ? 'inset 0 2px 0 0 #6366f1' : 'inset 0 -2px 0 0 #6366f1' }
+    : {}
+  const isDragging = dnd.dragId === block.id
+  const rowDnd = {
+    onDragOver: (e: React.DragEvent) => dnd.over(block.id, e),
+    onDrop: (e: React.DragEvent) => dnd.drop(block.id, e),
+  }
 
   // Auto-grow + foco del bloque recién creado. useLayoutEffect para que no se
   // vea el textarea de una línea antes de estirarse.
@@ -215,7 +271,12 @@ function BlockRow({ block, doc, depth, focusRef, onChange, onSelect, onOpenPage 
   if (isLeaf(block.type)) {
     const bullet = block.type === 'bullet'
     return (
-      <div className={`group/row relative flex items-start gap-1 ${bullet ? 'pl-3' : ''}`}>
+      <div
+        {...rowDnd}
+        style={dropStyle}
+        className={`group/row relative flex items-start gap-1 rounded ${bullet ? 'pl-1' : ''} ${isDragging ? 'opacity-40' : ''}`}
+      >
+        <DragHandle dnd={dnd} id={block.id} />
         {bullet && (
           <span className="text-zinc-500 text-sm leading-relaxed pt-1 select-none shrink-0">•</span>
         )}
@@ -240,10 +301,19 @@ function BlockRow({ block, doc, depth, focusRef, onChange, onSelect, onOpenPage 
   // ── Desplegable ──
   if (block.type === 'toggle') {
     return (
-      <div className="group/row my-1">
-        <div className="flex items-center gap-1 rounded-lg bg-indigo-500/[0.07] border border-indigo-500/25 px-2 py-1.5">
+      <div className={`group/row my-1 ${isDragging ? 'opacity-40' : ''}`}>
+        {/* Doble-click en la barra (fuera del input/chevron) → desarma a texto. */}
+        <div
+          {...rowDnd}
+          style={dropStyle}
+          onDoubleClick={() => onChange(unwrapBlock(doc, block.id))}
+          title="Doble-click para convertir a texto"
+          className="flex items-center gap-1 rounded-lg bg-indigo-500/[0.07] border border-indigo-500/25 px-1 py-1.5"
+        >
+          <DragHandle dnd={dnd} id={block.id} />
           <button
             onClick={() => onChange(toggleCollapsed(doc, block.id))}
+            onDoubleClick={(e) => e.stopPropagation()}
             className="text-indigo-300/80 hover:text-indigo-200 shrink-0 transition-colors"
             title={block.collapsed ? 'Abrir' : 'Cerrar'}
           >
@@ -252,6 +322,7 @@ function BlockRow({ block, doc, depth, focusRef, onChange, onSelect, onOpenPage 
           <input
             value={block.text}
             onChange={(e) => onChange(setText(doc, block.id, e.target.value))}
+            onDoubleClick={(e) => e.stopPropagation()}
             placeholder="Título del desplegable"
             className="flex-1 bg-transparent text-sm font-semibold text-zinc-100 placeholder-zinc-600 outline-none min-w-0"
           />
@@ -271,6 +342,7 @@ function BlockRow({ block, doc, depth, focusRef, onChange, onSelect, onOpenPage 
               onSelect={onSelect}
               onOpenPage={onOpenPage}
               containerId={block.id}
+              dnd={dnd}
             />
           </div>
         )}
@@ -279,10 +351,31 @@ function BlockRow({ block, doc, depth, focusRef, onChange, onSelect, onOpenPage 
   }
 
   // ── Página ──
+  // Un click abre la página; doble-click la desarma a texto. Como el primer
+  // click de un doble-click ya navegaría adentro, diferimos el "abrir" con un
+  // timer corto y lo cancelamos si llega el segundo click.
+  const onPageClick = () => {
+    if (clickTimer.current) {
+      window.clearTimeout(clickTimer.current)
+      clickTimer.current = null
+      onChange(unwrapBlock(doc, block.id))
+      return
+    }
+    clickTimer.current = window.setTimeout(() => {
+      clickTimer.current = null
+      onOpenPage(block.id)
+    }, 220)
+  }
   return (
-    <div className="group/row my-1 flex items-center gap-1">
+    <div
+      {...rowDnd}
+      style={dropStyle}
+      className={`group/row my-1 flex items-center gap-1 rounded ${isDragging ? 'opacity-40' : ''}`}
+    >
+      <DragHandle dnd={dnd} id={block.id} />
       <button
-        onClick={() => onOpenPage(block.id)}
+        onClick={onPageClick}
+        title="Click para abrir · doble-click para convertir a texto"
         className="flex-1 flex items-center gap-2 rounded-lg bg-amber-500/[0.07] border border-amber-500/25 hover:bg-amber-500/[0.12] hover:border-amber-500/40 px-2.5 py-2 transition-colors text-left"
       >
         <FileText className="w-4 h-4 text-amber-400 shrink-0" />
@@ -294,6 +387,26 @@ function BlockRow({ block, doc, depth, focusRef, onChange, onSelect, onOpenPage 
       </button>
       <RowDelete onDelete={() => onChange(removeBlock(doc, block.id))} />
     </div>
+  )
+}
+
+/** Manija de arrastre — el ÚNICO elemento draggable de la fila, para no romper
+ *  la selección de texto del textarea. Aparece al hover. */
+function DragHandle({ dnd, id }: { dnd: BlockDnd; id: string }) {
+  return (
+    <span
+      draggable
+      onDragStart={(e) => {
+        dnd.begin(id)
+        e.dataTransfer.effectAllowed = 'move'
+        try { e.dataTransfer.setData('text/plain', id) } catch { /* noop */ }
+      }}
+      onDragEnd={() => dnd.end()}
+      title="Arrastrar para mover"
+      className="shrink-0 self-stretch flex items-center px-0.5 text-zinc-700 hover:text-zinc-400 opacity-0 group-hover/row:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
+    >
+      <GripVertical className="w-3.5 h-3.5" />
+    </span>
   )
 }
 
