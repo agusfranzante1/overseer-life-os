@@ -177,15 +177,11 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
           initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-lg h-full overflow-y-auto"
-          style={{
-            background: `
-              radial-gradient(circle at 0% 0%, rgba(99, 102, 241, 0.08), transparent 50%),
-              linear-gradient(180deg, rgba(20, 23, 30, 0.95), rgba(15, 17, 23, 0.98))
-            `,
-            borderLeft: '1px solid rgba(255, 255, 255, 0.10)',
-            boxShadow: '-24px 0 48px -8px rgba(0,0,0,0.6)',
-          }}
+          // `task-detail-panel`: fondo/borde/sombra en globals.css para que
+          // FLIPEEN con el tema (antes era un gradiente OSCURO inline que el
+          // modo claro no podía pisar → el detalle de subtarea quedaba oscuro).
+          // Mismo fix que ya se aplicó al TaskDetail principal.
+          className="task-detail-panel w-full max-w-lg h-full overflow-y-auto"
         >
           <div className="p-6 space-y-5">
             {/* Breadcrumb */}
