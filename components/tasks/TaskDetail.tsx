@@ -1069,6 +1069,12 @@ function TagsEditor({
         .slice(0, 6)
     : []
 
+  // Etiquetas existentes (de CUALQUIER proyecto) que esta tarea todavía no
+  // tiene — se muestran SIEMPRE como chips para elegir con un click, sin
+  // tener que acordarse ni tipearlas. Esto arregla que una etiqueta creada
+  // en un proyecto no "apareciera" para seleccionar en otro.
+  const unusedExisting = allTags.filter((t) => !tags.some((x) => x.toLowerCase() === t.toLowerCase()))
+
   return (
     <div>
       <label className="text-xs text-zinc-500 uppercase tracking-wider block mb-2 flex items-center gap-1.5">
@@ -1117,6 +1123,27 @@ function TagsEditor({
           )}
         </div>
       </div>
+
+      {/* Etiquetas existentes para elegir con un click — visibles siempre.
+          Así una etiqueta creada en otro proyecto aparece acá para seleccionar. */}
+      {unusedExisting.length > 0 && (
+        <div className="mt-2">
+          <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-600 mb-1">Existentes · click para agregar</p>
+          <div className="flex flex-wrap gap-1.5">
+            {unusedExisting.map((tag) => (
+              <button
+                key={tag}
+                onClick={() => addTag(tag)}
+                title={`Agregar "${tag}"`}
+                className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-full bg-white/[0.03] border border-white/[0.12] text-zinc-400 hover:border-indigo-500/50 hover:text-indigo-200 transition-colors"
+              >
+                <Plus className="w-2.5 h-2.5" /> {tag}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <p className="text-[10px] text-zinc-600 mt-1.5 italic">
         Transversales a los proyectos — filtrá por etiqueta para ver tareas de
         varios proyectos juntas (ej. &quot;software&quot;).
