@@ -425,6 +425,11 @@ function PlanCard({
                 <QuarterMiniCalendar quarterKey={periodKey} />
               )}
 
+              {/* Mini-calendario del mes — igual que el trimestral, en el mes actual */}
+              {level === 'month' && status === 'in_progress' && (
+                <MonthMiniCalendar monthKey={periodKey} />
+              )}
+
               {/* Mini-calendario de los 6 meses — solo en el semestre actual */}
               {level === 'semester' && status === 'in_progress' && (
                 <SemesterMiniCalendar
@@ -785,6 +790,12 @@ function LevelView({
           in time while filling the quarter plan. */}
       {level === 'quarter' && (
         <QuarterMiniCalendar quarterKey={periodKey} />
+      )}
+
+      {/* Mini-calendario del mes — mismo servicio que el trimestral, para
+          ubicarte en el mes mientras llenás el plan mensual. */}
+      {level === 'month' && (
+        <MonthMiniCalendar monthKey={periodKey} />
       )}
 
       {/* If no plan yet — empty state with start CTA */}
@@ -1362,6 +1373,72 @@ function QuarterMiniCalendar({ quarterKey }: { quarterKey: string }) {
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+/** Mini-calendario de UN mes — misma estética que QuarterMiniCalendar pero
+ *  con el mes del plan mensual. Sirve para ubicarte en el mes mientras llenás
+ *  el plan (mismo servicio que el calendario del trimestre). */
+function MonthMiniCalendar({ monthKey }: { monthKey: string }) {
+  // Parse 'YYYY-MM' → year + month index (0-based).
+  const [yearStr, monthStr] = monthKey.split('-')
+  const year = parseInt(yearStr, 10)
+  const monthIdx = parseInt(monthStr, 10) - 1
+  if (Number.isNaN(year) || Number.isNaN(monthIdx) || monthIdx < 0 || monthIdx > 11) return null
+  const grid = buildMonthGrid(year, monthIdx)
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const isSameYMD = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate()
+
+  return (
+    <div className="bg-black/20 border border-white/[0.08] rounded-xl p-3">
+      <div className="max-w-xs mx-auto md:mx-0">
+        <p className="text-xs font-semibold text-zinc-200 mb-2">
+          {MONTH_NAMES[monthIdx]} {year}
+        </p>
+        {/* Weekday headers (Spanish Mon-Sun, X for Wednesday) */}
+        <div className="grid grid-cols-[24px_repeat(7,1fr)] gap-y-0.5 mb-1">
+          <span />
+          {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map((d) => (
+            <span key={d} className="text-[10px] text-zinc-500 text-center font-medium">{d}</span>
+          ))}
+        </div>
+        {/* Weeks */}
+        <div className="grid grid-cols-[24px_repeat(7,1fr)] gap-y-0.5">
+          {grid.weeks.map((week, wi) => (
+            <React.Fragment key={wi}>
+              <span className="text-[9px] text-zinc-600 bg-white/[0.03] rounded text-center font-mono leading-6">
+                {week.weekNo}
+              </span>
+              {week.days.map((cell, di) => {
+                const isToday = isSameYMD(cell.date, today)
+                const isWeekend = di >= 5
+                let textCls = 'text-zinc-200'
+                if (!cell.inMonth) textCls = 'text-zinc-700'
+                else if (isWeekend) textCls = 'text-red-400'
+                return (
+                  <div key={di} className="text-center relative">
+                    {isToday ? (
+                      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-500 text-white text-[11px] font-semibold">
+                        {cell.date.getDate()}
+                      </span>
+                    ) : (
+                      <span className={`inline-block text-[11px] leading-6 ${textCls}`}>
+                        {cell.date.getDate()}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </React.Fragment>
+          ))}
+        </div>
       </div>
     </div>
   )

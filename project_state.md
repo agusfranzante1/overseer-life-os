@@ -39,6 +39,12 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Proyección mensual — mini-calendario** (Claude directo, verificado): el nivel
+      **Mensual** ahora muestra un mini-calendario del mes (con hoy resaltado), igual que
+      el Trimestral. Nuevo componente `MonthMiniCalendar` en `ProjectionPage.tsx` (reusa
+      `buildMonthGrid` + `MONTH_NAMES`), renderizado en los 2 sitios donde el trimestral
+      muestra el suyo (`level === 'month'`). Verificado: "agosto 2026" con círculo de hoy.
+
 - [x] **Listas guardadas (smart lists) en Tareas** (Claude directo, verificado corriendo la app):
   Debajo de Recurrentes/Papelera hay una sección **"Listas"** donde el usuario arma vistas
   propias que **cruzan todos los proyectos**. Cada lista combina criterios —etiquetas,
