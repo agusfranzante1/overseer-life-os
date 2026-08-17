@@ -39,6 +39,23 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Listas guardadas (smart lists) en Tareas** (Claude directo, verificado corriendo la app):
+  Debajo de Recurrentes/Papelera hay una sección **"Listas"** donde el usuario arma vistas
+  propias que **cruzan todos los proyectos**. Cada lista combina criterios —etiquetas,
+  prioridad, vencimiento (hoy / vencidas+hoy / esta semana)— con modo **"Cualquiera" (OR)**
+  o **"Todos" (AND)**. Ej: "Software" (tag=software) o "Hacer hoy" (vence hoy O urgente).
+  - **Modelo/estado:** `SavedTaskView` + motor puro `taskMatchesView` en
+    `lib/tasks/savedViews.ts`. Viven en `taskUiStore.savedViews` (acciones add/update/delete).
+  - **Sync multi-device:** viajan en el blob `app_preferences` (merge por-campo), igual que
+    `hiddenProjects` — agregado a `appPrefsFields()` y `applyPrefsFieldsInner()` en `sync.ts`.
+    **Sin migración** (el blob es jsonb).
+  - **UI (`TasksPage`):** sentinel `__view__:<id>` (como `__archive__`/`__recurring__`);
+    la vista deshabilita los filtros del toolbar (la lista ES el filtro) y renderiza una
+    lista PLANA con badge de proyecto. Modal `SavedViewModal` para crear/editar (nombre,
+    tags, prioridad, vencimiento, modo any/all). Botón "+" en la sección Listas.
+  - **Verificado:** "Software" muestra 2 tareas de 2 proyectos distintos; "Hacer hoy" (OR)
+    trae urgente + vence-hoy; crear desde el modal persiste, auto-abre y filtra. `tsc` OK.
+
 - [x] **Tanda de 7 mejoras de Tareas + KPIs + Mapas** (Claude directo, verificado corriendo la app):
   1. **Orden alfabético inverso (Z→A):** nuevo modo `alphabeticalReverse` en
      `lib/utils/taskSort.ts` (subtasks) + `sortTasks` de `TasksPage` + opción en el

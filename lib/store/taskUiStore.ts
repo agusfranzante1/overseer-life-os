@@ -1,6 +1,11 @@
 'use client'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import type { SavedTaskView } from '@/lib/tasks/savedViews'
+
+function genId(): string {
+  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
+}
 
 /** UI-only state for the task manager: which tasks are expanded, which
  *  subtask-1s have their subtask-2 children collapsed.
@@ -29,11 +34,23 @@ interface TaskUIState {
    *  en lib/supabase/sync.ts, merge por-campo). localStorage acá es solo
    *  cache local. `hiddenProjects[projectId] === true` → oculto. */
   hiddenProjects: Record<string, boolean>
+  /** Listas guardadas (smart lists) — vistas propias del usuario que cruzan
+   *  todos los proyectos filtrando por criterios (etiqueta / prioridad /
+   *  vencimiento). Aparecen debajo de Recurrentes/Papelera. Igual que
+   *  `hiddenProjects`, es una preferencia real y SÍ sincroniza multi-device:
+   *  viaja en el blob `app_preferences` (ver `appPrefsFields()` en sync.ts). */
+  savedViews: SavedTaskView[]
   setTaskExpanded: (taskId: string, expanded: boolean) => void
   toggleTaskExpanded: (taskId: string) => void
   setSubtaskCollapsed: (taskId: string, subId: string, collapsed: boolean) => void
   toggleSubtaskCollapsed: (taskId: string, subId: string) => void
   toggleProjectHidden: (projectId: string) => void
+  /** Crea una lista guardada nueva y devuelve su id. */
+  addSavedView: (view: Omit<SavedTaskView, 'id' | 'createdAt' | 'updatedAt'>) => string
+  /** Actualiza campos de una lista guardada (bumpea updatedAt). */
+  updateSavedView: (id: string, patch: Partial<Omit<SavedTaskView, 'id' | 'createdAt'>>) => void
+  /** Borra una lista guardada. */
+  deleteSavedView: (id: string) => void
   /** Used by the task store's removal action to purge dead entries. */
   pruneTask: (taskId: string) => void
 }
@@ -46,8 +63,25 @@ export const useTaskUiStore = create<TaskUIState>()(
       taskExpanded: {},
       subtaskCollapsed: {},
       hiddenProjects: {},
+      savedViews: [],
       toggleProjectHidden: (projectId) => set((s) => ({
         hiddenProjects: { ...s.hiddenProjects, [projectId]: !s.hiddenProjects[projectId] },
+      })),
+      addSavedView: (view) => {
+        const id = genId()
+        const now = new Date().toISOString()
+        set((s) => ({
+          savedViews: [...s.savedViews, { ...view, id, createdAt: now, updatedAt: now }],
+        }))
+        return id
+      },
+      updateSavedView: (id, patch) => set((s) => ({
+        savedViews: s.savedViews.map((v) =>
+          v.id === id ? { ...v, ...patch, updatedAt: new Date().toISOString() } : v,
+        ),
+      })),
+      deleteSavedView: (id) => set((s) => ({
+        savedViews: s.savedViews.filter((v) => v.id !== id),
       })),
       setTaskExpanded: (taskId, expanded) => set((s) => ({
         taskExpanded: { ...s.taskExpanded, [taskId]: expanded },
@@ -79,10 +113,12 @@ export const useTaskUiStore = create<TaskUIState>()(
         taskExpanded: s.taskExpanded,
         subtaskCollapsed: s.subtaskCollapsed,
         hiddenProjects: s.hiddenProjects,
+        savedViews: s.savedViews,
       }),
       onRehydrateStorage: () => (state) => {
-        // Back-compat: estados persistidos antes de esta feature no tienen el map.
+        // Back-compat: estados persistidos antes de estas features no tienen los maps.
         if (state && !state.hiddenProjects) state.hiddenProjects = {}
+        if (state && !Array.isArray(state.savedViews)) state.savedViews = []
       },
     }
   )

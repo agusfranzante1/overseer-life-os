@@ -22,6 +22,8 @@ import {
 } from 'lucide-react'
 import { PROJECT_COLORS } from '@/lib/utils/constants'
 import { effectivePriority } from '@/lib/utils/taskPriority'
+import { taskMatchesView, todayKeyLocal, describeView, type SavedTaskView, type SavedViewDue } from '@/lib/tasks/savedViews'
+import { ListFilter } from 'lucide-react'
 
 /** Drawer wrapper that closes when the user swipes left more than 60px.
  *  Falls back to a plain div (no swipe handlers) when `enableSwipe` is
@@ -700,6 +702,9 @@ function sortTasks(
 // instead of looking at a real project. Picked an unlikely-to-collide string.
 const ARCHIVE_SENTINEL = '__archive__'
 const RECURRING_SENTINEL = '__recurring__'
+// Prefijo para seleccionar una LISTA GUARDADA (smart list). El id de la vista
+// va después: `__view__:<id>`. Se maneja como un "proyecto" virtual más.
+const VIEW_SENTINEL_PREFIX = '__view__:'
 
 /** Una tarea "completada Y calendarizada" (tiene fecha + hora y ya está
  *  hecha). Estas se MANTIENEN en el task manager hasta el domingo para que
@@ -747,6 +752,10 @@ export function TasksPage() {
   } = tasksStoreApi
   const hiddenProjects = useTaskUiStore((s) => s.hiddenProjects)
   const toggleProjectHidden = useTaskUiStore((s) => s.toggleProjectHidden)
+  const savedViews = useTaskUiStore((s) => s.savedViews)
+  const addSavedView = useTaskUiStore((s) => s.addSavedView)
+  const updateSavedView = useTaskUiStore((s) => s.updateSavedView)
+  const deleteSavedView = useTaskUiStore((s) => s.deleteSavedView)
 
   // Backfill one-shot del buffer recurrente: las tareas recurrentes
   // creadas antes de esta versión solo tienen 1 instancia visible. Al
@@ -775,6 +784,8 @@ export function TasksPage() {
   const [showProjectForm, setShowProjectForm] = useState(false)
   const [newTaskProjectId, setNewTaskProjectId] = useState<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  // Modal de crear/editar una LISTA GUARDADA. `'new'` = creando; un id = editando.
+  const [editingView, setEditingView] = useState<null | 'new' | string>(null)
   const [showBreakdown, setShowBreakdown] = useState<{ task?: Task | null } | null>(null)
   const [showImportOutline, setShowImportOutline] = useState(false)
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>(() => {
@@ -850,6 +861,7 @@ export function TasksPage() {
   const filterStorageKey = (() => {
     if (selectedProjectId === ARCHIVE_SENTINEL) return null  // archive view: no filters
     if (selectedProjectId === RECURRING_SENTINEL) return null  // recurring view: no filters
+    if (selectedProjectId?.startsWith(VIEW_SENTINEL_PREFIX)) return null  // saved view: la vista ES el filtro
     return selectedProjectId
       ? `overseer-tasks-filters:project:${selectedProjectId}`
       : 'overseer-tasks-filters:all'
@@ -923,7 +935,15 @@ export function TasksPage() {
     })
   const inArchiveView = selectedProjectId === ARCHIVE_SENTINEL
   const inRecurringView = selectedProjectId === RECURRING_SENTINEL
-  const activeProject = selectedProjectId && !inArchiveView && !inRecurringView ? projects[selectedProjectId] : null
+  // ¿Estamos viendo una LISTA GUARDADA? Si el selectedProjectId arranca con el
+  // prefijo, extraemos el id y buscamos la vista. Si el id ya no existe (borrada
+  // en otro device), `activeView` queda null y caemos a la vista normal.
+  const activeViewId = selectedProjectId?.startsWith(VIEW_SENTINEL_PREFIX)
+    ? selectedProjectId.slice(VIEW_SENTINEL_PREFIX.length)
+    : null
+  const activeView = activeViewId ? savedViews.find((v) => v.id === activeViewId) ?? null : null
+  const inViewMode = !!activeView
+  const activeProject = selectedProjectId && !inArchiveView && !inRecurringView && !activeViewId ? projects[selectedProjectId] : null
 
   // Active (non-archived) tasks. Archive view uses its own filtered list.
   const getProjectTasks = (projectId: string) => {
@@ -1003,11 +1023,17 @@ export function TasksPage() {
     ? new Map(activeProject.statuses.map((s, i) => [s.label, i]))
     : null
 
+  // En una LISTA GUARDADA la fuente es TODAS las tareas no archivadas (cruza
+  // proyectos) filtradas por los criterios de la vista. En una vista normal,
+  // el scope habitual (proyecto activo o todos) filtrado por el toolbar.
+  const viewTodayKey = todayKeyLocal()
   const displayedTasks = sortTasks(
-    (activeProject
-      ? getProjectTasks(activeProject.id)
-      : Object.values(tasks).filter((t) => !t.archivedAt)
-    ).filter(passesFilters),
+    inViewMode
+      ? Object.values(tasks).filter((t) => !t.archivedAt && taskMatchesView(t, activeView!, viewTodayKey))
+      : (activeProject
+          ? getProjectTasks(activeProject.id)
+          : Object.values(tasks).filter((t) => !t.archivedAt)
+        ).filter(passesFilters),
     sortMode,
     statusOrderMap,
   )
@@ -1328,6 +1354,48 @@ export function TasksPage() {
             <span className="text-xs text-zinc-600 tabular-nums">{archivedTasks.length}</span>
           </button>
         </div>
+
+        {/* Listas guardadas (smart lists) — vistas propias que cruzan proyectos.
+            Cada una filtra por sus criterios (etiqueta / prioridad / vencimiento). */}
+        <div className="mt-3 pt-3 border-t border-white/[0.08] space-y-1">
+          <div className="flex items-center justify-between px-3 mb-0.5">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-600">Listas</span>
+            <button
+              onClick={() => setEditingView('new')}
+              title="Nueva lista"
+              className="text-zinc-500 hover:text-indigo-300 transition-colors p-0.5"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          {savedViews.length === 0 ? (
+            <button
+              onClick={() => setEditingView('new')}
+              className="w-full text-left px-3 py-2 rounded-lg text-xs text-zinc-600 italic hover:bg-white/[0.05] hover:text-zinc-400 transition-colors"
+            >
+              + Armá una lista (ej. &quot;Software&quot;, &quot;Hacer hoy&quot;)
+            </button>
+          ) : (
+            savedViews.map((v) => {
+              const isActive = activeViewId === v.id
+              return (
+                <button
+                  key={v.id}
+                  onClick={() => handleSelectProject(`${VIEW_SENTINEL_PREFIX}${v.id}`)}
+                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                    isActive
+                      ? 'bg-indigo-500/10 text-indigo-300'
+                      : 'text-zinc-400 hover:bg-white/[0.05] active:bg-zinc-700 hover:text-indigo-300'
+                  }`}
+                  title={describeView(v)}
+                >
+                  <ListFilter className="w-3.5 h-3.5 shrink-0" />
+                  <span className="flex-1 text-left truncate">{v.name}</span>
+                </button>
+              )
+            })
+          )}
+        </div>
       </SwipeableDrawer>
       </>
       )}
@@ -1370,6 +1438,81 @@ export function TasksPage() {
             onDelete={(id) => tasksStoreApi.deletePermanently(id)}
             onEmpty={() => tasksStoreApi.emptyArchive()}
           />
+        ) : inViewMode && activeView ? (
+          <div>
+            {/* Header de la lista guardada */}
+            <div className="mb-5 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <ListFilter className="w-5 h-5 text-indigo-400 shrink-0" />
+                  <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight truncate">{activeView.name}</h1>
+                </div>
+                <p className="text-xs text-zinc-500 mt-1">
+                  {describeView(activeView)} · {displayedTasks.length} {displayedTasks.length === 1 ? 'tarea' : 'tareas'} · cruza proyectos
+                </p>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                {/* Orden */}
+                <select
+                  value={sortMode}
+                  onChange={(e) => changeSort(e.target.value as KanbanSort)}
+                  className="bg-white/[0.03] border border-white/[0.08] rounded-lg px-2 py-1.5 text-xs text-zinc-300 focus:outline-none"
+                  title="Ordenar"
+                >
+                  <option value="priority">Urgencia ↓</option>
+                  <option value="priorityAsc">Urgencia ↑</option>
+                  <option value="dueDate">Fecha límite</option>
+                  <option value="alphabetical">Alfabético A→Z</option>
+                  <option value="alphabeticalReverse">Alfabético Z→A</option>
+                  <option value="newest">Más recientes</option>
+                  <option value="oldest">Más antiguas</option>
+                </select>
+                <button
+                  onClick={() => setEditingView(activeView.id)}
+                  title="Editar lista"
+                  className="p-2 rounded-lg text-zinc-500 hover:text-indigo-300 hover:bg-white/[0.05] transition-colors"
+                >
+                  <Pencil className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => {
+                    if (confirm(`¿Borrar la lista "${activeView.name}"? (no borra tareas, solo la lista)`)) {
+                      deleteSavedView(activeView.id)
+                      setSelectedProject(null)
+                    }
+                  }}
+                  title="Borrar lista"
+                  className="p-2 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-white/[0.05] transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Lista PLANA cruzando proyectos, con badge de proyecto. */}
+            {displayedTasks.length === 0 ? (
+              <div className="text-center py-12 text-zinc-600">
+                <p>Ninguna tarea matchea esta lista todavía.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {displayedTasks.map((task) => {
+                  const proj = projects[task.projectId]
+                  if (!proj) return null
+                  return (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      project={proj}
+                      onClick={() => setSelectedTask(task)}
+                      showProjectBadge
+                      subtaskSortMode={sortMode}
+                    />
+                  )
+                })}
+              </div>
+            )}
+          </div>
         ) : (
         <>
         {/* Header — restructured into two rows for breathing room.
@@ -1845,8 +1988,186 @@ export function TasksPage() {
           onConfirm={handleImportOutline}
         />
       )}
+
+      {/* Modal crear/editar LISTA GUARDADA */}
+      {editingView && (
+        <SavedViewModal
+          initial={editingView === 'new' ? null : (savedViews.find((v) => v.id === editingView) ?? null)}
+          allTags={Array.from(new Set(Object.values(tasks).flatMap((t) => t.tags ?? []))).filter((x) => x.trim().length > 0).sort()}
+          onClose={() => setEditingView(null)}
+          onSubmit={(data) => {
+            if (editingView === 'new') {
+              const id = addSavedView(data)
+              setEditingView(null)
+              handleSelectProject(`${VIEW_SENTINEL_PREFIX}${id}`)  // abrir la lista recién creada
+            } else {
+              updateSavedView(editingView, data)
+              setEditingView(null)
+            }
+          }}
+        />
+      )}
     </motion.div>
     </PriorityGate>
+  )
+}
+
+// ─── Modal crear/editar una lista guardada (smart list) ──────────────────────
+function SavedViewModal({
+  initial, allTags, onClose, onSubmit,
+}: {
+  initial: SavedTaskView | null
+  allTags: string[]
+  onClose: () => void
+  onSubmit: (data: Omit<SavedTaskView, 'id' | 'createdAt' | 'updatedAt'>) => void
+}) {
+  const [name, setName] = useState(initial?.name ?? '')
+  const [match, setMatch] = useState<'any' | 'all'>(initial?.match ?? 'any')
+  const [tags, setTags] = useState<string[]>(initial?.tags ?? [])
+  const [priorities, setPriorities] = useState<string[]>(initial?.priorities ?? [])
+  const [due, setDue] = useState<SavedViewDue | ''>(initial?.due ?? '')
+
+  const toggle = (arr: string[], setter: (v: string[]) => void, value: string) =>
+    setter(arr.includes(value) ? arr.filter((x) => x !== value) : [...arr, value])
+
+  const canSubmit = name.trim().length > 0
+  const submit = () => {
+    if (!canSubmit) return
+    onSubmit({
+      name: name.trim(),
+      match,
+      tags: tags.length > 0 ? tags : undefined,
+      priorities: priorities.length > 0 ? priorities : undefined,
+      due: due || undefined,
+    })
+  }
+
+  const PRIO: { value: string; label: string; color: string }[] = [
+    { value: 'urgent', label: 'Urgente', color: '#ef4444' },
+    { value: 'high', label: 'Alta', color: '#f97316' },
+    { value: 'medium', label: 'Media', color: '#eab308' },
+    { value: 'low', label: 'Baja', color: '#6b7280' },
+  ]
+  const DUE_OPTS: { value: SavedViewDue | ''; label: string }[] = [
+    { value: '', label: 'Sin filtro de fecha' },
+    { value: 'today', label: 'Vence hoy' },
+    { value: 'todayOrOverdue', label: 'Vencidas + hoy' },
+    { value: 'week', label: 'Esta semana (7 días)' },
+  ]
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white/[0.03] border border-white/[0.10] rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.08]">
+          <h2 className="text-sm font-bold text-white flex items-center gap-2">
+            <ListFilter className="w-4 h-4 text-indigo-400" />
+            {initial ? 'Editar lista' : 'Nueva lista'}
+          </h2>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 p-1"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Nombre */}
+          <div>
+            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Nombre</label>
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') submit() }}
+              placeholder="Ej. Software, Hacer hoy"
+              className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          {/* Modo de combinación */}
+          <div>
+            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Combinar criterios</label>
+            <div className="mt-1 grid grid-cols-2 gap-1.5">
+              <button
+                onClick={() => setMatch('any')}
+                className={`px-2 py-2 rounded-lg text-xs font-semibold transition-colors ${match === 'any' ? 'bg-indigo-500/20 border border-indigo-500/50 text-indigo-200' : 'bg-zinc-800 border border-white/[0.12] text-zinc-400'}`}
+              >
+                Cualquiera (O)
+              </button>
+              <button
+                onClick={() => setMatch('all')}
+                className={`px-2 py-2 rounded-lg text-xs font-semibold transition-colors ${match === 'all' ? 'bg-indigo-500/20 border border-indigo-500/50 text-indigo-200' : 'bg-zinc-800 border border-white/[0.12] text-zinc-400'}`}
+              >
+                Todos (Y)
+              </button>
+            </div>
+            <p className="text-[10px] text-zinc-600 mt-1 italic">
+              &quot;Cualquiera&quot; = entra si matchea algún criterio (ej. vence hoy O urgente).
+              &quot;Todos&quot; = tiene que cumplir todos.
+            </p>
+          </div>
+
+          {/* Etiquetas */}
+          <div>
+            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Etiquetas</label>
+            {allTags.length === 0 ? (
+              <p className="text-[11px] text-zinc-600 italic mt-1">Todavía no hay etiquetas. Poné etiquetas a tus tareas primero.</p>
+            ) : (
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {allTags.map((tag) => (
+                  <button
+                    key={tag}
+                    onClick={() => toggle(tags, setTags, tag)}
+                    className={`text-[11px] font-medium px-2 py-1 rounded-full border transition-colors ${tags.includes(tag) ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-200' : 'bg-white/[0.03] border-white/[0.12] text-zinc-400 hover:border-white/[0.2]'}`}
+                  >
+                    #{tag}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Prioridad */}
+          <div>
+            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Prioridad</label>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {PRIO.map((p) => (
+                <button
+                  key={p.value}
+                  onClick={() => toggle(priorities, setPriorities, p.value)}
+                  className="text-[11px] font-medium px-2 py-1 rounded-full border transition-colors"
+                  style={priorities.includes(p.value)
+                    ? { background: `${p.color}22`, borderColor: p.color, color: p.color }
+                    : { background: 'rgba(255,255,255,0.03)', borderColor: 'rgba(255,255,255,0.12)', color: '#a1a1aa' }}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Vencimiento */}
+          <div>
+            <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Vencimiento</label>
+            <select
+              value={due}
+              onChange={(e) => setDue(e.target.value as SavedViewDue | '')}
+              className="mt-1 w-full bg-zinc-800 border border-white/[0.12] rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-indigo-500"
+            >
+              {DUE_OPTS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 px-5 py-4 border-t border-white/[0.08]">
+          <button onClick={onClose} className="ml-auto px-4 py-2 rounded-lg bg-zinc-800 hover:bg-white/[0.08] text-zinc-300 text-sm font-semibold transition-colors">
+            Cancelar
+          </button>
+          <button onClick={submit} disabled={!canSubmit}
+            className="px-4 py-2 rounded-lg bg-indigo-500/15 border border-indigo-500/40 hover:bg-indigo-500/25 disabled:opacity-40 disabled:cursor-not-allowed text-indigo-200 text-sm font-bold transition-colors">
+            {initial ? 'Guardar' : 'Crear lista'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

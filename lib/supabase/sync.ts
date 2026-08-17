@@ -2820,6 +2820,9 @@ function appPrefsFields(): Record<string, unknown> {
     // que viaja en el blob y se mergea por-campo igual que el resto. El resto
     // de taskUiStore (taskExpanded/subtaskCollapsed) queda LOCAL a propósito.
     hiddenProjects: useTaskUiStore.getState().hiddenProjects,
+    // Listas guardadas (smart lists) del task manager. Preferencia real del
+    // usuario → viaja en el blob y se mergea por-campo (LWW del array entero).
+    savedViews: useTaskUiStore.getState().savedViews,
     language: s.language,
     timezone: s.timezone,
     autoPurgeCompletedTasks: s.autoPurgeCompletedTasks,
@@ -2882,13 +2885,16 @@ function applyPrefsFields(f: Record<string, unknown>): void {
 }
 
 function applyPrefsFieldsInner(f: Record<string, unknown>): void {
-  const { offerStages, offerCategories, offerGeos, hiddenProjects, ...appFields } = f as Record<string, unknown> & {
-    offerStages?: unknown; offerCategories?: unknown; offerGeos?: unknown; hiddenProjects?: unknown
+  const { offerStages, offerCategories, offerGeos, hiddenProjects, savedViews, ...appFields } = f as Record<string, unknown> & {
+    offerStages?: unknown; offerCategories?: unknown; offerGeos?: unknown; hiddenProjects?: unknown; savedViews?: unknown
   }
   useAppStore.setState((prev) => ({ ...prev, ...appFields }))
-  // hiddenProjects vive en taskUiStore, no en appStore: lo ruteamos ahí.
+  // hiddenProjects y savedViews viven en taskUiStore, no en appStore: los ruteamos ahí.
   if (hiddenProjects && typeof hiddenProjects === 'object') {
     useTaskUiStore.setState({ hiddenProjects: hiddenProjects as Record<string, boolean> })
+  }
+  if (Array.isArray(savedViews)) {
+    useTaskUiStore.setState({ savedViews: savedViews as import('@/lib/tasks/savedViews').SavedTaskView[] })
   }
   useOffersStore.setState({
     ...(Array.isArray(offerStages) && offerStages.length ? { stages: offerStages as never } : {}),
