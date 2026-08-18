@@ -2459,6 +2459,29 @@ function sanitizeOfferBlock(raw: unknown): Block | null {
   return block
 }
 
+/** Merge campo-a-campo de una entidad de ofertas que tiene `doc` + `docRev`
+ *  (sistema u oferta). La METADATA (nombre, etapa, orden, etc.) se resuelve por
+ *  `updatedAt` (LWW, como todo el resto). El DOCUMENTO se resuelve por `docRev`
+ *  (contador monotónico) → inmune a diferencias de reloj entre dispositivos.
+ *  `docRev` resultante = el mayor de ambos, así sigue subiendo y no retrocede.
+ *
+ *  Casos:
+ *   - revs distintos      → gana el doc del rev más alto.
+ *   - revs iguales (o 0)  → desempata por `updatedAt` (compat con datos viejos
+ *                           sin docRev, que se comportan como el LWW de antes). */
+function mergeOfferEntity<T extends { doc?: unknown; docRev?: number; updatedAt: string }>(l: T, r: T): T {
+  const lu = Date.parse(l.updatedAt) || 0
+  const ru = Date.parse(r.updatedAt) || 0
+  // Base = metadata del más nuevo por updatedAt (empate → remote, canónico).
+  const base = lu > ru ? l : r
+  const lr = l.docRev ?? 0
+  const rr = r.docRev ?? 0
+  let docFrom: T
+  if (lr !== rr) docFrom = lr > rr ? l : r
+  else docFrom = lu > ru ? l : r
+  return { ...base, doc: docFrom.doc, docRev: Math.max(lr, rr) }
+}
+
 async function pushOffers() {
   if (!state.userId) return
   const syncedAt = new Date().toISOString()
@@ -2529,6 +2552,9 @@ async function pullOffers(): Promise<boolean> {
           // El documento es el trabajo del usuario: si viene roto, mejor un
           // documento vacío que reventar el pull entero.
           doc: sanitizeOfferDoc(p.doc),
+          // Contador de versión del doc — el merge lo usa para resolver el
+          // documento sin depender del reloj (BASE nº2: preservarlo o se pierde).
+          ...(typeof p.docRev === 'number' ? { docRev: p.docRev } : {}),
           createdAt: p.createdAt ?? new Date().toISOString(),
           updatedAt: p.updatedAt ?? new Date().toISOString(),
         }
@@ -2552,6 +2578,7 @@ async function pullOffers(): Promise<boolean> {
           ...(typeof p.score === 'number' ? { score: p.score } : {}),
           // Sin esto el pull borraba el documento de cada oferta.
           ...(Array.isArray(p.doc) ? { doc: sanitizeOfferDoc(p.doc) } : {}),
+          ...(typeof p.docRev === 'number' ? { docRev: p.docRev } : {}),
           order: typeof p.order === 'number' ? p.order : 0,
           createdAt: p.createdAt ?? new Date().toISOString(),
           updatedAt: p.updatedAt ?? new Date().toISOString(),
@@ -2583,6 +2610,9 @@ async function pullOffers(): Promise<boolean> {
         baseline: getBaseline('offers:systems'),
         getId: (x) => x.id,
         getUpdatedAt: (x) => x.updatedAt,
+        // El doc del sistema se resuelve por docRev (no por reloj) para que
+        // una copia vieja con timestamp alto no pise lo nuevo multi-device.
+        mergeItem: mergeOfferEntity,
         tombstones: tombs.get('offer_systems'),
       }),
       offers: mergeById<import('@/lib/store/offersStore').Offer>({
@@ -2591,6 +2621,7 @@ async function pullOffers(): Promise<boolean> {
         baseline: getBaseline('offers:offers'),
         getId: (x) => x.id,
         getUpdatedAt: (x) => x.updatedAt,
+        mergeItem: mergeOfferEntity,
         tombstones: tombs.get('offers'),
       }),
       templates: mergeById<import('@/lib/store/offersStore').OfferTemplate>({

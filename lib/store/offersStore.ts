@@ -45,6 +45,12 @@ export interface OfferSystem {
   order: number
   /** Documento libre debajo de la tabla (bloques tipo Notion). */
   doc: Block[]
+  /** Contador de versión MONOTÓNICO del `doc`. Sube +1 en cada edición del
+   *  documento. El merge multi-device resuelve el `doc` por ESTE contador (no
+   *  por `updatedAt`), así una diferencia de reloj entre dispositivos nunca
+   *  deja que una copia vieja pise lo nuevo. La metadata (nombre/icon/orden)
+   *  sigue resolviéndose por `updatedAt`. */
+  docRev?: number
   createdAt: string
   updatedAt: string
 }
@@ -61,6 +67,8 @@ export interface Offer {
   /** Documento propio de la oferta: espionaje, keywords, resumen de
    *  problemática, lo que sea. Mismos bloques que el del sistema. */
   doc?: Block[]
+  /** Contador de versión monotónico del `doc` — ver `OfferSystem.docRev`. */
+  docRev?: number
   order: number
   createdAt: string
   updatedAt: string
@@ -211,7 +219,7 @@ export const useOffersStore = create<State>()(
         offers: s.offers.filter((o) => o.systemId !== id),
       })),
       setSystemDoc: (id, doc) => set((s) => ({
-        systems: s.systems.map((x) => x.id !== id ? x : { ...x, doc, updatedAt: nowISO() }),
+        systems: s.systems.map((x) => x.id !== id ? x : { ...x, doc, docRev: (x.docRev ?? 0) + 1, updatedAt: nowISO() }),
       })),
 
       addOffer: (systemId, name, stageId) => {
@@ -233,7 +241,7 @@ export const useOffersStore = create<State>()(
       })),
       removeOffer: (id) => set((s) => ({ offers: s.offers.filter((o) => o.id !== id) })),
       setOfferDoc: (id, doc) => set((s) => ({
-        offers: s.offers.map((o) => o.id !== id ? o : { ...o, doc, updatedAt: nowISO() }),
+        offers: s.offers.map((o) => o.id !== id ? o : { ...o, doc, docRev: (o.docRev ?? 0) + 1, updatedAt: nowISO() }),
       })),
       saveOfferAsTemplate: (offerId, name) => {
         const offer = get().offers.find((o) => o.id === offerId)
@@ -263,6 +271,7 @@ export const useOffersStore = create<State>()(
             return {
               ...o,
               doc: docIsEmpty(currentDoc) ? freshDoc : [...currentDoc, ...freshDoc],
+              docRev: (o.docRev ?? 0) + 1,
               updatedAt: nowISO(),
             }
           }),

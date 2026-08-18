@@ -39,6 +39,26 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Ofertas — sync del documento robusto al reloj (docRev)** (Claude directo, verificado):
+  Bug reportado: el doc "general" del sistema no sincronizaba multi-device (la notebook
+  mostraba una versión vieja/parcial y no se actualizaba), aunque las ofertas sí. Causa:
+  el doc es UNA fila que se resolvía por `updatedAt` (LWW por reloj de pared) → una copia
+  vieja con timestamp más alto (diferencia de reloj entre PC y notebook) le ganaba a lo
+  nuevo. Las ofertas no lo sufrían porque se editaban en un solo dispositivo.
+  - **Fix (Opción B):** contador monotónico `docRev?: number` en `OfferSystem` y `Offer`,
+    que sube +1 en cada edición del doc (`setSystemDoc`/`setOfferDoc`/`applyTemplate`). El
+    merge (`mergeOfferEntity` en `sync.ts`, pasado como `mergeItem` a `mergeById` de
+    systems+offers) resuelve **campo a campo**: metadata (nombre/etapa/orden) por
+    `updatedAt` como siempre, pero el **doc por `docRev`** → inmune a diferencias de reloj.
+    `docRev` resultante = max de ambos (no retrocede). Sanitize del pull preserva `docRev`
+    (BASE nº2). **Sin migración** (viaja en el payload jsonb).
+  - **Verificado:** test puro 6/6 (incluye el caso exacto: doc con docRev alto gana aunque
+    su updatedAt sea más viejo; metadata sigue al updatedAt; rev-tie → LWW compat). En la
+    app: editar el doc del sistema incrementa `docRev` (0→1→2) y persiste. `tsc` OK.
+  - **Recuperar los datos actuales:** una vez deployado en AMBOS dispositivos, editar el
+    doc en el dispositivo que tiene la versión BUENA (la PC) → su `docRev` sube y pisa la
+    copia vieja de la notebook.
+
 - [x] **Proyección mensual — mini-calendario** (Claude directo, verificado): el nivel
       **Mensual** ahora muestra un mini-calendario del mes (con hoy resaltado), igual que
       el Trimestral. Nuevo componente `MonthMiniCalendar` en `ProjectionPage.tsx` (reusa
