@@ -160,6 +160,21 @@ export async function reconcileDeletes(
   const intentional = [...baseline].filter((id) => !localSet.has(id))
   if (intentional.length === 0) return
 
+  // ── BLINDAJE ANTI-BORRADO-MASIVO ────────────────────────────────────
+  // Un borrado que se lleva una porción GRANDE del baseline de un saque casi
+  // nunca es intencional: es un local PARCIAL (rehidratación incompleta, un
+  // merge que dropeó filas, un tombstone viejo que las tapó) que reconcile
+  // interpreta como "el usuario borró todo eso" y lo propaga a la nube.
+  // Ya pasó con ofertas: se borraron en lote (3 y 4 en el mismo milisegundo).
+  // Si habría que borrar >= 4 filas Y eso es >= 40% del baseline, NO
+  // propagamos: una fila de más en remoto se re-pulla; datos borrados de la
+  // nube no se recuperan. Un borrado real de a una/pocas sigue funcionando;
+  // un borrado masivo legítimo simplemente hay que hacerlo por device (raro).
+  if (intentional.length >= 4 && intentional.length >= Math.ceil(baseline.size * 0.4)) {
+    console.warn(`[sync] reconcileDeletes(${table}): borrado masivo sospechoso (${intentional.length}/${baseline.size}) → SKIP para no destruir datos en la nube. Si fue a propósito, borralas de a poco.`)
+    return
+  }
+
   // Intersectar con lo que existe realmente en remoto (evita DELETEs de ids
   // fantasma y nos dice qué borrar de verdad).
   const { data } = await sb.from(table).select(idColumn).eq('user_id', userId)

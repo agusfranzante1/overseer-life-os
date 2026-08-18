@@ -39,6 +39,23 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Sync — blindaje anti-borrado-masivo (previene pérdida de datos)** (Claude directo, verificado):
+  Incidente: se perdieron 12 ofertas en la nube. Autopsia con Supabase: los tombstones
+  mostraban borrados EN LOTE con timestamp idéntico (3 en el mismo ms, 4 en otro) → no eran
+  borrados del usuario sino de `reconcileDeletes` (`syncMerge.ts`), que borra de la nube
+  todo lo que está en el `baseline` y ya no está local, asumiendo intención del usuario.
+  Tenía blindaje solo para "local COMPLETAMENTE vacío", no para "local PARCIAL"
+  (rehidratación incompleta / merge que dropeó filas / tombstone viejo) → un device con la
+  lista parcial empujaba y se llevaba puestas las que le faltaban.
+  - **Fix:** guarda en `reconcileDeletes` — si habría que borrar **>= 4 filas Y >= 40% del
+    baseline**, NO propaga el borrado (log de warning). Solo EVITA borrados, nunca puede
+    causar pérdida. Borrar de a una/pocas sigue igual. Transversal → protege TODOS los
+    dominios per-fila (tasks, offers, journal, etc.), no solo ofertas.
+  - **Verificado:** test puro 6/6 (atrapa 12/17 y 4/8; deja pasar 1/2/3 y 4/20). `tsc` OK.
+  - Pendiente opcional (a decidir con el usuario): borrado por-intención explícita
+    (registrar removeX en vez de inferir por ausencia) y/o snapshots de ofertas para
+    recuperar. La data perdida esta vez el usuario decidió darla por perdida.
+
 - [x] **Ofertas — sync del documento robusto al reloj (docRev)** (Claude directo, verificado):
   Bug reportado: el doc "general" del sistema no sincronizaba multi-device (la notebook
   mostraba una versión vieja/parcial y no se actualizaba), aunque las ofertas sí. Causa:
