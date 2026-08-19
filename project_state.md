@@ -39,6 +39,20 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Tareas — el prompt de "dividir en tareas / todo junto" al pegar una lista** (Claude directo, verificado):
+  Reporte: pegué una lista larga y no me preguntó si separarla en tareas. Diagnóstico
+  corriendo la app: el prompt (NewTaskForm, `pendingPaste`) SÍ funciona con saltos `\n`,
+  pero el split usaba `/\r?\n/` y no detectaba los separadores **U+2028/U+2029** (LINE/
+  PARAGRAPH SEPARATOR) que usan PDFs, Google Docs, Word — una lista copiada de ahí quedaba
+  como UN renglón y no disparaba la pregunta.
+  - **Fix:** helper `lib/tasks/pasteLines.ts` (`splitPastedLines`) que separa por
+    `\r\n | \r | \n |   |  ` (NO por espacios). Aplicado en TODOS los pegados del
+    task manager: NewTaskForm (`TasksPage`), subtareas (`TaskCard` ×3), `TaskDetail`,
+    `SubtaskDetailModal`.
+  - **Verificado:** test puro 8/8 (divide por U+2028/U+2029/`\r`, NO por espacios, filtra
+    vacías). En la app: pegar una lista separada por U+2028 (sin `\n`) ahora muestra
+    "Pegaste un texto de 3 renglones → Dividir / Todo junto". `tsc` OK.
+
 - [x] **Ofertas — borrado por INTENCIÓN (fix de raíz de la pérdida de datos)** (Claude directo):
   El sync de ofertas ya no infiere borrados por ausencia (`baseline − local`, que con una
   lista local parcial destruía filas en la nube). Ahora borra SOLO lo que el usuario quitó

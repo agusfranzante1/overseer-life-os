@@ -10,6 +10,7 @@ import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { SubtaskDetailModal } from './SubtaskDetailModal'
 import { recurrenceLabel } from '@/lib/utils/taskRecurrence'
 import { sortSubtasks, type KanbanSort } from '@/lib/utils/taskSort'
+import { splitPastedLines } from '@/lib/tasks/pasteLines'
 
 interface Props {
   task: Task | null
@@ -165,7 +166,7 @@ export function TaskDetail({ task, project, onClose }: Props) {
 
   // Pegar varios renglones → una subtarea por línea no-vacía.
   const handleSubtaskPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    const lines = e.clipboardData.getData('text').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    const lines = splitPastedLines(e.clipboardData.getData('text'))
     if (lines.length > 1) {
       e.preventDefault()
       for (const line of lines) addSubtask(effective.id, line)

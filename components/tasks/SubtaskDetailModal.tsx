@@ -6,6 +6,7 @@ import { Priority, Subtask, Project, TaskRecurrence, TaskRecurrenceKind } from '
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useTranslation } from '@/hooks/useTranslation'
+import { splitPastedLines } from '@/lib/tasks/pasteLines'
 
 interface Props {
   taskId: string
@@ -156,7 +157,7 @@ export function SubtaskDetailModal({ taskId, subtask, project, parentTitle, pare
 
   // Pegar varios renglones → una sub-subtarea por línea no-vacía.
   const handleChildPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    const lines = e.clipboardData.getData('text').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    const lines = splitPastedLines(e.clipboardData.getData('text'))
     if (lines.length > 1) {
       e.preventDefault()
       for (const line of lines) addSubtask(taskId, line, subtask.id)

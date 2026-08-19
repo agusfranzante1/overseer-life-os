@@ -8,6 +8,7 @@ import { useTaskUiStore } from '@/lib/store/taskUiStore'
 import { effectivePriority } from '@/lib/utils/taskPriority'
 import { type KanbanSort } from '@/lib/utils/taskSort'
 import { buildSubtaskTree, isDescendantSubtask, type SubtaskTreeNode } from '@/lib/tasks/subtaskTree'
+import { splitPastedLines } from '@/lib/tasks/pasteLines'
 import { useTranslation } from '@/hooks/useTranslation'
 import { CheckCircle2, Clock, Trash2, ChevronDown, ChevronUp, Plus, Flag, GripVertical, CornerDownRight, MoreHorizontal, ChevronRight, Calendar, X, Copy, ClipboardCopy, Check, Star, ArrowUpToLine, Maximize2 } from 'lucide-react'
 import { taskToClipboardText, copyTextToClipboard } from '@/lib/tasks/taskClipboard'
@@ -255,7 +256,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
 
   // Pegar varios renglones → una subtarea por línea no-vacía.
   const handleSubtaskPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    const lines = e.clipboardData.getData('text').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    const lines = splitPastedLines(e.clipboardData.getData('text'))
     if (lines.length > 1) {
       e.preventDefault()
       for (const line of lines) addSubtask(task.id, line)
@@ -376,7 +377,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
               value={childDraft}
               onChange={(e) => setChildDraft(e.target.value)}
               onPaste={(e) => {
-                const lines = e.clipboardData.getData('text').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+                const lines = splitPastedLines(e.clipboardData.getData('text'))
                 if (lines.length > 1) {
                   e.preventDefault()
                   for (const line of lines) addSubtask(task.id, line, subtask.id)
@@ -932,7 +933,7 @@ export function TaskCard({ task, project, onClick, showProjectBadge = false, sub
                         value={childDraft}
                         onChange={(e) => setChildDraft(e.target.value)}
                         onPaste={(e) => {
-                          const lines = e.clipboardData.getData('text').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+                          const lines = splitPastedLines(e.clipboardData.getData('text'))
                           if (lines.length > 1) {
                             e.preventDefault()
                             for (const line of lines) addSubtask(task.id, line, root.id)

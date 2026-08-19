@@ -23,6 +23,7 @@ import {
 import { PROJECT_COLORS } from '@/lib/utils/constants'
 import { effectivePriority } from '@/lib/utils/taskPriority'
 import { taskMatchesView, todayKeyLocal, describeView, type SavedTaskView, type SavedViewDue } from '@/lib/tasks/savedViews'
+import { splitPastedLines } from '@/lib/tasks/pasteLines'
 import { ListFilter } from 'lucide-react'
 
 /** Drawer wrapper that closes when the user swipes left more than 60px.
@@ -246,7 +247,9 @@ function NewTaskForm({ projectId, statuses, onAdd, onClose, t }: {
   // preguntamos. Si el texto pegado tiene una sola línea, paste normal.
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     const text = e.clipboardData.getData('text')
-    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    // splitPastedLines detecta separadores no estándar (U+2028/U+2029, \r solo)
+    // que usan PDFs/Docs — antes una lista copiada de ahí no disparaba la pregunta.
+    const lines = splitPastedLines(text)
     if (lines.length > 1) {
       e.preventDefault()
       const el = e.currentTarget
