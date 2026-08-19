@@ -39,6 +39,26 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Ofertas — borrado por INTENCIÓN (fix de raíz de la pérdida de datos)** (Claude directo):
+  El sync de ofertas ya no infiere borrados por ausencia (`baseline − local`, que con una
+  lista local parcial destruía filas en la nube). Ahora borra SOLO lo que el usuario quitó
+  a propósito:
+  - **`offersStore`:** outbox local `pendingDeletes {systems, offers, templates}` (persistido,
+    NO viaja como fila). `removeOffer`/`removeSystem`/`removeTemplate` registran el id ahí
+    (removeSystem suma también los ids de SUS ofertas). Acción `clearPendingDeletes` que
+    consume el sync.
+  - **`pushOffers`:** reemplazado `syncDeletes` (baseline-diff) por `pushExplicitDeletes` →
+    borra del cloud SOLO los ids del outbox + escribe sus tombstones + recién ahí los limpia
+    (si el delete falla, no limpia → reintenta). Guarda: si un id del outbox volvió a existir
+    local, no se borra.
+  - **`pullOffers`:** los 3 merges usan `baseline: new Set()` → las eliminaciones se propagan
+    SOLO por tombstones; una lista parcial nunca dropea filas (a lo sumo se re-pushean).
+  - **Sin migración** (usa las tablas y tombstones existentes).
+  - **Verificado:** test puro 10/10 (incl. garantía: outbox vacío + local parcial → borra 0).
+    `tsc` OK. El round-trip multi-device real NO se pudo correr local (sin Supabase en modo
+    no-auth) — queda validado por lógica pura + tipos.
+  - Convive con el blindaje anti-borrado-masivo (backstop para los demás dominios per-fila).
+
 - [x] **Sync — blindaje anti-borrado-masivo (previene pérdida de datos)** (Claude directo, verificado):
   Incidente: se perdieron 12 ofertas en la nube. Autopsia con Supabase: los tombstones
   mostraban borrados EN LOTE con timestamp idéntico (3 en el mismo ms, 4 en otro) → no eran

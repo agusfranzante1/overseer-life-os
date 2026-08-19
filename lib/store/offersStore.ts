@@ -142,6 +142,18 @@ function seedGeos(): OfferGeo[] {
   ]
 }
 
+/** Outbox LOCAL de borrados EXPLÍCITOS del usuario, pendientes de propagar al
+ *  cloud (delete + tombstone). Es el corazón del "borrado por intención": el
+ *  sync borra de la nube SOLO lo que está acá — nunca infiere borrados por
+ *  ausencia (baseline − local), que es lo que borraba filas por una lista
+ *  parcial. Vive local (no viaja como fila sincronizada); el push lo consume
+ *  y lo limpia. */
+export interface OffersPendingDeletes {
+  systems: string[]
+  offers: string[]
+  templates: string[]
+}
+
 interface State {
   systems: OfferSystem[]
   offers: Offer[]
@@ -149,11 +161,16 @@ interface State {
   stages: OfferStage[]
   categories: OfferCategory[]
   geos: OfferGeo[]
+  /** Borrados explícitos pendientes de subir. Ver `OffersPendingDeletes`. */
+  pendingDeletes: OffersPendingDeletes
 
   addSystem: (name: string) => string
   updateSystem: (id: string, patch: Partial<Pick<OfferSystem, 'name' | 'icon'>>) => void
   removeSystem: (id: string) => void
   setSystemDoc: (id: string, doc: Block[]) => void
+
+  /** Consume ids del outbox de borrados (los llama el sync tras subirlos). */
+  clearPendingDeletes: (kind: keyof OffersPendingDeletes, ids: string[]) => void
 
   addOffer: (systemId: string, name: string, stageId?: string) => string
   updateOffer: (id: string, patch: Partial<Pick<Offer, 'name' | 'stageId' | 'categoryIds' | 'geoIds' | 'score'>>) => void
@@ -198,6 +215,14 @@ export const useOffersStore = create<State>()(
       stages: seedStages(),
       categories: seedCategories(),
       geos: seedGeos(),
+      pendingDeletes: { systems: [], offers: [], templates: [] },
+
+      clearPendingDeletes: (kind, ids) => set((s) => ({
+        pendingDeletes: {
+          ...s.pendingDeletes,
+          [kind]: s.pendingDeletes[kind].filter((x) => !ids.includes(x)),
+        },
+      })),
 
       addSystem: (name) => {
         const id = genId()
@@ -213,11 +238,20 @@ export const useOffersStore = create<State>()(
       updateSystem: (id, patch) => set((s) => ({
         systems: s.systems.map((x) => x.id !== id ? x : { ...x, ...patch, updatedAt: nowISO() }),
       })),
-      removeSystem: (id) => set((s) => ({
-        systems: s.systems.filter((x) => x.id !== id),
-        // Las ofertas del sistema se van con él: no tienen sentido sueltas.
-        offers: s.offers.filter((o) => o.systemId !== id),
-      })),
+      removeSystem: (id) => set((s) => {
+        // Las ofertas del sistema se van con él: registramos SUS ids también
+        // en el outbox para que el sync las borre explícitamente del cloud.
+        const removedOfferIds = s.offers.filter((o) => o.systemId === id).map((o) => o.id)
+        return {
+          systems: s.systems.filter((x) => x.id !== id),
+          offers: s.offers.filter((o) => o.systemId !== id),
+          pendingDeletes: {
+            ...s.pendingDeletes,
+            systems: [...s.pendingDeletes.systems, id],
+            offers: [...s.pendingDeletes.offers, ...removedOfferIds],
+          },
+        }
+      }),
       setSystemDoc: (id, doc) => set((s) => ({
         systems: s.systems.map((x) => x.id !== id ? x : { ...x, doc, docRev: (x.docRev ?? 0) + 1, updatedAt: nowISO() }),
       })),
@@ -239,7 +273,10 @@ export const useOffersStore = create<State>()(
       updateOffer: (id, patch) => set((s) => ({
         offers: s.offers.map((o) => o.id !== id ? o : { ...o, ...patch, updatedAt: nowISO() }),
       })),
-      removeOffer: (id) => set((s) => ({ offers: s.offers.filter((o) => o.id !== id) })),
+      removeOffer: (id) => set((s) => ({
+        offers: s.offers.filter((o) => o.id !== id),
+        pendingDeletes: { ...s.pendingDeletes, offers: [...s.pendingDeletes.offers, id] },
+      })),
       setOfferDoc: (id, doc) => set((s) => ({
         offers: s.offers.map((o) => o.id !== id ? o : { ...o, doc, docRev: (o.docRev ?? 0) + 1, updatedAt: nowISO() }),
       })),
@@ -282,6 +319,7 @@ export const useOffersStore = create<State>()(
       })),
       removeTemplate: (id) => set((s) => ({
         templates: s.templates.filter((t) => t.id !== id),
+        pendingDeletes: { ...s.pendingDeletes, templates: [...s.pendingDeletes.templates, id] },
       })),
       toggleOfferCategory: (id, categoryId) => set((s) => ({
         offers: s.offers.map((o) => {
@@ -395,10 +433,21 @@ export const useOffersStore = create<State>()(
       partialize: (s) => ({
         systems: s.systems, offers: s.offers, templates: s.templates,
         stages: s.stages, categories: s.categories, geos: s.geos,
+        pendingDeletes: s.pendingDeletes,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return
         // Defensas por si el storage quedó a medias.
+        if (!state.pendingDeletes || typeof state.pendingDeletes !== 'object') {
+          state.pendingDeletes = { systems: [], offers: [], templates: [] }
+        } else {
+          // Cada lista defensiva (storage viejo sin alguna clave).
+          state.pendingDeletes = {
+            systems: Array.isArray(state.pendingDeletes.systems) ? state.pendingDeletes.systems : [],
+            offers: Array.isArray(state.pendingDeletes.offers) ? state.pendingDeletes.offers : [],
+            templates: Array.isArray(state.pendingDeletes.templates) ? state.pendingDeletes.templates : [],
+          }
+        }
         if (!Array.isArray(state.systems)) state.systems = []
         if (!Array.isArray(state.offers)) state.offers = []
         if (!Array.isArray(state.templates)) state.templates = []

@@ -75,7 +75,7 @@ Repetir para cada feature nueva que guarde datos (BASE nº1):
 |---|---|---|---|
 | Tareas | `tasksStore`, `taskUiStore` | `components/tasks/*` (`TasksPage`, `TaskCard`, `TaskDetail`, `ImportOutlineModal`) | per-fila `tasks`+`subtasks` (tabla propia, FK self-ref `parent_id` → subtareas anidadas SIN límite); árbol/parser puros en `lib/tasks/` (`subtaskTree.ts`, `parseOutline.ts`, `savedViews.ts`); push ordena padres-antes-hijos. `taskUiStore.hiddenProjects` y `savedViews` (listas guardadas / smart lists) van en el blob |
 | Calendario | `googleCalendarStore` | `components/calendar/CalendarPage.tsx` | API `app/api/calendar/*`; `lib/calendar/timeMath.ts` |
-| Ofertas (CRM) | `offersStore` | `components/offers/*` | per-fila `offer_systems`/`offers`/`offer_templates`; bloques `lib/offers/blocks.ts` |
+| Ofertas (CRM) | `offersStore` | `components/offers/*` | per-fila `offer_systems`/`offers`/`offer_templates`; bloques `lib/offers/blocks.ts`. **Borrado por-INTENCIÓN** (no por `baseline − local`): outbox `pendingDeletes` en el store → `pushExplicitDeletes` en sync.ts borra solo eso + tombstones; pull con baseline vacío. Doc por `docRev` (no reloj) |
 | Mapas mentales | `mindmapStore` | `components/mindmap/MindMapCanvas.tsx` | per-fila; carpetas; nodos shape `rect/circle/bracket/text` |
 | Estudio | `studyStore`, `conceptStore` | `components/estudio/*` | Carrera›Materia›Parcial›Tema; mapa de conceptos por materia; puente `reconcileStudyConceptMap` |
 | Content Strategy | `contentStore` | `components/contenido/*` | mapa por perfil vía `lib/content/contentMindMap.ts` (`ensureProfileMindMap`) |

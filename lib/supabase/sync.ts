@@ -2482,6 +2482,37 @@ function mergeOfferEntity<T extends { doc?: unknown; docRev?: number; updatedAt:
   return { ...base, doc: docFrom.doc, docRev: Math.max(lr, rr) }
 }
 
+/** Borrado EXPLÍCITO por-intención para una tabla de ofertas. Borra del cloud
+ *  SOLO los ids que el usuario quitó a propósito (outbox `pendingDeletes`),
+ *  escribe sus tombstones para propagar el borrado a otros devices, y recién
+ *  ahí los saca del outbox. NUNCA infiere borrados por ausencia (baseline −
+ *  local) → una lista local parcial ya no puede destruir datos en la nube.
+ *  Mantiene el baseline fresco = lo que quedó local. */
+async function pushExplicitDeletes(
+  sb: ReturnType<typeof getSupabaseBrowser>, uid: string,
+  table: string, explicitIds: string[], baselineKey: string, localIds: string[],
+  kind: keyof import('@/lib/store/offersStore').OffersPendingDeletes,
+): Promise<void> {
+  setBaseline(baselineKey, localIds)
+  if (explicitIds.length === 0) return
+  const localSet = new Set(localIds)
+  // Guarda: si un id del outbox VOLVIÓ a existir local (re-creado con el mismo
+  // id), NO lo borramos — lo sacamos del outbox sin tocar la nube.
+  const ids = [...new Set(explicitIds)].filter((id) => !localSet.has(id))
+  if (ids.length === 0) {
+    useOffersStore.getState().clearPendingDeletes(kind, explicitIds)
+    return
+  }
+  const del = await sb.from(table).delete().eq('user_id', uid).in('id', ids)
+  if (del.error) {
+    // No limpiamos el outbox → se reintenta en el próximo push (no se pierde).
+    reportSyncError(`offers delete ${table} failed: ${del.error.message}`)
+    return
+  }
+  await writeTombstones(sb, uid, table, ids)
+  useOffersStore.getState().clearPendingDeletes(kind, explicitIds)
+}
+
 async function pushOffers() {
   if (!state.userId) return
   const syncedAt = new Date().toISOString()
@@ -2499,7 +2530,12 @@ async function pushOffers() {
       throw r.error
     }
   }
-  await syncDeletes(sb, uid, 'offer_systems', sysRows.map((r) => r.id), 'offers:systems')
+  // ── Borrado por INTENCIÓN (no por inferencia) ──────────────────────────
+  // Antes cada tabla usaba `syncDeletes` (borra baseline − local), que con una
+  // lista local parcial destruía filas en la nube. Ahora el sync borra SOLO lo
+  // que el usuario quitó a propósito (outbox `pendingDeletes` del store).
+  const pd = useOffersStore.getState().pendingDeletes
+  await pushExplicitDeletes(sb, uid, 'offer_systems', pd.systems, 'offers:systems', sysRows.map((r) => r.id), 'systems')
 
   const offerRows = offers.map((o) => ({
     id: o.id, user_id: uid, created_at: o.createdAt, updated_at: o.updatedAt, payload: o,
@@ -2511,7 +2547,7 @@ async function pushOffers() {
       throw r.error
     }
   }
-  await syncDeletes(sb, uid, 'offers', offerRows.map((r) => r.id), 'offers:offers')
+  await pushExplicitDeletes(sb, uid, 'offers', pd.offers, 'offers:offers', offerRows.map((r) => r.id), 'offers')
 
   const templateRows = templates.map((template) => ({
     id: template.id, user_id: uid, created_at: template.createdAt, updated_at: template.updatedAt, payload: template,
@@ -2523,7 +2559,7 @@ async function pushOffers() {
       throw r.error
     }
   }
-  await syncDeletes(sb, uid, 'offer_templates', templateRows.map((r) => r.id), 'offers:templates')
+  await pushExplicitDeletes(sb, uid, 'offer_templates', pd.templates, 'offers:templates', templateRows.map((r) => r.id), 'templates')
 
   markSynced('offers', syncedAt)
 }
@@ -2607,7 +2643,11 @@ async function pullOffers(): Promise<boolean> {
       systems: mergeById<import('@/lib/store/offersStore').OfferSystem>({
         local: useOffersStore.getState().systems,
         remote: remoteSystems,
-        baseline: getBaseline('offers:systems'),
+        // Baseline VACÍO a propósito: con el borrado por-intención (outbox +
+        // tombstones), las eliminaciones se propagan SOLO vía tombstones. Sin
+        // baseline, el merge nunca dropea una fila local por "ausente en remoto"
+        // (que con una lista parcial la borraba); a lo sumo se re-pushea.
+        baseline: new Set<string>(),
         getId: (x) => x.id,
         getUpdatedAt: (x) => x.updatedAt,
         // El doc del sistema se resuelve por docRev (no por reloj) para que
@@ -2618,7 +2658,7 @@ async function pullOffers(): Promise<boolean> {
       offers: mergeById<import('@/lib/store/offersStore').Offer>({
         local: useOffersStore.getState().offers,
         remote: remoteOffers,
-        baseline: getBaseline('offers:offers'),
+        baseline: new Set<string>(),   // ver nota en systems: borrado por-intención
         getId: (x) => x.id,
         getUpdatedAt: (x) => x.updatedAt,
         mergeItem: mergeOfferEntity,
@@ -2627,7 +2667,7 @@ async function pullOffers(): Promise<boolean> {
       templates: mergeById<import('@/lib/store/offersStore').OfferTemplate>({
         local: useOffersStore.getState().templates,
         remote: remoteTemplates,
-        baseline: getBaseline('offers:templates'),
+        baseline: new Set<string>(),   // ver nota en systems: borrado por-intención
         getId: (x) => x.id,
         getUpdatedAt: (x) => x.updatedAt,
         tombstones: tombs.get('offer_templates'),
