@@ -43,6 +43,33 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Auditoría del sistema recurrente — 2 bugs latentes de duplicación + robustez** (Claude directo, verificado corriendo la app + tests):
+  Repaso completo del dominio (buffer, rollover, dedupe, heal, borrado, restore, subtareas,
+  agrupación, multipestaña). Lo que estaba bien y quedó FIJADO en tests: mensual, semanal con
+  días elegidos, `until`, cambio de regla, ausencia larga (no genera goteo), instancia borrada
+  que no revive, y dos dispositivos que spawnean en paralelo (mismos ids). Lo que estaba mal:
+  1. **Subtareas duplicadas en cada instancia.** La instancia tenía id determinista pero sus
+     SUBTAREAS se copiaban con `genId()`: dos dispositivos generaban la misma tarea con
+     subtareas de ids distintos y el merge del pull las sumaba (2 → 4 pasos, y creciendo).
+     Fix: `spawnSubtasksFor` con ids deterministas `<instancia>__<subtarea>`.
+  2. **Subárbol colgado de la madre.** Al copiar subtareas anidadas, el `parentId` seguía
+     apuntando a la subtarea de la MADRE → jerarquía rota en la instancia y `parent_id` cruzado
+     entre tareas distintas en Supabase. Ahora se remapea a la copia (y no se arrastran
+     subtareas archivadas ni hijas huérfanas).
+  3. **Hermana de subtarea recurrente duplicada.** Completar una subtarea recurrente en dos
+     dispositivos creaba dos hermanas (`genId()` de nuevo). Ahora id determinista
+     `recsub_<subtarea>_<fecha>` + guarda por (título, fecha).
+  - **Robustez:** el heal (`migrateRecurringHeads`) ahora corre también en las pasadas
+    periódicas del AppShell (medianoche / cada 30 min), no solo en el mount + 10s — si el pull
+    trae datos rotos más tarde, se reparan igual. Y borrar la madre ya no marca sus instancias
+    como "hechas" (ensuciaba el historial): se archivan a secas, y **restaurar la madre desde la
+    papelera devuelve la serie completa**.
+  - **Sin migración** (solo cambian ids de filas nuevas y campos que ya existían).
+  - **Verificado:** `lib/tasks/recurringSeries.test.ts` 23/23. En la app: una serie diaria con
+    subtarea anidada spawnea 10 instancias en UNA serie, subtareas `rec_M_<fecha>__sub_a` con la
+    anidada colgando de la copia, 0 parentIds rotos, 0 duplicados, y la UI muestra una sola fila
+    "Backtesting sesh · Todos los días · 0/11 hechas". `tsc` y `next build` OK.
+
 - [x] **Recurrentes — se multiplicaban solas y no había forma de detenerlas (fix de raíz)** (Claude directo, verificado corriendo la app + tests):
   Reporte: "se me pone Backtesting sesh, intento detenerla/borrarla y no hay forma; se siguen
   separando; me aparecen 10 recurrencias de una misma instancia". Reproducido y medido, tres

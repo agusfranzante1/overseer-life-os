@@ -191,6 +191,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       const effectiveTodayKey = computeEffectiveSpawnKey(
         new Date(), timezone, spawnAdvanceDow, spawnAdvanceHour,
       )
+      // Repara series partidas ANTES de spawnear: si el pull de Supabase trajo
+      // instancias huérfanas o fragmentadas después del mount, el heal del
+      // efecto de arriba (mount + 10s) ya pasó y sin esto la reparación no
+      // corría hasta el próximo refresh — mientras tanto se seguían generando
+      // instancias sobre datos rotos.
+      migrateRecurringHeads()
       ensureRecurringSpawns(effectiveTodayKey)
       // Limpia duplicados de recurrentes (mismas serie+fecha) que hayan quedado
       // de spawns multi-device con ids random. Idempotente y determinista.
@@ -253,7 +259,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if (midnightTimer) clearTimeout(midnightTimer)
       clearInterval(safetyInterval)
     }
-  }, [timezone, autoPurgeCompletedTasks, archiveCompletedBefore, ensureRecurringSpawns, dedupeRecurringInstances, reconcileRecurringSpiTasks, spawnAdvanceDow, spawnAdvanceHour])
+  }, [timezone, autoPurgeCompletedTasks, archiveCompletedBefore, ensureRecurringSpawns, dedupeRecurringInstances, migrateRecurringHeads, reconcileRecurringSpiTasks, spawnAdvanceDow, spawnAdvanceHour])
 
   // Process recurring wallet expenses (suscripciones / pagos recurrentes).
   // Same pattern as task auto-purge: run on mount + 10s delayed (post-Supabase

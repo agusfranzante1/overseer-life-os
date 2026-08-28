@@ -21,6 +21,44 @@ function recurringInstanceId(motherId: string, dueDate: string): string {
   return `rec_${motherId}_${dueDate}`
 }
 
+/** Id DETERMINISTA para la copia de una subtarea dentro de una instancia
+ *  recurrente. Mismo motivo que `recurringInstanceId`: la instancia ya tenía id
+ *  determinista, pero sus SUBTAREAS se creaban con `genId()`, así que dos
+ *  dispositivos que spawneaban la misma ocurrencia producían la misma tarea con
+ *  subtareas de ids distintos → el merge las sumaba y la instancia terminaba con
+ *  la lista de subtareas DUPLICADA. */
+function recurringSubtaskId(instanceId: string, sourceSubtaskId: string): string {
+  return `${instanceId}__${sourceSubtaskId}`
+}
+
+/** Id DETERMINISTA para la siguiente hermana de una SUBTAREA recurrente. */
+function recurringSubtaskSiblingId(sourceSubtaskId: string, dueDate: string): string {
+  return `recsub_${sourceSubtaskId}_${dueDate}`
+}
+
+/** Copia las subtareas de la madre para una instancia recurrente nueva.
+ *  - ids deterministas (ver arriba),
+ *  - `parentId` REMAPEADO a la copia: antes seguía apuntando a la subtarea de
+ *    la MADRE, así que el árbol de la instancia quedaba colgando de otra tarea
+ *    (y el push mandaba un `parent_id` cruzado entre tareas distintas),
+ *  - no arrastra subtareas archivadas (ni deja hijas colgadas de una madre que
+ *    no se copió). */
+function spawnSubtasksFor(instanceId: string, source: Subtask[] | undefined, todoStatus: string): Subtask[] {
+  const alive = (source ?? []).filter((sub) => !sub.archivedAt)
+  const kept = new Set(alive.map((sub) => sub.id))
+  return alive.map((sub) => ({
+    ...sub,
+    id: recurringSubtaskId(instanceId, sub.id),
+    parentId: sub.parentId && kept.has(sub.parentId)
+      ? recurringSubtaskId(instanceId, sub.parentId)
+      : undefined,
+    completed: false,
+    completedAt: undefined,
+    archivedAt: undefined,
+    status: todoStatus,
+  }))
+}
+
 function today() {
   return new Date().toISOString().split('T')[0]
 }
@@ -632,9 +670,7 @@ export const useTasksStore = create<TasksState>()(
               createdAt: nowIso,
               updatedAt: nowIso,
               postponedCount: 0,
-              subtasks: (mother.subtasks ?? []).map((sub) => ({
-                ...sub, id: genId(), completed: false, completedAt: undefined, status: todoStatus,
-              })),
+              subtasks: spawnSubtasksFor(newId, mother.subtasks, todoStatus),
               recurrenceSpawnedNext: false,
               gcalEventId: undefined,
               gcalCalendarId: undefined,
@@ -1164,7 +1200,11 @@ export const useTasksStore = create<TasksState>()(
               if (t.recurringHeadId !== id) continue
               if (t.archivedAt || t.completedAt) continue
               if (t.dueDate && t.dueDate < todayKey) continue
-              tasks[t.id] = { ...t, archivedAt: nowIso, completedAt: nowIso, updatedAt: nowIso }
+              // Archivadas SIN `completedAt`: no las hiciste, las borraste. Si
+              // les estampáramos completedAt ensuciarían el historial y las
+              // estadísticas de "hechas" — y `restoreFromArchive` usa
+              // justamente esa ausencia para saber cuáles devolver.
+              tasks[t.id] = { ...t, archivedAt: nowIso, updatedAt: nowIso }
             }
           }
           return { tasks }
@@ -1329,15 +1369,7 @@ export const useTasksStore = create<TasksState>()(
             if (tasks[newId]) continue   // ya existe (id determinista) → no duplicar
             const proj = s.projects[mother.projectId]
             const todoStatus = proj?.statuses[0]?.label ?? 'To Do'
-            const freshSubs: Subtask[] = (mother.subtasks ?? [])
-              .filter((sub) => !sub.archivedAt)
-              .map((sub) => ({
-                ...sub,
-                id: genId(),
-                completed: false,
-                completedAt: undefined,
-                status: todoStatus,
-              }))
+            const freshSubs: Subtask[] = spawnSubtasksFor(newId, mother.subtasks, todoStatus)
             tasks[newId] = {
               ...mother,
               id: newId,
@@ -1452,18 +1484,33 @@ export const useTasksStore = create<TasksState>()(
           // Find a sensible non-done status to restore to. Prefer "In Progress"
           // style (first non-done), fall back to current status if nothing fits.
           const reopenStatus = proj?.statuses.find((st) => !st.countsAsDone)?.label ?? t.status
-          return {
-            tasks: {
-              ...s.tasks,
-              [id]: {
-                ...t,
-                archivedAt: undefined,
-                completedAt: undefined,
-                status: reopenStatus,
-                updatedAt: new Date().toISOString(),
-              },
+          const nowIso = new Date().toISOString()
+          const tasks = {
+            ...s.tasks,
+            [id]: {
+              ...t,
+              archivedAt: undefined,
+              completedAt: undefined,
+              status: reopenStatus,
+              updatedAt: nowIso,
             },
           }
+          // Simétrico a `deleteTask`: borrar la madre se lleva sus instancias
+          // futuras, así que restaurarla las trae de vuelta. Solo las que
+          // fueron BORRADAS (archivadas sin `completedAt`) — las completadas
+          // son historial y se quedan donde están. Sin esto, sacar una serie de
+          // la papelera la dejaba sin sus instancias hasta la semana siguiente.
+          if (t.recurringHeadId === id) {
+            for (const other of Object.values(s.tasks)) {
+              if (other.id === id) continue
+              if (other.recurringHeadId !== id) continue
+              if (!other.archivedAt || other.completedAt) continue
+              const otherProj = s.projects[other.projectId]
+              const otherStatus = otherProj?.statuses.find((st) => !st.countsAsDone)?.label ?? other.status
+              tasks[other.id] = { ...other, archivedAt: undefined, status: otherStatus, updatedAt: nowIso }
+            }
+          }
+          return { tasks }
         }),
 
       deletePermanently: (id) =>
@@ -1946,10 +1993,23 @@ export const useTasksStore = create<TasksState>()(
                   // (título/priority/parentId/recurrence/durationMinutes)
                   // pero arranca fresco (completed=false, completedAt
                   // undefined, status=primer open, dueDate=nextDue).
-                  if (shouldSpawnNext && nextDue && targetSub) {
+                  // Guarda anti-duplicado: si la hermana de esa fecha ya está
+                  // (la spawneó otro dispositivo y llegó por sync, o un
+                  // re-toggle), no creamos otra.
+                  const siblingId = nextDue ? recurringSubtaskSiblingId(subtaskId, nextDue) : ''
+                  const normSub = (str: string) =>
+                    str.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+                  const siblingExists = !!nextDue && updated.some((st) =>
+                    st.id === siblingId
+                    || (st.dueDate === nextDue && normSub(st.title) === normSub(targetSub!.title)),
+                  )
+                  if (shouldSpawnNext && nextDue && targetSub && !siblingExists) {
                     const newSub: Subtask = {
                       ...targetSub,
-                      id: genId(),
+                      // Id DETERMINISTA: dos dispositivos que completan la
+                      // misma subtarea recurrente generaban dos hermanas con
+                      // ids random y el merge se quedaba con LAS DOS.
+                      id: siblingId,
                       completed: false,
                       completedAt: undefined,
                       archivedAt: undefined,

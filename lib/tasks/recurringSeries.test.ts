@@ -127,5 +127,74 @@ useTasksStore.getState().removeRecurringSeries('mother1', false)
 const g1 = stats(); openApp(); const g2 = stats()
 check('borrar la serie completa no deja nada', g1.live === 0 && g2.live === 0, JSON.stringify(g2))
 
+console.log('\n7) Dos dispositivos spawnean la misma instancia: las SUBTAREAS no se duplican')
+{
+  const withSubs = (): Record<string, Task> => ({
+    M: { ...BASE, id: 'M', dueDate: fmt(now), recurringHeadId: 'M', title: 'Serie con pasos',
+      subtasks: [
+        { id: 'sub_a', title: 'Paso 1', completed: false, status: 'To Do', order: 0 },
+        { id: 'sub_b', title: 'Paso 1.1', completed: false, status: 'To Do', order: 1, parentId: 'sub_a' },
+      ] } as Task,
+  })
+  const spawnOn = () => {
+    const tasks = withSubs()
+    useTasksStore.setState({ projects: { P1: { id: 'P1', name: 'Trading', color: '#8b5cf6',
+      statuses: DEFAULT_STATUSES, taskIds: Object.keys(tasks), createdAt: iso } as never }, tasks })
+    openApp()
+    return useTasksStore.getState().tasks[`rec_M_${plus(1)}`]
+  }
+  const a = spawnOn()
+  const b = spawnOn()
+  check('la instancia tiene el mismo id en los dos', a?.id === b?.id)
+  check('y las mismas subtareas (ids deterministas)',
+    a.subtasks.map((s) => s.id).join() === b.subtasks.map((s) => s.id).join(),
+    `${a.subtasks.map((s) => s.id).join()} vs ${b.subtasks.map((s) => s.id).join()}`)
+  check('tras el merge del pull siguen siendo 2, no 4',
+    new Set([...a.subtasks, ...b.subtasks].map((s) => s.id)).size === 2)
+  const madre = a.subtasks.find((s) => s.title === 'Paso 1')!
+  const hija = a.subtasks.find((s) => s.title === 'Paso 1.1')!
+  check('la subtarea anidada cuelga de la copia, no de la subtarea de la madre',
+    hija.parentId === madre.id, String(hija.parentId))
+}
+
+console.log('\n8) Subtarea recurrente completada en dos dispositivos: una sola hermana')
+{
+  const seedSub = () => {
+    const tasks: Record<string, Task> = {
+      T: { ...BASE, id: 'T', title: 'Madre', dueDate: undefined, recurrence: undefined,
+        recurringHeadId: undefined,
+        subtasks: [{ id: 's1', title: 'Regar plantas', completed: false, status: 'To Do', order: 0,
+          dueDate: fmt(now), recurrence: { kind: 'daily' } }] } as unknown as Task,
+    }
+    useTasksStore.setState({ projects: { P1: { id: 'P1', name: 'Trading', color: '#8b5cf6',
+      statuses: DEFAULT_STATUSES, taskIds: ['T'], createdAt: iso } as never }, tasks })
+    useTasksStore.getState().toggleSubtask('T', 's1')
+    return useTasksStore.getState().tasks['T'].subtasks
+  }
+  const a = seedSub(); const b = seedSub()
+  check('la hermana nace con el mismo id en los dos',
+    a.map((s) => s.id).join() === b.map((s) => s.id).join(),
+    `${a.map((s) => s.id).join()} vs ${b.map((s) => s.id).join()}`)
+  check('tras el merge quedan 2 subtareas, no 3', new Set([...a, ...b].map((s) => s.id)).size === 2)
+}
+
+console.log('\n9) Borrar la madre y arrepentirse: restaurarla trae las futuras de vuelta')
+{
+  seed({ mother: 'live' }); openApp()
+  const antes = stats().live
+  useTasksStore.getState().deleteTask('mother1')
+  // La madre borrada sí lleva `completedAt` (fecha que muestra la papelera,
+  // comportamiento histórico); las INSTANCIAS que se van con ella no, porque
+  // no se hicieron — y esa ausencia es lo que usa `restoreFromArchive`.
+  const instanciasArchivadas = Object.values(useTasksStore.getState().tasks)
+    .filter((t) => t.archivedAt && t.id !== 'mother1')
+  check('las instancias no quedan marcadas como "hechas" al borrar',
+    instanciasArchivadas.length > 0 && instanciasArchivadas.every((t) => !t.completedAt),
+    `${instanciasArchivadas.length} archivadas`)
+  useTasksStore.getState().restoreFromArchive('mother1')
+  check('restaurar la madre devuelve toda la serie', stats().live === antes, `${antes} -> ${stats().live}`)
+}
+
+
 console.log(`\n${fail === 0 ? 'TODO OK' : 'HAY FALLAS'} — ${pass} ok, ${fail} fail\n`)
 process.exit(fail === 0 ? 0 : 1)
