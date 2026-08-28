@@ -501,12 +501,30 @@ export const useTasksStore = create<TasksState>()(
           if (!head?.recurrence || !head.dueDate) return s
           const tasks = { ...s.tasks }
           let projects = s.projects
-          // La MADRE de la cadena — fuente de verdad para template
-          // (título, dueTime, durationMinutes, recurrence). Si el head
-          // tiene recurringHeadId la buscamos por ahí; si no, el head
-          // mismo es la madre (compat con datos pre-migración).
-          const mother = (head.recurringHeadId && s.tasks[head.recurringHeadId]) || head
-          const motherId = mother.id
+          // ─── IDENTIDAD DE LA SERIE (no confundir con el template) ───
+          // `motherId` es la ETIQUETA de la serie: el id de la madre. Se
+          // mantiene AUNQUE la fila de la madre ya no exista (borrada por el
+          // user, o todavía no llegó a este device por sync). Es CRÍTICO:
+          // antes, sin madre, cada instancia se tomaba a sí misma como madre
+          // → su `dupeExists` no reconocía a las hermanas, spawneaba copias
+          // de fechas que ya existían y cada copia nacía en una serie propia.
+          // Medido: 6 instancias huérfanas → 39 tareas y 7 series en UNA sola
+          // apertura de /tasks, sin forma de volver a unirlas.
+          const motherId = head.recurringHeadId ?? head.id
+          const motherRow = s.tasks[motherId]
+          // La madre en la papelera DETIENE la cadena. El auto-purge nunca
+          // archiva una madre bien anclada (excepción explícita en
+          // archiveCompletedBefore), así que si está archivada es porque el
+          // user la borró — y esperar que igual siga generando instancias es
+          // exactamente el bug de "no hay forma de detenerla".
+          // Exigimos la auto-referencia: una fila archivada que perdió su
+          // `recurringHeadId` (clobber de sync) NO es una orden de frenar, y
+          // frenar ahí le mataría al user una serie que quiere viva.
+          if (motherRow?.archivedAt && motherRow.recurringHeadId === motherRow.id) return s
+          // TEMPLATE de los spawns (título, dueTime, duración, subtasks…):
+          // la madre si existe; si no, el head, que es una instancia de la
+          // misma serie y por lo tanto una copia fiel del template.
+          const mother = motherRow ?? head
 
           // ─── Ventana semanal Lun→Dom anclada ───
           // El ANCLA define qué semana arranca la ventana:
@@ -1119,19 +1137,37 @@ export const useTasksStore = create<TasksState>()(
 
           // Soft delete → archive
           const nowIso = new Date().toISOString()
-          return {
-            tasks: {
-              ...s.tasks,
-              [id]: {
-                ...task,
-                archivedAt: nowIso,
-                // If the task wasn't already completed, stamp completedAt now
-                // so the archive UI has a sensible "completada" date to show.
-                completedAt: task.completedAt ?? nowIso,
-                updatedAt: nowIso,
-              },
+          const tasks = {
+            ...s.tasks,
+            [id]: {
+              ...task,
+              archivedAt: nowIso,
+              // If the task wasn't already completed, stamp completedAt now
+              // so the archive UI has a sensible "completada" date to show.
+              completedAt: task.completedAt ?? nowIso,
+              updatedAt: nowIso,
             },
           }
+          // Borrar la MADRE de una serie = detener la serie. Las instancias
+          // futuras todavía no hechas se van con ella a la papelera (de donde
+          // se pueden recuperar). Antes quedaban vivas y, encima, seguían
+          // spawneando: el user borraba la tarea y la serie no se detenía.
+          // Las completadas/pasadas se conservan como historial.
+          if (task.recurringHeadId === id) {
+            // Fecha LOCAL (las dueDate son YYYY-MM-DD locales). Con la de
+            // `toISOString()` a la noche ya estaríamos en el día siguiente en
+            // UTC y las instancias de hoy contarían como pasadas.
+            const d = new Date()
+            const todayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+            for (const t of Object.values(s.tasks)) {
+              if (t.id === id) continue
+              if (t.recurringHeadId !== id) continue
+              if (t.archivedAt || t.completedAt) continue
+              if (t.dueDate && t.dueDate < todayKey) continue
+              tasks[t.id] = { ...t, archivedAt: nowIso, completedAt: nowIso, updatedAt: nowIso }
+            }
+          }
+          return { tasks }
         })
       },
 
@@ -1268,12 +1304,21 @@ export const useTasksStore = create<TasksState>()(
             // recurringHeadId, lookup directo; sino la madre es el item
             // con dueDate más vieja del grupo (sorted ascendente: el último).
             const motherFromId = tail.recurringHeadId ? s.tasks[tail.recurringHeadId] : undefined
+            // Madre en la papelera → serie detenida (mismo criterio que
+            // ensureRecurringBuffer: exige la auto-referencia para no frenar
+            // una serie por una fila corrupta). Sin esto, borrar la madre no
+            // paraba nada.
+            if (motherFromId?.archivedAt && motherFromId.recurringHeadId === motherFromId.id) continue
             const mother = motherFromId
               ?? [...arr].sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? ''))[0]
-            const motherId = mother.id
+            // La ETIQUETA de la serie es el `recurringHeadId` original, exista
+            // o no la fila de la madre. Si cayéramos en `mother.id` cuando la
+            // madre falta, el rollover abriría una serie NUEVA por cada
+            // instancia huérfana (fragmentación + duplicados por fecha).
+            const motherId = tail.recurringHeadId ?? mother.id
             // Recurrence rule del SPAWN viene de la madre (no del tail) —
             // si la madre cambió el kind, los próximos spawns lo respetan.
-            const nextDueDate = nextRecurrenceDueDate(tail.dueDate, mother.recurrence!)
+            const nextDueDate = nextRecurrenceDueDate(tail.dueDate, (mother.recurrence ?? tail.recurrence)!)
             if (!nextDueDate) continue            // serie terminó (until)
             // Si ya existe una task con esa fecha en la serie, skip
             // (idempotente — múltiples llamadas no duplican).
@@ -1343,28 +1388,43 @@ export const useTasksStore = create<TasksState>()(
       dedupeRecurringInstances: () => {
         let removed = 0
         set((s) => {
-          // Agrupar por (serie, dueDate). Serie = recurringHeadId, o legacy
-          // projectId::título. Solo instancias vivas (no archivadas) con fecha.
-          const groups = new Map<string, Task[]>()
-          for (const t of Object.values(s.tasks)) {
-            if (!t.recurrence || !t.dueDate || t.archivedAt) continue
-            const series = t.recurringHeadId ? `head:${t.recurringHeadId}` : `legacy:${t.projectId}::${t.title}`
-            const key = `${series}@@${t.dueDate}`
-            if (!groups.has(key)) groups.set(key, [])
-            groups.get(key)!.push(t)
-          }
+          const norm = (str: string) =>
+            str.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+          const live = Object.values(s.tasks).filter((t) => t.recurrence && t.dueDate && !t.archivedAt)
           const toRemove = new Set<string>()
-          for (const arr of groups.values()) {
-            if (arr.length < 2) continue
-            // Keep determinista: completada primero (preserva historial), luego id más chico.
-            const keeper = [...arr].sort((a, b) => {
-              const ca = a.completedAt ? 0 : 1
-              const cb = b.completedAt ? 0 : 1
-              if (ca !== cb) return ca - cb
-              return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
-            })[0]
-            for (const t of arr) if (t.id !== keeper.id) toRemove.add(t.id)
+
+          // Keep determinista: completada primero (preserva historial), luego
+          // id más chico. Tiene que dar lo mismo en todos los dispositivos.
+          const pickKeeper = (arr: Task[]) => [...arr].sort((a, b) => {
+            const ca = a.completedAt ? 0 : 1
+            const cb = b.completedAt ? 0 : 1
+            if (ca !== cb) return ca - cb
+            return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+          })[0]
+
+          const sweep = (keyOf: (t: Task) => string) => {
+            const groups = new Map<string, Task[]>()
+            for (const t of live) {
+              if (toRemove.has(t.id)) continue
+              const key = keyOf(t)
+              if (!groups.has(key)) groups.set(key, [])
+              groups.get(key)!.push(t)
+            }
+            for (const arr of groups.values()) {
+              if (arr.length < 2) continue
+              const keeper = pickKeeper(arr)
+              for (const t of arr) if (t.id !== keeper.id) toRemove.add(t.id)
+            }
           }
+
+          // 1) Por (serie, dueDate) — el duplicado clásico: dos devices
+          //    spawnearon la misma ocurrencia.
+          sweep((t) => `${t.recurringHeadId ? `head:${t.recurringHeadId}` : `legacy:${t.projectId}::${norm(t.title)}`}@@${t.dueDate}`)
+          // 2) Por (proyecto, título, dueDate) IGNORANDO la serie. Caza las
+          //    copias que quedaron de una serie fragmentada: misma tarea, mismo
+          //    día, pero cada copia con su propio `recurringHeadId` — la pasada
+          //    1 no las ve como duplicados justamente porque agrupa por serie.
+          sweep((t) => `title:${t.projectId}::${norm(t.title)}@@${t.dueDate}`)
           if (toRemove.size === 0) return s
           const tasks = { ...s.tasks }
           const projects = { ...s.projects }
@@ -2000,19 +2060,32 @@ export const useTasksStore = create<TasksState>()(
             if (!byKey.has(key)) byKey.set(key, [])
             byKey.get(key)!.push(t)
           }
+          // Orden canónico: dueDate más vieja → createdAt más viejo → id. Tiene
+          // que ser DETERMINISTA: dos dispositivos que corran este heal sobre
+          // los mismos datos deben elegir la MISMA madre, si no cada uno
+          // re-etiqueta la serie a su manera y el sync hace ping-pong.
+          const oldestFirst = (a: Task, b: Task) => {
+            const da = a.dueDate ?? '9999-99-99'
+            const db = b.dueDate ?? '9999-99-99'
+            if (da !== db) return da.localeCompare(db)
+            const ca = a.createdAt ?? ''
+            const cb = b.createdAt ?? ''
+            if (ca !== cb) return ca.localeCompare(cb)
+            return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+          }
           const motherByKey = new Map<string, string>()
           for (const [key, arr] of byKey) {
-            const established = arr.find((t) => t.recurringHeadId && t.recurringHeadId === t.id)
-            if (established) { motherByKey.set(key, established.id); continue }
+            // Puede haber VARIAS madres establecidas si la serie se fragmentó
+            // (madre borrada → cada instancia abrió serie propia). Nos
+            // quedamos con la más vieja y el paso 2 re-ancla el resto.
+            const established = arr.filter((t) => t.recurringHeadId && t.recurringHeadId === t.id)
+            if (established.length > 0) {
+              motherByKey.set(key, [...established].sort(oldestFirst)[0].id)
+              continue
+            }
             const recurring = arr.filter((t) => t.recurrence)
             if (recurring.length === 0) continue
-            const sorted = [...recurring].sort((a, b) => {
-              const da = (a.dueDate ?? '9999-99-99')
-              const db = (b.dueDate ?? '9999-99-99')
-              if (da !== db) return da.localeCompare(db)
-              return (a.createdAt ?? '').localeCompare(b.createdAt ?? '')
-            })
-            motherByKey.set(key, sorted[0].id)
+            motherByKey.set(key, [...recurring].sort(oldestFirst)[0].id)
           }
           if (motherByKey.size === 0) return s
           // 2) Re-linkear toda tarea SIN recurringHeadId cuya key tenga madre.
@@ -2022,14 +2095,32 @@ export const useTasksStore = create<TasksState>()(
           //    absorbe si tiene dueDate (parece instancia), para no tragarse
           //    one-offs que casualmente compartan título con una serie.
           let changed = false
+          const nowIso = new Date().toISOString()
           const tasks = { ...s.tasks }
           for (const t of Object.values(s.tasks)) {
             if (t.archivedAt) continue
-            if (t.recurringHeadId) continue                       // ya linkeada (idempotente)
             const motherId = motherByKey.get(`${t.projectId}::${norm(t.title)}`)
             if (!motherId) continue
-            if (!t.recurrence && !t.dueDate) continue             // guarda anti-absorción
-            tasks[t.id] = { ...t, recurringHeadId: motherId }
+            if (t.recurringHeadId === motherId) continue          // ya anclada (idempotente)
+            if (t.recurringHeadId) {
+              // Solo re-anclamos FRAGMENTOS, no series sanas:
+              //   - huérfana: su madre ya no existe, o
+              //   - auto-anclada (es su propia madre) pero no es la canónica
+              //     → la serie se partió en una serie por instancia.
+              // Si apunta a otra tarea que SÍ existe (aunque esté archivada,
+              // = serie detenida a propósito), no se toca: re-anclarla la
+              // desengancharía de su madre y la cadena volvería a arrancar.
+              const orphan = !s.tasks[t.recurringHeadId]
+              const selfAnchored = t.recurringHeadId === t.id
+              if (!orphan && !selfAnchored) continue
+              if (!t.recurrence) continue                         // no arrastramos one-offs ya anclados
+            } else if (!t.recurrence && !t.dueDate) {
+              continue                                            // guarda anti-absorción
+            }
+            // `updatedAt` bumpeado: sin esto el merge LWW del pull pisaba el
+            // re-anclaje con la copia remota vieja y la serie se volvía a
+            // partir en cada sync (BASE nº1).
+            tasks[t.id] = { ...t, recurringHeadId: motherId, updatedAt: nowIso }
             changed = true
           }
           if (!changed) return s

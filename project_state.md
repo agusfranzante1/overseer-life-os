@@ -5,9 +5,13 @@
 > El método de trabajo está en [`instructions.md`](instructions.md); las reglas
 > técnicas no negociables en [`AGENTS.md`](AGENTS.md).
 
-**Última actualización:** 2026-08-15 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
+**Última actualización:** 2026-08-28 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
 
-⚠️ **PENDIENTE del usuario:** correr en Supabase `supabase/migration_offer_templates.sql` (Etapa 5), `supabase/migration_books.sql` (Etapa 6) y **`supabase/migration_tasks_favorite.sql`** (⭐ favoritas) — este último es CRÍTICO: hasta correrlo, el push de tareas FALLA (columna `favorite` desconocida) y el sync de tareas se corta.
+✅ **Migraciones de tareas:** el usuario confirmó (2026-08-28) que ya corrió
+`migration_tasks_favorite.sql`, `migration_subtasks_favorite.sql` y `migration_tasks_tags.sql`.
+Quedan sin confirmar `migration_offer_templates.sql` (Etapa 5) y `migration_books.sql` (Etapa 6).
+Igual, desde el fix del 2026-08-28 una migración sin correr **ya no corta el push** del dominio
+(se descarta esa columna y se sincroniza el resto, con toast avisando cuál falta).
 
 ---
 
@@ -38,6 +42,45 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 ---
 
 ## ✅ Hecho recientemente
+
+- [x] **Recurrentes — se multiplicaban solas y no había forma de detenerlas (fix de raíz)** (Claude directo, verificado corriendo la app + tests):
+  Reporte: "se me pone Backtesting sesh, intento detenerla/borrarla y no hay forma; se siguen
+  separando; me aparecen 10 recurrencias de una misma instancia". Reproducido y medido, tres
+  bugs encadenados:
+  1. **La bomba — serie sin madre.** `ensureRecurringBuffer` tomaba `mother.id` como identidad
+     de la serie; si la fila de la MADRE no existía (borrada, o todavía no llegó a ese device
+     por sync), cada instancia se tomaba a sí misma como madre → su `dupeExists` no reconocía a
+     las hermanas y spawneaba copias de fechas que ya existían, cada una en una serie propia.
+     Medido: **6 instancias huérfanas → 39 tareas y 7 series en UNA apertura de /tasks**, con 6
+     copias del mismo día. Y no se volvían a unir nunca: el heal solo miraba tareas SIN
+     `recurringHeadId` y el dedupe agrupa POR `recurringHeadId`.
+     **Fix:** `recurringHeadId` es la ETIQUETA de la serie y se conserva exista o no la fila de
+     la madre (el `head` pasa a ser solo el template). Ids deterministas `rec_<madre>_<fecha>`
+     otra vez → converge multi-device. Mismo criterio en `ensureRecurringSpawns` (rollover).
+  2. **La madre en la papelera no detenía nada.** Verificado: madre archivada → seguía
+     spawneando (7 → 10 tareas al reabrir). **Fix:** madre archivada = serie detenida (buffer y
+     rollover cortan), y `deleteTask` sobre una madre se lleva a la papelera sus instancias
+     futuras no completadas (recuperables; el historial queda intacto).
+  3. **Los datos ya rotos no se reparaban.** `migrateRecurringHeads` ahora elige la madre
+     canónica de forma DETERMINISTA (dueDate → createdAt → id, igual en todos los devices) y
+     re-ancla los fragmentos (huérfanos o auto-anclados), bumpeando `updatedAt` — sin ese bump
+     el merge LWW del pull pisaba el heal y la serie se volvía a partir en cada sync (BASE nº1).
+     `dedupeRecurringInstances` suma una segunda pasada por (proyecto, título, fecha) que caza
+     las copias que la pasada por serie no veía.
+  - **Sync — blindaje (NO era la causa acá: el usuario ya tenía las migraciones corridas):** el
+    push de un dominio moría entero si la tabla no tenía una columna nueva (migración sin correr)
+    y `syncDeletes` está DESPUÉS del upsert → los borrados no se propagaban y el pull siguiente
+    resucitaba todo. Nuevo `lib/supabase/upsertTolerant.ts`:
+    descarta la columna que falta, reintenta y sincroniza el resto (los borrados sí viajan);
+    avisa por toast qué migración correr. Cualquier otro error corta como antes.
+  - **Sin migración nueva** (no hay campos nuevos; solo se reescriben `recurringHeadId`/`archivedAt`).
+  - **Verificado:** `lib/tasks/recurringSeries.test.ts` 15/15 (incluye el caso exacto: 6
+    huérfanas ya no explotan, datos fragmentados se re-unifican, madre a la papelera detiene la
+    cadena, y "detener"/"borrar serie" siguen andando) y `lib/supabase/upsertTolerant.test.ts`
+    13/13. Corriendo la app con el escenario roto sembrado: **1 fila "Backtesting sesh · Todos
+    los días · 0/6 hechas"** donde antes había 39 tareas en 7 series, y estable entre reloads.
+    `tsc --noEmit` OK.
+  - **No verificado:** el round-trip real contra Supabase (el modo sin auth no tiene backend).
 
 - [x] **Tareas — el prompt de "dividir en tareas / todo junto" al pegar una lista** (Claude directo, verificado):
   Reporte: pegué una lista larga y no me preguntó si separarla en tareas. Diagnóstico

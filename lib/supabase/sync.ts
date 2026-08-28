@@ -35,6 +35,7 @@ import {
 } from './syncTracking'
 import { mergePrefsByField, changedFields, stampFields, type FieldTimes } from './prefsMerge'
 import { mergeById, reconcileDeletes, mergeSpiSession, mergeProjectionPlan, mergeLabSession, mergeHabit, mergeContentProfile, toMs } from './syncMerge'
+import { upsertTolerant } from './upsertTolerant'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
@@ -306,6 +307,16 @@ function orderRowsParentsFirst<T extends { id: string; parent_id?: string | null
 // borra lo que el user quitó a propósito (baseline ∩ ¬local). Todos los
 // dominios usan ahora merge no-destructivo + reconcileDeletes.
 
+/** Upsert que descarta las columnas que la tabla remota todavía no tiene (una
+ *  migración sin correr) en vez de tirar todo el batch. Ver el porqué en
+ *  `upsertTolerant.ts`: sin esto, una migración pendiente cortaba el sync del
+ *  dominio entero y los borrados nunca se propagaban → lo borrado volvía. */
+function upsertSkippingMissingColumns<T extends Record<string, unknown>>(
+  sb: ReturnType<typeof getSupabaseBrowser>, table: string, rows: T[],
+) {
+  return upsertTolerant((payload) => sb.from(table).upsert(payload), rows, table)
+}
+
 // ─── Tombstones globales (tabla deleted_rows) ─────────────────────────────────
 //
 // El baseline (localStorage por-device) detecta los borrados que ESTE device
@@ -574,14 +585,20 @@ async function pushTasks() {
     if (r.error) { reportSyncError(`projects upsert failed: ${r.error.message}`); throw r.error }
   }
   if (taskRowsValid.length > 0) {
-    const r = await sb.from('tasks').upsert(taskRowsValid)
+    const r = await upsertSkippingMissingColumns(sb, 'tasks', taskRowsValid)
     if (r.error) { reportSyncError(`tasks upsert failed: ${r.error.message}`); throw r.error }
+    if (r.dropped.length > 0) {
+      reportSyncError(`tasks: la tabla no tiene ${r.dropped.join(', ')} — sincronicé el resto, pero corré las migraciones pendientes (supabase/migration_tasks_favorite.sql, migration_tasks_tags.sql).`)
+    }
   }
   if (subtaskRowsOrdered.length > 0) {
-    const r = await sb.from('subtasks').upsert(subtaskRowsOrdered)
+    const r = await upsertSkippingMissingColumns(sb, 'subtasks', subtaskRowsOrdered)
     if (r.error) {
       reportSyncError(`subtasks upsert failed: ${r.error.message}. ¿Falta correr migration_subtasks_completion_fields.sql?`)
       throw r.error
+    }
+    if (r.dropped.length > 0) {
+      reportSyncError(`subtasks: la tabla no tiene ${r.dropped.join(', ')} — sincronicé el resto, pero corré supabase/migration_subtasks_favorite.sql.`)
     }
   }
 

@@ -45,6 +45,11 @@ Todo vive en `lib/supabase/sync.ts` (+ `syncMerge.ts`, `syncTracking.ts`,
    catálogos de ofertas, flags, hiddenProjects, …). Se **mergea por campo con
    timestamps** (`prefsMerge.ts` / `appPrefsFields()`), NUNCA se pisa entero.
 
+**Push tolerante a migraciones sin correr** (`lib/supabase/upsertTolerant.ts`): si la tabla
+remota no tiene una columna nueva, se descarta esa columna y se reintenta en vez de tirar el
+batch. Importa porque `syncDeletes` va DESPUÉS del upsert: un push que moría dejaba los
+borrados sin propagar y el pull siguiente resucitaba lo borrado.
+
 **Sync entre pestañas** (aparte del multi-device): `lib/utils/initMultitabSync.ts`
 tiene que listar TODOS los stores persistidos (si falta uno, se pierden datos
 entre pestañas). Ver BASE nº1/2/3.
@@ -73,7 +78,7 @@ Repetir para cada feature nueva que guarde datos (BASE nº1):
 ## Feature → archivos (grueso; el código manda)
 | Feature | Store | UI | Sync / notas |
 |---|---|---|---|
-| Tareas | `tasksStore`, `taskUiStore` | `components/tasks/*` (`TasksPage`, `TaskCard`, `TaskDetail`, `ImportOutlineModal`) | per-fila `tasks`+`subtasks` (tabla propia, FK self-ref `parent_id` → subtareas anidadas SIN límite); árbol/parser puros en `lib/tasks/` (`subtaskTree.ts`, `parseOutline.ts`, `savedViews.ts`); push ordena padres-antes-hijos. `taskUiStore.hiddenProjects` y `savedViews` (listas guardadas / smart lists) van en el blob |
+| Tareas | `tasksStore`, `taskUiStore` | `components/tasks/*` (`TasksPage`, `TaskCard`, `TaskDetail`, `ImportOutlineModal`) | per-fila `tasks`+`subtasks` (tabla propia, FK self-ref `parent_id` → subtareas anidadas SIN límite); árbol/parser puros en `lib/tasks/` (`subtaskTree.ts`, `parseOutline.ts`, `savedViews.ts`); push ordena padres-antes-hijos. `taskUiStore.hiddenProjects` y `savedViews` (listas guardadas / smart lists) van en el blob. **Recurrentes:** `recurringHeadId` es la ETIQUETA de la serie (se conserva aunque la fila de la madre no exista) e ids deterministas `rec_<madre>_<fecha>`; madre archivada = serie detenida; `migrateRecurringHeads` re-ancla fragmentos con criterio determinista y `dedupeRecurringInstances` limpia copias. Ver `lib/tasks/recurringSeries.test.ts` |
 | Calendario | `googleCalendarStore` | `components/calendar/CalendarPage.tsx` | API `app/api/calendar/*`; `lib/calendar/timeMath.ts` |
 | Ofertas (CRM) | `offersStore` | `components/offers/*` | per-fila `offer_systems`/`offers`/`offer_templates`; bloques `lib/offers/blocks.ts`. **Borrado por-INTENCIÓN** (no por `baseline − local`): outbox `pendingDeletes` en el store → `pushExplicitDeletes` en sync.ts borra solo eso + tombstones; pull con baseline vacío. Doc por `docRev` (no reloj) |
 | Mapas mentales | `mindmapStore` | `components/mindmap/MindMapCanvas.tsx` | per-fila; carpetas; nodos shape `rect/circle/bracket/text` |
