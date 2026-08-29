@@ -50,6 +50,11 @@ remota no tiene una columna nueva, se descarta esa columna y se reintenta en vez
 batch. Importa porque `syncDeletes` va DESPUÉS del upsert: un push que moría dejaba los
 borrados sin propagar y el pull siguiente resucitaba lo borrado.
 
+**Listas anidadas en el merge**: `mergeById` resucita todo cuando el local está vacío (un store
+que no rehidrató). Ese heurístico NO aplica a listas anidadas dentro de una fila — las subtareas
+de una tarea pasan `isNestedCollection: true` (`mergeTaskWithSubtasks`), porque quedarse con cero
+subtareas es normal y si no el pull revivía las borradas.
+
 **Sync entre pestañas** (aparte del multi-device): `lib/utils/initMultitabSync.ts`
 tiene que listar TODOS los stores persistidos (si falta uno, se pierden datos
 entre pestañas). Ver BASE nº1/2/3.

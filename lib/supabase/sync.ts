@@ -34,7 +34,7 @@ import {
   getBaseline, setBaseline,
 } from './syncTracking'
 import { mergePrefsByField, changedFields, stampFields, type FieldTimes } from './prefsMerge'
-import { mergeById, reconcileDeletes, mergeSpiSession, mergeProjectionPlan, mergeLabSession, mergeHabit, mergeContentProfile, toMs } from './syncMerge'
+import { mergeById, mergeTaskWithSubtasks, reconcileDeletes, mergeSpiSession, mergeProjectionPlan, mergeLabSession, mergeHabit, mergeContentProfile, toMs } from './syncMerge'
 import { upsertTolerant } from './upsertTolerant'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
@@ -742,20 +742,14 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
     getUpdatedAt: (t) => t.updatedAt,
     tombstones: tombTasks,
     // Conflicto de task → escalares de la más reciente; subtasks se mergean
-    // por id (la task más nueva resuelve el contenido de cada subtask).
-    mergeItem: (l, r) => {
-      const lNewer = (l.updatedAt ?? '') >= (r.updatedAt ?? '')
-      const scalarBase = lNewer ? l : r
-      const mergedSubs = mergeById<LocalSubtask>({
-        local: l.subtasks ?? [],
-        remote: r.subtasks ?? [],
-        baseline: subtaskBaseline,
-        getId: (s) => s.id,
-        tombstones: tombSubtasks,
-        mergeItem: (ls, rs) => (lNewer ? ls : rs),
-      })
-      return { ...scalarBase, subtasks: mergedSubs }
-    },
+    // por id. La lógica vive en `mergeTaskWithSubtasks` (syncMerge.ts) para
+    // poder testearla — ver ahí por qué las subtareas NO son un wipe cuando
+    // quedan en cero.
+    mergeItem: (l, r) => mergeTaskWithSubtasks<LocalTask, LocalSubtask>(l, r, {
+      subtaskBaseline,
+      tombSubtasks,
+      getSubtaskId: (s) => s.id,
+    }),
   })
 
   // Projects sin updatedAt → en conflicto gana remote (canónico tras push).

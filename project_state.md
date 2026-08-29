@@ -43,6 +43,31 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Promover subtarea → las hijas quedaban DUPLICADAS en las dos tareas** (Claude directo, verificado con la función real del pull):
+  Reporte: "promuevo una subtarea1 con hijas y quedan en ambas". La promoción en sí estaba
+  bien (`promoteSubtaskToTask` se lleva el subárbol y remapea `parentId`); el que las
+  resucitaba era **el pull**.
+  - **Causa:** `mergeById` tiene un auto-heal — "local vacío = el store no rehidrató → resucito
+    todo de la nube ignorando tombstones y baseline". Correcto para una COLECCIÓN de dominio,
+    pero el merge de subtareas lo aplicaba a la lista anidada de UNA tarea: si la tarea original
+    quedaba con CERO subtareas (promoviste la única rama, o borraste la última), el pull revivía
+    todas las subtareas borradas dentro de ella. Reproducido: tras promover, la original volvía
+    con `[Subtarea 1, Hija A, Hija B, Nieta]` mientras la nueva tarea también las tenía.
+  - **Fix:** flag `isNestedCollection` en `mergeById` (apaga los dos heurísticos de wipe:
+    `localEmpty` y `remoteWiped`), activado en el merge de subtareas. El auto-heal real (store
+    entero vacío) queda intacto — hay test que lo fija.
+  - **Refactor mínimo:** el `mergeItem` de tareas salió de `pullTasks` a
+    `mergeTaskWithSubtasks` (syncMerge.ts) para poder testear LA función que corre en el pull,
+    no una copia.
+  - **Alcance:** no era solo promover — **borrar la última subtarea de una tarea** tenía el
+    mismo problema.
+  - **Sin migración.**
+  - **Verificado:** `lib/tasks/promoteSubtask.test.ts` 14/14 (promoción con nietas, pull tras
+    promover con y sin otras subtareas, borrar la última, y auto-heal con store vacío).
+    `tsc` + `next build` OK.
+  - **No verificado:** no ejecuté el botón "convertir en tarea" con clicks reales en la UI (el
+    panel del navegador no estaba desplegado); sí la acción del store que ese botón llama.
+
 - [x] **Auditoría del sistema recurrente — 2 bugs latentes de duplicación + robustez** (Claude directo, verificado corriendo la app + tests):
   Repaso completo del dominio (buffer, rollover, dedupe, heal, borrado, restore, subtareas,
   agrupación, multipestaña). Lo que estaba bien y quedó FIJADO en tests: mensual, semanal con

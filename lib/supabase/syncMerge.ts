@@ -42,6 +42,15 @@ export interface MergeByIdOpts<T> {
    *  baseline" → borrado local pendiente, NO se resucita. Opt-in: sin este
    *  param el merge se comporta exactamente como antes. */
   tombstones?: Map<string, number>
+  /** `true` cuando esto NO es una colección de dominio sino una lista ANIDADA
+   *  dentro de otra fila (las subtareas de UNA tarea). Apaga los dos heurísticos
+   *  de "wipe" de abajo, que solo tienen sentido a nivel colección: que una
+   *  tarea se quede con CERO subtareas es normal (borraste la última, o
+   *  promoviste la única a tarea propia), no la señal de un store que no
+   *  rehidrató. Sin esto, el pull resucitaba todas las subtareas borradas —
+   *  ignorando tombstones y baseline — y quedaban duplicadas entre la tarea
+   *  original y la nueva. */
+  isNestedCollection?: boolean
 }
 
 /** Une local + remote por id, sin perder filas:
@@ -51,7 +60,7 @@ export interface MergeByIdOpts<T> {
  *                     Si ∈ baseline → fue borrada en otro device → se descarta.
  */
 export function mergeById<T>(opts: MergeByIdOpts<T>): T[] {
-  const { local, remote, baseline, getId, getUpdatedAt, mergeItem, tombstones } = opts
+  const { local, remote, baseline, getId, getUpdatedAt, mergeItem, tombstones, isNestedCollection } = opts
 
   const localById = new Map<string, T>()
   for (const it of local) localById.set(getId(it), it)
@@ -75,12 +84,12 @@ export function mergeById<T>(opts: MergeByIdOpts<T>): T[] {
   // escribió el mismo push defectuoso de local-vacío). Una fila de más se puede
   // volver a borrar; datos perdidos no se recuperan. Es el espejo, del lado del
   // pull, del blindaje anti-wipe de reconcileDeletes/syncDeletes.
-  const localEmpty = local.length === 0
+  const localEmpty = !isNestedCollection && local.length === 0
   // ESPEJO: el REMOTO quedó vacío pero el local TIENE datos = la nube fue
   // wipeada (push de otro device con local vacío). Este device es el que todavía
   // tiene la data → la conservamos (ignorando tombstones/baseline) para que el
   // push la restaure. Cubre bitácora y cualquier colección, no solo sesiones.
-  const remoteWiped = remote.length === 0 && local.length > 0
+  const remoteWiped = !isNestedCollection && remote.length === 0 && local.length > 0
 
   const allIds = new Set<string>([...localById.keys(), ...remoteById.keys()])
   const merged: T[] = []
@@ -375,4 +384,42 @@ function unionArr(a?: string[], b?: string[]): string[] {
 function unionMaybeArr(a?: string[], b?: string[]): string[] | undefined {
   if (a == null && b == null) return undefined
   return unionArr(a, b)
+}
+
+// ─── Merge de una tarea con sus subtareas ───────────────────────────────────
+
+/** Resuelve el conflicto de UNA tarea que existe en local y en remoto: los
+ *  campos escalares salen de la versión más nueva y las subtareas se mergean
+ *  por id.
+ *
+ *  Vive acá (y no inline en `pullTasks`) para que sea testeable: la parte fina
+ *  es que la lista de subtareas es una colección ANIDADA — que una tarea quede
+ *  con cero subtareas es normal (borraste la última, promoviste la única a
+ *  tarea propia) y NO debe disparar la resucitación de "local vacío = wipe".
+ *  Ese era el bug de "promuevo una subtarea y las hijas quedan duplicadas en
+ *  las dos tareas". */
+export function mergeTaskWithSubtasks<
+  T extends { updatedAt?: string; subtasks?: S[] },
+  S,
+>(
+  local: T,
+  remote: T,
+  opts: {
+    subtaskBaseline: Set<string>
+    tombSubtasks?: Map<string, number>
+    getSubtaskId: (s: S) => string
+  },
+): T {
+  const localNewer = (local.updatedAt ?? '') >= (remote.updatedAt ?? '')
+  const scalarBase = localNewer ? local : remote
+  const subtasks = mergeById<S>({
+    local: local.subtasks ?? [],
+    remote: remote.subtasks ?? [],
+    baseline: opts.subtaskBaseline,
+    getId: opts.getSubtaskId,
+    tombstones: opts.tombSubtasks,
+    isNestedCollection: true,
+    mergeItem: (ls, rs) => (localNewer ? ls : rs),
+  })
+  return { ...scalarBase, subtasks }
 }
