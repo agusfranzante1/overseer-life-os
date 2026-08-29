@@ -43,6 +43,28 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Kanban: agregar tareas desde el tablero** (Claude directo, verificado corriendo la app):
+  Reporte: "no puedo agregar tareas en kanban". Reproducido: en **Todos los proyectos + kanban**
+  el botón "New Task" no hacía NADA — el form pedía `activeProject` (null en esa vista), así que
+  no se renderizaba nunca. En kanban de un proyecto sí abría, pero arriba de todo.
+  - **Fix del bug:** el form ya no exige `activeProject`; en Todos los proyectos aparece con un
+    `<select>` de proyecto destino (los visibles) para saber dónde cae la tarea.
+  - **Alta por columna (`KanbanQuickAdd`):** al pie de CADA columna hay un "+ Nueva tarea" que
+    abre un input inline y crea con el status de esa columna (Enter crea y queda abierto para
+    encadenar varias; Esc cierra). Es lo que uno espera de un tablero.
+  - **Verificado:** en Todos los proyectos + kanban el botón ahora abre form + selector y la
+    tarea se crea; en el kanban de un proyecto, "Nueva tarea" en la 2da columna creó la tarea
+    con status "Haciendo". `tsc` + `next build` OK.
+
+- [x] **Mapas mentales: el doble-click crea nodo SOLO TEXTO** (Claude directo, verificado):
+  Pedido: al hacer doble click que nazca como texto suelto y poder ponerle bordes después.
+  `onCanvasDoubleClick` ahora aplica `setNodeShape(..., 'text')` al nodo recién creado. El
+  camino de vuelta ya existía: seleccionás el nodo y en la barra elegís Rectángulo / Círculo /
+  Corchete / Solo texto. El "+ Nodo" de la barra sigue creando caja.
+  - **Verificado corriendo la app:** doble-click en el lienzo → nodo con `shape: 'text'`; click
+    en "Rectángulo" → `shape: 'rect'`. Texto de ayuda del lienzo vacío actualizado (decía "para
+    crear una caja").
+
 - [x] **Promover subtarea → las hijas quedaban DUPLICADAS en las dos tareas** (Claude directo, verificado con la función real del pull):
   Reporte: "promuevo una subtarea1 con hijas y quedan en ambas". La promoción en sí estaba
   bien (`promoteSubtaskToTask` se lleva el subárbol y remapea `parentId`); el que las

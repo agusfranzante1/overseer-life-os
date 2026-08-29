@@ -1698,12 +1698,30 @@ export function TasksPage() {
           </div>
         </div>
 
-        {/* Top-of-page form — ONLY for the single-project KANBAN view.
-            In list view the form lives at the bottom of the task list now
-            (next to the inline "+ Nueva tarea" trigger). In All-Projects view
-            it lives inside each project section. */}
-        {newTaskProjectId && activeProject && viewMode === 'kanban' && (
+        {/* Top-of-page form — vista KANBAN.
+            En vista lista el form vive al pie de la lista (junto al trigger
+            "+ Nueva tarea"), y en All-Projects lista, dentro de cada sección.
+            En kanban de TODOS los proyectos hace falta elegir a qué proyecto
+            va la tarea: antes el form directamente no se renderizaba (pedía
+            `activeProject`), así que el botón "New Task" no hacía nada. */}
+        {newTaskProjectId && viewMode === 'kanban' && (
           <div className="mb-4">
+            {!activeProject && (
+              <div className="flex items-center gap-2 mb-2">
+                <label className="text-[10px] font-mono uppercase tracking-wider text-zinc-600">
+                  Proyecto
+                </label>
+                <select
+                  value={newTaskProjectId}
+                  onChange={(e) => setNewTaskProjectId(e.target.value)}
+                  className="px-2.5 py-1.5 bg-black/40 border border-white/[0.10] rounded-lg text-sm text-zinc-200 outline-none focus:border-indigo-400/50"
+                >
+                  {projectList.filter((p) => !hiddenProjects[p.id]).map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <NewTaskForm
               projectId={newTaskProjectId}
               statuses={projects[newTaskProjectId]?.statuses ?? []}
@@ -2684,8 +2702,56 @@ function ArchiveView({
   )
 }
 
+/** Alta rápida al pie de una columna del kanban. El tablero es el lugar
+ *  natural para capturar una tarea "en este estado" — antes había que ir al
+ *  botón New Task de arriba, que además no aparecía en Todos los proyectos. */
+function KanbanQuickAdd({ statusLabel, onAdd }: { statusLabel: string; onAdd: (title: string, status: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [title, setTitle] = useState('')
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  useEffect(() => { if (open) inputRef.current?.focus() }, [open])
+
+  const submit = () => {
+    const clean = title.trim()
+    if (!clean) { setOpen(false); return }
+    onAdd(clean, statusLabel)
+    setTitle('')
+    // Queda abierto para poder tirar varias seguidas.
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="w-full mt-2 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-white/[0.10] text-[11px] text-zinc-500 hover:text-zinc-200 hover:border-indigo-400/40 hover:bg-indigo-500/[0.06] transition-all"
+      >
+        <Plus className="w-3.5 h-3.5" />
+        Nueva tarea
+      </button>
+    )
+  }
+  return (
+    <div className="mt-2">
+      <input
+        ref={inputRef}
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); submit() }
+          if (e.key === 'Escape') { setTitle(''); setOpen(false) }
+        }}
+        onBlur={() => { if (!title.trim()) setOpen(false) }}
+        placeholder="Título y Enter"
+        className="w-full px-3 py-2 bg-black/40 border border-indigo-400/40 rounded-xl text-sm text-white placeholder:text-zinc-600 outline-none"
+      />
+      <p className="mt-1 text-[10px] text-zinc-600">Enter para crear · Esc para cerrar</p>
+    </div>
+  )
+}
+
 function KanbanBoard({ project, tasks, sortMode, onTaskClick }: { project: Project; tasks: Task[]; sortMode: KanbanSort; onTaskClick: (t: Task) => void }) {
-  const { updateTask } = useTasksStore()
+  const { updateTask, addTask } = useTasksStore()
   const { tStatus } = useTranslation()
   const [dragId, setDragId] = useState<string | null>(null)
   const columns = project.statuses.slice().sort((a, b) => a.order - b.order)
@@ -2806,6 +2872,13 @@ function KanbanBoard({ project, tasks, sortMode, onTaskClick }: { project: Proje
                     })()
                   )}
                 </div>
+                <KanbanQuickAdd
+                  statusLabel={col.label}
+                  onAdd={(title, status) => addTask({
+                    title, projectId: project.id, status,
+                    priority: 'low', importance: 'low', subtasks: [], scheduledFor: 'today',
+                  })}
+                />
               </div>
             )
           })}

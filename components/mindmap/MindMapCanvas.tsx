@@ -679,6 +679,10 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     const p = screenToContent(e.clientX, e.clientY)
     if (!p) return
     const id = addNode(mapId, { x: p.x - 80, y: p.y - 32 })
+    // Doble click en el lienzo → nodo SOLO TEXTO (sin caja ni borde). Es la
+    // forma más liviana de tirar ideas sueltas; si después querés la caja,
+    // seleccionás el nodo y le cambiás la forma desde la barra de arriba.
+    setNodeShape(mapId, id, 'text')
     selectOnlyNode(id)
     setEditingNodeId(id)
   }
@@ -1696,8 +1700,9 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
               <MousePointer2 className="w-7 h-7 text-zinc-500 mx-auto mb-2" />
               <p className="text-sm font-semibold text-zinc-300 mb-1">Empezá a diagramar</p>
               <p className="text-[11px] text-zinc-500 leading-relaxed">
-                <strong>Doble-click</strong> en cualquier parte del lienzo para crear una caja, o
-                tocá <strong>&quot;+ Nodo&quot;</strong> arriba.
+                <strong>Doble-click</strong> en cualquier parte del lienzo escribe texto suelto
+                (después le podés poner caja desde la barra de arriba), o tocá
+                <strong> &quot;+ Nodo&quot;</strong> para una caja.
               </p>
             </div>
           </div>
