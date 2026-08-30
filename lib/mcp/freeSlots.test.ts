@@ -5,7 +5,7 @@
  *  El planificador se para entero sobre esto: si `computeFreeSlots` miente,
  *  Claude agenda 2hs de trabajo arriba de una reunión. */
 
-import { computeFreeSlots, totalFreeMinutes, dayWindow } from './freeSlots'
+import { computeFreeSlots, totalFreeMinutes, dayWindow, tzOffset } from './freeSlots'
 
 let pass = 0, fail = 0
 function check(label: string, cond: boolean, extra = '') {
@@ -126,6 +126,22 @@ console.log('\n--- dayWindow ---')
   check('fin <= inicio → null', dayWindow(D, '21:00', '09:00', -180) === null)
   check('hora inválida → null', dayWindow(D, '25:00', '21:00', -180) === null)
   check('formato inválido → null', dayWindow(D, 'nueve', '21:00', -180) === null)
+}
+
+console.log('\n--- tzOffset (una zona que no resuelve NO puede pasar callada) ---')
+{
+  const momento = new Date('2026-08-29T15:00:00Z')
+  const ba = tzOffset(momento, 'America/Argentina/Buenos_Aires')
+  check('Buenos Aires (canonico) = -180', ba.minutes === -180 && ba.resolved, JSON.stringify(ba))
+  check('alias deprecado America/Buenos_Aires sigue resolviendo a -180',
+    tzOffset(momento, 'America/Buenos_Aires').minutes === -180)
+  check('UTC = 0 y resuelto', tzOffset(momento, 'UTC').minutes === 0 && tzOffset(momento, 'UTC').resolved)
+  check('Madrid en agosto = +120', tzOffset(momento, 'Europe/Madrid').minutes === 120)
+
+  const mala = tzOffset(momento, 'Marte/Olympus_Mons')
+  check('zona invalida -> resolved:false (NO devuelve 0 como si nada)', mala.resolved === false)
+  check('el offset que devuelve es 0, pero MARCADO', mala.minutes === 0)
+  check('string vacio -> resolved:false', tzOffset(momento, '').resolved === false)
 }
 
 console.log(`\n${fail === 0 ? 'TODO OK' : 'HAY FALLAS'} — ${pass} ok, ${fail} fail\n`)

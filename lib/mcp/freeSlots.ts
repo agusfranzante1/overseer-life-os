@@ -119,3 +119,36 @@ export function dayWindow(
   if (s === null || e === null || e <= s) return null
   return { start: new Date(s).toISOString(), end: new Date(e).toISOString() }
 }
+
+/** Offset de `timeZone` respecto de UTC, en minutos, para ese instante.
+ *  Buenos Aires → -180. Se usa Intl para que los cambios de horario de verano
+ *  salgan solos.
+ *
+ *  Devuelve `resolved: false` cuando la zona NO se pudo resolver, en vez de
+ *  devolver 0 calladamente. Un 0 silencioso corre el día entero del
+ *  planificador (3 horas, en el caso de Argentina) y NADIE se entera: el plan
+ *  simplemente sale mal y parece un problema de criterio. BASE nº6 — el fallo
+ *  tiene que ser ruidoso. Ojo: `America/Buenos_Aires` es un alias DEPRECADO
+ *  (el canónico es `America/Argentina/Buenos_Aires`); hoy resuelve, pero es
+ *  justo el tipo de valor que un día puede dejar de hacerlo. */
+export function tzOffset(at: Date, timeZone: string): { minutes: number; resolved: boolean } {
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    })
+    const p: Record<string, string> = {}
+    for (const part of dtf.formatToParts(at)) if (part.type !== 'literal') p[part.type] = part.value
+    // `hour` puede venir "24" para medianoche con hour12:false.
+    const hour = p.hour === '24' ? '00' : p.hour
+    const asUTC = Date.UTC(
+      Number(p.year), Number(p.month) - 1, Number(p.day),
+      Number(hour), Number(p.minute), Number(p.second),
+    )
+    if (!Number.isFinite(asUTC)) return { minutes: 0, resolved: false }
+    return { minutes: Math.round((asUTC - at.getTime()) / 60000), resolved: true }
+  } catch {
+    return { minutes: 0, resolved: false }
+  }
+}

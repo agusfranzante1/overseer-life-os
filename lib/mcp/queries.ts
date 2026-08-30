@@ -11,7 +11,7 @@ import { google } from 'googleapis'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { getAuthedClient } from '@/lib/google/oauthClient'
 import type { PlannerProfile } from '@/types'
-import { computeFreeSlots, totalFreeMinutes, dayWindow, type Interval, type FreeSlot } from './freeSlots'
+import { computeFreeSlots, totalFreeMinutes, dayWindow, tzOffset, type Interval, type FreeSlot } from './freeSlots'
 
 // ---------------------------------------------------------------------------
 // Tipos de salida (lo que ve Claude)
@@ -91,30 +91,6 @@ const WEEKDAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes
 // ---------------------------------------------------------------------------
 // Helpers de fecha / zona horaria
 // ---------------------------------------------------------------------------
-
-/** Offset de `timeZone` respecto de UTC, en minutos, para ese instante.
- *  Buenos Aires → -180. Se calcula con Intl para que los cambios de horario
- *  de verano salgan bien solos. */
-export function tzOffsetMinutes(at: Date, timeZone: string): number {
-  try {
-    const dtf = new Intl.DateTimeFormat('en-US', {
-      timeZone, hour12: false,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-    })
-    const p: Record<string, string> = {}
-    for (const part of dtf.formatToParts(at)) if (part.type !== 'literal') p[part.type] = part.value
-    // `hour` puede venir "24" para medianoche en hour12:false.
-    const hour = p.hour === '24' ? '00' : p.hour
-    const asUTC = Date.UTC(
-      Number(p.year), Number(p.month) - 1, Number(p.day),
-      Number(hour), Number(p.minute), Number(p.second),
-    )
-    return Math.round((asUTC - at.getTime()) / 60000)
-  } catch {
-    return 0
-  }
-}
 
 /** Lista de fechas YYYY-MM-DD entre from y to, inclusive. Tope de 31 días. */
 export function dateRange(from: string, to: string, max = 31): string[] {
@@ -565,8 +541,12 @@ export async function getAgenda(userId: string, origin: string, from: string, to
     ? prefs.scheduleOrder
     : Object.keys(prefs.idealSchedule)
 
+  let tzResolved = true
+
   const agenda: AgendaDay[] = days.map((date) => {
-    const offset = tzOffsetMinutes(new Date(`${date}T12:00:00Z`), prefs.timezone)
+    const tz = tzOffset(new Date(`${date}T12:00:00Z`), prefs.timezone)
+    if (!tz.resolved) tzResolved = false
+    const offset = tz.minutes
     const win = dayWindow(date, working.start, working.end, offset)
 
     const dayStart = Date.parse(`${date}T00:00:00Z`) - offset * 60000
@@ -608,6 +588,11 @@ export async function getAgenda(userId: string, origin: string, from: string, to
     timezone: prefs.timezone,
     workingHours: working,
     calendar: { connected: cal.connected, error: cal.error },
+    // Si la zona no resolvió, TODAS las horas de abajo están corridas. Se dice
+    // en vez de devolver un plan silenciosamente mal (BASE nº6).
+    ...(tzResolved ? {} : {
+      timezoneError: `No se pudo resolver la zona horaria "${prefs.timezone}": las horas de esta agenda están en UTC y NO sirven para planificar. Corregila en Configuración.`,
+    }),
     days: agenda,
   }
 }

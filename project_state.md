@@ -7,10 +7,9 @@
 
 **Última actualización:** 2026-08-29 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
 
-⚠️ **MIGRACIONES NUEVAS SIN CORRER (bloquean el bridge con Claude):**
-`supabase/migration_mcp_tokens.sql` y `supabase/migration_day_plans.sql`. Hasta correrlas,
-Configuración → Conexión con Claude no puede generar tokens y `save_day_plan` falla con un
-mensaje que dice cuál falta.
+✅ **Bridge con Claude EN FUNCIONAMIENTO** (2026-08-29): migraciones corridas, deployado y
+verificado contra la cuenta real — token "pc franzix" resuelve, `list_projects` devuelve los 6
+proyectos y `get_agenda` trae los eventos de Google Calendar con los huecos libres bien calculados.
 
 ✅ **Migraciones de tareas:** el usuario confirmó (2026-08-28) que ya corrió
 `migration_tasks_favorite.sql`, `migration_subtasks_favorite.sql` y `migration_tasks_tags.sql`.
@@ -47,6 +46,25 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 ---
 
 ## ✅ Hecho recientemente
+
+- [x] **Bridge verificado end-to-end + zona horaria que ya no falla callada** (Claude directo):
+  Conectado contra la cuenta real por primera vez. `list_projects` devolvió los 6 proyectos con sus
+  estados (que resultaron estar en INGLÉS: "To Do"/"In Progress" — bien que `resolveStatus` los lea
+  del proyecto en vez de asumir) y `get_agenda` trajo Google Calendar con los huecos correctos:
+  sábado 29/08 → 375 min libres en 6 tramos, con "Almorzar" 12:30 y "Entrenamiento" 18:00–19:30
+  descontados junto con las anclas de `idealSchedule`.
+  - **Detalle que confunde al leer los datos:** los eventos de Google vuelven con offset `+02:00`
+    (la zona del calendario del usuario está en Europa), no en hora de Buenos Aires. Los instantes
+    absolutos son correctos y todo el cálculo trabaja sobre epoch, así que no afecta nada — pero al
+    inspeccionar a mano hay que convertir bien, no restarle 3 horas al string.
+  - **Fix real encontrado ahí:** `tzOffsetMinutes` hacía `catch { return 0 }`. Si la zona no
+    resolvía, el planificador entero se corría 3 horas **sin decir nada** y el plan parecía
+    simplemente mal pensado (BASE nº6). Ahora es `tzOffset()` en `freeSlots.ts` (puro y testeado),
+    devuelve `{ minutes, resolved }`, y `get_agenda` agrega `timezoneError` cuando no resuelve.
+    Importa porque la zona guardada del usuario es `America/Buenos_Aires`, un alias DEPRECADO de
+    IANA: hoy resuelve, pero es exactamente el valor que un día puede dejar de hacerlo.
+  - **Verificado:** `freeSlots.test.ts` 37/37 (7 nuevos de `tzOffset`: canónico, alias deprecado,
+    UTC, Madrid, zona inventada, string vacío). `taskInput` 45/45. `tsc` y `next build` OK.
 
 - [x] **Bridge: crear tareas, tareas con horario en el calendario, y recurrentes completas** (Claude directo, verificado corriendo la app):
   Pedido: "desde el chat poder agregar tareas por proyecto, tareas con horario para que se vean
