@@ -47,6 +47,33 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Notificaciones: no llegaban porque el cron NO corre cada 5 minutos** (Claude directo, medido contra la API de GitHub):
+  El `CRON_SECRET` ya estaba bien — todos los runs del workflow salen en **success**. El problema
+  era otro: GitHub Actions **no cumple el `*/5 * * * *`**. Medido sobre los últimos 20 runs
+  reales: intervalos de **111 a 700 minutos** (≈5 corridas por día en vez de 288). Con
+  `WINDOW_MIN = 5` ("¿estamos dentro de los 5 min del horario target?"), casi ninguna corrida
+  caía en la ventana → no se mandaba prácticamente nada, y en verde (BASE nº6).
+  - **Fix (catch-up):** el criterio pasa a ser *"¿ya pasó la hora y todavía no se mandó?"*
+    (`shouldFireDaily`, catch-up de 6 h, sin cruzar medianoche porque la dedupe key es por día
+    local). Lo que evita duplicados es la idempotencia (`notification_log` + dedupe key), que
+    ya existía — no la ventana. Aplicado a los 5 canales de hora fija.
+  - **`task_due`:** vale desde `fireAt` hasta el vencimiento real (`shouldFireUntil`) en vez de
+    5 min, y el texto usa los **minutos reales** que faltan (`minutesUntil`), no el lead
+    configurado — si no, un aviso atrasado decía "vence en 60 min" siendo mentira.
+  - **Puntualidad:** `vercel.json` ahora tiene un cron DIARIO (00:10 UTC = 21:10 ART) como piso
+    garantizado (Hobby permite 1/día) que cubre el recordatorio de las 21:00. Para que lleguen
+    puntuales hace falta un cron externo real cada 5 min (cron-job.org, gratis) — pasos exactos
+    documentados en `.github/workflows/notifications-cron.yml`. Los tres pueden convivir: la
+    idempotencia impide duplicados.
+  - **`/api/notifications/diagnose`** quedó alineado con el nuevo criterio (antes explicaba una
+    ventana de ±5 min que ya no existe).
+  - **Sin migración.**
+  - **Verificado:** `lib/notifications/timeWindow.test.ts` 20/20, incluido el escenario real con
+    las horas de corrida medidas del workflow. `tsc` + `next build` OK.
+  - **NO verificado:** el envío real end-to-end (necesita el backend con VAPID + suscripción del
+    celu). Se comprueba solo cuando esté deployado: la próxima corrida del cron debería mandar
+    lo pendiente del día.
+
 - [x] **Bridge verificado end-to-end + zona horaria que ya no falla callada** (Claude directo):
   Conectado contra la cuenta real por primera vez. `list_projects` devolvió los 6 proyectos con sus
   estados (que resultaron estar en INGLÉS: "To Do"/"In Progress" — bien que `resolveStatus` los lea
@@ -556,9 +583,11 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
   - [ ] `supabase/migration_offers.sql`
   - [ ] `supabase/migration_youtube.sql`
   - [ ] `supabase/migration_mindmap_folders.sql`
-- [ ] **Arreglar el `CRON_SECRET`**: el dispatcher de notificaciones devuelve
-      401. El valor en la env var de Vercel no coincide con el secret de GitHub
-      Actions. El log del próximo run dice de qué lado falta.
+- [ ] **(opcional, para que lleguen PUNTUALES) Cron externo cada 5 min** en
+      cron-job.org apuntando a `/api/notifications/dispatch` con el header
+      `Authorization: Bearer <CRON_SECRET>`. Pasos en el workflow. Sin esto las
+      notificaciones llegan igual, pero tarde (hasta 6 h después del horario).
+      *El `CRON_SECRET` YA está bien: los runs del workflow salen en success.*
 - [ ] **Rehacer la config del sidebar** que se había borrado — recién DESPUÉS
       de que los dos dispositivos tengan el build nuevo, si no se puede volver a
       pisar.

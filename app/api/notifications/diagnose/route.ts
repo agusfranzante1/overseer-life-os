@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseServer } from '@/lib/supabase/server'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { localTimeIn } from '@/lib/notifications/tz'
-import { withinWindow } from '@/lib/notifications/timeWindow'
+import { shouldFireDaily, CATCH_UP_MIN } from '@/lib/notifications/timeWindow'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -15,7 +15,9 @@ export const dynamic = 'force-dynamic'
  * Pegale desde la UI o desde el browser: GET /api/notifications/diagnose
  * (devuelve JSON). Útil para responder "por qué no me llegó X".
  */
-const WINDOW_MIN = 5
+// Mismo criterio que el dispatcher: no una ventana chica alrededor del
+// horario, sino "ya paso la hora y todavia no se mando" (ver timeWindow.ts).
+const CATCH_UP = CATCH_UP_MIN
 
 export async function GET(_req: NextRequest) {
   const sbUser = await getSupabaseServer()
@@ -79,13 +81,19 @@ export async function GET(_req: NextRequest) {
       detail: hourValid ? 'HH:MM válido' : `Formato inválido: "${rt}"`,
     })
 
-    const inWindow = hourValid ? withinWindow(local.hour, local.minute, rh, rm, WINDOW_MIN) : false
+    const inWindow = hourValid ? shouldFireDaily(local.hour, local.minute, rh, rm, CATCH_UP) : false
+    const nowHm = `${String(local.hour).padStart(2, '0')}:${String(local.minute).padStart(2, '0')}`
+    const targetHm = `${String(rh).padStart(2, '0')}:${String(rm).padStart(2, '0')}`
+    const minsSince = hourValid ? (local.hour * 60 + local.minute) - (rh * 60 + rm) : 0
     gates.push({
-      gate: 'dentro de ventana ±5min',
+      gate: `la hora ya pasó hoy (hasta ${CATCH_UP / 60}h después)`,
       pass: inWindow,
-      detail: hourValid
-        ? `Ahora son ${String(local.hour).padStart(2, '0')}:${String(local.minute).padStart(2, '0')} (TZ ${tz}). El cron solo dispara si está entre ${String(rh).padStart(2, '0')}:${String(Math.max(0, rm - WINDOW_MIN)).padStart(2, '0')} y ${String(rh).padStart(2, '0')}:${String(rm + WINDOW_MIN).padStart(2, '0')}.`
-        : '—',
+      detail: !hourValid ? '—'
+        : minsSince < 0
+          ? `Ahora son ${nowHm} (TZ ${tz}) y el recordatorio es ${targetHm}: todavía no llegó la hora.`
+          : minsSince > CATCH_UP
+            ? `Pasaron ${Math.round(minsSince / 60)}h desde las ${targetHm} — ya es demasiado tarde para mandarlo hoy.`
+            : `Ahora son ${nowHm} (TZ ${tz}), ${minsSince} min después de las ${targetHm}: corresponde mandarlo si no se mandó ya.`,
     })
 
     const targetDays = (h.target_days as number[] | null) ?? []

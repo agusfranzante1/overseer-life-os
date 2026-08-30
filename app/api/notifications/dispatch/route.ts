@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { sendPushToMany, type StoredSubscription } from '@/lib/push/server'
 import { localTimeIn, localYmdHmToUtc } from '@/lib/notifications/tz'
-import { withinWindow, withinWindowAt } from '@/lib/notifications/timeWindow'
+import { shouldFireDaily, shouldFireUntil, minutesUntil, CATCH_UP_MIN } from '@/lib/notifications/timeWindow'
 import { wasSent, logSent } from '@/lib/notifications/idempotency'
 import {
   buildHabitReminderPayload,
@@ -42,7 +42,13 @@ function checkAuth(req: NextRequest): { ok: true } | { ok: false; reason: string
   return { ok: true }
 }
 
-const WINDOW_MIN = 5
+// Antes esto era una ventana de 5 minutos alrededor del horario target, que
+// asumía un cron corriendo cada 5 minutos. El cron real corre cada 2-11 horas
+// (medido), así que la ventana no acertaba casi nunca y las notificaciones
+// simplemente no salían. Ahora el criterio es "ya pasó la hora y todavía no se
+// mandó" — ver `timeWindow.ts`. Los duplicados los sigue evitando la
+// idempotencia (`notification_log` + dedupe key), no la ventana.
+const CATCH_UP = CATCH_UP_MIN
 
 interface DispatchStats {
   habit: number
@@ -183,7 +189,7 @@ export async function POST(req: NextRequest) {
       if (prefs.habitReminder === true || prefs.habitReminder === 'true') {
         const targetH = settings.habit_reminder_hour ?? 21
         const targetM = settings.habit_reminder_minute ?? 0
-        if (withinWindow(local.hour, local.minute, targetH, targetM, WINDOW_MIN)) {
+        if (shouldFireDaily(local.hour, local.minute, targetH, targetM, CATCH_UP)) {
           const dedupe = `habit:${local.ymd}`
           if (!(await wasSent(sb, userId, 'habit_reminder', dedupe))) {
             const habits = await fetchUserHabits(sb, userId)
@@ -213,7 +219,7 @@ export async function POST(req: NextRequest) {
           if (!rt) continue
           const [rh, rm] = rt.split(':').map(Number)
           if (!Number.isFinite(rh) || !Number.isFinite(rm)) continue
-          if (!withinWindow(local.hour, local.minute, rh, rm, WINDOW_MIN)) continue
+          if (!shouldFireDaily(local.hour, local.minute, rh, rm, CATCH_UP)) continue
           // Target day check (si tiene targetDays, hoy debe estar; sino aplica siempre)
           const [yT, mT, dT] = local.ymd.split('-').map(Number)
           const dow = new Date(yT, mT - 1, dT).getDay()
@@ -240,7 +246,9 @@ export async function POST(req: NextRequest) {
           if (!dueAt) continue
           const lead = (t.notify_before_minutes as number | null) ?? leadGlobal
           const fireAt = new Date(dueAt.getTime() - lead * 60_000)
-          if (!withinWindowAt(now, fireAt, WINDOW_MIN)) continue
+          // Vale mientras la tarea NO haya vencido: si el cron se atrasó, el
+          // aviso todavía sirve. Pasado el vencimiento se ocupa task_overdue.
+          if (!shouldFireUntil(now, fireAt, dueAt)) continue
           const dedupe = `task:${t.id}:due`
           if (await wasSent(sb, userId, 'task_due', dedupe)) { stats.skipped++; continue }
           const payload = buildTaskDuePayload(
@@ -251,7 +259,9 @@ export async function POST(req: NextRequest) {
               dueDate: t.due_date ?? undefined,
               dueTime: t.due_time ?? undefined,
             },
-            lead,
+            // Minutos REALES que faltan, no el lead configurado: si el aviso
+            // sale tarde, "vence en 60 min" mentiría.
+            minutesUntil(now, dueAt),
           )
           const result = await dispatchToUser(userId, subs, settings, payload)
           await logSent(sb, userId, 'task_due', dedupe, payload, result)
@@ -266,7 +276,7 @@ export async function POST(req: NextRequest) {
         // ir junto al check de fin del día.
         const reminderH = settings.habit_reminder_hour ?? 21
         const reminderM = settings.habit_reminder_minute ?? 0
-        if (withinWindow(local.hour, local.minute, reminderH, reminderM, WINDOW_MIN)) {
+        if (shouldFireDaily(local.hour, local.minute, reminderH, reminderM, CATCH_UP)) {
           const dedupe = `overdue:${local.ymd}`
           if (!(await wasSent(sb, userId, 'task_overdue', dedupe))) {
             const overdue = await fetchUserOverdueTasks(sb, userId, local.ymd)
@@ -291,7 +301,7 @@ export async function POST(req: NextRequest) {
         if (localDow === 6) {
           const targetH = settings.habit_reminder_hour ?? 21    // re-use; ok p/v1
           const targetM = settings.habit_reminder_minute ?? 0
-          if (withinWindow(local.hour, local.minute, targetH, targetM, WINDOW_MIN)) {
+          if (shouldFireDaily(local.hour, local.minute, targetH, targetM, CATCH_UP)) {
             const dedupe = `spi:${local.ymd}`
             if (!(await wasSent(sb, userId, 'spi_new', dedupe))) {
               const has = await hasSpiSessionForWeek(sb, userId, local.ymd)
@@ -316,7 +326,7 @@ export async function POST(req: NextRequest) {
       if (prefs.reviewReminders !== false) {
         const reminderH = settings.habit_reminder_hour ?? 21
         const reminderM = settings.habit_reminder_minute ?? 0
-        if (withinWindow(local.hour, local.minute, reminderH, reminderM, WINDOW_MIN)) {
+        if (shouldFireDaily(local.hour, local.minute, reminderH, reminderM, CATCH_UP)) {
           // Fecha "local" del usuario (componentes y/m/d correctos en su TZ)
           // para que las claves de período se calculen en su calendario.
           const [ly, lm, ld] = local.ymd.split('-').map(Number)

@@ -5,6 +5,24 @@
 # requiere Vercel Pro ($20/mo). GitHub Actions corre cron gratis sin esa
 # restricción (mínimo 5 min entre runs, perfecto para nosotros).
 #
+# ⚠️ OJO — GitHub NO cumple el cada-5-minutos. Medido sobre los últimos 20 runs
+# reales de este workflow: los intervalos fueron de 111 a 700 MINUTOS (corrió
+# ~5 veces por día en vez de 288). GitHub encola los schedules y los saltea
+# cuando hay carga; no hay forma de forzarlo. Por eso:
+#   1. El dispatcher ya NO exige caer dentro de una ventana de 5 min: manda lo
+#      pendiente del día (ver lib/notifications/timeWindow.ts). Las
+#      notificaciones llegan aunque el cron se atrase — tarde, pero llegan.
+#   2. vercel.json tiene un cron DIARIO (00:10 UTC = 21:10 ART) como piso
+#      garantizado, que cubre el recordatorio de las 21:00.
+#   3. Para que lleguen PUNTUALES hace falta un cron que corra de verdad cada
+#      5 min. Gratis, 2 minutos de setup, en https://cron-job.org:
+#        - URL:     https://<tu-app>.vercel.app/api/notifications/dispatch
+#        - Método:  GET
+#        - Header:  Authorization: Bearer <el mismo CRON_SECRET de Vercel>
+#        - Cada:    5 minutos
+#      Con la idempotencia (notification_log + dedupe key) NO hay riesgo de
+#      duplicados por tener los tres corriendo a la vez.
+#
 # Setup:
 #   1. Repo → Settings → Secrets and variables → Actions → New secret
 #      - APP_URL = https://tu-app.vercel.app (sin trailing slash)
