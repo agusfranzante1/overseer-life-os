@@ -9,7 +9,7 @@ import {
   getAgenda, getTasks, getPlannerProfile, getPlanHistory, getProjects, getRecurringSeries, getGym,
 } from './queries'
 import { saveDayPlan, scheduleTask, updatePlannerProfile } from './writes'
-import { createTask, setTaskRecurrence } from './taskWrites'
+import { createTask, setTaskRecurrence, addSubtasks } from './taskWrites'
 import { deleteCalendarEvent, createCalendarEvent } from './calendarWrites'
 import { getUserPrefs } from './queries'
 
@@ -116,6 +116,19 @@ export const TOOLS: ToolDef[] = [
         },
       },
       required: ['projectId', 'title'],
+    },
+  },
+  {
+    name: 'add_subtasks',
+    description:
+      'Agrega subtareas a una tarea que YA existe (create_task solo sirve para tareas nuevas). Caen al final del checklist. Sirve para desglosar en pasos concretos un proyecto que el usuario tiene modelado como una tarea contenedora.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: str('Tarea a la que se le agregan.'),
+        subtasks: { type: 'array', items: { type: 'string' }, description: 'Títulos, en orden.' },
+      },
+      required: ['taskId', 'subtasks'],
     },
   },
   {
@@ -279,6 +292,9 @@ export async function callTool(
 
     case 'create_task':
       return createTask(userId, args)
+
+    case 'add_subtasks':
+      return addSubtasks(userId, { taskId: args.taskId as string, subtasks: args.subtasks })
 
     case 'set_task_recurrence':
       return setTaskRecurrence(userId, {

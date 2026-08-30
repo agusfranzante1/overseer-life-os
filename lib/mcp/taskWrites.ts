@@ -17,7 +17,7 @@
 
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import {
-  normalizeTaskInput, normalizeSubtasks, validateRecurrence, bridgeId,
+  normalizeTaskInput, normalizeSubtasks, validateRecurrence, bridgeId, resolveStatus,
   type ProjectStatus,
 } from './taskInput'
 import type { WriteResult } from './writes'
@@ -235,5 +235,77 @@ export async function setTaskRecurrence(
     detail: isChange
       ? 'Regla cambiada. Al abrir Tareas en la app se rehacen las instancias futuras con la regla nueva.'
       : 'Serie creada. Las instancias se generan al abrir Tareas en la app.',
+  }
+}
+
+// ---------------------------------------------------------------------------
+// add_subtasks
+// ---------------------------------------------------------------------------
+
+/** Agrega subtareas a una tarea que YA existe.
+ *
+ *  El `order` arranca en max+1 de las que ya están: las nuevas caen al FINAL,
+ *  que es como se comporta la app. Sin eso colisionan y el orden del checklist
+ *  queda al azar.
+ *
+ *  No toca las subtareas existentes ni la jerarquía: las nuevas quedan a nivel
+ *  raíz (`parent_id` null). Anidar una dentro de otra se hace en la app. */
+export async function addSubtasks(
+  userId: string,
+  input: { taskId?: string; subtasks?: unknown },
+): Promise<WriteResult> {
+  const taskId = String(input.taskId ?? '').trim()
+  if (!taskId) return { ok: false, error: 'bad_task', detail: 'Falta `taskId`.' }
+
+  const sb = getSupabaseAdmin()
+  const { data: task, error: readErr } = await sb
+    .from('tasks').select('id, title, project_id').eq('id', taskId).eq('user_id', userId).maybeSingle()
+  if (readErr) return { ok: false, error: 'db_error', detail: readErr.message }
+  if (!task) return { ok: false, error: 'not_found', detail: `No existe la tarea ${taskId} en esta cuenta.` }
+
+  const parsed = normalizeSubtasks(input.subtasks, bridgeId)
+  if (!parsed.ok) return { ok: false, error: 'bad_subtasks', detail: parsed.error }
+  if (parsed.subtasks.length === 0) {
+    return { ok: false, error: 'nothing_to_do', detail: 'No mandaste ninguna subtarea con título.' }
+  }
+
+  // Estado inicial: el primero NO-hecho del proyecto, igual que create_task.
+  const { data: project } = await sb
+    .from('projects').select('statuses').eq('id', task.project_id).eq('user_id', userId).maybeSingle()
+  const statuses = Array.isArray(project?.statuses) ? (project!.statuses as ProjectStatus[]) : []
+  const status = resolveStatus(statuses)
+
+  // Las nuevas van al final.
+  const { data: existing } = await sb
+    .from('subtasks').select('"order"').eq('task_id', taskId).eq('user_id', userId)
+  const maxOrder = (existing ?? []).reduce(
+    (m, r) => Math.max(m, Number((r as Record<string, unknown>).order ?? 0)), -1,
+  )
+
+  const rows = parsed.subtasks.map((s, i) => ({
+    id: s.id,
+    user_id: userId,
+    task_id: taskId,
+    title: s.title,
+    completed: false,
+    status,
+    order: maxOrder + 1 + i,
+  }))
+
+  const { error } = await sb.from('subtasks').insert(rows)
+  if (error) return { ok: false, error: 'db_error', detail: error.message }
+
+  // La tarea madre tiene que bumpear `updated_at`: si no, el merge LWW del pull
+  // puede pisarla con una copia local más vieja y las subtareas "desaparecen"
+  // en el otro dispositivo (BASE nº1).
+  await sb.from('tasks').update({ updated_at: new Date().toISOString() })
+    .eq('id', taskId).eq('user_id', userId)
+
+  return {
+    ok: true,
+    taskId,
+    task: task.title,
+    added: rows.length,
+    subtasks: rows.map((r) => ({ id: r.id, title: r.title })),
   }
 }
