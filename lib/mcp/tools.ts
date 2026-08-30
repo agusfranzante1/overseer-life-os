@@ -6,7 +6,7 @@
  */
 
 import {
-  getAgenda, getTasks, getPlannerProfile, getPlanHistory, getProjects, getRecurringSeries,
+  getAgenda, getTasks, getPlannerProfile, getPlanHistory, getProjects, getRecurringSeries, getGym,
 } from './queries'
 import { saveDayPlan, scheduleTask, updatePlannerProfile } from './writes'
 import { createTask, setTaskRecurrence } from './taskWrites'
@@ -138,6 +138,12 @@ export const TOOLS: ToolDef[] = [
       },
       required: ['taskId'],
     },
+  },
+  {
+    name: 'get_gym',
+    description:
+      'El entrenamiento: qué categorías toca cada día de la semana (trainingPlan), las rutinas guardadas con sus ejercicios, las últimas sesiones hechas, la fase, el tipo de gimnasio y el último peso corporal. Usalo para armar la semana: el calendario dice CUÁNDO entrena, esto dice QUÉ.',
+    inputSchema: { type: 'object', properties: {} },
   },
   {
     name: 'delete_calendar_event',
@@ -281,6 +287,9 @@ export async function callTool(
         // se trata igual: no hay otra cosa razonable que hacer sin regla.
         recurrence: args.recurrence,
       })
+
+    case 'get_gym':
+      return { gym: await getGym(userId) }
 
     case 'delete_calendar_event':
       return deleteCalendarEvent(userId, origin, args as Parameters<typeof deleteCalendarEvent>[2])

@@ -449,6 +449,68 @@ export async function getCalendarEvents(
 }
 
 // ---------------------------------------------------------------------------
+// Gym / entrenamiento
+// ---------------------------------------------------------------------------
+
+export interface GymInfo {
+  phase?: string
+  gymType?: string
+  weightGoalKg?: number
+  lastWeight?: { date: string; kg: number }
+  /** Qué se entrena cada día de la semana. Clave = día (0=domingo … 6=sábado).
+   *  Es lo que hace falta para armar la semana: sin esto solo se sabe que hay
+   *  un evento "Entrenamiento", no si toca pierna o descanso. */
+  trainingPlan: Record<string, string[]>
+  routines: { id: string; name: string; dayLabel: string; exercises: string[] }[]
+  recentSessions: { date: string; name: string; exercises: number; durationMin?: number }[]
+}
+
+export async function getGym(userId: string): Promise<GymInfo> {
+  const sb = getSupabaseAdmin()
+  const [cfg, routines, sessions, weights] = await Promise.all([
+    sb.from('gym_config').select('*').eq('user_id', userId).maybeSingle(),
+    sb.from('gym_routines').select('*').eq('user_id', userId),
+    sb.from('gym_sessions').select('*').eq('user_id', userId).order('date', { ascending: false }).limit(12),
+    sb.from('gym_weight_entries').select('date, kg').eq('user_id', userId).order('date', { ascending: false }).limit(1),
+  ])
+
+  const c = (cfg.data ?? {}) as Record<string, unknown>
+  const w = (weights.data ?? [])[0] as { date: string; kg: number } | undefined
+
+  const exerciseNames = (raw: unknown): string[] =>
+    Array.isArray(raw)
+      ? raw.map((e) => (e && typeof e === 'object' ? String((e as Record<string, unknown>).name ?? '') : String(e)))
+          .filter(Boolean)
+      : []
+
+  return {
+    phase: (c.phase as string) ?? undefined,
+    gymType: (c.gym_type as string) ?? undefined,
+    weightGoalKg: (c.weight_goal_kg as number) ?? undefined,
+    ...(w ? { lastWeight: { date: w.date, kg: Number(w.kg) } } : {}),
+    trainingPlan: (c.training_plan as Record<string, string[]>) ?? {},
+    routines: (routines.data ?? []).map((r) => ({
+      id: r.id as string,
+      name: (r.name as string) ?? '',
+      dayLabel: (r.day_label as string) ?? '',
+      exercises: exerciseNames(r.exercises),
+    })),
+    recentSessions: (sessions.data ?? []).map((x) => {
+      const start = x.started_at ? Date.parse(x.started_at as string) : NaN
+      const end = x.ended_at ? Date.parse(x.ended_at as string) : NaN
+      const dur = Number.isFinite(start) && Number.isFinite(end)
+        ? Math.round((end - start) / 60000) : undefined
+      return {
+        date: x.date as string,
+        name: (x.name as string) ?? '',
+        exercises: Array.isArray(x.exercises) ? x.exercises.length : 0,
+        ...(dur && dur > 0 ? { durationMin: dur } : {}),
+      }
+    }),
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Planes del día
 // ---------------------------------------------------------------------------
 
