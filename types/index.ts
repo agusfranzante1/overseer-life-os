@@ -363,5 +363,12 @@ export interface PlannerProfile {
   energyByTimeOfDay?: { morning?: number; afternoon?: number; evening?: number }
   /** Reglas en lenguaje natural ("los viernes no agendar estudio"). */
   rules?: string[]
+  /** Labels de `idealSchedule` que SÍ bloquean tiempo real (por ejemplo
+   *  "Entrenamiento"). Vacío = ninguna bloquea, que es el default correcto:
+   *  las anclas son intenciones del día, no compromisos. Lo que de verdad
+   *  ocupa tiempo va al calendario. */
+  blockingAnchors?: string[]
+  /** Cuántos minutos ocupa una ancla que sí bloquea. Default 45. */
+  anchorMinutes?: number
   updatedAt?: string
 }

@@ -534,9 +534,19 @@ export async function getAgenda(userId: string, origin: string, from: string, to
 
   const plansByDate = new Map(plans.map((p) => [p.date, p]))
 
-  // Anclas del día (almuerzo, entrenamiento…). Ocupan 45 min por defecto:
-  // no son eventos de calendario pero son tiempo real que el usuario usa.
-  const ANCHOR_MINUTES = 45
+  // Anclas del día (almuerzo, café, entrenamiento…).
+  //
+  // POR DEFECTO NO OCUPAN TIEMPO. Antes se descontaban 45 min por cada una y
+  // eso era un invento: partía el día en pedacitos que no existen (un café no
+  // te bloquea 45 minutos) y encima duplicaba lo que YA está en el calendario
+  // — "Almorzar", "Entrenamiento" y "Cena" son anclas Y eventos de Google.
+  //
+  // La fuente de verdad de lo que está ocupado es el CALENDARIO. Las anclas se
+  // devuelven como información (sirven para no agendar encima del almuerzo),
+  // pero solo descuentan tiempo si el usuario las declara explícitamente en
+  // `plannerProfile.blockingAnchors` (por label) con `anchorMinutes`.
+  const blocking = new Set((prefs.plannerProfile.blockingAnchors ?? []).map((l) => l.toLowerCase()))
+  const ANCHOR_MINUTES = prefs.plannerProfile.anchorMinutes ?? 45
   const anchorKeys = prefs.scheduleOrder.length > 0
     ? prefs.scheduleOrder
     : Object.keys(prefs.idealSchedule)
@@ -563,6 +573,7 @@ export async function getAgenda(userId: string, origin: string, from: string, to
       .map((s) => ({ label: s.label, time: s.time }))
 
     const anchorBusy: Interval[] = anchors
+      .filter((a) => blocking.has(a.label.toLowerCase()))
       .map((a) => dayWindow(date, a.time, addMinutes(a.time, ANCHOR_MINUTES), offset))
       .filter((i): i is Interval => i !== null)
 
