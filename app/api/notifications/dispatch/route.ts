@@ -28,7 +28,7 @@ export const maxDuration = 60            // segundos — el dispatcher de pocos 
  *  cron lo manda automáticamente cuando configurás el cron en vercel.json
  *  y el secret en env vars (ver docs/notifications-dispatcher-plan.md
  *  Etapa 5). */
-function checkAuth(req: NextRequest): { ok: true } | { ok: false; reason: string } {
+function checkAuth(req: NextRequest): { ok: true } | { ok: false; reason: string; hint?: string } {
   const auth = req.headers.get('authorization') ?? ''
   const expected = process.env.CRON_SECRET
   // Sin secret en el server NUNCA se permite. Pero se distingue del caso
@@ -38,7 +38,19 @@ function checkAuth(req: NextRequest): { ok: true } | { ok: false; reason: string
   if (!expected) return { ok: false, reason: 'server_missing_CRON_SECRET' }
   if (!auth) return { ok: false, reason: 'request_missing_authorization_header' }
   if (auth === 'Bearer' || auth === 'Bearer ') return { ok: false, reason: 'request_sent_empty_secret' }
-  if (auth !== `Bearer ${expected}`) return { ok: false, reason: 'secret_mismatch' }
+  if (auth !== `Bearer ${expected}`) {
+    // Pista para depurar sin revelar nada: con qué se mandó y cuánto mide cada
+    // uno. Un secreto pegado a medias (lo más común) se detecta al toque
+    // comparando largos; el valor en sí no viaja ni se loguea. Con un `curl`
+    // de una línea era horas de adivinar cuál de los tres lados estaba mal.
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : ''
+    const shape = !auth.startsWith('Bearer ')
+      ? `el header no empieza con "Bearer " (llegó "${auth.slice(0, 8)}…")`
+      : token.length === expected.length
+        ? `mismo largo (${token.length}) pero distinto contenido — ¿es el secret de otro entorno o quedó uno viejo?`
+        : `largo recibido ${token.length}, esperado ${expected.length} — parece pegado a medias o con espacios`
+    return { ok: false, reason: 'secret_mismatch', hint: shape }
+  }
   return { ok: true }
 }
 
@@ -67,7 +79,10 @@ interface DispatchStats {
 export async function POST(req: NextRequest) {
   const auth = checkAuth(req)
   if (!auth.ok) {
-    return NextResponse.json({ ok: false, error: 'unauthorized', reason: auth.reason }, { status: 401 })
+    return NextResponse.json(
+      { ok: false, error: 'unauthorized', reason: auth.reason, ...(auth.hint ? { hint: auth.hint } : {}) },
+      { status: 401 },
+    )
   }
 
   const sb = getSupabaseAdmin()
