@@ -10,6 +10,7 @@ import {
 } from './queries'
 import { saveDayPlan, scheduleTask, updatePlannerProfile } from './writes'
 import { createTask, setTaskRecurrence, addSubtasks } from './taskWrites'
+import { deleteSubtasks } from './deleteSubtasks'
 import { deleteCalendarEvent, createCalendarEvent } from './calendarWrites'
 import { getUserPrefs } from './queries'
 
@@ -129,6 +130,19 @@ export const TOOLS: ToolDef[] = [
         subtasks: { type: 'array', items: { type: 'string' }, description: 'Títulos, en orden.' },
       },
       required: ['taskId', 'subtasks'],
+    },
+  },
+  {
+    name: 'delete_subtasks',
+    description:
+      'Borra subtareas por id. Es LO UNICO que borra del dominio de tareas — el resto del bridge nunca borra. OJO: si una subtarea tiene subtareas anidadas adentro, se van TODAS con ella (la FK es on delete cascade); la respuesta informa cuales se arrastraron. Escribe tombstones para que el borrado no rebote desde otro dispositivo. Pasar `taskId` como guarda para asegurarse de no borrar la subtarea de otra tarea.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        subtaskIds: { type: 'array', items: { type: 'string' }, description: 'Ids a borrar.' },
+        taskId: str('Opcional pero recomendado: si se pasa, falla si alguna subtarea no pertenece a esa tarea.'),
+      },
+      required: ['subtaskIds'],
     },
   },
   {
@@ -304,6 +318,9 @@ export async function callTool(
 
     case 'add_subtasks':
       return addSubtasks(userId, { taskId: args.taskId as string, subtasks: args.subtasks })
+
+    case 'delete_subtasks':
+      return deleteSubtasks(userId, { subtaskIds: args.subtaskIds, taskId: args.taskId as string | undefined })
 
     case 'set_task_recurrence':
       return setTaskRecurrence(userId, {
