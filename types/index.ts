@@ -85,6 +85,17 @@ export interface TaskRecurrence {
   daysOfWeek?: number[]
   /** Fecha tope (YYYY-MM-DD, inclusive) — no se generan instancias después. */
   until?: string
+  /** Marca puesta por el BRIDGE (`/api/mcp`) cuando cambia la regla de una
+   *  serie que ya tenía instancias generadas.
+   *
+   *  El server puede escribir la REGLA, pero no puede generar ni nukear
+   *  instancias: los ids de spawn son deterministas y los calcula el cliente
+   *  (si el server inventara filas, dos dispositivos generarían copias
+   *  distintas y el merge las sumaría). Entonces el server declara la
+   *  intención acá y el cliente la ejecuta al montar /tasks:
+   *  `rebuildRecurringChain` nukea las futuras de la regla vieja, rearma con
+   *  la nueva, y limpia esta marca. */
+  rebuildAt?: string
 }
 
 export interface Task {

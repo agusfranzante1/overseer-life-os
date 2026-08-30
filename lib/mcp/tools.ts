@@ -6,9 +6,10 @@
  */
 
 import {
-  getAgenda, getTasks, getPlannerProfile, getPlanHistory,
+  getAgenda, getTasks, getPlannerProfile, getPlanHistory, getProjects, getRecurringSeries,
 } from './queries'
 import { saveDayPlan, scheduleTask, updatePlannerProfile } from './writes'
+import { createTask, setTaskRecurrence } from './taskWrites'
 
 export interface ToolDef {
   name: string
@@ -61,6 +62,79 @@ export const TOOLS: ToolDef[] = [
     inputSchema: {
       type: 'object',
       properties: { days: num('Cuántos días hacia atrás. Default 14.') },
+    },
+  },
+  {
+    name: 'list_projects',
+    description:
+      'Los proyectos del usuario con sus ESTADOS reales y cuántas tareas pendientes tienen. Leelo antes de create_task: `status` es obligatorio y cada tablero tiene sus propios estados (los de este usuario están en español: "Hacer", "Haciendo"), así que no asumas "To Do".',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_recurring_series',
+    description:
+      'Revisar las tareas recurrentes: una entrada por serie con su regla, el proyecto, si está detenida, cuántas instancias hay hechas y pendientes, la próxima fecha y el detalle de las instancias. Usalo cuando el usuario pregunte qué recurrentes tiene o algo se vea raro/duplicado.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'create_task',
+    description:
+      'Crea una tarea en un proyecto. IMPORTANTE: para que aparezca como bloque en el CALENDARIO de Overseer necesita `dueDate` Y `dueTime` juntos — solo con fecha es un to-do del día y no se dibuja. La respuesta trae `showsInCalendar` para confirmarlo. Podés mandarle subtareas y hacerla recurrente de una.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectId: str('Proyecto destino. Sacalo de list_projects.'),
+        title: str('Título de la tarea.'),
+        description: str('Descripción larga. Opcional.'),
+        notes: str('Notas. Opcional.'),
+        status: str('Estado inicial. Tiene que existir en ese proyecto; si no, se usa el primer estado no-hecho y se avisa.'),
+        priority: str('low | medium | high | urgent. Default medium.'),
+        importance: str('low | medium | high. Default medium.'),
+        dueDate: str('YYYY-MM-DD. Necesaria para el calendario y OBLIGATORIA si es recurrente (es el ancla de la serie).'),
+        dueTime: str('HH:MM. Junto con dueDate hace que se vea en el calendario.'),
+        durationMinutes: num('Largo del bloque en el calendario. Default 60 si hay hora.'),
+        energyEstimate: num('1 a 5.'),
+        tags: { type: 'array', items: { type: 'string' }, description: 'Etiquetas, cruzan proyectos.' },
+        favorite: { type: 'boolean', description: 'Marcarla con ⭐.' },
+        scheduledFor: str('"today" | "tomorrow".'),
+        subtasks: {
+          type: 'array',
+          description: 'Subtareas. Acepta strings sueltos o { title }.',
+          items: { type: 'string' },
+        },
+        recurrence: {
+          type: 'object',
+          description: 'Regla de repetición. Requiere dueDate. Las instancias las genera la app al abrir Tareas.',
+          properties: {
+            kind: { type: 'string', enum: ['daily', 'weekdays', 'weekly', 'monthly'] },
+            daysOfWeek: { type: 'array', items: { type: 'number' }, description: 'Solo weekly. 0=domingo … 6=sábado.' },
+            until: str('YYYY-MM-DD — no genera instancias después de esa fecha.'),
+          },
+          required: ['kind'],
+        },
+      },
+      required: ['projectId', 'title'],
+    },
+  },
+  {
+    name: 'set_task_recurrence',
+    description:
+      'Hace recurrente una tarea que ya existe, le cambia la regla, o detiene la serie (mandá recurrence: null). Se aplica sobre la tarea MADRE, no sobre una instancia. La tarea tiene que tener fecha: esa fecha es el ancla de la serie. Las instancias las genera/rehace la app al abrir Tareas.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: str('Id de la tarea madre.'),
+        recurrence: {
+          type: 'object',
+          description: 'La regla nueva. Mandá null para detener la serie.',
+          properties: {
+            kind: { type: 'string', enum: ['daily', 'weekdays', 'weekly', 'monthly'] },
+            daysOfWeek: { type: 'array', items: { type: 'number' }, description: 'Solo weekly. 0=domingo … 6=sábado.' },
+            until: str('YYYY-MM-DD.'),
+          },
+        },
+      },
+      required: ['taskId'],
     },
   },
   {
@@ -155,6 +229,23 @@ export async function callTool(
 
     case 'get_plan_history':
       return { history: await getPlanHistory(userId, typeof args.days === 'number' ? args.days : 14) }
+
+    case 'list_projects':
+      return { projects: await getProjects(userId) }
+
+    case 'get_recurring_series':
+      return { series: await getRecurringSeries(userId) }
+
+    case 'create_task':
+      return createTask(userId, args)
+
+    case 'set_task_recurrence':
+      return setTaskRecurrence(userId, {
+        taskId: args.taskId as string,
+        // `null` explícito = detener la serie. `undefined` (la clave ni vino)
+        // se trata igual: no hay otra cosa razonable que hacer sin regla.
+        recurrence: args.recurrence,
+      })
 
     case 'save_day_plan':
       return saveDayPlan(userId, {

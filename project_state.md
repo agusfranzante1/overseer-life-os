@@ -48,6 +48,39 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Bridge: crear tareas, tareas con horario en el calendario, y recurrentes completas** (Claude directo, verificado corriendo la app):
+  Pedido: "desde el chat poder agregar tareas por proyecto, tareas con horario para que se vean
+  en el calendario **de Overseer** (no GCal), y revisar / crear / hacer recurrentes, todo completo".
+  4 herramientas nuevas: `list_projects`, `get_recurring_series`, `create_task`, `set_task_recurrence`.
+  - **`create_task`** — proyecto, título, prioridad, importancia, fecha, hora, duración, energía,
+    etiquetas, ⭐, subtareas y recurrencia, todo en una llamada. Es seguro por un motivo puntual y
+    verificado: el pull **recomputa `project.taskIds` desde `project_id`**, así que la fila insertada
+    del lado server aparece sola en su tablero.
+  - **Estado inicial resuelto contra el proyecto real.** `tasks.status` es NOT NULL SIN default y
+    cada tablero tiene sus propios estados (los del usuario están en español). Hardcodear "To Do"
+    metía la tarea en una columna inexistente → `resolveStatus` usa los del proyecto destino y
+    avisa si el pedido no existía.
+  - **Calendario de Overseer:** una tarea se dibuja como bloque solo con `dueDate` **Y** `dueTime`
+    (`CalendarPage`). La respuesta devuelve `showsInCalendar` para decirlo en vez de que el usuario
+    se pregunte por qué no la ve.
+  - **Recurrentes — el reparto que evita el bug histórico:** *el server escribe la REGLA, el cliente
+    genera las INSTANCIAS*. Los ids de spawn son deterministas y los calcula el cliente; si el
+    server inventara filas, dos dispositivos generarían copias distintas y el merge las sumaría.
+    Al CAMBIAR una regla con instancias ya generadas, el server deja `recurrence.rebuildAt` y
+    `TasksPage` al montar corre `rebuildRecurringChain` y limpia la marca. **Detener** saca la regla
+    de la madre Y de sus instancias (si queda en una, vuelve a sembrar la serie). Cambiar la regla
+    de una INSTANCIA se rechaza con el id de la madre en el mensaje.
+  - **Sin migración** (`recurrence` es jsonb, así que `rebuildAt` viaja sin tocar el esquema; el
+    pull copia `recurrence` entero, no campo por campo, así que la marca sobrevive — BASE nº2).
+  - **Verificado:** `lib/mcp/taskInput.test.ts` 45/45 (estados en español, recurrencia inválida que
+    FALLA en vez de arreglarse sola, fecha+hora → calendario, ids sin `__` para no chocar con el
+    spawn de subtareas recurrentes). Corriendo la app, el handshake completo: sembré una madre con
+    regla nueva `weekly[lunes]` + `rebuildAt` y 4 instancias viejas `daily` → al abrir Tareas las 4
+    se nukearon, quedó **una instancia el lunes correcto**, el marcador se limpió, `updatedAt` se
+    bumpeó y la UI muestra **una sola fila "Backtesting sesh · 0/2 hechas"**. `tsc` y `next build` OK.
+  - **NO verificado:** `create_task` contra Supabase real (el modo sin auth no tiene backend); su
+    validación está cubierta por los tests puros.
+
 - [x] **Bridge con Claude + Plan del día ("second brain")** (Claude directo, verificado corriendo la app):
   Pedido: "vincular Claude con mi cuenta de Overseer para que analice todas mis tareas y me arme
   un orden de acción día por día". Decisión clave del usuario: **NO usar la API key de Anthropic**

@@ -285,6 +285,129 @@ function toBridgeTask(
 }
 
 // ---------------------------------------------------------------------------
+// Proyectos
+// ---------------------------------------------------------------------------
+
+export interface BridgeProject {
+  id: string
+  name: string
+  archived: boolean
+  /** Los estados REALES del tablero. Importan para crear tareas: `status` es
+   *  NOT NULL sin default y los del usuario están en español ("Hacer",
+   *  "Haciendo"), no en el "To Do" que uno asumiría. */
+  statuses: string[]
+  pendingTasks: number
+}
+
+export async function getProjects(userId: string): Promise<BridgeProject[]> {
+  const sb = getSupabaseAdmin()
+  const [{ data: rows }, tasks] = await Promise.all([
+    sb.from('projects').select('id, name, statuses, archived').eq('user_id', userId),
+    getTasks(userId, { limit: 2000 }),
+  ])
+
+  const pending = new Map<string, number>()
+  for (const t of tasks) pending.set(t.projectId, (pending.get(t.projectId) ?? 0) + 1)
+
+  return (rows ?? []).map((p) => ({
+    id: p.id as string,
+    name: (p.name as string) ?? '?',
+    archived: !!p.archived,
+    statuses: Array.isArray(p.statuses)
+      ? (p.statuses as { label?: string }[]).map((st) => st?.label ?? '').filter(Boolean)
+      : [],
+    pendingTasks: pending.get(p.id as string) ?? 0,
+  }))
+}
+
+// ---------------------------------------------------------------------------
+// Series recurrentes
+// ---------------------------------------------------------------------------
+
+export interface RecurringSeries {
+  /** Id de la MADRE — es también la etiqueta de la serie (`recurringHeadId`). */
+  headId: string
+  title: string
+  project: string
+  /** La regla vive en la madre. Si es null, la fila de la madre no está en
+   *  esta cuenta/dispositivo pero la serie existe igual (sus instancias la
+   *  siguen etiquetando). */
+  recurrence: { kind?: string; daysOfWeek?: number[]; until?: string } | null
+  /** La madre está en la papelera → la serie está DETENIDA (no spawnea más). */
+  stopped: boolean
+  total: number
+  done: number
+  pending: number
+  nextDue?: string
+  instances: { id: string; dueDate?: string; done: boolean; archived: boolean }[]
+}
+
+/** Agrupa las tareas por `recurringHeadId` para poder revisar las series.
+ *
+ *  Se agrupa por esa etiqueta y NO por "quién tiene la regla", porque el
+ *  `recurringHeadId` se conserva exista o no la fila de la madre — es
+ *  justamente lo que impide que una serie se fragmente en una serie por
+ *  instancia (ver el incidente de las recurrentes que se multiplicaban). */
+export async function getRecurringSeries(userId: string): Promise<RecurringSeries[]> {
+  const sb = getSupabaseAdmin()
+  const [{ data: taskRows }, { data: projectRows }] = await Promise.all([
+    sb.from('tasks').select('*').eq('user_id', userId).limit(3000),
+    sb.from('projects').select('id, name').eq('user_id', userId),
+  ])
+
+  const projectName = new Map<string, string>()
+  for (const p of projectRows ?? []) projectName.set(p.id as string, (p.name as string) ?? '?')
+
+  const rows = (taskRows ?? []) as Record<string, unknown>[]
+  const groups = new Map<string, Record<string, unknown>[]>()
+  for (const r of rows) {
+    const head = (r.recurring_head_id as string) || (r.recurrence ? (r.id as string) : null)
+    if (!head) continue
+    if (!groups.has(head)) groups.set(head, [])
+    groups.get(head)!.push(r)
+  }
+
+  const out: RecurringSeries[] = []
+  for (const [headId, members] of groups) {
+    const mother = members.find((m) => m.id === headId)
+    // La madre es el template; puede no estar (borrada, o todavía no llegó).
+    const withRule = mother ?? members.find((m) => m.recurrence)
+    const live = members.filter((m) => !m.archived_at)
+    const done = live.filter((m) => m.completed_at).length
+
+    const nextDue = live
+      .filter((m) => !m.completed_at && typeof m.due_date === 'string')
+      .map((m) => m.due_date as string)
+      .sort()[0]
+
+    out.push({
+      headId,
+      title: (withRule?.title as string) ?? (members[0]?.title as string) ?? '?',
+      project: projectName.get((withRule?.project_id ?? members[0]?.project_id) as string) ?? '?',
+      recurrence: (withRule?.recurrence as RecurringSeries['recurrence']) ?? null,
+      // Madre archivada = serie detenida: el buffer y el rollover cortan ahí.
+      stopped: !!mother?.archived_at || !withRule?.recurrence,
+      total: members.length,
+      done,
+      pending: live.length - done,
+      ...(nextDue ? { nextDue } : {}),
+      instances: members
+        .map((m) => ({
+          id: m.id as string,
+          dueDate: (m.due_date as string) ?? undefined,
+          done: !!m.completed_at,
+          archived: !!m.archived_at,
+        }))
+        .sort((a, b) => (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999'))
+        .slice(0, 40),
+    })
+  }
+
+  out.sort((a, b) => a.title.localeCompare(b.title))
+  return out
+}
+
+// ---------------------------------------------------------------------------
 // Google Calendar (server-side, con el refresh_token guardado)
 // ---------------------------------------------------------------------------
 

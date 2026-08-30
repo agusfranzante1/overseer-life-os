@@ -775,6 +775,24 @@ export function TasksPage() {
   useEffect(() => {
     const now = new Date()
     const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    // ── Intención pendiente del BRIDGE (/api/mcp) ────────────────────────
+    // El server puede cambiar la REGLA de una serie, pero no puede generar ni
+    // nukear INSTANCIAS: sus ids son deterministas (`rec_<madre>_<fecha>`) y
+    // se calculan acá. Si el server los inventara, dos dispositivos generarían
+    // copias distintas de la misma cosa y el merge las sumaría.
+    //
+    // Entonces el server declara la intención con `recurrence.rebuildAt` y
+    // nosotros la ejecutamos: nukeamos las futuras de la regla vieja, se
+    // rearman con la nueva (abajo) y limpiamos la marca. Sacar solo `rebuildAt`
+    // no vuelve a disparar el rebuild de `updateTask` (ese mira kind/daysOfWeek).
+    for (const t of Object.values(tasksStoreApi.tasks)) {
+      if (!t.recurrence?.rebuildAt || t.archivedAt) continue
+      tasksStoreApi.rebuildRecurringChain(t.id)
+      const rule = { ...t.recurrence }
+      delete rule.rebuildAt
+      tasksStoreApi.updateTask(t.id, { recurrence: rule })
+    }
+
     const heads = Object.values(tasksStoreApi.tasks).filter(
       (t) => t.recurrence && t.dueDate && !t.archivedAt && !t.completedAt,
     )

@@ -82,20 +82,39 @@ otra cosa: chat con API key facturada por uso. No se mezclan.)
 - `app/api/export/brief/route.ts` — el mismo contenido como un GET read-only.
 - `app/api/mcp/tokens/route.ts` — alta/listado/revocación (auth por SESIÓN, no por token).
 - `lib/mcp/` — `auth.ts` (token sha256 + `authenticate()`), `queries.ts` (lecturas),
-  `writes.ts` (escrituras), `tools.ts` (catálogo MCP), `freeSlots.ts` (puro + test).
+  `writes.ts` (plan + perfil), `taskWrites.ts` (crear tarea / recurrencia),
+  `tools.ts` (catálogo MCP), `freeSlots.ts` y `taskInput.ts` (puros, con test).
 
 **Auth:** token `ovs_...` en `Authorization: Bearer`; se guarda solo el sha256 en
 `mcp_tokens`. Es la única puerta a los datos sin cookie de sesión (el middleware
 ya deja pasar `/api/*`). Se distingue 401 (token malo) de 503 (backend caído).
 
-**Superficie de ESCRITURA — deliberadamente chica.** Escribir acá saltea los
+**Superficie de ESCRITURA — acotada a propósito.** Escribir acá saltea los
 stores y toda la lógica de dominio, que es como este proyecto ya perdió datos
-tres veces. El bridge **no borra nada** (no hay tool de delete), no toca
-`recurrence`/`recurring_head_id`/`subtasks`/`archived_at`/`completed_at`/
-`status`/`project_id`, y solo puede: escribir `day_plans`, mover 4 campos
-escalares de una tarea (`due_date`, `due_time`, `duration_minutes`,
-`scheduled_for`) y mergear `plannerProfile` en el blob de prefs. Todo write
-bumpea `updated_at` — sin eso el pull LWW lo pisa (BASE nº1).
+tres veces. El bridge **no borra nada** (no hay tool de delete) y no toca
+`subtasks` existentes, `archived_at`, `completed_at`, `status` ni `project_id`.
+Puede: escribir `day_plans`, **crear** una tarea (con subtareas y recurrencia),
+mover 4 campos escalares de una tarea (`due_date`, `due_time`,
+`duration_minutes`, `scheduled_for`), poner/sacar la **regla** de recurrencia, y
+mergear `plannerProfile`. Todo write bumpea `updated_at` — sin eso el pull LWW
+lo pisa (BASE nº1).
+
+**Crear tareas es seguro por un motivo puntual:** el pull **recomputa
+`project.taskIds` desde `project_id`**, así que una fila insertada del lado
+server aparece sola en su tablero. Y `tasks.status` es NOT NULL SIN default con
+estados PROPIOS de cada proyecto (los del usuario están en español) → se
+resuelve contra los del proyecto destino, nunca hardcodeado (`taskInput.ts`).
+Una tarea entra al **calendario de Overseer** solo con `due_date` **y**
+`due_time` (`CalendarPage`).
+
+**Recurrentes — el reparto que hay que respetar:** *el server escribe la REGLA,
+el cliente genera las INSTANCIAS*. Los ids de spawn son deterministas
+(`rec_<madre>_<fecha>`) y los calcula el cliente; si el server inventara filas,
+dos dispositivos generarían copias distintas y el merge las sumaría. Al CAMBIAR
+una regla que ya tenía instancias, el server deja la marca
+**`recurrence.rebuildAt`** y `TasksPage` al montar corre
+`rebuildRecurringChain` + limpia la marca. Detener = sacar la regla de la madre
+**y de sus instancias** (si queda en una, vuelve a sembrar la serie).
 
 **`plannerProfile`** (lo que el planificador "aprende") vive en el blob
 `app_preferences`. El server lo escribe leyendo el payload entero, tocando solo
