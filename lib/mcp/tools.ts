@@ -10,6 +10,8 @@ import {
 } from './queries'
 import { saveDayPlan, scheduleTask, updatePlannerProfile } from './writes'
 import { createTask, setTaskRecurrence } from './taskWrites'
+import { deleteCalendarEvent, createCalendarEvent } from './calendarWrites'
+import { getUserPrefs } from './queries'
 
 export interface ToolDef {
   name: string
@@ -138,6 +140,39 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'delete_calendar_event',
+    description:
+      'Borra un evento de Google Calendar. Los ids salen de get_agenda (cada evento trae id, calendarId y, si es recurrente, recurringEventId). OJO: `scope` es obligatorio y no tiene default — "instance" borra solo ese día, "series" borra la serie entera y no vuelve nunca. Esto NO tiene deshacer desde acá (queda en la papelera de Google un tiempo). Confirmá con el usuario antes de usarlo.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        eventId: str('Id del evento (de get_agenda).'),
+        calendarId: str('Calendario al que pertenece (de get_agenda).'),
+        recurringEventId: str('Id de la serie, si el evento es una instancia. Necesario para scope="series".'),
+        scope: { type: 'string', enum: ['instance', 'series'], description: 'Qué se borra. Obligatorio.' },
+      },
+      required: ['eventId', 'calendarId', 'scope'],
+    },
+  },
+  {
+    name: 'create_calendar_event',
+    description:
+      'Crea un bloque en Google Calendar. Se usa para agendar los bloques de trabajo de la semana. Horas en hora LOCAL del usuario. Para repetirlo, pasar `recurrenceRule` en formato RRULE (ej. "RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR").',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: str('Título del bloque.'),
+        date: str('Día, YYYY-MM-DD. Si es recurrente, es la primera fecha.'),
+        start: str('Hora de inicio HH:MM (local).'),
+        end: str('Hora de fin HH:MM (local).'),
+        description: str('Detalle. Opcional.'),
+        calendarId: str('Calendario destino. Default "primary".'),
+        recurrenceRule: str('RRULE para repetirlo. Opcional.'),
+      },
+      required: ['title', 'date', 'start', 'end'],
+    },
+  },
+  {
     name: 'save_day_plan',
     description:
       'Guarda el plan de un día. Le aparece al usuario en el widget "Plan de hoy" del Panel, en todos sus dispositivos. Reemplaza el plan anterior de esa fecha (hay uno solo por día). Poné SIEMPRE el "reason" de cada bloque: es lo que le permite al usuario entender por qué lo pusiste ahí y corregirte.',
@@ -246,6 +281,14 @@ export async function callTool(
         // se trata igual: no hay otra cosa razonable que hacer sin regla.
         recurrence: args.recurrence,
       })
+
+    case 'delete_calendar_event':
+      return deleteCalendarEvent(userId, origin, args as Parameters<typeof deleteCalendarEvent>[2])
+
+    case 'create_calendar_event': {
+      const prefs = await getUserPrefs(userId)
+      return createCalendarEvent(userId, origin, prefs.timezone, args as Parameters<typeof createCalendarEvent>[3])
+    }
 
     case 'save_day_plan':
       return saveDayPlan(userId, {

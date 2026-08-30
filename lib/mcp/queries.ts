@@ -40,6 +40,13 @@ export interface BridgeTask {
 }
 
 export interface AgendaEvent {
+  /** Id del evento en Google. Necesario para borrarlo o moverlo. */
+  id: string
+  /** Calendario al que pertenece. La API de Google exige calendarId + eventId. */
+  calendarId: string
+  /** Si es una instancia de una serie, el id de la SERIE. Borrar la instancia
+   *  la saca solo ese día; borrar la serie la saca para siempre. */
+  recurringEventId?: string
   title: string
   start: string
   end: string
@@ -421,6 +428,9 @@ export async function getCalendarEvents(
         const end = e.end?.dateTime ?? (e.end?.date ? `${e.end.date}T00:00:00.000Z` : null)
         if (!start || !end) continue
         events.push({
+          id: e.id ?? '',
+          calendarId: cal.id!,
+          ...(e.recurringEventId ? { recurringEventId: e.recurringEventId } : {}),
           title: e.summary ?? '(sin título)',
           start, end, allDay,
           calendar: cal.summary ?? undefined,
