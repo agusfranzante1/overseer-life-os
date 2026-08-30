@@ -4,8 +4,28 @@
     {
       "name": "overseer-dev",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["next", "dev", "-p", "3017"],
+      "runtimeArgs": [
+        "next",
+        "dev",
+        "-p",
+        "3017"
+      ],
       "port": 3017
+    },
+    {
+      "name": "overseer-noauth",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "next",
+        "dev",
+        "-p",
+        "3099"
+      ],
+      "port": 3099,
+      "env": {
+        "NEXT_PUBLIC_SUPABASE_URL": "",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY": ""
+      }
     }
   ]
 }

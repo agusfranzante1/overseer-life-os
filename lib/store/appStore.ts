@@ -1,7 +1,7 @@
 'use client'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { Language, DayType, DayTypeConfig, MetricEntry } from '@/types'
+import { Language, DayType, DayTypeConfig, MetricEntry, PlannerProfile } from '@/types'
 import { detectTimezone } from '@/lib/utils/dateInTz'
 import { syncUserSettingsToSupabase } from '@/lib/supabase/userSettingsSync'
 
@@ -253,6 +253,10 @@ export interface AppState {
   // sesión SPI de la semana; esto sincroniza solo la pregunta.
   dailyReflectionPrompt: string
   setDailyReflectionPrompt: (v: string) => void
+  /** Lo aprendido por el planificador de Claude. Viaja en el blob de
+   *  preferencias (mergeado por campo) y se puede editar a mano. */
+  plannerProfile: PlannerProfile
+  setPlannerProfile: (p: PlannerProfile) => void
 
   // AI provider settings (persisted)
   aiProvider: 'off' | 'ollama' | 'anthropic'
@@ -485,6 +489,9 @@ export const useAppStore = create<AppState>()(
 
       dailyReflectionPrompt: '',  // empty = use component's DEFAULT_PROMPT
       setDailyReflectionPrompt: (v) => set({ dailyReflectionPrompt: v }),
+
+      plannerProfile: {},
+      setPlannerProfile: (p) => set({ plannerProfile: p }),
 
       aiProvider: 'off',
       anthropicApiKey: '',

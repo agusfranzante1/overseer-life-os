@@ -333,3 +333,24 @@ export interface FrictionLog {
   description: string
   createdAt: string
 }
+
+/** Lo que el planificador (Claude, vía el bridge `/api/mcp`) aprendió sobre
+ *  cómo organizarle el día a este usuario.
+ *
+ *  Vive en el blob `app_preferences` y se mergea por campo como el resto de
+ *  las preferencias. Es editable a mano desde Configuración a propósito: si el
+ *  usuario no puede leer y borrar lo que se "aprendió", esto es una caja negra
+ *  que se ensucia sola y nadie puede limpiar. */
+export interface PlannerProfile {
+  /** Ventana de trabajo del día, "HH:MM". De acá salen los huecos libres. */
+  workingHours?: { start: string; end: string }
+  /** Franjas en las que el usuario rinde para tareas de foco. */
+  deepWorkWindows?: { start: string; end: string }[]
+  /** Etiqueta o proyecto → minutos que suele llevar. */
+  typicalDurations?: Record<string, number>
+  /** Energía típica por franja, 1-5. */
+  energyByTimeOfDay?: { morning?: number; afternoon?: number; evening?: number }
+  /** Reglas en lenguaje natural ("los viernes no agendar estudio"). */
+  rules?: string[]
+  updatedAt?: string
+}

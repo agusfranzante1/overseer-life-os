@@ -5,7 +5,12 @@
 > El método de trabajo está en [`instructions.md`](instructions.md); las reglas
 > técnicas no negociables en [`AGENTS.md`](AGENTS.md).
 
-**Última actualización:** 2026-08-28 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
+**Última actualización:** 2026-08-29 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
+
+⚠️ **MIGRACIONES NUEVAS SIN CORRER (bloquean el bridge con Claude):**
+`supabase/migration_mcp_tokens.sql` y `supabase/migration_day_plans.sql`. Hasta correrlas,
+Configuración → Conexión con Claude no puede generar tokens y `save_day_plan` falla con un
+mensaje que dice cuál falta.
 
 ✅ **Migraciones de tareas:** el usuario confirmó (2026-08-28) que ya corrió
 `migration_tasks_favorite.sql`, `migration_subtasks_favorite.sql` y `migration_tasks_tags.sql`.
@@ -42,6 +47,38 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 ---
 
 ## ✅ Hecho recientemente
+
+- [x] **Bridge con Claude + Plan del día ("second brain")** (Claude directo, verificado corriendo la app):
+  Pedido: "vincular Claude con mi cuenta de Overseer para que analice todas mis tareas y me arme
+  un orden de acción día por día". Decisión clave del usuario: **NO usar la API key de Anthropic**
+  (facturada por uso) sino su **suscripción ya paga**. Consecuencia de diseño: la app **no llama a
+  ningún LLM** para esto — el razonamiento lo pone Claude desde afuera y la app solo expone los
+  datos y recibe el plan.
+  - **Servidor MCP propio** (`app/api/mcp/route.ts`, JSON-RPC 2.0 sobre HTTP, sin SDK nuevo) con 7
+    herramientas: `get_agenda` (huecos libres YA calculados), `get_tasks`, `get_planner_profile`,
+    `get_plan_history`, `save_day_plan`, `schedule_task`, `update_planner_profile`.
+  - **Token personal** (`mcp_tokens`, se guarda solo el sha256, revocable) + UI en Configuración →
+    **Conexión con Claude**, que muestra el token una vez y el comando `claude mcp add` listo.
+  - **Export read-only** (`/api/export/brief?token=`) con el mismo contenido en un GET, como puente
+    sin configurar MCP.
+  - **Dominio nuevo `dayPlan`** (playbook completo: store + push/pull/sanitize/merge + tombstones +
+    baseline + multitab + migración) con id **determinista** `plan_<fecha>` — un plan por día, así
+    dos dispositivos convergen en vez de sumar copias. Widget **"Plan de hoy"** en el Panel
+    (apilado AL FINAL por BASE nº4), con el `reason` de cada bloque desplegable.
+  - **`plannerProfile`** (lo que aprende) en el blob `app_preferences`, sellando `_t.plannerProfile`
+    del lado server para que el push del cliente no lo pise. Editable a mano en Configuración.
+  - **Escritura acotada a propósito:** el bridge NO borra nada, no toca recurrentes, subtareas,
+    `archivedAt`, `completedAt`, `status` ni `projectId`. Solo `day_plans`, 4 campos escalares de
+    tarea y el perfil. Todo write bumpea `updated_at`.
+  - **Requiere 2 migraciones:** `migration_mcp_tokens.sql` y `migration_day_plans.sql`.
+  - **Verificado:** `lib/mcp/freeSlots.test.ts` 30/30 (solapados, desordenados, recortes a la
+    ventana, día lleno, huecos < 15min, offsets de zona). Corriendo la app sin auth: la sección
+    de Configuración renderiza y falla ruidoso sin backend, el widget muestra 4 bloques con
+    contador 1/4 → tildar lo lleva a 2/4 y **bumpea `updatedAt`**, el ⓘ despliega el porqué.
+    `/api/mcp` sin token = **401**; con token y sin base = **503** (no se confunde token inválido
+    con backend caído). `tsc --noEmit` y `next build` OK.
+  - **NO verificado:** el round-trip real contra Supabase y el handshake MCP con un cliente real
+    — el modo sin auth no tiene backend y las migraciones todavía no están corridas.
 
 - [x] **Kanban: agregar tareas desde el tablero** (Claude directo, verificado corriendo la app):
   Reporte: "no puedo agregar tareas en kanban". Reproducido: en **Todos los proyectos + kanban**
@@ -460,6 +497,9 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
 
 ### ⚠️ Pendientes del usuario (Claude no puede hacerlos)
 
+- [ ] **Correr las 2 migraciones del bridge** (sin esto no se puede generar el token ni
+      guardar planes): `supabase/migration_mcp_tokens.sql` y `supabase/migration_day_plans.sql`.
+- [ ] **Generar el token** en Configuración → Conexión con Claude y conectar el MCP.
 - [ ] **Correr 3 migraciones en Supabase** (SQL Editor), si no las ofertas /
       YouTube / carpetas de mapas no sincronizan entre dispositivos:
   - [ ] `supabase/migration_offers.sql`

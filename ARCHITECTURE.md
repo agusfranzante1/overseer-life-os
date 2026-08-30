@@ -1,7 +1,7 @@
 # 🗺️ Mapa de la app (para ahorrar búsquedas)
 
-Mapa **grueso y estable** de cómo está programada Overseer, para que Claude y
-Codex vayan directo al archivo correcto sin re-explorar. **Las reglas del "por
+Mapa **grueso y estable** de cómo está programada Overseer, para que Claude vaya
+directo al archivo correcto sin re-explorar. **Las reglas del "por
 qué"** están en [`AGENTS.md`](AGENTS.md); **el estado del día a día** en
 [`project_state.md`](project_state.md). Acá va **el "dónde" y los patrones**.
 
@@ -72,6 +72,41 @@ Repetir para cada feature nueva que guarde datos (BASE nº1):
 5. Migración `supabase/migration_x.sql` (tabla + RLS `auth.uid()=user_id`) — y
    **avisarle al usuario que la corra**.
 
+## Bridge con Claude (`/api/mcp`) — datos hacia afuera
+Overseer NO llama a ningún LLM para planificar: el razonamiento lo pone **Claude
+corriendo en la suscripción del usuario** (Claude Code / claude.ai), que entra a
+la cuenta por un servidor MCP propio. (La capa `lib/ai/*` + `app/api/ai/*` es
+otra cosa: chat con API key facturada por uso. No se mezclan.)
+
+- `app/api/mcp/route.ts` — servidor MCP (JSON-RPC 2.0 sobre HTTP, a mano, sin SDK).
+- `app/api/export/brief/route.ts` — el mismo contenido como un GET read-only.
+- `app/api/mcp/tokens/route.ts` — alta/listado/revocación (auth por SESIÓN, no por token).
+- `lib/mcp/` — `auth.ts` (token sha256 + `authenticate()`), `queries.ts` (lecturas),
+  `writes.ts` (escrituras), `tools.ts` (catálogo MCP), `freeSlots.ts` (puro + test).
+
+**Auth:** token `ovs_...` en `Authorization: Bearer`; se guarda solo el sha256 en
+`mcp_tokens`. Es la única puerta a los datos sin cookie de sesión (el middleware
+ya deja pasar `/api/*`). Se distingue 401 (token malo) de 503 (backend caído).
+
+**Superficie de ESCRITURA — deliberadamente chica.** Escribir acá saltea los
+stores y toda la lógica de dominio, que es como este proyecto ya perdió datos
+tres veces. El bridge **no borra nada** (no hay tool de delete), no toca
+`recurrence`/`recurring_head_id`/`subtasks`/`archived_at`/`completed_at`/
+`status`/`project_id`, y solo puede: escribir `day_plans`, mover 4 campos
+escalares de una tarea (`due_date`, `due_time`, `duration_minutes`,
+`scheduled_for`) y mergear `plannerProfile` en el blob de prefs. Todo write
+bumpea `updated_at` — sin eso el pull LWW lo pisa (BASE nº1).
+
+**`plannerProfile`** (lo que el planificador "aprende") vive en el blob
+`app_preferences`. El server lo escribe leyendo el payload entero, tocando solo
+esa clave y **sellando `payload._t.plannerProfile`** — sin esa marca el push del
+cliente lo pisa con su copia vieja (ver `prefsMerge.ts`).
+
+**Huecos libres:** `computeFreeSlots` resta a la ventana de trabajo los eventos
+de Google Calendar (leídos server-side con el `refresh_token` de
+`gcal_credentials`) **y las anclas de `idealSchedule`** (almuerzo, entrenamiento:
+son compromisos reales, no decoración).
+
 ## Navegación / secciones
 - `lib/store/appStore.ts`: `CORE_NAV_KEYS` (siempre visibles) y
   `OPTIONAL_NAV_KEYS` (ocultas por default; el user las agrega). Agregar una
@@ -90,6 +125,7 @@ Repetir para cada feature nueva que guarde datos (BASE nº1):
 | Estudio | `studyStore`, `conceptStore` | `components/estudio/*` | Carrera›Materia›Parcial›Tema; mapa de conceptos por materia; puente `reconcileStudyConceptMap` |
 | Content Strategy | `contentStore` | `components/contenido/*` | mapa por perfil vía `lib/content/contentMindMap.ts` (`ensureProfileMindMap`) |
 | Priority Gate | `lib/dashboard/priorityGate.ts` (`usePriorityGate`) | `components/common/PriorityGate.tsx` | única fuente de verdad; usado en Panel/Tasks/Calendar |
+| **Plan del día / Bridge con Claude** | `dayPlanStore` | `components/dashboard/DayPlanPanel.tsx`, `components/settings/ClaudeBridgeSection.tsx` | per-fila `day_plans` (columnas reales, id determinista `plan_<fecha>`). El plan lo escribe Claude DESDE AFUERA vía el bridge — ver abajo |
 | Libros | `booksStore` | `components/books/BooksPage.tsx` | per-fila `books` |
 | Panel/Dashboard | (varios) | `components/dashboard/*` (`DashboardPage` = widgets reordenables) | orden en localStorage |
 | SPI / Proyección | `spiStore`, `projectionStore` | `components/spi/*`, `components/projection/*` | per-fila |

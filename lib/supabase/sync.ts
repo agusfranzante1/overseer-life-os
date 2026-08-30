@@ -19,6 +19,7 @@ import { useStudyStore } from '@/lib/store/studyStore'
 import { useContentStore } from '@/lib/store/contentStore'
 import { useBacktestStore } from '@/lib/store/backtestStore'
 import { type Book, type BookStatus, useBooksStore } from '@/lib/store/booksStore'
+import { type DayPlan, type DayPlanBlock, type DayPlanBlockKind, useDayPlanStore, dayPlanId } from '@/lib/store/dayPlanStore'
 import { useJournalStore } from '@/lib/store/journalStore'
 import { useMeditationsStore } from '@/lib/store/meditationsStore'
 import { useYoutubeStore } from '@/lib/store/youtubeStore'
@@ -60,6 +61,7 @@ interface SyncState {
   contentInit: boolean
   backtestInit: boolean
   booksInit: boolean
+  dayPlansInit: boolean
   journalInit: boolean
   meditationsInit: boolean
   youtubeInit: boolean
@@ -89,6 +91,7 @@ const state: SyncState = {
   contentInit: false,
   backtestInit: false,
   booksInit: false,
+  dayPlansInit: false,
   journalInit: false,
   meditationsInit: false,
   youtubeInit: false,
@@ -117,6 +120,7 @@ let studyPushTimer: ReturnType<typeof setTimeout> | null = null
 let contentPushTimer: ReturnType<typeof setTimeout> | null = null
 let backtestPushTimer: ReturnType<typeof setTimeout> | null = null
 let booksPushTimer: ReturnType<typeof setTimeout> | null = null
+let dayPlansPushTimer: ReturnType<typeof setTimeout> | null = null
 let journalPushTimer: ReturnType<typeof setTimeout> | null = null
 let meditationsPushTimer: ReturnType<typeof setTimeout> | null = null
 let youtubePushTimer: ReturnType<typeof setTimeout> | null = null
@@ -2928,6 +2932,10 @@ function appPrefsFields(): Record<string, unknown> {
     anthropicApiKey: s.anthropicApiKey,
     anthropicModel: s.anthropicModel,
     metrics: s.metrics,
+    // Lo aprendido por el planificador de Claude. Tiene que estar ACÁ o no
+    // sube nunca: el fingerprint de onAppPrefsChange se arma justamente
+    // sobre las claves de esta función (BASE nº1).
+    plannerProfile: s.plannerProfile,
   }
 }
 
@@ -3088,6 +3096,123 @@ async function pullAppPrefs(): Promise<boolean> {
   return true
   } finally {
     endPulling('appPrefs')
+  }
+}
+
+// ─── PLANES DEL DÍA (bridge con Claude) ──────────────────────────────────────
+//
+// Dominio del planificador: los bloques que Claude escribe vía `/api/mcp`
+// (`save_day_plan`) y que el usuario tilda desde el widget "Plan de hoy".
+// Per-fila con columnas reales (no payload jsonb) porque el bridge escribe
+// del lado server y necesita filtrar por `date` sin desarmar un blob.
+
+async function pushDayPlans() {
+  if (!state.userId) return
+  const syncedAt = new Date().toISOString()
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { plans } = useDayPlanStore.getState()
+
+  const rows = plans.map((plan) => ({
+    id: plan.id,
+    user_id: uid,
+    date: plan.date,
+    blocks: plan.blocks,
+    note: plan.note ?? null,
+    source: plan.source,
+    created_at: plan.createdAt,
+    updated_at: plan.updatedAt,
+  }))
+
+  if (rows.length > 0) {
+    const { error, dropped } = await upsertSkippingMissingColumns(sb, 'day_plans', rows)
+    if (error) {
+      reportSyncError(`day_plans upsert failed: ${error.message}. Likely missing migration - run supabase/migration_day_plans.sql.`)
+      throw error
+    }
+    if (dropped.length > 0) {
+      reportSyncError(`day_plans: faltan columnas (${dropped.join(', ')}) - correr supabase/migration_day_plans.sql.`)
+    }
+  }
+  await syncDeletes(sb, uid, 'day_plans', rows.map((r) => r.id), 'dayPlans:items')
+  markSynced('dayPlans', syncedAt)
+}
+
+async function pullDayPlans(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('dayPlans')
+  try {
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('day_plans').select('*').eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+  if (res.error) {
+    console.error('Day plans pull failed (run migration_day_plans.sql?):', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) { markSynced('dayPlans'); return false }
+
+  type Row = {
+    id: string; date?: string | null; blocks?: unknown; note?: string | null
+    source?: string | null; created_at?: string | null; updated_at?: string | null
+  }
+
+  const KINDS: DayPlanBlockKind[] = ['task', 'event', 'break', 'focus']
+
+  // BASE nº2: el sanitize reconstruye campo por campo, así que TODO campo del
+  // bloque tiene que estar listado acá. Uno que falte se borra al sincronizar
+  // aunque el push lo mande bien — ya pasó tres veces en este proyecto.
+  const sanitizeBlock = (raw: unknown, i: number): DayPlanBlock | null => {
+    if (!raw || typeof raw !== 'object') return null
+    const b = raw as Partial<DayPlanBlock>
+    const title = typeof b.title === 'string' ? b.title : ''
+    if (!title) return null
+    return {
+      id: typeof b.id === 'string' && b.id ? b.id : `b${i}`,
+      title,
+      kind: KINDS.includes(b.kind as DayPlanBlockKind) ? (b.kind as DayPlanBlockKind) : 'task',
+      ...(typeof b.start === 'string' ? { start: b.start } : {}),
+      ...(typeof b.end === 'string' ? { end: b.end } : {}),
+      ...(typeof b.taskId === 'string' ? { taskId: b.taskId } : {}),
+      ...(typeof b.reason === 'string' ? { reason: b.reason } : {}),
+      ...(typeof b.done === 'boolean' ? { done: b.done } : {}),
+    }
+  }
+
+  const sanitize = (row: Row): DayPlan => {
+    const now = new Date().toISOString()
+    const date = typeof row.date === 'string' ? row.date.slice(0, 10) : ''
+    const blocks = Array.isArray(row.blocks)
+      ? (row.blocks as unknown[]).map(sanitizeBlock).filter((b): b is DayPlanBlock => b !== null)
+      : []
+    return {
+      id: typeof row.id === 'string' && row.id ? row.id : dayPlanId(date),
+      date,
+      blocks,
+      ...(typeof row.note === 'string' && row.note ? { note: row.note } : {}),
+      source: row.source === 'manual' ? 'manual' : 'claude',
+      createdAt: row.created_at ?? now,
+      updatedAt: row.updated_at ?? now,
+    }
+  }
+
+  const remote: DayPlan[] = (res.data ?? []).map((r: Row) => sanitize(r)).filter((p: DayPlan) => !!p.date)
+  const tombs = await fetchTombstones(sb, uid, ['day_plans'])
+  const merged = mergeById<DayPlan>({
+    local: useDayPlanStore.getState().plans,
+    remote,
+    baseline: getBaseline('dayPlans:items'),
+    getId: (x) => x.id,
+    getUpdatedAt: (x) => x.updatedAt,
+    tombstones: tombs.get('day_plans'),
+  })
+  useDayPlanStore.setState({ plans: merged })
+  setBaseline('dayPlans:items', remote.map((x) => x.id))
+  markSynced('dayPlans')
+  return true
+  } finally {
+    endPulling('dayPlans')
   }
 }
 
@@ -3997,6 +4122,7 @@ function scheduleStudy()      { schedule(studyPushTimer,      pushStudy,      (t
 function scheduleContent()    { schedule(contentPushTimer,    pushContent,    (t) => { contentPushTimer = t }) }
 function scheduleBacktests()  { schedule(backtestPushTimer,   pushBacktests,  (t) => { backtestPushTimer = t }) }
 function scheduleBooks()      { schedule(booksPushTimer,      pushBooks,      (t) => { booksPushTimer = t }) }
+function scheduleDayPlans()   { schedule(dayPlansPushTimer,   pushDayPlans,   (t) => { dayPlansPushTimer = t }) }
 function scheduleJournal()     { schedule(journalPushTimer,    pushJournal,    (t) => { journalPushTimer = t }) }
 function scheduleMeditations() { schedule(meditationsPushTimer, pushMeditations, (t) => { meditationsPushTimer = t }) }
 function scheduleYoutube()     { schedule(youtubePushTimer,     pushYoutube,     (t) => { youtubePushTimer = t }) }
@@ -4216,6 +4342,17 @@ async function initAllDomains() {
     if (hasLocal) await pushBooks().catch((e) => console.error('Books post-pull push failed', e))
   }
 
+  // ─── Planes del día (bridge con Claude) ────────────────────────────────────
+  // Pull-first, mismo patrón: el plan lo suele escribir el SERVER (Claude vía
+  // /api/mcp), así que lo de la nube casi siempre es más nuevo que lo local.
+  if (!state.dayPlansInit) {
+    state.dayPlansInit = true
+    const { plans } = useDayPlanStore.getState()
+    const hasLocal = plans.length > 0
+    await pullDayPlans()
+    if (hasLocal) await pushDayPlans().catch((e) => console.error('Day plans post-pull push failed', e))
+  }
+
   // ─── My Journal ───────────────────────────────────────────────────────
   // Pull-first: LWW por updatedAt + tombstones (mismo patrón que mindmaps).
   if (!state.journalInit) {
@@ -4392,6 +4529,7 @@ export function useSupabaseSync() {
       useContentStore.subscribe(() => { markModifiedIfNotPulling('content'); if (state.userId) scheduleContent() })
       useBacktestStore.subscribe(() => { markModifiedIfNotPulling('backtests'); if (state.userId) scheduleBacktests() })
       useBooksStore.subscribe(() => { markModifiedIfNotPulling('books'); if (state.userId) scheduleBooks() })
+      useDayPlanStore.subscribe(() => { markModifiedIfNotPulling('dayPlans'); if (state.userId) scheduleDayPlans() })
       useJournalStore.subscribe(() => { markModifiedIfNotPulling('journal'); if (state.userId) scheduleJournal() })
       useMeditationsStore.subscribe(() => { markModifiedIfNotPulling('meditations'); if (state.userId) scheduleMeditations() })
       useYoutubeStore.subscribe(() => { markModifiedIfNotPulling('youtube'); if (state.userId) scheduleYoutube() })
@@ -4427,6 +4565,7 @@ export function useSupabaseSync() {
       state.contentInit = false
       state.backtestInit = false
       state.booksInit = false
+      state.dayPlansInit = false
       state.journalInit = false
       state.meditationsInit = false
       state.youtubeInit = false
@@ -4484,6 +4623,7 @@ export function useSupabaseSync() {
       state.contentInit = false
       state.backtestInit = false
       state.booksInit = false
+      state.dayPlansInit = false
       state.journalInit = false
       state.meditationsInit = false
       state.youtubeInit = false
@@ -4568,6 +4708,7 @@ export async function forceSyncAll(): Promise<void> {
   state.contentInit = false
   state.backtestInit = false
   state.booksInit = false
+  state.dayPlansInit = false
   state.journalInit = false
   state.meditationsInit = false
   state.youtubeInit = false

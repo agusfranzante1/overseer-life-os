@@ -9,6 +9,7 @@ import { DailyPriorities } from './DailyPriorities'
 import { DailyReflection } from './DailyReflection'
 import { DailyAgendaCard } from './DailyAgendaCard'
 import { FavoriteTasksPanel } from './FavoriteTasksPanel'
+import { DayPlanPanel } from './DayPlanPanel'
 import { format } from 'date-fns'
 import { GripVertical, LayoutGrid, RotateCcw, Check, Eye, EyeOff } from 'lucide-react'
 
@@ -70,6 +71,14 @@ const WIDGETS: WidgetDef[] = [
     id: 'ideal-schedule',
     label: 'Horarios ideales',
     render: () => <IdealScheduleCard />,
+  },
+  // Al FINAL a propósito (BASE nº4): el orden guardado de las cuentas que ya
+  // existen se respeta y los widgets nuevos se apilan abajo en vez de
+  // reordenarles el panel de golpe.
+  {
+    id: 'day-plan',
+    label: '🗓️ Plan de hoy (Claude)',
+    render: () => <DayPlanPanel />,
   },
 ]
 
