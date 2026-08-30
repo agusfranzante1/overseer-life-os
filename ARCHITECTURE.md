@@ -50,6 +50,10 @@ remota no tiene una columna nueva, se descarta esa columna y se reintenta en vez
 batch. Importa porque `syncDeletes` va DESPUÉS del upsert: un push que moría dejaba los
 borrados sin propagar y el pull siguiente resucitaba lo borrado.
 
+**El push respeta los tombstones**: antes de subir, `pushTasks` descarta lo que figure en
+`deleted_rows` (`isTombstoned`). Sin eso el upsert resucitaba en la nube lo que otro device o el
+bridge MCP habían borrado mientras este device no pulleaba — el tombstone solo cubría el pull.
+
 **Listas anidadas en el merge**: `mergeById` resucita todo cuando el local está vacío (un store
 que no rehidrató). Ese heurístico NO aplica a listas anidadas dentro de una fila — las subtareas
 de una tarea pasan `isNestedCollection: true` (`mergeTaskWithSubtasks`), porque quedarse con cero

@@ -47,6 +47,28 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **El push resucitaba lo borrado desde el bridge (subtareas que "vuelven solas")** (Claude directo):
+  Reporte desde el otro chat: Claude borró por MCP la subtarea "Comprar las cuentas de fondeo"
+  (borrado OK, con tombstone) y volvió a aparecer.
+  - **Causa (verificada leyendo el ciclo de sync):** `pushTasks` hacía un upsert CIEGO de todo el
+    store — no consultaba `deleted_rows`. Con la app abierta, el cliente no pullea (el pull corre
+    al iniciar, al volver el foco/visibilidad o al recuperar red), así que sigue teniendo la fila
+    en memoria: cualquier edición dispara un push que la **re-inserta en Supabase**. El
+    tombstone protegía el PULL (lo que ves) pero nada protegía el UPSERT (lo que se escribe), y
+    el bridge lee la BD → la ve viva otra vez.
+  - **Fix:** el push ahora aplica los tombstones antes de subir (`isTombstoned` en syncMerge, el
+    mismo criterio del merge): descarta esas filas del upsert, las saca de los ids que van a
+    `syncDeletes` (si contaran como locales, el borrado no se propagaría) y las **limpia del
+    store local** para no arrastrar el fantasma hasta el próximo pull.
+  - Criterio: subtareas (sin `updatedAt` propio) → cualquier tombstone las mata, igual que en el
+    pull; tareas → solo si el borrado es POSTERIOR a la última edición local (si la editaste
+    después, la revivís a propósito).
+  - **Sin migración.**
+  - **Verificado:** `lib/supabase/tombstonePush.test.ts` 7/7 (incluye el caso real del bridge),
+    `promoteSubtask` 14/14 y `recurringSeries` 23/23 sin romperse. `tsc` + `next build` OK.
+  - **NO verificado:** el round-trip real contra Supabase (no hay backend en el modo sin auth).
+    Se confirma en uso: borrar por el bridge con la app abierta ya no debería rebotar.
+
 - [x] **Notificaciones: no llegaban porque el cron NO corre cada 5 minutos** (Claude directo, medido contra la API de GitHub):
   El `CRON_SECRET` ya estaba bien — todos los runs del workflow salen en **success**. El problema
   era otro: GitHub Actions **no cumple el `*/5 * * * *`**. Medido sobre los últimos 20 runs

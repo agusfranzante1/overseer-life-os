@@ -423,3 +423,21 @@ export function mergeTaskWithSubtasks<
   })
   return { ...scalarBase, subtasks }
 }
+
+/** ¿Esta fila está muerta por un tombstone? Mismo criterio que usa el merge
+ *  del pull, expuesto aparte para que el PUSH pueda aplicarlo antes de subir:
+ *  sin esto el upsert resucita en la nube lo que otro dispositivo (o el bridge
+ *  MCP) borró mientras este device no había pulleado todavía.
+ *
+ *  Sin `updatedAt` (las subtareas no tienen uno propio) cualquier tombstone la
+ *  mata. Con `updatedAt`, solo si el borrado es POSTERIOR a la última edición
+ *  — si la editaste después de que la borraran, tu edición la revive a
+ *  propósito. */
+export function isTombstoned(
+  tombstones: Map<string, number>,
+  id: string,
+  updatedAt?: string,
+): boolean {
+  const ts = tombstones.get(id)
+  return ts !== undefined && ts > toMs(updatedAt)
+}

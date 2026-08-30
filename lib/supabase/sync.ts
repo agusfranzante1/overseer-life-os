@@ -35,7 +35,7 @@ import {
   getBaseline, setBaseline,
 } from './syncTracking'
 import { mergePrefsByField, changedFields, stampFields, type FieldTimes } from './prefsMerge'
-import { mergeById, mergeTaskWithSubtasks, reconcileDeletes, mergeSpiSession, mergeProjectionPlan, mergeLabSession, mergeHabit, mergeContentProfile, toMs } from './syncMerge'
+import { mergeById, mergeTaskWithSubtasks, isTombstoned, reconcileDeletes, mergeSpiSession, mergeProjectionPlan, mergeLabSession, mergeHabit, mergeContentProfile, toMs } from './syncMerge'
 import { upsertTolerant } from './upsertTolerant'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
@@ -561,6 +561,51 @@ async function pushTasks() {
     }))
   )
 
+  // ── El push RESPETA los tombstones ──────────────────────────────────
+  // El upsert de abajo sube lo que este device tiene en el store, sin
+  // preguntar nada. Si mientras tanto ALGUIEN borró una fila (otro
+  // dispositivo, o Claude por el bridge MCP) y este device todavía no
+  // pulleó, el upsert la RESUCITA en la nube: la fila vuelve a existir y
+  // el borrado se deshace solo. Es lo que hacía que una subtarea borrada
+  // reapareciera sin que nadie la recreara.
+  //
+  // El pull ya descarta lo tombstoneado; acá cerramos el otro lado. Mismo
+  // criterio que `mergeById`: las subtareas no tienen `updatedAt` propio,
+  // así que cualquier tombstone las mata; las tareas sí, y solo se
+  // descartan si el borrado es POSTERIOR a la última edición local (si la
+  // editaste después, gana tu edición y la fila revive a propósito).
+  const pushTombs = await fetchTombstones(sb, state.userId!, ['tasks', 'subtasks'])
+  const tombTasksPush = pushTombs.get('tasks')!
+  const tombSubsPush = pushTombs.get('subtasks')!
+  const taskIsDead = (id: string, updatedAt?: string) => isTombstoned(tombTasksPush, id, updatedAt)
+  const subIsDead = (id: string) => isTombstoned(tombSubsPush, id)
+
+  const deadTaskIds = new Set(taskRows.filter((r) => taskIsDead(r.id, r.updated_at as string)).map((r) => r.id))
+  const deadSubIds = new Set(subtaskRows.filter((r) => subIsDead(r.id)).map((r) => r.id))
+  const taskRowsLive = taskRows.filter((r) => !deadTaskIds.has(r.id))
+  const subtaskRowsLive = subtaskRows.filter((r) => !deadSubIds.has(r.id) && !deadTaskIds.has(r.task_id))
+
+  // Y las sacamos también del STORE local: el tombstone dice que esa fila
+  // ya no existe, así que seguir mostrándola (y recontándola en cada push)
+  // es arrastrar un fantasma hasta el próximo pull.
+  if (deadTaskIds.size > 0 || deadSubIds.size > 0) {
+    console.warn(`[sync] tasks: ${deadTaskIds.size} tarea(s) y ${deadSubIds.size} subtarea(s) tenían tombstone → no se re-suben y se limpian del store`)
+    const st = useTasksStore.getState()
+    const cleanedTasks: typeof st.tasks = {}
+    for (const [id, t] of Object.entries(st.tasks)) {
+      if (deadTaskIds.has(id)) continue
+      cleanedTasks[id] = deadSubIds.size > 0
+        ? { ...t, subtasks: (t.subtasks ?? []).filter((sub) => !deadSubIds.has(sub.id)) }
+        : t
+    }
+    const cleanedProjects = Object.fromEntries(
+      Object.entries(st.projects).map(([pid, proj]) => [pid, {
+        ...proj, taskIds: (proj.taskIds ?? []).filter((tid) => !deadTaskIds.has(tid)),
+      }]),
+    )
+    useTasksStore.setState({ tasks: cleanedTasks, projects: cleanedProjects })
+  }
+
   // Dedup defensivo por id ANTES de cada upsert: si por algún bug dos filas
   // comparten id en el mismo batch (ej. la misma subtarea de contenido
   // `cs_<itemId>` quedó bajo dos tareas madre distintas en dos devices),
@@ -571,8 +616,8 @@ async function pushTasks() {
     return rows.filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)))
   }
   const projectRowsU = dedupById(projectRows)
-  const taskRowsU = dedupById(taskRows)
-  const subtaskRowsU = dedupById(subtaskRows)
+  const taskRowsU = dedupById(taskRowsLive)
+  const subtaskRowsU = dedupById(subtaskRowsLive)
 
   // Filtro de HUÉRFANOS para no violar las foreign keys (23503):
   //   - una tarea cuyo `project_id` no existe localmente (proyecto borrado en
@@ -609,8 +654,10 @@ async function pushTasks() {
   // Reconcile deletes — solo borra lo que el user quitó a propósito (estaba
   // en baseline y ya no está local). Nunca borra filas que otro device sumó.
   const projectIds = projectRows.map((r) => r.id)
-  const taskIds = taskRows.map((r) => r.id)
-  const subtaskIds = subtaskRows.map((r) => r.id)
+  // Sobre lo VIVO: si una fila tombstoneada siguiera contando como local,
+  // `syncDeletes` la vería presente y no propagaría su borrado.
+  const taskIds = taskRowsLive.map((r) => r.id)
+  const subtaskIds = subtaskRowsLive.map((r) => r.id)
 
   // Borra lo quitado a propósito (baseline ∩ ¬local), registra tombstones para
   // propagar el borrado a otros devices, y actualiza baseline = lo local.
