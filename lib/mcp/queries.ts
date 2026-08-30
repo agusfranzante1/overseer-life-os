@@ -36,7 +36,7 @@ export interface BridgeTask {
   completedAt?: string
   isRecurring?: boolean
   notes?: string
-  subtasks?: { total: number; done: number; pending: string[] }
+  subtasks?: { total: number; done: number; pending: { id: string; title: string }[] }
 }
 
 export interface AgendaEvent {
@@ -216,22 +216,32 @@ export async function getTasks(userId: string, f: TaskFilters = {}): Promise<Bri
 }
 
 async function getSubtaskSummary(userId: string, taskIds: string[]) {
-  const map = new Map<string, { total: number; done: number; pending: string[] }>()
+  const map = new Map<string, { total: number; done: number; pending: { id: string; title: string }[] }>()
   if (taskIds.length === 0) return map
   const sb = getSupabaseAdmin()
+  // El `id` NO es decorativo: `delete_subtasks` borra por id, y sin exponerlo
+  // acá esa herramienta es inusable (no hay otra forma de saber el id de una
+  // subtarea desde afuera).
   const { data } = await sb
     .from('subtasks')
-    .select('task_id, title, completed')
+    .select('id, task_id, title, completed, "order"')
     .eq('user_id', userId)
     .limit(5000)
 
-  for (const s of data ?? []) {
+  const wanted = new Set(taskIds)
+  const rows = (data ?? []).slice().sort(
+    (a, b) => Number((a as Record<string, unknown>).order ?? 0) - Number((b as Record<string, unknown>).order ?? 0),
+  )
+
+  for (const s of rows) {
     const key = s.task_id as string
-    if (!taskIds.includes(key)) continue
+    if (!wanted.has(key)) continue
     const entry = map.get(key) ?? { total: 0, done: 0, pending: [] }
     entry.total++
     if (s.completed) entry.done++
-    else if (entry.pending.length < 10) entry.pending.push((s.title as string) ?? '')
+    else if (entry.pending.length < 30) {
+      entry.pending.push({ id: s.id as string, title: (s.title as string) ?? '' })
+    }
     map.set(key, entry)
   }
   return map
@@ -240,7 +250,7 @@ async function getSubtaskSummary(userId: string, taskIds: string[]) {
 function toBridgeTask(
   r: Record<string, unknown>,
   projects: Map<string, { name: string }>,
-  subs: Map<string, { total: number; done: number; pending: string[] }>,
+  subs: Map<string, { total: number; done: number; pending: { id: string; title: string }[] }>,
 ): BridgeTask {
   const notes = typeof r.notes === 'string' ? r.notes : undefined
   const sub = subs.get(r.id as string)
