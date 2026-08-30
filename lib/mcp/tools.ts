@@ -12,6 +12,7 @@ import { saveDayPlan, scheduleTask, updatePlannerProfile } from './writes'
 import { createTask, setTaskRecurrence, addSubtasks } from './taskWrites'
 import { deleteSubtasks } from './deleteSubtasks'
 import { completeTasks, completeSubtasks } from './completeWrites'
+import { updateTask, updateSubtask } from './updateWrites'
 import { deleteCalendarEvent, createCalendarEvent } from './calendarWrites'
 import { getUserPrefs } from './queries'
 
@@ -131,6 +132,44 @@ export const TOOLS: ToolDef[] = [
         subtasks: { type: 'array', items: { type: 'string' }, description: 'Títulos, en orden.' },
       },
       required: ['taskId', 'subtasks'],
+    },
+  },
+  {
+    name: 'update_task',
+    description:
+      'Edita una tarea existente: title, description, notes, status, priority, importance, energyEstimate, category, tags, favorite. El `status` se valida contra los estados REALES del proyecto y falla listandolos si no existe. Si el estado cuenta como hecho, sincroniza completed_at (y se niega en recurrentes). NO mueve de proyecto ni archiva: eso tiene logica de dominio en el cliente.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: str('Id de la tarea.'),
+        title: str('Titulo nuevo.'),
+        description: str('Descripcion.'),
+        notes: str('Notas.'),
+        status: str('Estado. Tiene que existir en el proyecto (ej. "In Progress").'),
+        priority: str('low | medium | high | urgent.'),
+        importance: str('low | medium | high.'),
+        energyEstimate: num('1 a 5, o null.'),
+        category: str('Categoria.'),
+        tags: { type: 'array', items: { type: 'string' }, description: 'Reemplaza las etiquetas.' },
+        favorite: { type: 'boolean', description: 'Marcar/desmarcar ⭐.' },
+      },
+      required: ['taskId'],
+    },
+  },
+  {
+    name: 'update_subtask',
+    description:
+      'Edita una subtarea: title, notes, priority, favorite. No toca `parent_id` ni el orden — anidar y reordenar tiene logica de arbol (anti-ciclos, cascada) que vive en el cliente.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        subtaskId: str('Id de la subtarea (sale de get_tasks).'),
+        title: str('Titulo nuevo.'),
+        notes: str('Notas.'),
+        priority: str('low | medium | high | urgent.'),
+        favorite: { type: 'boolean', description: 'Marcar/desmarcar ⭐.' },
+      },
+      required: ['subtaskId'],
     },
   },
   {
@@ -345,6 +384,12 @@ export async function callTool(
 
     case 'add_subtasks':
       return addSubtasks(userId, { taskId: args.taskId as string, subtasks: args.subtasks })
+
+    case 'update_task':
+      return updateTask(userId, args)
+
+    case 'update_subtask':
+      return updateSubtask(userId, args)
 
     case 'complete_tasks':
       return completeTasks(userId, { taskIds: args.taskIds, done: args.done })
