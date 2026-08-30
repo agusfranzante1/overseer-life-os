@@ -449,6 +449,119 @@ export async function getCalendarEvents(
 }
 
 // ---------------------------------------------------------------------------
+// Billetera / capital
+// ---------------------------------------------------------------------------
+
+export interface WalletInfo {
+  /** Saldo por billetera y divisa, CALCULADO desde las transacciones.
+   *  No hay columna de saldo: la verdad es la suma del historial. */
+  balances: { wallet: string; currency: string; balance: number; movimientos: number }[]
+  totalPorDivisa: Record<string, number>
+  /** Ingresos / egresos de los últimos N meses, por divisa. */
+  porMes: { mes: string; currency: string; ingresos: number; egresos: number; neto: number }[]
+  /** Cuentas de fondeo (prop firms). Es lo que se necesita para dividir el
+   *  capital y saber cuántas comprar. */
+  cuentasFondeo: {
+    alias: string; firma?: string; tamanio: number; costo: number
+    estado: string; inicio: string; cerrada?: string
+    riesgoPorTradePct?: number; perdidaDiariaMaxPct?: number; payoutObjetivo?: number
+  }[]
+  distribucion: { label: string; percentage: number }[]
+}
+
+export async function getWallet(userId: string, meses = 3): Promise<WalletInfo> {
+  const sb = getSupabaseAdmin()
+  const [wal, tx, accts, firms, dist] = await Promise.all([
+    sb.from('wallets').select('id, name').eq('user_id', userId),
+    sb.from('wallet_transactions').select('*').eq('user_id', userId).order('date', { ascending: false }).limit(5000),
+    sb.from('trading_accounts').select('*').eq('user_id', userId),
+    sb.from('trading_firms').select('id, name').eq('user_id', userId),
+    sb.from('wallet_distribution').select('label, percentage').eq('user_id', userId),
+  ])
+
+  const nombre = new Map((wal.data ?? []).map((w) => [w.id as string, (w.name as string) ?? '?']))
+  const firma = new Map((firms.data ?? []).map((f) => [f.id as string, (f.name as string) ?? '?']))
+
+  // Saldos: income suma, expense resta, transfer resta del origen y suma al destino.
+  const saldo = new Map<string, { balance: number; n: number }>()
+  const bump = (w: string, c: string, delta: number) => {
+    const k = `${w}||${c}`
+    const cur = saldo.get(k) ?? { balance: 0, n: 0 }
+    cur.balance += delta; cur.n += 1
+    saldo.set(k, cur)
+  }
+
+  const mensual = new Map<string, { ingresos: number; egresos: number }>()
+  const desde = new Date()
+  desde.setMonth(desde.getMonth() - meses)
+  const desdeKey = desde.toISOString().slice(0, 7)
+
+  for (const t of tx.data ?? []) {
+    const type = t.type as string
+    const amount = Number(t.amount) || 0
+    const cur = t.currency_code as string
+    const wid = t.wallet_id as string
+
+    if (type === 'income') bump(wid, cur, amount)
+    else if (type === 'expense') bump(wid, cur, -amount)
+    else if (type === 'transfer') {
+      bump(wid, cur, -amount)
+      const toW = (t.to_wallet_id as string) || wid
+      const toC = (t.to_currency_code as string) || cur
+      bump(toW, toC, Number(t.to_amount ?? amount) || 0)
+    }
+
+    const mes = String(t.date ?? '').slice(0, 7)
+    // Las transferencias NO son ingreso ni egreso: mueven plata de un bolsillo
+    // a otro. Contarlas infla los dos lados y el neto miente.
+    if (mes >= desdeKey && type !== 'transfer') {
+      const k = `${mes}||${cur}`
+      const m = mensual.get(k) ?? { ingresos: 0, egresos: 0 }
+      if (type === 'income') m.ingresos += amount
+      else m.egresos += amount
+      mensual.set(k, m)
+    }
+  }
+
+  const balances = [...saldo.entries()].map(([k, v]) => {
+    const [w, c] = k.split('||')
+    return { wallet: nombre.get(w) ?? w, currency: c, balance: Math.round(v.balance * 100) / 100, movimientos: v.n }
+  }).sort((a, b) => b.balance - a.balance)
+
+  const totalPorDivisa: Record<string, number> = {}
+  for (const b of balances) totalPorDivisa[b.currency] = Math.round(((totalPorDivisa[b.currency] ?? 0) + b.balance) * 100) / 100
+
+  return {
+    balances,
+    totalPorDivisa,
+    porMes: [...mensual.entries()].map(([k, v]) => {
+      const [mes, currency] = k.split('||')
+      return {
+        mes, currency,
+        ingresos: Math.round(v.ingresos * 100) / 100,
+        egresos: Math.round(v.egresos * 100) / 100,
+        neto: Math.round((v.ingresos - v.egresos) * 100) / 100,
+      }
+    }).sort((a, b) => (a.mes < b.mes ? 1 : -1)),
+    cuentasFondeo: (accts.data ?? []).map((a) => ({
+      alias: (a.alias as string) ?? '?',
+      firma: firma.get(a.firm_id as string),
+      tamanio: Number(a.account_size) || 0,
+      costo: Number(a.evaluation_cost) || 0,
+      estado: (a.status as string) ?? '?',
+      inicio: a.start_date as string,
+      ...(a.closed_date ? { cerrada: a.closed_date as string } : {}),
+      ...(a.max_risk_per_trade_pct != null ? { riesgoPorTradePct: Number(a.max_risk_per_trade_pct) } : {}),
+      ...(a.max_daily_loss_pct != null ? { perdidaDiariaMaxPct: Number(a.max_daily_loss_pct) } : {}),
+      ...(a.target_payout_amount != null ? { payoutObjetivo: Number(a.target_payout_amount) } : {}),
+    })),
+    distribucion: (dist.data ?? []).map((d) => ({
+      label: (d.label as string) ?? '', percentage: Number(d.percentage) || 0,
+    })),
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Gym / entrenamiento
 // ---------------------------------------------------------------------------
 

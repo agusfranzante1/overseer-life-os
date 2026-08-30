@@ -6,7 +6,7 @@
  */
 
 import {
-  getAgenda, getTasks, getPlannerProfile, getPlanHistory, getProjects, getRecurringSeries, getGym,
+  getAgenda, getTasks, getPlannerProfile, getPlanHistory, getProjects, getRecurringSeries, getGym, getWallet,
 } from './queries'
 import { saveDayPlan, scheduleTask, updatePlannerProfile } from './writes'
 import { createTask, setTaskRecurrence, addSubtasks } from './taskWrites'
@@ -150,6 +150,15 @@ export const TOOLS: ToolDef[] = [
         },
       },
       required: ['taskId'],
+    },
+  },
+  {
+    name: 'get_wallet',
+    description:
+      'La billetera y el capital: saldo por billetera y divisa (calculado desde las transacciones, no hay columna de saldo), total por divisa, ingresos/egresos de los ultimos meses, las CUENTAS DE FONDEO (prop firms) con su tamaño, costo, estado y limites de riesgo, y la distribucion configurada. Usalo para responder cuanto capital hay, donde esta, y como viene el mes.',
+    inputSchema: {
+      type: 'object',
+      properties: { meses: num('Cuantos meses hacia atras en el resumen mensual. Default 3.') },
     },
   },
   {
@@ -303,6 +312,9 @@ export async function callTool(
         // se trata igual: no hay otra cosa razonable que hacer sin regla.
         recurrence: args.recurrence,
       })
+
+    case 'get_wallet':
+      return { wallet: await getWallet(userId, typeof args.meses === 'number' ? args.meses : 3) }
 
     case 'get_gym':
       return { gym: await getGym(userId) }
