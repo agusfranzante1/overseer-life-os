@@ -11,6 +11,7 @@ import {
 import { saveDayPlan, scheduleTask, updatePlannerProfile } from './writes'
 import { createTask, setTaskRecurrence, addSubtasks } from './taskWrites'
 import { deleteSubtasks } from './deleteSubtasks'
+import { completeTasks, completeSubtasks } from './completeWrites'
 import { deleteCalendarEvent, createCalendarEvent } from './calendarWrites'
 import { getUserPrefs } from './queries'
 
@@ -130,6 +131,32 @@ export const TOOLS: ToolDef[] = [
         subtasks: { type: 'array', items: { type: 'string' }, description: 'Títulos, en orden.' },
       },
       required: ['taskId', 'subtasks'],
+    },
+  },
+  {
+    name: 'complete_tasks',
+    description:
+      'Marca tareas como hechas (o las des-marca con done:false, como el segundo click en la app). Setea completed_at Y el status a uno que cuente como hecho, igual que el cliente. SE NIEGA con tareas recurrentes: al completarlas el cliente genera la instancia siguiente con ids deterministas, y eso no se puede hacer desde el server.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskIds: { type: 'array', items: { type: 'string' }, description: 'Ids de las tareas.' },
+        done: { type: 'boolean', description: 'true = hecha (default). false = des-completar.' },
+      },
+      required: ['taskIds'],
+    },
+  },
+  {
+    name: 'complete_subtasks',
+    description:
+      'Marca subtareas como hechas (o las des-marca con done:false). Los ids salen de get_tasks. Bumpea updated_at de la tarea madre para que el tilde no se pierda al sincronizar. SE NIEGA con subtareas recurrentes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        subtaskIds: { type: 'array', items: { type: 'string' }, description: 'Ids de las subtareas.' },
+        done: { type: 'boolean', description: 'true = hecha (default). false = des-completar.' },
+      },
+      required: ['subtaskIds'],
     },
   },
   {
@@ -318,6 +345,12 @@ export async function callTool(
 
     case 'add_subtasks':
       return addSubtasks(userId, { taskId: args.taskId as string, subtasks: args.subtasks })
+
+    case 'complete_tasks':
+      return completeTasks(userId, { taskIds: args.taskIds, done: args.done })
+
+    case 'complete_subtasks':
+      return completeSubtasks(userId, { subtaskIds: args.subtaskIds, done: args.done })
 
     case 'delete_subtasks':
       return deleteSubtasks(userId, { subtaskIds: args.subtaskIds, taskId: args.taskId as string | undefined })
