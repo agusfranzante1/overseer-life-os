@@ -423,7 +423,12 @@ export async function getCalendarEvents(
 
     const calendar = google.calendar({ version: 'v3', auth })
     const list = await calendar.calendarList.list({ maxResults: 250 })
-    const calendars = (list.data.items ?? []).filter((c) => !c.hidden && c.id)
+    // `hidden` = sacado de la lista. `selected:false` = destildado en la barra
+    // lateral. Los dos significan "no lo quiero ver", y el bridge tiene que ver
+    // LO MISMO que ve el usuario: si él destilda un calendario compartido y acá
+    // se sigue leyendo, sus eventos siguen comiéndole huecos libres en los
+    // cálculos aunque en su pantalla ya no estén.
+    const calendars = (list.data.items ?? []).filter((c) => !c.hidden && c.selected !== false && c.id)
 
     const events: AgendaEvent[] = []
     for (const cal of calendars) {
