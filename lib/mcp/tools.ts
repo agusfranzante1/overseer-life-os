@@ -11,6 +11,7 @@ import {
 import { saveDayPlan, scheduleTask, updatePlannerProfile } from './writes'
 import { createTask, setTaskRecurrence, addSubtasks } from './taskWrites'
 import { deleteSubtasks } from './deleteSubtasks'
+import { getSpi, getKpis, getHistory } from './spiQueries'
 import { completeTasks, completeSubtasks } from './completeWrites'
 import { updateTask, updateSubtask } from './updateWrites'
 import { deleteCalendarEvent, createCalendarEvent } from './calendarWrites'
@@ -233,6 +234,34 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'get_spi',
+    description:
+      'El SPI del usuario: sus sesiones semanales con los objetivos y proyectos que eligio para cada semana (payload completo tal cual lo guarda la app), y la bitacora de lo que funciona / lo que esta roto. LEER ESTO ANTES de proponer objetivos: ya tiene un sistema de objetivos y armar otro al lado seria duplicarlo.',
+    inputSchema: {
+      type: 'object',
+      properties: { semanas: num('Cuantas semanas hacia atras. Default 8.') },
+    },
+  },
+  {
+    name: 'get_kpis',
+    description:
+      'Los KPIs configurados por el usuario, con su payload completo. Van de la mano del SPI.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_history',
+    description:
+      'Lo COMPLETADO entre dos fechas, por dia, con totales y conteo por proyecto. Incluye las tareas ARCHIVADAS: la app las saca de la vista al dia siguiente de completarlas, pero la fila sigue en la base — ese es el registro de avance que desde adentro de la app no se ve. Sirve para comparar semana contra semana. OJO: el boton "borrar historial" de la app SI borra estas filas.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: str('Desde, YYYY-MM-DD.'),
+        to: str('Hasta, YYYY-MM-DD.'),
+      },
+      required: ['from', 'to'],
+    },
+  },
+  {
     name: 'get_wallet',
     description:
       'La billetera y el capital: saldo por billetera y divisa (calculado desde las transacciones, no hay columna de saldo), total por divisa, ingresos/egresos de los ultimos meses, las CUENTAS DE FONDEO (prop firms) con su tamaño, costo, estado y limites de riesgo, y la distribucion configurada. Usalo para responder cuanto capital hay, donde esta, y como viene el mes.',
@@ -407,6 +436,15 @@ export async function callTool(
         // se trata igual: no hay otra cosa razonable que hacer sin regla.
         recurrence: args.recurrence,
       })
+
+    case 'get_spi':
+      return { spi: await getSpi(userId, typeof args.semanas === 'number' ? args.semanas : 8) }
+
+    case 'get_kpis':
+      return { kpis: await getKpis(userId) }
+
+    case 'get_history':
+      return getHistory(userId, String(args.from ?? ''), String(args.to ?? ''))
 
     case 'get_wallet':
       return { wallet: await getWallet(userId, typeof args.meses === 'number' ? args.meses : 3) }
