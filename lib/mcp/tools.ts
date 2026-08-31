@@ -16,6 +16,8 @@ import { completeTasks, completeSubtasks } from './completeWrites'
 import { updateTask, updateSubtask } from './updateWrites'
 import { deleteCalendarEvent, createCalendarEvent } from './calendarWrites'
 import { getUserPrefs } from './queries'
+import { ensureSpiWeek, updateSpiWeek, setSpiTasks, upsertKpi, setKpiValue } from './spiWrites'
+import { getHabits, upsertHabit, markHabit, deleteHabit } from './habitWrites'
 
 export interface ToolDef {
   name: string
@@ -369,6 +371,138 @@ export const TOOLS: ToolDef[] = [
       required: ['patch'],
     },
   },
+  // ─── SPI: la ritual semanal ─────────────────────────────────────────────
+  {
+    name: 'ensure_spi_week',
+    description:
+      'Abre (o crea si no existe) la sesión de SPI de una semana. OJO: la semana del SPI arranca el SÁBADO — una sesión anclada al sábado X planifica lunes X+2 a domingo X+8. Sin `weekStartDate` usa la semana en curso. Es idempotente: si ya existe la reusa, no duplica el ritual. Llamala antes que cualquier otro write de SPI.',
+    inputSchema: {
+      type: 'object',
+      properties: { weekStartDate: str('Sábado ancla, YYYY-MM-DD. Omitilo para la semana en curso.') },
+    },
+  },
+  {
+    name: 'update_spi_week',
+    description:
+      'Carga la sesión semanal del SPI: carriles (`lanes`), KPIs encendidos (`kpiIds`), respuestas del formulario (`values`) y el checklist principal. Por default SUMA (no pisa lo que el usuario cargó desde la app); mandá `replaceLanes`/`replaceKpis` en true para reemplazar. Un `kpiIds` con un id que no existe en la biblioteca FALLA en vez de guardar algo que no se rendearía.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        weekStartDate: str('Sábado ancla. Omitilo para la semana en curso.'),
+        lanes: { type: 'array', items: { type: 'string' }, description: 'Carriles a activar (ej. estrategico, tactico, reflexivo, profundo).' },
+        replaceLanes: { type: 'boolean', description: 'true = reemplazar la lista en vez de sumar.' },
+        kpiIds: { type: 'array', items: { type: 'string' }, description: 'KPIs a encender esta semana. Salen de get_kpis / upsert_kpi.' },
+        replaceKpis: { type: 'boolean', description: 'true = reemplazar en vez de sumar.' },
+        values: { type: 'object', description: 'Respuestas: {seccion: {campo: "texto"}}. Se mergea por campo.' },
+        mainChecklist: { type: 'object', description: '{clave: true|false} del checklist principal.' },
+        notes: str('Notas de cierre / reflexión.'),
+      },
+    },
+  },
+  {
+    name: 'set_spi_tasks',
+    description:
+      'Agrega, edita o quita las tareas de la sesión semanal del SPI. `important` es la marca ⭐ Pareto (el 20% que mueve el 80%) y `priority` es ⚡ prioridad del día (aparece en el Panel y bloquea la vista diaria hasta completarla). No duplica por título. Al CERRAR la semana desde la app, estas tareas se empujan solas al task manager en el proyecto SPI.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        weekStartDate: str('Sábado ancla. Omitilo para la semana en curso.'),
+        add: { type: 'array', description: 'Tareas nuevas: strings sueltos o {title, important, priority, dueDate, whyPurpose}.' },
+        update: { type: 'array', description: '[{taskId, ...campos a cambiar}]. El taskId es el de la tarea DENTRO del SPI.' },
+        remove: { type: 'array', items: { type: 'string' }, description: 'Ids de tareas del SPI a quitar de la semana.' },
+      },
+    },
+  },
+  {
+    name: 'upsert_kpi',
+    description:
+      'Crea o edita una definición de KPI (la biblioteca de /kpis). Un KPI es un CONTEO SEMANAL contra un target (3 entrenos de 5), distinto de un hábito, que es binario diario. Definir no es encender: para que aparezca en una semana hay que prenderlo con update_spi_week. Un KPI nuevo se ancla a la semana en curso y NO aparece retroactivamente en semanas viejas.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kpiId: str('Id existente para editar. Omitilo para crear uno nuevo.'),
+        name: str('Nombre, ej. "Entrenos".'),
+        icon: str('Emoji.'),
+        color: str('Hex, ej. #f59e0b.'),
+        kind: str('count | percent | boolean. Default count.'),
+        target: num('Techo semanal. En percent es 0-100; en boolean se ignora.'),
+        group: str('Grupo visual del scoreboard, ej. trading.'),
+        areaKey: str('Área de la rueda a la que pertenece.'),
+        cumulativeTarget: num('Meta ACUMULADA de largo plazo (solo kind=count). El target semanal pasa a ser el ritmo.'),
+        cumulativeStartDate: str('YYYY-MM-DD desde cuándo suma el acumulado.'),
+        cumulativeDeadline: str('YYYY-MM-DD tope para la meta acumulada.'),
+        archived: { type: 'boolean', description: 'true archiva el KPI (deja de ofrecerse, el histórico se conserva); false lo desarchiva.' },
+      },
+    },
+  },
+  {
+    name: 'set_kpi_value',
+    description:
+      'Carga el número de un KPI para una semana. Falla si el KPI no está encendido en esa sesión, porque el valor no se vería.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        weekStartDate: str('Sábado ancla. Omitilo para la semana en curso.'),
+        kpiId: str('Id del KPI.'),
+        value: str('Valor. Siempre string, se parsea según el kind.'),
+      },
+      required: ['kpiId', 'value'],
+    },
+  },
+  // ─── Hábitos ────────────────────────────────────────────────────────────
+  {
+    name: 'get_habits',
+    description:
+      'Los hábitos del usuario con su id, los días en que aplican, el estado de HOY, la racha y las marcas de los últimos N días. Leelo antes de marcar o borrar: es de donde salen los ids.',
+    inputSchema: {
+      type: 'object',
+      properties: { dias: num('Ventana hacia atrás, 1-90. Default 14.') },
+    },
+  },
+  {
+    name: 'upsert_habit',
+    description:
+      'Crea o edita un hábito. `targetDays` son los días en que aplica (0=domingo … 6=sábado); `[]` = todos los días. Editar NUNCA toca el historial de marcas.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        habitId: str('Id existente para editar. Omitilo para crear.'),
+        name: str('Nombre del hábito.'),
+        icon: str('Emoji.'),
+        color: str('Hex.'),
+        category: str('Categoría, ej. Fitness.'),
+        targetDays: { type: 'array', items: { type: 'number' }, description: '0=domingo … 6=sábado. [] = todos los días.' },
+        reminderTime: str('HH:MM 24h para el recordatorio push, o null para sacarlo.'),
+      },
+    },
+  },
+  {
+    name: 'mark_habit',
+    description:
+      'Marca días de un hábito. `estado` es OBLIGATORIO y no tiene default: "hecho", "salteado" (N/A, no cuenta ni a favor ni en contra) o "limpio". Marcar siempre gana entre dispositivos; DESMARCAR puede rebotar, porque el merge une las marcas — se avisa en la respuesta.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        habitId: str('Id del hábito, de get_habits.'),
+        estado: str('hecho | salteado | limpio.'),
+        fechas: { type: 'array', items: { type: 'string' }, description: 'YYYY-MM-DD. Omitilo para hoy.' },
+      },
+      required: ['habitId', 'estado'],
+    },
+  },
+  {
+    name: 'delete_habit',
+    description:
+      'Borra un hábito Y todo su historial de marcas. No hay papelera para hábitos: exige `confirmarNombre` con el nombre exacto. Escribe el tombstone antes de borrar para que no resucite desde otro dispositivo.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        habitId: str('Id del hábito.'),
+        confirmarNombre: str('El nombre exacto del hábito, como confirmación.'),
+      },
+      required: ['habitId', 'confirmarNombre'],
+    },
+  }
 ]
 
 type Args = Record<string, unknown>
@@ -472,6 +606,33 @@ export async function callTool(
 
     case 'update_planner_profile':
       return updatePlannerProfile(userId, args.patch as Record<string, never>)
+
+    case 'ensure_spi_week':
+      return ensureSpiWeek(userId, args)
+
+    case 'update_spi_week':
+      return updateSpiWeek(userId, args)
+
+    case 'set_spi_tasks':
+      return setSpiTasks(userId, args)
+
+    case 'upsert_kpi':
+      return upsertKpi(userId, args)
+
+    case 'set_kpi_value':
+      return setKpiValue(userId, args)
+
+    case 'get_habits':
+      return getHabits(userId, args)
+
+    case 'upsert_habit':
+      return upsertHabit(userId, args)
+
+    case 'mark_habit':
+      return markHabit(userId, args)
+
+    case 'delete_habit':
+      return deleteHabit(userId, args)
 
     default:
       return { ok: false, error: 'unknown_tool', detail: `No existe la herramienta "${name}".` }
