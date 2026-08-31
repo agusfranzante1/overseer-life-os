@@ -47,6 +47,27 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Calendario: los eventos solapados ya no se tapan** (Claude directo, verificado corriendo la app):
+  Reporte: dos eventos de Google Calendar a la misma hora se superponían y no se veía nada.
+  Causa: cada bloque se dibujaba con `absolute left-1 right-1` — ancho COMPLETO de la columna
+  del día — así que el último dibujado tapaba a los de abajo.
+  - **`lib/calendar/overlapLayout.ts`** (puro, con test): agrupa los bloques que se pisan en
+    clusters, asigna a cada uno la primera columna libre y reparte el ancho (1/columnas). Trabaja
+    sobre la geometría YA calculada (top/height en px), no sobre horas, porque la vista clipea
+    los eventos que caen en horas ocultas y esa es la posición real.
+  - Reusar la columna libre importa: con A(9-10), B(9:30-10:30) y C(10:15-11), A y C no se tocan
+    → comparten columna y el cluster usa 2 anchos, no 3.
+  - Los eventos que no comparten franja con nadie **siguen a ancho completo** (no se achica todo
+    el calendario por un solape suelto).
+  - Mientras se ARRASTRA un bloque vuelve a ancho completo: se lee mejor y, sobre todo, el
+    `translateX(dayShift * 100%)` del drag horizontal vuelve a valer un día exacto (con un bloque
+    al 50% habría movido medio día).
+  - **Sin migración.**
+  - **Verificado:** `lib/calendar/overlapLayout.test.ts` 21/21. En la app, con 3 tareas a las
+    14:00/14:30 y una suelta a las 17:00, medido en el DOM: las tres solapadas quedan en
+    left 357 / 389 / 422 con 28px cada una, y la suelta conserva los 89px de la columna.
+    `tsc` + `next build` OK.
+
 - [x] **El push resucitaba lo borrado desde el bridge (subtareas que "vuelven solas")** (Claude directo):
   Reporte desde el otro chat: Claude borró por MCP la subtarea "Comprar las cuentas de fondeo"
   (borrado OK, con tombstone) y volvió a aparecer.

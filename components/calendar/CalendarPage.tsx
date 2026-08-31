@@ -9,6 +9,7 @@ import { expandRecurrenceInRange } from '@/lib/utils/taskRecurrence'
 import { effectivePriority } from '@/lib/utils/taskPriority'
 import { PRIORITY_COLORS } from '@/lib/utils/constants'
 import { useGoogleCalendarStore, resolveEventColor, contrastText, type GEvent, type GCalendar } from '@/lib/store/googleCalendarStore'
+import { computeOverlapLayout } from '@/lib/calendar/overlapLayout'
 import { snapDeltaMinutes, toLocalISO } from '@/lib/calendar/timeMath'
 import { PriorityGate } from '@/components/common/PriorityGate'
 import { usePriorityGate } from '@/lib/dashboard/priorityGate'
@@ -2040,11 +2041,23 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                   </div>
                 )}
 
-                {/* Events — GCal-style + drag-to-reschedule support. */}
-                {dayEvents.map((ev) => {
-                  const layout = eventLayout(ev, dayStart, dayEnd)
-                  if (!layout) return null
+                {/* Events — GCal-style + drag-to-reschedule support.
+                    Antes de dibujar calculamos qué bloques se pisan entre sí:
+                    los que comparten franja se reparten el ancho de la columna
+                    en vez de superponerse (si no, el último dibujado tapaba a
+                    los de abajo y no se veía nada). Ver overlapLayout.ts. */}
+                {(() => {
+                  const positioned = dayEvents
+                    .map((ev) => ({ ev, layout: eventLayout(ev, dayStart, dayEnd) }))
+                    .filter((x): x is { ev: typeof x.ev; layout: { top: number; height: number } } => x.layout !== null)
+                  const overlap = computeOverlapLayout(
+                    positioned.map(({ ev, layout }) => ({ id: ev.id, top: layout.top, height: layout.height })),
+                  )
+                  return positioned.map(({ ev, layout }) => {
                   const { top, height } = layout
+                  // Posición horizontal: si no comparte franja con nadie, va a
+                  // ancho completo como siempre.
+                  const slot = overlap.get(ev.id)
                   const cal = calendarById.get(ev.calendarId)
                   // Para eventos sintéticos de task usamos el color del
                   // proyecto. Los GCal events normales usan resolveEventColor.
@@ -2190,8 +2203,8 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                           onEventClick(ev)
                         }
                       }}
-                      className={`absolute left-1 right-1 rounded-xl px-2 py-1.5 text-left overflow-hidden transition-all z-10 cursor-grab active:cursor-grabbing ${
-                        isBeingDragged ? 'opacity-90 shadow-2xl scale-[1.02] z-30' : 'hover:brightness-110'
+                      className={`absolute rounded-xl px-2 py-1.5 text-left overflow-hidden transition-all cursor-grab active:cursor-grabbing ${
+                        isBeingDragged ? 'opacity-90 shadow-2xl scale-[1.02] z-30' : 'hover:brightness-110 hover:z-20 z-10'
                       }`}
                       style={(() => {
                         // Para tasks: FONDO = color de la PRIORIDAD (urgent
@@ -2202,7 +2215,20 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                         // no hay priority color.
                         const projectColor = ev.projectColor ?? '#6366f1'
                         const priorityColor = ev.taskPriorityColor ?? projectColor
+                        // Reparto horizontal cuando el bloque comparte franja
+                        // con otros. Mientras se ARRASTRA vuelve a ancho
+                        // completo: así se lee bien lo que estás moviendo y,
+                        // sobre todo, el `translateX(dayShift * 100%)` de abajo
+                        // sigue valiendo un día justo (con un bloque al 50% te
+                        // movería medio día).
+                        const spread = slot && !isBeingDragged
+                          ? {
+                              left: `calc(${slot.leftPct}% + 2px)`,
+                              width: `calc(${slot.widthPct}% - 4px)`,
+                            }
+                          : { left: 4, right: 4 }
                         return {
+                          ...spread,
                           top: visualTop, height: visualHeight,
                           transform: isBeingDragged && dragState.mode === 'move' && dragState.dayShift !== 0
                             ? `translateX(calc(${dragState.dayShift} * 100%))`
@@ -2309,7 +2335,8 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                       />
                     </div>
                   )
-                })}
+                  })
+                })()}
               </div>
             )
           })}
