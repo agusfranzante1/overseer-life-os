@@ -18,6 +18,8 @@ import { deleteCalendarEvent, createCalendarEvent } from './calendarWrites'
 import { getUserPrefs } from './queries'
 import { ensureSpiWeek, updateSpiWeek, setSpiTasks, upsertKpi, setKpiValue } from './spiWrites'
 import { getHabits, upsertHabit, markHabit, deleteHabit } from './habitWrites'
+import { getProgress } from './progress'
+import { getProjection, updateProjection } from './projectionWrites'
 
 export interface ToolDef {
   name: string
@@ -502,6 +504,48 @@ export const TOOLS: ToolDef[] = [
       },
       required: ['habitId', 'confirmarNombre'],
     },
+  },
+  // ─── Medición ───────────────────────────────────────────────────────────
+  {
+    name: 'get_progress',
+    description:
+      'EL TABLERO DE AVANCE, ya calculado. Devuelve, para un rango: qué se completó cada día (incluidos los días en CERO, que es lo que hay que mirar), el reparto por proyecto con su share, el cumplimiento de cada hábito con su racha, los KPIs de la semana contra su target, y los objetivos escritos en el SPI. Usalo para el cierre del domingo en vez de re-derivar todo desde get_history. Sin rango usa la semana que planifica la sesión de SPI en curso. NO calcula si los objetivos se cumplieron: eso es una lectura, no una cuenta.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: str('Primer día YYYY-MM-DD. Omitilo para la semana en curso.'),
+        to: str('Último día YYYY-MM-DD.'),
+        weekStartDate: str('Sábado ancla del SPI a mirar. Omitilo para el de la semana en curso.'),
+      },
+    },
+  },
+  {
+    name: 'get_projection',
+    description:
+      'Los planes ESTRATÉGICOS por encima de la semana: año, semestre, trimestre y mes, con las metas que el usuario escribió en cada uno. Acá viven las metas MENSUALES de las que cuelgan los KPIs. Sin argumentos devuelve los últimos planes y marca cuáles son los del período en curso. Ojo: el score cascadea solo — el mes promedia los scores de las semanas de SPI cerradas, el trimestre los meses. Sin cerrar las semanas, la cadena queda vacía.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        level: str('year | semester | quarter | month. Omitilo para traer todos.'),
+        periodKey: str('Clave del período: "2026", "2026-H1", "2026-Q3", "2026-09".'),
+      },
+    },
+  },
+  {
+    name: 'update_projection',
+    description:
+      'Escribe las metas de un plan estratégico (año/semestre/trimestre/mes). Mergea campo por campo, no pisa. Es donde va el objetivo mensual de retiros, de campañas, etc., para que los KPIs semanales cuelguen de algo. Rechaza un plan ya cerrado y valida el formato de la clave: una clave mal formada crea un plan que la app no encuentra nunca.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        level: str('year | semester | quarter | month.'),
+        periodKey: str('Clave del período. Omitila para el período en curso de ese nivel.'),
+        values: { type: 'object', description: 'Metas: {seccion: {campo: "texto"}}.' },
+        notes: str('Notas del plan.'),
+        lanes: { type: 'array', items: { type: 'string' }, description: 'Carriles a activar.' },
+      },
+      required: ['level'],
+    },
   }
 ]
 
@@ -633,6 +677,15 @@ export async function callTool(
 
     case 'delete_habit':
       return deleteHabit(userId, args)
+
+    case 'get_progress':
+      return getProgress(userId, args)
+
+    case 'get_projection':
+      return getProjection(userId, args)
+
+    case 'update_projection':
+      return updateProjection(userId, args)
 
     default:
       return { ok: false, error: 'unknown_tool', detail: `No existe la herramienta "${name}".` }
