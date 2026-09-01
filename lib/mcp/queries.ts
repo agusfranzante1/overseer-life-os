@@ -408,6 +408,12 @@ export interface CalendarResult {
   connected: boolean
   events: AgendaEvent[]
   error?: string
+  /** De qué calendarios se leyeron eventos. */
+  calendariosLeidos?: string[]
+  /** Los que se saltearon por estar destildados u ocultos en Google. Se
+   *  devuelven para poder verificar por qué un evento aparece o no, en vez de
+   *  tener que deducirlo. */
+  calendariosIgnorados?: string[]
 }
 
 export async function getCalendarEvents(
@@ -423,12 +429,25 @@ export async function getCalendarEvents(
 
     const calendar = google.calendar({ version: 'v3', auth })
     const list = await calendar.calendarList.list({ maxResults: 250 })
-    // `hidden` = sacado de la lista. `selected:false` = destildado en la barra
-    // lateral. Los dos significan "no lo quiero ver", y el bridge tiene que ver
-    // LO MISMO que ve el usuario: si él destilda un calendario compartido y acá
-    // se sigue leyendo, sus eventos siguen comiéndole huecos libres en los
-    // cálculos aunque en su pantalla ya no estén.
-    const calendars = (list.data.items ?? []).filter((c) => !c.hidden && c.selected !== false && c.id)
+    // El bridge tiene que ver LO MISMO que ve el usuario: si él destilda un
+    // calendario compartido y acá se sigue leyendo, sus eventos le siguen
+    // comiendo huecos libres aunque en su pantalla ya no estén.
+    //
+    // ⚠️ OJO CON `selected`: la API lo documenta como *"Optional. The default is
+    // False"*, o sea que cuando un calendario NO está tildado Google **omite el
+    // campo** en vez de mandar `false`. El chequeo original era
+    // `c.selected !== false`, y `undefined !== false` da true → los destildados
+    // pasaban igual. Pasó de verdad: el usuario destildó "MTMA: 2026." y sus
+    // eventos siguieron apareciendo acá y pisándole los bloques.
+    //
+    // Por eso ahora se exige `selected === true`. El primario se deja SIEMPRE:
+    // es el calendario propio y perderlo por un flag ausente sería mucho peor
+    // que leer uno de más.
+    const todos = (list.data.items ?? []).filter((c) => c.id)
+    const calendars = todos.filter((c) => !c.hidden && (c.selected === true || c.primary === true))
+    const ignorados = todos
+      .filter((c) => !calendars.includes(c))
+      .map((c) => c.summary ?? c.id!)
 
     const events: AgendaEvent[] = []
     for (const cal of calendars) {
@@ -454,7 +473,14 @@ export async function getCalendarEvents(
       }
     }
     events.sort((a, b) => (a.start < b.start ? -1 : 1))
-    return { connected: true, events }
+    // Se devuelve DE DÓNDE se leyó y qué se salteó: si mañana vuelve a
+    // aparecer un evento de un calendario apagado, se ve acá en vez de
+    // adivinarlo.
+    return {
+      connected: true, events,
+      calendariosLeidos: calendars.map((c) => c.summary ?? c.id!),
+      calendariosIgnorados: ignorados,
+    }
   } catch (err) {
     // BASE nº6: si el calendario falla, se DICE. No se devuelve "sin eventos"
     // como si el día estuviera libre — eso haría que Claude agende encima de
@@ -798,7 +824,14 @@ export async function getAgenda(userId: string, origin: string, from: string, to
   return {
     timezone: prefs.timezone,
     workingHours: working,
-    calendar: { connected: cal.connected, error: cal.error },
+    calendar: {
+      connected: cal.connected, error: cal.error,
+      // De dónde salieron los eventos, y qué se salteó por estar destildado en
+      // Google. Sin esto, "por qué sigo viendo este evento" no se puede
+      // contestar sin leer el código.
+      leidos: cal.calendariosLeidos,
+      ignorados: cal.calendariosIgnorados,
+    },
     // Si la zona no resolvió, TODAS las horas de abajo están corridas. Se dice
     // en vez de devolver un plan silenciosamente mal (BASE nº6).
     ...(tzResolved ? {} : {
