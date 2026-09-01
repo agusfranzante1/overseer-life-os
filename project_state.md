@@ -47,6 +47,36 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **El token vencido rompía el push ("Sync push failed: JWT expired · PGRST303")** (Claude directo):
+  Reporte: toast rojo con ese texto crudo. El access token de Supabase dura **una hora**: con la app
+  abierta de fondo (o el cel en el bolsillo) caduca, y el primer push que sale después rebota.
+  - **Lo que hacía mal:** el error se trataba como un fallo real → toast crudo de PostgREST (que no
+    le dice nada al usuario) **y el push se perdía**. El cambio quedaba marcado unsynced y no se
+    reintentaba hasta el próximo foco de la app (`tryAutoPull`, throttle de 30s), que puede ser
+    mucho después. Lo irónico: `reportSyncError` YA validaba la sesión y `getSession()` renueva el
+    token — o sea que el mismo push, corrido un milisegundo después, funcionaba. Solo faltaba
+    volver a correrlo.
+  - **Fix:** `lib/supabase/authRetry.ts` (puro, con test) + `runPush()` en sync.ts. Si el push falla
+    por token vencido: renueva la sesión y **reintenta UNA vez**. Aplicado al push debounceado
+    (`schedule`) y al flush de `visibilitychange`/`pagehide`.
+  - **Acotado a propósito:** solo `PGRST303`/`PGRST301` y los mensajes de JWT vencido/inválido. Una
+    migración que falta, una policy de RLS, un 401 pelado o un corte de red se comportan igual que
+    antes. Y si el reintento VUELVE a fallar, se avisa (BASE nº6): sesión muerta → toast con CTA
+    "Volver a entrar"; token rechazado con sesión viva → mensaje en castellano en vez del PGRST.
+  - Si `refresh()` explota (red caída) **no** se desloguea al usuario: se devuelve el error original
+    y se reintenta en el próximo ciclo. Desloguear por un problema de conexión sería peor.
+  - También se silencia el toast en los call sites internos (`tasks upsert failed: JWT expired`, que
+    reportan ANTES de tirar el error): si no, el cartel salía igual aunque el reintento anduviera.
+  - **Sin migración.**
+  - **Verificado:** `lib/supabase/authRetry.test.ts` 30/30 (el caso reportado, los errores que NO se
+    reintentan, sesión muerta, doble fallo, refresh que explota). `upsertTolerant` 13/13,
+    `tombstonePush` 7/7, `staleGuard` 17/17 sin romperse. Corriendo la app, las dos salidas visibles:
+    el toast del token rechazado renderiza el texto nuevo, y el de sesión muerta muestra el botón
+    "Volver a entrar →" apuntando a `/login`. `tsc` + `next build` OK.
+  - **NO verificado:** el round-trip real (esperar a que caduque un token contra Supabase). El modo
+    sin auth no tiene backend, así que la lógica está cubierta por tests puros y el cableado por
+    tipos. Se confirma en uso: el toast de `JWT expired` no debería volver a aparecer.
+
 - [x] **Calendario: los eventos solapados ya no se tapan** (Claude directo, verificado corriendo la app):
   Reporte: dos eventos de Google Calendar a la misma hora se superponían y no se veía nada.
   Causa: cada bloque se dibujaba con `absolute left-1 right-1` — ancho COMPLETO de la columna

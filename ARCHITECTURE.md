@@ -50,6 +50,11 @@ remota no tiene una columna nueva, se descarta esa columna y se reintenta en vez
 batch. Importa porque `syncDeletes` va DESPUÉS del upsert: un push que moría dejaba los
 borrados sin propagar y el pull siguiente resucitaba lo borrado.
 
+**Push tolerante al token vencido** (`lib/supabase/authRetry.ts` + `runPush` en sync.ts): el access
+token dura una hora, así que con la app de fondo caduca y el push rebota con `PGRST303 · JWT
+expired`. No es un error: `getSession()` lo renueva y se reintenta UNA vez. Acotado al token —
+migraciones, RLS y red se comportan como siempre, y si el reintento falla se avisa igual.
+
 **El push respeta los tombstones**: antes de subir, `pushTasks` descarta lo que figure en
 `deleted_rows` (`isTombstoned`). Sin eso el upsert resucitaba en la nube lo que otro device o el
 bridge MCP habían borrado mientras este device no pulleaba — el tombstone solo cubría el pull.

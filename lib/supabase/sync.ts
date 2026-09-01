@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef } from 'react'
 import { getSupabaseBrowser, hasSupabaseConfig } from './client'
+import { isTokenExpiredError, pushWithAuthRetry } from './authRetry'
 import { useTasksStore } from '@/lib/store/tasksStore'
 import { useWalletStore } from '@/lib/store/walletStore'
 import { useTradingStore } from '@/lib/store/tradingStore'
@@ -161,11 +162,7 @@ function schedule(
   if (prev) clearTimeout(prev)
   const newTimer = setTimeout(async () => {
     pendingPushes.delete(fn)
-    try {
-      await fn()
-    } catch (e) {
-      reportSyncError(`Sync push failed: ${errMsg(e)}`)
-    }
+    await runPush(fn, 'Sync push failed')
   }, 1500)
   pendingPushes.set(fn, newTimer)
   setTimer(newTimer)
@@ -183,9 +180,36 @@ export async function flushAllPendingPushes(): Promise<void> {
   for (const [, timer] of toFlush) clearTimeout(timer)
   pendingPushes.clear()
   if (toFlush.length === 0) return
-  await Promise.allSettled(toFlush.map(([fn]) => fn().catch((e) => {
-    reportSyncError(`Flush push failed: ${errMsg(e)}`)
-  })))
+  await Promise.allSettled(toFlush.map(([fn]) => runPush(fn, 'Flush push failed')))
+}
+
+/** Corre un push aguantando el token vencido: renueva la sesión y reintenta UNA
+ *  vez (ver `authRetry.ts`). El access token dura una hora, así que con la app
+ *  de fondo caduca todo el tiempo; antes eso tiraba el toast rojo
+ *  "Sync push failed: JWT expired · PGRST303" y encima el cambio se quedaba sin
+ *  subir hasta el próximo foco de la app. Lo transitorio se arregla solo; lo que
+ *  falla de verdad se sigue reportando (BASE nº6). */
+async function runPush(fn: () => Promise<void>, label: string): Promise<void> {
+  const outcome = await pushWithAuthRetry(fn, ensureSession)
+  switch (outcome.status) {
+    case 'ok':
+      return
+    case 'retried':
+      console.info(`[sync] ${label}: token vencido, sesión renovada y push reintentado OK`)
+      return
+    case 'session-dead':
+      await handleSessionExpired()
+      return
+    case 'failed':
+      // Si SIGUE siendo el token después de renovar, no es transitorio: no hay
+      // nada que reintentar y el mensaje crudo de PostgREST no le dice nada al
+      // usuario. Se avisa en castellano, una sola vez.
+      if (isTokenExpiredError(outcome.error)) {
+        surfaceSyncToast('No se pudo sincronizar: el servidor rechazó tu sesión. Probá recargar la app.')
+        return
+      }
+      reportSyncError(`${label}: ${errMsg(outcome.error)}`)
+  }
 }
 
 // ─── Sesión vencida ───────────────────────────────────────────────────────────
@@ -249,6 +273,15 @@ function reportSyncError(message: string) {
   // alarmamos con un toast rojo — solo log. En iOS Safari el texto es
   // "Load failed"; en Chrome "Failed to fetch".
   if (/load failed|failed to fetch|networkerror|network request failed|err_network|the network connection was lost|connection appears to be offline/i.test(message)) {
+    return
+  }
+  // Token vencido: tampoco es accionable — `runPush` renueva la sesión y
+  // reintenta solo. Los push reportan ANTES de tirar el error (`upsert failed:
+  // …`), así que sin esto el toast salía igual aunque el reintento anduviera.
+  // Se verifica que la sesión siga viva: si murió de verdad, ahí sí avisamos
+  // con el CTA para volver a entrar.
+  if (isTokenExpiredError(message)) {
+    void (async () => { if (!(await ensureSession())) await handleSessionExpired() })()
     return
   }
   if (/row-level security|unauthorized|jwt|\b401\b|not authenticated/i.test(message)) {
