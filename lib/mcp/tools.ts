@@ -24,6 +24,7 @@ import { getMetasIncompletas } from './huecos'
 import { getBooks, upsertBook } from './bookWrites'
 import { listCalendars } from './queries'
 import { getOffers, upsertOffer, setOfferDoc } from './offerWrites'
+import { logWorkout, getWorkoutSplit } from './gymWrites'
 
 export interface ToolDef {
   name: string
@@ -639,6 +640,31 @@ export const TOOLS: ToolDef[] = [
       },
       required: ['bloques'],
     },
+  },
+  {
+    name: 'log_workout',
+    description:
+      'Registra que entreno. Basta con el nombre de la rutina (Push / Pull / Leg / Upper / Brazos) o los grupos musculares; los ejercicios son OPCIONALES a proposito — exigirlos convierte "entrene" en la misma friccion que hizo que dejara de registrar. Si el nombre coincide con una rutina suya, la sesion queda vinculada a esa rutina. No duplica: dos veces el mismo nombre el mismo dia actualiza la sesion. NO carga series, repeticiones ni kilos: eso se carga entrenando, no dictado despues.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fecha: str('YYYY-MM-DD. Omitila para hoy.'),
+        nombre: str('Rutina: Push, Pull, Leg, Upper, Brazos.'),
+        grupos: { type: 'array', items: { type: 'string' }, description: 'Grupos trabajados: ["pecho","triceps"]. Se normalizan.' },
+        ejercicios: { type: 'array', description: 'Opcional. Strings o {nombre, grupo}.' },
+        duracionMin: num('Duracion en minutos. Default 60.'),
+        notas: str('Notas de la sesion.'),
+      },
+    },
+  },
+  {
+    name: 'get_workout_split',
+    description:
+      'La DISTRIBUCION del entrenamiento: que entreno cada dia y, sobre todo, CUANTO HACE QUE NO TOCA cada grupo. Ese segundo dato es el que importa — un split se rompe por lo que se deja de hacer, no por lo que se hace. Devuelve tambien sesiones por semana y cuantos dias pasaron desde la ultima.',
+    inputSchema: {
+      type: 'object',
+      properties: { dias: num('Ventana hacia atras, 1-180. Default 21.') },
+    },
   }
 ]
 
@@ -800,6 +826,12 @@ export async function callTool(
 
     case 'set_offer_doc':
       return setOfferDoc(userId, args)
+
+    case 'log_workout':
+      return logWorkout(userId, args)
+
+    case 'get_workout_split':
+      return getWorkoutSplit(userId, args)
 
     default:
       return { ok: false, error: 'unknown_tool', detail: `No existe la herramienta "${name}".` }
