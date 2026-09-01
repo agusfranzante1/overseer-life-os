@@ -2635,8 +2635,23 @@ async function pushOffers() {
   const sysRows = systems.map((x) => ({
     id: x.id, user_id: uid, created_at: x.createdAt, updated_at: x.updatedAt, payload: x,
   }))
-  if (sysRows.length > 0) {
-    const r = await sb.from('offer_systems').upsert(sysRows)
+  // ── El push no pisa lo que en la nube quedó más nuevo ────────────────
+  // Misma guarda que en pushTasks. Acá es MÁS grave que en otros dominios: el
+  // `doc` de un sistema/oferta es texto escrito a mano, y un upsert ciego con
+  // la copia vieja lo borra sin dejar rastro. Pasó el 01/09 — la app se comió
+  // un guion entero escrito por el bridge minutos antes.
+  //
+  // Ojo: esto NO reemplaza a `docRev`. `docRev` resuelve el doc en el MERGE
+  // del pull (inmune a relojes desfasados); esto evita que el push escriba de
+  // entrada. Son dos capas distintas y hacen falta las dos.
+  const staleSys = await findStaleIds(sb, uid, 'offer_systems', sysRows)
+  const sysRowsFresh = sysRows.filter((r) => !staleSys.has(r.id))
+  if (staleSys.size > 0) {
+    console.warn(`[sync] offer_systems: ${staleSys.size} más nuevos en la nube → no se pisan`)
+  }
+
+  if (sysRowsFresh.length > 0) {
+    const r = await sb.from('offer_systems').upsert(sysRowsFresh)
     if (r.error) {
       reportSyncError(`offer_systems upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_offers.sql.`)
       throw r.error
@@ -2652,8 +2667,14 @@ async function pushOffers() {
   const offerRows = offers.map((o) => ({
     id: o.id, user_id: uid, created_at: o.createdAt, updated_at: o.updatedAt, payload: o,
   }))
-  if (offerRows.length > 0) {
-    const r = await sb.from('offers').upsert(offerRows)
+  const staleOffers = await findStaleIds(sb, uid, 'offers', offerRows)
+  const offerRowsFresh = offerRows.filter((r) => !staleOffers.has(r.id))
+  if (staleOffers.size > 0) {
+    console.warn(`[sync] offers: ${staleOffers.size} oferta(s) más nuevas en la nube → no se pisan`)
+  }
+
+  if (offerRowsFresh.length > 0) {
+    const r = await sb.from('offers').upsert(offerRowsFresh)
     if (r.error) {
       reportSyncError(`offers upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_offers.sql.`)
       throw r.error
@@ -2664,8 +2685,14 @@ async function pushOffers() {
   const templateRows = templates.map((template) => ({
     id: template.id, user_id: uid, created_at: template.createdAt, updated_at: template.updatedAt, payload: template,
   }))
-  if (templateRows.length > 0) {
-    const r = await sb.from('offer_templates').upsert(templateRows)
+  const staleTpl = await findStaleIds(sb, uid, 'offer_templates', templateRows)
+  const templateRowsFresh = templateRows.filter((r) => !staleTpl.has(r.id))
+  if (staleTpl.size > 0) {
+    console.warn(`[sync] offer_templates: ${staleTpl.size} más nuevas en la nube → no se pisan`)
+  }
+
+  if (templateRowsFresh.length > 0) {
+    const r = await sb.from('offer_templates').upsert(templateRowsFresh)
     if (r.error) {
       reportSyncError(`offer_templates upsert failed: ${r.error.message}. Likely missing migration - run supabase/migration_offer_templates.sql.`)
       throw r.error
