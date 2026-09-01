@@ -37,6 +37,10 @@ eq(tipo('USD 7250 repartidos en 15 billeteras'), null, 'moneda con número detr�
 eq(tipo('$1.450 en MercadoPago'), null, 'monto con separador de miles')
 eq(tipo('Cuanto quiero retirar? todavia no lo se'), null, 'un "?" dentro de una frase NO es placeholder')
 eq(tipo('Tocar Guitarra Semanalmente'), null, 'prosa normal sin números')
+eq(tipo('contar, dividir, comprar USD, comprar las cuentas de fondeo'), null,
+   'FALSO POSITIVO REAL: "comprar USD," con coma detrás es prosa, no monto faltante')
+eq(tipo('Comprar USD en Brubank y Lemon'), null, '"USD" como sustantivo seguido de palabra')
+eq(tipo('u$s 5000 para el ciclo'), null, 'u$s con número no dispara el símbolo')
 eq(tipo('Ejecutar todos los dias plan de ejecución.'), null, 'una meta real del trimestre Q3 del usuario')
 eq(tipo('Empezar la marca personal'), null, 'otra meta real, sin cifra y sin pretenderla')
 

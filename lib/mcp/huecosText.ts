@@ -46,10 +46,21 @@ const PLACEHOLDERS_SOLOS = new Set([
   'definir', 'a definir', 'por definir', 'ver', 'falta', 'sin definir',
 ])
 
-/** `$` / `usd` / `u$s` sin ningún dígito inmediatamente después.
- *  Acepta espacios y el punto/coma que la gente deja al truncar ("$.", "$ ,").
- *  El caso real del usuario, "$. del trading", cae exactamente acá. */
-const MONEDA_SIN_CIFRA = /(?:\$|u\$s|usd|ars)(?!\s*[\d.,]*\d)/i
+/** Un `$` sin ningún dígito detrás. El símbolo existe para preceder a un
+ *  número: sin número está truncado. El caso real del usuario, "$. del
+ *  trading", cae exactamente acá. El `(?<!u)` deja pasar el "u$s". */
+const SIMBOLO_SIN_CIFRA = /(?<!u)\$(?!\s*[\d.,]*\d)/i
+
+/** "USD" y "ARS" escritos como palabra son distintos: en prosa se usan como
+ *  sustantivo — *"comprar USD, dividirlo en dos meses"* no es un hueco, es una
+ *  frase normal. Solo cuentan cuando lo que sigue es un marcador de faltante o
+ *  el final del texto ("USD ___", "USD ?").
+ *
+ *  ⚠️ El punto y la coma quedan FUERA a propósito: son la puntuación de
+ *  cualquier oración, y meterlos hacía que "comprar USD, comprar las cuentas"
+ *  se reportara como monto faltante. Pasó de verdad al cargar el plan de
+ *  septiembre. */
+const PALABRA_SIN_CIFRA = /\b(?:usd|ars)\b(?=\s*(?:[_?\-]|$))/i
 
 /** Una promesa de fecha sin fecha detrás. "para el ___", "antes del ?" */
 const FECHA_SIN_FECHA = /\b(?:para el|antes del|hasta el|deadline|fecha l[ií]mite)\s*[:\-]?\s*(?:[_?.\-x]{1,6}\b|$)/i
@@ -89,9 +100,8 @@ export function detectarHueco(valor: unknown): Hueco | null {
     return { tipo: 'placeholder', confianza: 'alta', faltaQue: 'el contenido', evidencia: texto }
   }
 
-  // "$." — la cifra que falta. Alta confianza: un símbolo de moneda existe
-  // para preceder a un número; sin número detrás está truncado.
-  const moneda = crudo.match(MONEDA_SIN_CIFRA)
+  // "$." — la cifra que falta.
+  const moneda = crudo.match(SIMBOLO_SIN_CIFRA) ?? crudo.match(PALABRA_SIN_CIFRA)
   if (moneda) {
     return {
       tipo: 'cifra_faltante',

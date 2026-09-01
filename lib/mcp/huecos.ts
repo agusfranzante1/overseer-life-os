@@ -72,6 +72,12 @@ function planas(secciones: SPISection[]): SPISection[] {
  *  1-10 de autoevaluación y llenarlas es del usuario, no una meta pendiente. */
 const TIPOS_IGNORADOS = new Set(['score'])
 
+/** Un campo que el propio template llama "opcional" no es un hueco: es una
+ *  ranura de más, a propósito. Reportarla es ruido. */
+function esOpcional(label: string): boolean {
+  return /\(opcional\)|\bopcional$/i.test(label.trim())
+}
+
 function revisarPlan(args: {
   nivel: string
   periodo: string
@@ -102,6 +108,7 @@ function revisarPlan(args: {
 
     for (const campo of campos as SectionField[]) {
       if (TIPOS_IGNORADOS.has(campo.type)) continue
+      if (esOpcional(campo.label ?? '')) continue
       const valor = cargados[campo.key]
 
       // Si la sección está empezada, un campo AUSENTE también es hueco: quiso
