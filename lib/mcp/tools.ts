@@ -21,6 +21,7 @@ import { getHabits, upsertHabit, markHabit, deleteHabit } from './habitWrites'
 import { getProgress } from './progress'
 import { getProjection, updateProjection } from './projectionWrites'
 import { getMetasIncompletas } from './huecos'
+import { getBooks, upsertBook } from './bookWrites'
 
 export interface ToolDef {
   name: string
@@ -560,6 +561,32 @@ export const TOOLS: ToolDef[] = [
         limit: num('Máximo de huecos a devolver. Default 40.'),
       },
     },
+  },
+  {
+    name: 'get_books',
+    description:
+      'La biblioteca del usuario: qué está leyendo, qué quiere leer y qué terminó, con las fechas de inicio y fin. "Leer 30 min" es uno de sus hábitos diarios, así que esto es el contenido de ese hábito.',
+    inputSchema: {
+      type: 'object',
+      properties: { estado: str('Filtrar por estado: want | reading | read (o "quiero leer", "leyendo", "leido"). Omitilo para todos.') },
+    },
+  },
+  {
+    name: 'upsert_book',
+    description:
+      'Agrega un libro a la biblioteca o le cambia el estado. Cuando el usuario diga que empezó un libro, va con estado "reading"; cuando lo termine, "read". Las fechas de inicio y fin se sellan solas al cambiar de estado. No duplica: si ya existe un libro con ese título, falla y devuelve su id para que le cambies el estado en vez de crear otro.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bookId: str('Id existente para editar. Omitilo para crear.'),
+        titulo: str('Titulo del libro.'),
+        autor: str('Autor.'),
+        estado: str('want (quiero leer) | reading (leyendo) | read (leido).'),
+        empezado: str('YYYY-MM-DD. Se sella solo al pasar a leyendo.'),
+        terminado: str('YYYY-MM-DD. Se sella solo al pasar a leido.'),
+        notas: str('Notas sobre el libro.'),
+      },
+    },
   }
 ]
 
@@ -703,6 +730,12 @@ export async function callTool(
 
     case 'get_metas_incompletas':
       return getMetasIncompletas(userId, args)
+
+    case 'get_books':
+      return getBooks(userId, args)
+
+    case 'upsert_book':
+      return upsertBook(userId, args)
 
     default:
       return { ok: false, error: 'unknown_tool', detail: `No existe la herramienta "${name}".` }
