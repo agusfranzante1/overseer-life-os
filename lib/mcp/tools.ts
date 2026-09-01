@@ -22,6 +22,7 @@ import { getProgress } from './progress'
 import { getProjection, updateProjection } from './projectionWrites'
 import { getMetasIncompletas } from './huecos'
 import { getBooks, upsertBook } from './bookWrites'
+import { listCalendars } from './queries'
 
 export interface ToolDef {
   name: string
@@ -587,6 +588,12 @@ export const TOOLS: ToolDef[] = [
         notas: str('Notas sobre el libro.'),
       },
     },
+  },
+  {
+    name: 'list_calendars',
+    description:
+      'Los calendarios de Google que el usuario tiene TILDADOS, con su id, su nombre y su COLOR. Leelo antes de crear eventos: cada evento va al calendario de su area (Trading, DRM, NQN SURVEY, Personal, Conocimiento…) y no al primario, porque el color del bloque lo da el calendario. Meter todo en el primario hace que el dia entero salga del mismo color y no se distinga nada de un vistazo. El campo puedeEscribir dice si se puede crear ahi: un calendario de solo lectura falla al crear.',
+    inputSchema: { type: 'object', properties: {} },
   }
 ]
 
@@ -736,6 +743,9 @@ export async function callTool(
 
     case 'upsert_book':
       return upsertBook(userId, args)
+
+    case 'list_calendars':
+      return listCalendars(userId, origin)
 
     default:
       return { ok: false, error: 'unknown_tool', detail: `No existe la herramienta "${name}".` }

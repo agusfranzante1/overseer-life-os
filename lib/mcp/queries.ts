@@ -404,6 +404,41 @@ export async function getRecurringSeries(userId: string): Promise<RecurringSerie
 // Google Calendar (server-side, con el refresh_token guardado)
 // ---------------------------------------------------------------------------
 
+/** Los calendarios que el usuario tiene TILDADOS en Google, con su id y su
+ *  color. Hace falta para poder crear cada evento en el calendario que le
+ *  corresponde: si todo va al primario, sale todo del mismo color y el usuario
+ *  no puede distinguir de un vistazo qué es cada bloque. Fue exactamente su
+ *  pedido del 2026-09-01. */
+export async function listCalendars(userId: string, origin: string) {
+  try {
+    const sb = getSupabaseAdmin()
+    const auth = await getAuthedClient(sb, userId, `${origin}/api/auth/google/callback`)
+    if (!auth) return { connected: false, calendars: [] }
+    const calendar = google.calendar({ version: "v3", auth })
+    const list = await calendar.calendarList.list({ maxResults: 250 })
+    const todos = (list.data.items ?? []).filter((c) => c.id)
+    return {
+      connected: true,
+      calendars: todos
+        .filter((c) => !c.hidden && (c.selected === true || c.primary === true))
+        .map((c) => ({
+          id: c.id!,
+          nombre: c.summary ?? c.id!,
+          color: c.backgroundColor ?? undefined,
+          primario: !!c.primary,
+          // Sin permiso de escritura no se puede crear nada ahi: decirlo
+          // evita un fallo que parece silencioso.
+          puedeEscribir: c.accessRole === "owner" || c.accessRole === "writer",
+        })),
+      ignorados: todos
+        .filter((c) => c.hidden || (c.selected !== true && !c.primary))
+        .map((c) => c.summary ?? c.id!),
+    }
+  } catch (err) {
+    return { connected: true, calendars: [], error: err instanceof Error ? err.message : "calendar_failed" }
+  }
+}
+
 export interface CalendarResult {
   connected: boolean
   events: AgendaEvent[]
