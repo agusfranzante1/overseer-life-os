@@ -37,6 +37,7 @@ import {
 import { mergePrefsByField, changedFields, stampFields, type FieldTimes } from './prefsMerge'
 import { mergeById, mergeTaskWithSubtasks, isTombstoned, reconcileDeletes, mergeSpiSession, mergeProjectionPlan, mergeLabSession, mergeHabit, mergeContentProfile, toMs } from './syncMerge'
 import { upsertTolerant } from './upsertTolerant'
+import { findStaleIds } from './staleGuard'
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
@@ -629,19 +630,43 @@ async function pushTasks() {
   const subtaskRowsValid = subtaskRowsU.filter((st) => validTaskIds.has(st.task_id))
   const subtaskRowsOrdered = orderRowsParentsFirst(subtaskRowsValid)
 
+  // ── El push NO PISA lo que se editó más nuevo en la nube ─────────────
+  // Hermano del bloque de tombstones de arriba: aquel evita que el push
+  // RESUCITE lo borrado, este evita que DESHAGA lo editado.
+  //
+  // El upsert sube el store entero sin comparar nada — el merge por
+  // `updatedAt` vive en el PULL. Así que un device con la copia vieja en
+  // memoria pisaba en la nube una edición más nueva hecha en otro lado. Pasó
+  // tres veces en dos días: Claude marcaba una subtarea por el bridge MCP
+  // (bumpeando el `updated_at` de la madre), la app seguía abierta con su copia
+  // anterior, y el siguiente push la des-marcaba. Parecía "se revierte solo".
+  //
+  // Las SUBTAREAS no tienen `updated_at` propio: su frescura es la de la tarea
+  // madre (por eso toda mutación de subtarea bumpea la madre, acá y en el
+  // bridge). Entonces si la madre queda afuera, sus subtareas también — si no,
+  // las subtareas viejas seguirían pisando a las nuevas.
+  const staleTaskIds = await findStaleIds(sb, state.userId!, 'tasks', taskRowsValid)
+  const taskRowsFresh = taskRowsValid.filter((r) => !staleTaskIds.has(r.id))
+  const subtaskRowsFresh = subtaskRowsOrdered.filter((r) => !staleTaskIds.has(r.task_id as string))
+  if (staleTaskIds.size > 0) {
+    // No es un error ni se avisa al usuario: es el LWW funcionando. Su edición
+    // local, si la hubo, tiene `updatedAt` más nuevo y por eso NO cae acá.
+    console.warn(`[sync] tasks: ${staleTaskIds.size} tarea(s) tienen en la nube una versión más nueva que la local → no se pisan; el próximo pull las trae`)
+  }
+
   if (projectRowsU.length > 0) {
     const r = await sb.from('projects').upsert(projectRowsU)
     if (r.error) { reportSyncError(`projects upsert failed: ${r.error.message}`); throw r.error }
   }
-  if (taskRowsValid.length > 0) {
-    const r = await upsertSkippingMissingColumns(sb, 'tasks', taskRowsValid)
+  if (taskRowsFresh.length > 0) {
+    const r = await upsertSkippingMissingColumns(sb, 'tasks', taskRowsFresh)
     if (r.error) { reportSyncError(`tasks upsert failed: ${r.error.message}`); throw r.error }
     if (r.dropped.length > 0) {
       reportSyncError(`tasks: la tabla no tiene ${r.dropped.join(', ')} — sincronicé el resto, pero corré las migraciones pendientes (supabase/migration_tasks_favorite.sql, migration_tasks_tags.sql).`)
     }
   }
-  if (subtaskRowsOrdered.length > 0) {
-    const r = await upsertSkippingMissingColumns(sb, 'subtasks', subtaskRowsOrdered)
+  if (subtaskRowsFresh.length > 0) {
+    const r = await upsertSkippingMissingColumns(sb, 'subtasks', subtaskRowsFresh)
     if (r.error) {
       reportSyncError(`subtasks upsert failed: ${r.error.message}. ¿Falta correr migration_subtasks_completion_fields.sql?`)
       throw r.error
@@ -656,6 +681,13 @@ async function pushTasks() {
   const projectIds = projectRows.map((r) => r.id)
   // Sobre lo VIVO: si una fila tombstoneada siguiera contando como local,
   // `syncDeletes` la vería presente y no propagaría su borrado.
+  //
+  // ⚠️ Y sobre lo VIVO, NO sobre lo "fresh": una fila que no se subió porque la
+  // nube la tiene más nueva SIGUE EXISTIENDO localmente. Si acá se usaran
+  // `taskRowsFresh` / `subtaskRowsFresh`, `syncDeletes` la vería ausente del
+  // store y la BORRARÍA de la nube — o sea, la guarda contra pisar ediciones
+  // se convertiría en un borrador de filas. Son dos listas distintas a
+  // propósito: una es "lo que existe", la otra "lo que es seguro escribir".
   const taskIds = taskRowsLive.map((r) => r.id)
   const subtaskIds = subtaskRowsLive.map((r) => r.id)
 
@@ -1497,8 +1529,18 @@ async function pushSPI() {
     closed_at: sess.closedAt ?? null,
     payload: sess,
   }))
-  if (sessRows.length > 0) {
-    const r = await sb.from('spi_sessions').upsert(sessRows)
+  // Misma guarda que en pushTasks: no pisar una sesión que en la nube quedó
+  // más nueva. Importa especialmente acá porque un CIERRE de semana escrito en
+  // otro device es justo lo que un push ciego borraba — y `closedAt` no se
+  // puede volver a poner desde la app (no existe reopenSession en spiStore).
+  const staleSpi = await findStaleIds(sb, uid, 'spi_sessions', sessRows)
+  const sessRowsFresh = sessRows.filter((r) => !staleSpi.has(r.id))
+  if (staleSpi.size > 0) {
+    console.warn(`[sync] spi_sessions: ${staleSpi.size} sesión(es) más nuevas en la nube → no se pisan`)
+  }
+
+  if (sessRowsFresh.length > 0) {
+    const r = await sb.from('spi_sessions').upsert(sessRowsFresh)
     if (r.error) { reportSyncError(`spi_sessions upsert failed: ${r.error.message}`); throw r.error }
     // Las sesiones que subimos EXISTEN → limpiamos cualquier tombstone viejo que
     // las tapara (ej. el del wipe). Así un restore desde el device que todavía
@@ -1685,8 +1727,16 @@ async function pushProjection() {
     payload: plan,
   }))
 
-  if (rows.length > 0) {
-    const r = await sb.from('projection_plans').upsert(rows)
+  // Misma guarda que en pushTasks / pushSPI: el push no pisa un plan que en
+  // la nube quedó más nuevo.
+  const stalePlanes = await findStaleIds(sb, uid, 'projection_plans', rows)
+  const rowsFresh = rows.filter((r) => !stalePlanes.has(r.id))
+  if (stalePlanes.size > 0) {
+    console.warn(`[sync] projection_plans: ${stalePlanes.size} plan(es) más nuevos en la nube → no se pisan`)
+  }
+
+  if (rowsFresh.length > 0) {
+    const r = await sb.from('projection_plans').upsert(rowsFresh)
     if (r.error) { reportSyncError(`projection_plans upsert failed: ${r.error.message}`); throw r.error }
   }
   await syncDeletes(sb, uid, 'projection_plans', rows.map((r) => r.id), 'projection:plans')
