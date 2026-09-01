@@ -248,7 +248,7 @@ export async function getMetasIncompletas(userId: string, input: Record<string, 
         campo: { key: 'target', label: k.name, type: 'number' },
         valorActual: null,
         porQue: 'El KPI está definido pero no tiene meta, así que el scoreboard no puede decir si lo cumpliste.',
-        pregunta: `El KPI "${k.icon ?? ''} ${k.name}".trim() no tiene meta semanal. ¿Cuál ponemos?`,
+        pregunta: `El KPI "${`${k.icon ?? ''} ${k.name}`.trim()}" no tiene meta semanal. ¿Cuál ponemos?`,
         completarCon: { tool: 'upsert_kpi', args: { kpiId: k.id, target: '<el número>' } },
         ruta: `KPIs › ${k.name} › meta semanal`,
       })
