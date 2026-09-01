@@ -12,13 +12,19 @@
  *  cualquier objetivo mensual que armáramos por chat nacía desconectado del
  *  lugar donde él los escribe.
  *
- *  ── LO QUE YA HACE SU APP Y NO HAY QUE REINVENTAR ────────────────────────
- *  El `score` **cascadea solo**: el mes promedia los scores de las sesiones
- *  semanales de SPI, el trimestre promedia los meses y el año los trimestres.
- *  O sea que "medir el avance mes a mes" no es un sistema nuevo: es **cerrar
- *  las semanas**. El score de una semana existe únicamente si la sesión se
- *  cierra, y cerrar se cierra en la app (calcula XP y empuja las tareas al task
- *  manager). Ese es el único paso manual que no se puede sacar.
+ *  ── ⚠️ LA CASCADA DE SCORE NO EXISTE (verificado 2026-08-31) ─────────────
+ *  `lib/projection/types.ts` promete que "el año promedia los trimestres, el
+ *  trimestre los meses, el mes las semanas de SPI". **Ese cálculo no está
+ *  escrito en ninguna parte del repo.** `ProjectionPlan.score` se declara, se
+ *  pushea, se preserva en el pull y se lee en `ProjectionPage` — pero nadie lo
+ *  ASIGNA nunca (`projectionStore.closePlan` escribe `closedAt`, `mood`,
+ *  `notes` y el snapshot; no toca `score`). Viaja un `undefined` prolijamente
+ *  sincronizado y el bloque que lo muestra no se renderiza jamás.
+ *
+ *  Consecuencia práctica: **el avance mensual no se puede leer del `score`.**
+ *  Hoy se mide con `get_progress`, que cuenta lo completado de verdad. No
+ *  escribir `score` a mano desde acá: sería un número inventado ocupando el
+ *  lugar de uno calculado.
  *
  *  Mismo contrato que `spiWrites.ts`: se MERGEA campo por campo, `updated_at`
  *  se bumpea en la columna y en el payload (BASE nº1), y editar un plan ya
@@ -169,7 +175,11 @@ export async function updateProjection(userId: string, input: Record<string, unk
   if (p.closedAt) {
     return {
       ok: false, error: 'plan_cerrado',
-      detail: `El plan de ${periodKey} ya está cerrado (${p.closedAt}). Su score ya alimentó al nivel de arriba; reabrilo desde la app si de verdad hace falta.`,
+      // Se puede reabrir desde la app (`projectionStore.reopenPlan`), PERO el
+      // merge del pull trinquetea `closedAt` (`syncMerge.ts`: `base.closedAt ??
+      // other.closedAt`), así que la reapertura no se propaga a los otros
+      // dispositivos: el que no reabrió lo vuelve a cerrar en el próximo push.
+      detail: `El plan de ${periodKey} ya está cerrado (${p.closedAt}). Se reabre desde la app (Proyección → el plan → reabrir), pero ojo: la reapertura NO se propaga a tus otros dispositivos, porque el merge conserva el cierre. Si lo reabrís, hacelo en el dispositivo desde el que vas a seguir trabajando.`,
     }
   }
 

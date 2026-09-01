@@ -20,6 +20,7 @@ import { ensureSpiWeek, updateSpiWeek, setSpiTasks, upsertKpi, setKpiValue } fro
 import { getHabits, upsertHabit, markHabit, deleteHabit } from './habitWrites'
 import { getProgress } from './progress'
 import { getProjection, updateProjection } from './projectionWrites'
+import { getMetasIncompletas } from './huecos'
 
 export interface ToolDef {
   name: string
@@ -522,7 +523,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'get_projection',
     description:
-      'Los planes ESTRATÉGICOS por encima de la semana: año, semestre, trimestre y mes, con las metas que el usuario escribió en cada uno. Acá viven las metas MENSUALES de las que cuelgan los KPIs. Sin argumentos devuelve los últimos planes y marca cuáles son los del período en curso. Ojo: el score cascadea solo — el mes promedia los scores de las semanas de SPI cerradas, el trimestre los meses. Sin cerrar las semanas, la cadena queda vacía.',
+      'Los planes ESTRATÉGICOS por encima de la semana: año, semestre, trimestre y mes, con las metas que el usuario escribió en cada uno. Acá viven las metas MENSUALES de las que cuelgan los KPIs. Sin argumentos devuelve los últimos planes y marca cuáles son los del período en curso. OJO: el campo `score` de estos planes NO se calcula (verificado 2026-08-31: nada en el repo lo asigna, aunque los comentarios del tipo prometan que el mes promedia las semanas). Para medir el avance real usá get_progress, que cuenta lo hecho.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -545,6 +546,19 @@ export const TOOLS: ToolDef[] = [
         lanes: { type: 'array', items: { type: 'string' }, description: 'Carriles a activar.' },
       },
       required: ['level'],
+    },
+  },
+  {
+    name: 'get_metas_incompletas',
+    description:
+      'OJO, no son huecos de agenda (para eso está get_agenda): son los OBJETIVOS declarados y sin completar. Recorre el SPI de la semana, los planes de año/semestre/trimestre/mes y la biblioteca de KPIs, y devuelve todo lo que el usuario empezó a escribir y dejó a medias — incluido el caso feo de "texto escrito pero SIN la cifra" (ej. "generar retiros por $. del trading": hay un símbolo de peso sin número detrás). Cada hueco viene con la pregunta ya redactada y con `completarCon`, que es la llamada exacta para llenarlo cuando el usuario responda. NUNCA inventes vos el valor que falta: la herramienta existe para preguntarlo. Por default solo reporta secciones ya EMPEZADAS (donde declaró una intención y la dejó incompleta); `todo: true` abre el resto. Si algo no se pudo mirar, sale en `avisos` — un array de huecos vacío nunca significa "está todo bien" por sí solo.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        weekStartDate: str('Sábado ancla del SPI. Omitilo para la semana en curso.'),
+        todo: { type: 'boolean', description: 'true = también las secciones que nunca empezó (son ~90 campos: usalo solo si te lo piden).' },
+        limit: num('Máximo de huecos a devolver. Default 40.'),
+      },
     },
   }
 ]
@@ -686,6 +700,9 @@ export async function callTool(
 
     case 'update_projection':
       return updateProjection(userId, args)
+
+    case 'get_metas_incompletas':
+      return getMetasIncompletas(userId, args)
 
     default:
       return { ok: false, error: 'unknown_tool', detail: `No existe la herramienta "${name}".` }

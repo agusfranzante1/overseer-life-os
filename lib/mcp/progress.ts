@@ -75,19 +75,75 @@ export async function getProgress(userId: string, input: Record<string, unknown>
     sb.from('kpis').select('payload').eq('user_id', userId),
   ])
 
-  // ── 1. por día ─────────────────────────────────────────────────────────
+  // ── 1. por día: PASOS y HITOS, no un total plano ───────────────────────
+  //
+  // "Esto es más largo, esto es menos largo" (palabras del usuario). No hay
+  // registro de tiempo real en la app — ni timer ni pomodoro, se buscó — así
+  // que los minutos trabajados NO se pueden saber y no se inventan.
+  //
+  // Lo que sí se puede, con lo que ya está en la base:
+  //   · un PASO es una unidad de trabajo: una subtarea cerrada, o una tarea
+  //     suelta sin subtareas.
+  //   · un HITO es cerrar una tarea que TENÍA subtareas. Se lista con su
+  //     tamaño y NO se suma a los pasos — si no, el día que cierra "Arreglos
+  //     Casa" cuenta su último paso Y el contenedor: doble conteo real que
+  //     hoy está pasando.
+  //   · rutina aparte de avance: siete ticks de una recurrente diaria no son
+  //     siete cosas nuevas hechas.
+  const idsCerrados = [...new Set(hist.days.flatMap((d) => d.tareas.map((t) => t.id)))]
+  const tamañoArbol = new Map<string, number>()
+  if (idsCerrados.length > 0) {
+    // Cuántas subtareas tiene cada tarea que se cerró — el árbol entero, a
+    // cualquier profundidad. Es lo que distingue un hito de un paso.
+    const { data: subs } = await sb
+      .from('subtasks').select('task_id').eq('user_id', userId).in('task_id', idsCerrados)
+    for (const s of subs ?? []) {
+      const k = s.task_id as string
+      tamañoArbol.set(k, (tamañoArbol.get(k) ?? 0) + 1)
+    }
+  }
+
   const porFecha = new Map(hist.days.map((d) => [d.date, d]))
+  const hitos: { fecha: string; titulo: string; proyecto: string; pasos: number }[] = []
+
   const porDia = rangoDeDias(from, to).map((f) => {
     const d = porFecha.get(f)
+    const tareas = d?.tareas ?? []
+    const subtareas = d?.subtareas ?? []
+
+    const contenedoras = tareas.filter((t) => (tamañoArbol.get(t.id) ?? 0) > 0)
+    for (const t of contenedoras) {
+      hitos.push({ fecha: f, titulo: t.title, proyecto: t.project, pasos: tamañoArbol.get(t.id) ?? 0 })
+    }
+
+    const sueltas = tareas.filter((t) => (tamañoArbol.get(t.id) ?? 0) === 0)
+    const rutina = sueltas.filter((t) => t.rutina).length
+    const pasos = sueltas.length + subtareas.length
+
     return {
       fecha: f,
       dia: diaSemana(f),
-      tareas: d?.tareas.length ?? 0,
-      subtareas: d?.subtareas.length ?? 0,
-      total: (d?.tareas.length ?? 0) + (d?.subtareas.length ?? 0),
+      pasos,
+      /** De esos pasos, cuántos fueron rutina recurrente y no avance nuevo. */
+      rutina,
+      avance: pasos - rutina,
+      hitos: contenedoras.length,
     }
   })
-  const diasEnCero = porDia.filter((d) => d.total === 0).map((d) => `${d.dia} ${d.fecha.slice(8)}`)
+  const diasEnCero = porDia.filter((d) => d.pasos === 0 && d.hitos === 0).map((d) => `${d.dia} ${d.fecha.slice(8)}`)
+
+  // ── arrastre: cuánto tiempo estuvo abierto lo que se cerró ─────────────
+  // Otro eje distinto del esfuerzo, y el que más le habla a este usuario:
+  // "julio sigue sin cobrarse". Solo tareas no recurrentes — una instancia
+  // recurrente nace y muere en el día y su arrastre no significa nada.
+  const arrastres = hist.days
+    .flatMap((d) => d.tareas)
+    .filter((t) => !t.rutina && typeof t.arrastreDias === 'number')
+    .map((t) => ({ titulo: t.title, proyecto: t.project, dias: t.arrastreDias as number }))
+    .sort((a, b) => b.dias - a.dias)
+  const medianaArrastre = arrastres.length === 0
+    ? null
+    : [...arrastres].sort((a, b) => a.dias - b.dias)[Math.floor(arrastres.length / 2)].dias
 
   // ── 2. por proyecto ────────────────────────────────────────────────────
   // Se cuentan tareas Y subtareas: casi todo el trabajo real de este usuario
@@ -146,19 +202,32 @@ export async function getProgress(userId: string, input: Record<string, unknown>
   return {
     rango: { from, to, semanaSpi },
     resumen: {
+      pasos: porDia.reduce((n, d) => n + d.pasos, 0),
+      avance: porDia.reduce((n, d) => n + d.avance, 0),
+      rutina: porDia.reduce((n, d) => n + d.rutina, 0),
+      hitos: hitos.length,
       totalCompletado: totalItems,
-      diasConActividad: porDia.filter((d) => d.total > 0).length,
+      diasConActividad: porDia.filter((d) => d.pasos > 0 || d.hitos > 0).length,
       deDias: porDia.length,
       diasEnCero,
+      medianaArrastreDias: medianaArrastre,
+      masViejaCerrada: arrastres[0] ?? null,
       proyectoDominante: porProyecto[0]?.proyecto ?? null,
       proyectoAusente: porProyecto.length > 0 ? porProyecto[porProyecto.length - 1].proyecto : null,
       kpisSinCargar: kpis.filter((k) => k.sinCargar).length,
-      // Recordatorio, no un cálculo: el score 0-100 de la semana lo produce el
-      // CIERRE de la sesión en la app, y ese score es el que después promedia
-      // el mes y el trimestre. Sin cerrar, la cadena queda vacía.
+      // El score 0-100 lo produce el CIERRE de la sesión, en la app.
+      // ⚠️ Y NO alimenta ninguna cascada: `ProjectionPlan.score` nunca se
+      // asigna en el repo (verificado 2026-08-31), así que el mes/trimestre no
+      // promedian nada. El avance mensual sale de contar lo hecho, que es lo
+      // que calcula este archivo — no de un score heredado.
       sesionCerrada: !!(sesion.data?.payload as { closedAt?: string } | undefined)?.closedAt,
     },
     porDia,
+    /** Las tareas contenedoras que se cerraron, con cuántos pasos tenían
+     *  adentro. Es la respuesta literal a "esto fue más largo que aquello". */
+    hitos,
+    /** Lo más viejo que se cerró, del más arrastrado al menos. */
+    arrastre: arrastres.slice(0, 5),
     porProyecto,
     habitos,
     kpis,

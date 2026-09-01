@@ -75,8 +75,15 @@ export async function getKpis(userId: string): Promise<unknown[]> {
 
 export interface HistoryDay {
   date: string
-  tareas: { title: string; project: string; completedAt: string; archived: boolean }[]
-  subtareas: { title: string; task: string; completedAt: string }[]
+  tareas: {
+    title: string; project: string; completedAt: string; archived: boolean
+    id: string
+    /** Instancia de una serie recurrente: es rutina sostenida, no avance nuevo. */
+    rutina: boolean
+    /** Días entre que se creó y se cerró. `null` si no hay `created_at`. */
+    arrastreDias: number | null
+  }[]
+  subtareas: { title: string; task: string; completedAt: string; taskId: string }[]
 }
 
 /**
@@ -95,10 +102,13 @@ export async function getHistory(userId: string, from: string, to: string) {
   const hasta = `${to}T23:59:59.999Z`
 
   const [tareas, subs, projects] = await Promise.all([
-    sb.from('tasks').select('id, title, project_id, completed_at, archived_at')
+    // `created_at` para el arrastre; `recurrence`/`recurring_head_id` para
+    // separar rutina de avance real (7 ticks de una recurrente diaria no son
+    // lo mismo que 7 tareas distintas).
+    sb.from('tasks').select('id, title, project_id, completed_at, archived_at, created_at, recurrence, recurring_head_id')
       .eq('user_id', userId).not('completed_at', 'is', null)
       .gte('completed_at', desde).lte('completed_at', hasta).limit(2000),
-    sb.from('subtasks').select('id, title, task_id, completed_at')
+    sb.from('subtasks').select('id, title, task_id, completed_at, parent_id')
       .eq('user_id', userId).not('completed_at', 'is', null)
       .gte('completed_at', desde).lte('completed_at', hasta).limit(4000),
     sb.from('projects').select('id, name').eq('user_id', userId),
@@ -122,11 +132,18 @@ export async function getHistory(userId: string, from: string, to: string) {
 
   for (const t of tareas.data ?? []) {
     const at = t.completed_at as string
+    const creada = t.created_at as string | null
     dia(at.slice(0, 10)).tareas.push({
       title: (t.title as string) ?? '',
       project: projName.get(t.project_id as string) ?? '?',
       completedAt: at,
       archived: !!t.archived_at,
+      id: t.id as string,
+      rutina: !!(t.recurrence || t.recurring_head_id),
+      // Cuántos días estuvo abierta. Solo tareas: `subtasks.created_at` NO se
+      // pushea desde el cliente (es la hora del primer sync, no la de creación),
+      // así que usarlo sería un número que parece real y no lo es.
+      arrastreDias: creada ? Math.max(0, Math.floor((Date.parse(at) - Date.parse(creada)) / 86400000)) : null,
     })
   }
   for (const s of subs.data ?? []) {
@@ -135,6 +152,7 @@ export async function getHistory(userId: string, from: string, to: string) {
       title: (s.title as string) ?? '',
       task: madres.get(s.task_id as string) ?? '?',
       completedAt: at,
+      taskId: s.task_id as string,
     })
   }
 

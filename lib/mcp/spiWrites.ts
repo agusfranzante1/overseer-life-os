@@ -34,12 +34,26 @@
  *     puede pisar lo que él cargó desde la app. Por eso este archivo mergea en
  *     vez de reemplazar — y por eso borrar requiere pedirlo explícito.
  *
- *  ── LO QUE NO HACE ───────────────────────────────────────────────────────
- *  No CIERRA la sesión. `closeSession` del cliente calcula XP, arma el snapshot
- *  semanal y **empuja cada SPITask al task manager** creando tareas reales en
- *  el proyecto "SPI". Todo eso vive en el store; replicarlo del lado server
- *  sería inventar tareas con ids que el cliente no reconoce. Cerrar se cierra
- *  en la app.
+ *  ── LO QUE NO HACE, Y NO ES POR VAGANCIA ─────────────────────────────────
+ *  **No cierra la sesión.** Se investigó a fondo (2026-08-31, con tres
+ *  revisiones adversariales independientes) y las tres concluyeron lo mismo:
+ *  cerrar desde el server **NO es seguro**. Los cuatro motivos, todos
+ *  verificados contra el código:
+ *
+ *  - `closeSession` hace find-or-create del proyecto "SPI" con **borrado de
+ *    duplicados**, y empuja cada SPITask al task manager con ids `genId()`
+ *    **aleatorios**. Dos dispositivos generarían tareas reales distintas.
+ *  - `closedAt` es **irreversible**: no existe `reopenSession` en `spiStore`
+ *    (sí en `projectionStore` y `labStore`). Un cierre mal puesto desde el
+ *    server deja al usuario en un estado del que no puede salir.
+ *  - El push del cliente es un **upsert ciego del payload entero**: un
+ *    dispositivo con la copia vieja borra el cierre de la nube; el usuario
+ *    cierra otra vez a mano y las tareas reales quedan **duplicadas**.
+ *  - `closeSession` **no chequea `closedAt`**, así que re-cerrar es posible.
+ *
+ *  Cerrar se cierra en la app. Lo más cercano al pedido de "que se cierren
+ *  solas" es que la propia app lo haga en su mantenimiento periódico — pero eso
+ *  es un cambio en el cliente, no en el bridge.
  */
 
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
@@ -235,7 +249,11 @@ export async function updateSpiWeek(userId: string, input: Record<string, unknow
   if (p.closedAt) {
     return {
       ok: false, error: 'semana_cerrada',
-      detail: `La semana del ${w.week} ya está cerrada (${p.closedAt}). Editarla cambiaría un resultado ya contabilizado; abrila desde la app si de verdad hace falta.`,
+      // ⚠️ NO existe `reopenSession` en `spiStore` (sí en projectionStore y
+      // labStore). `closedAt` en una sesión de SPI es un bit de una sola vía:
+      // ni el bridge ni la app lo pueden sacar. Decir "abrila desde la app"
+      // sería mandarlo a buscar un botón que no existe.
+      detail: `La semana del ${w.week} ya está cerrada (${p.closedAt}) y una sesión de SPI cerrada NO se puede reabrir — ni desde acá ni desde la app. Lo que sí se puede es cargar la semana SIGUIENTE (ensure_spi_week con el sábado que corresponda).`,
     }
   }
 
