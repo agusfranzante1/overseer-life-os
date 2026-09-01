@@ -23,6 +23,7 @@ import { getProjection, updateProjection } from './projectionWrites'
 import { getMetasIncompletas } from './huecos'
 import { getBooks, upsertBook } from './bookWrites'
 import { listCalendars } from './queries'
+import { getOffers, upsertOffer, setOfferDoc } from './offerWrites'
 
 export interface ToolDef {
   name: string
@@ -594,6 +595,50 @@ export const TOOLS: ToolDef[] = [
     description:
       'Los calendarios de Google que el usuario tiene TILDADOS, con su id, su nombre y su COLOR. Leelo antes de crear eventos: cada evento va al calendario de su area (Trading, DRM, NQN SURVEY, Personal, Conocimiento…) y no al primario, porque el color del bloque lo da el calendario. Meter todo en el primario hace que el dia entero salga del mismo color y no se distinga nada de un vistazo. El campo puedeEscribir dice si se puede crear ahi: un calendario de solo lectura falla al crear.',
     inputSchema: { type: 'object', properties: {} },
+  },
+  // ─── Ofertas (el CRM) ───────────────────────────────────────────────────
+  {
+    name: 'get_offers',
+    description:
+      'El pipeline de Ofertas: los sistemas, sus ofertas agrupadas por etapa, categorias, geos y score. Usalo cuando el usuario pregunte como viene DRM o una oferta puntual — las TAREAS de DRM no cuentan la misma historia que el pipeline. Con conDocumento:true trae ademas el documento de cada oferta y las notas del sistema, ya convertidos a texto legible.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        systemId: str('Filtrar por un sistema. Omitilo para todos.'),
+        etapa: str('Filtrar por etapa: acepta el id o el NOMBRE (ej. "Stock", "Seleccionado", "UGO").'),
+        conDocumento: { type: 'boolean', description: 'true trae los documentos completos. Pesa: usalo cuando de verdad haga falta leerlos.' },
+      },
+    },
+  },
+  {
+    name: 'upsert_offer',
+    description:
+      'Crea una oferta o la edita, incluido MOVERLA DE ETAPA. La etapa se puede pasar por nombre ("pasala a UGO") y se resuelve contra las etapas reales; una etapa inventada FALLA en vez de dejar la oferta invisible en el tablero. NO existe borrar ofertas desde el bridge y no se va a agregar: este dominio ya perdio 12 ofertas una vez por inferir borrados, y el borrado real va por intencion explicita del usuario en la app.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        offerId: str('Id existente para editar o mover. Omitilo para crear.'),
+        systemId: str('Sistema al que pertenece. Si hay uno solo se resuelve solo.'),
+        nombre: str('Nombre de la oferta.'),
+        etapa: str('Etapa destino, por nombre o por id.'),
+        score: num('Nota corta opcional. null la borra.'),
+      },
+    },
+  },
+  {
+    name: 'set_offer_doc',
+    description:
+      'Escribe el documento de una oferta (pasando offerId) o las notas de un sistema (pasando systemId). Los bloques son strings sueltos o {tipo, texto, hijos}, con tipo text | bullet | toggle | page; un string que empieza con "- " se toma como vinieta. Por default AGREGA al final; modo "reemplazar" pisa todo y avisa cuantos bloques habia. Sube solo el contador docRev, que es lo que hace que el cambio sobreviva al merge multi-dispositivo.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        offerId: str('Documento de esta oferta.'),
+        systemId: str('Notas de este sistema. Uno o el otro, no los dos.'),
+        bloques: { type: 'array', description: 'Strings o {tipo, texto, hijos}.' },
+        modo: str('agregar (default) | reemplazar.'),
+      },
+      required: ['bloques'],
+    },
   }
 ]
 
@@ -746,6 +791,15 @@ export async function callTool(
 
     case 'list_calendars':
       return listCalendars(userId, origin)
+
+    case 'get_offers':
+      return getOffers(userId, args)
+
+    case 'upsert_offer':
+      return upsertOffer(userId, args)
+
+    case 'set_offer_doc':
+      return setOfferDoc(userId, args)
 
     default:
       return { ok: false, error: 'unknown_tool', detail: `No existe la herramienta "${name}".` }
