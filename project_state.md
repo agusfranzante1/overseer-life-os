@@ -47,6 +47,25 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Número de versión visible + `/api/version`** (2026-09-02). Una pestaña abierta sigue
+  corriendo el JS del momento en que se cargó: puede estar ejecutando un build sin los arreglos
+  del sync mientras el servidor ya tiene otro, y **desde afuera no había forma de saberlo**. Pasó
+  con la config del sidebar (BASE nº3) y otra vez hoy: una pestaña vieja volvió a subir tareas que
+  el bridge había borrado. En los dos casos el síntoma fue "la app hace cualquier cosa".
+  - `next.config.ts` sella `NEXT_PUBLIC_BUILD_ID` con el sha corto (`VERCEL_GIT_COMMIT_SHA`, que
+    Vercel pone solo; en local queda `dev`). **Sin configurar nada a mano.**
+  - `/api/version` dice cuál está deployado ahora. Público a propósito.
+  - **Configuración → Versión** compara los dos y avisa con botón de recargar. El fetch va con
+    `cache: 'no-store'`: con caché, la comprobación podría devolver la vieja y decir que todo bien.
+  - **Verificado corriendo la app:** builds iguales → "estás en la última versión"; con el endpoint
+    devolviendo otro sha → aviso ámbar + "Recargar ahora".
+
+- [x] **`get_tasks`: `subtaskLimit`, `taskId` e `incluirSubtareasHechas`** (2026-09-02). El resumen
+  venía topeado en **30 subtareas pendientes por tarea** y no devolvía las completadas. Con los
+  procesos DRM (110+ pasos) eso dejaba ciego al bridge de la subtarea 31 en adelante, y ciego para
+  siempre de cualquier paso ya tildado: **los ids solo salen de ahí**, así que lo que no aparece no
+  se puede tildar, destildar, editar ni borrar.
+
 - [x] **`delete_tasks`: el bridge ya puede borrar tareas enteras** (2026-09-02). Antes solo borraba
   subtareas, así que una tarea creada en el proyecto equivocado quedaba como zombi (se la vaciaba y
   se le cambiaba el título a "BORRAR" para que el usuario la eliminara a mano). Dos cuidados propios
