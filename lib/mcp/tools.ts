@@ -64,6 +64,7 @@ export const TOOLS: ToolDef[] = [
         limit: num('Máximo de tareas. Default 200.'),
         taskId: str('Leer UNA sola tarea. Util para abrir un proceso largo sin arrastrar el resto del tablero.'),
         subtaskLimit: num('Cuantas subtareas pendientes por tarea. Default 30, tope 500. Subilo para procesos de 100+ pasos: los ids de las subtareas SOLO salen de aca, asi que lo que quede afuera no se puede tildar ni borrar.'),
+        incluirSubtareasHechas: { type: 'boolean', description: 'Devolver tambien las subtareas ya completadas con su id, en `subtasks.hechas`. Necesario para destildar, editar o borrar un paso ya hecho.' },
       },
     },
   },
@@ -715,6 +716,7 @@ export async function callTool(
           limit: typeof args.limit === 'number' ? args.limit : undefined,
           taskId: args.taskId as string | undefined,
           subtaskLimit: typeof args.subtaskLimit === 'number' ? args.subtaskLimit : undefined,
+          incluirSubtareasHechas: args.incluirSubtareasHechas === true,
         }),
       }
 

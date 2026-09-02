@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { Settings as SettingsIcon, Bot, Eye, EyeOff, Check, X, Loader2, ExternalLink, AlertCircle, Calendar, Copy, CheckCheck, Link2, Link2Off, Upload, Database, FileJson, Palette, Sun, Moon, RotateCcw, CloudDownload, AlertTriangle, Compass } from 'lucide-react'
 import { useAppStore } from '@/lib/store/appStore'
 import { ClaudeBridgeSection } from './ClaudeBridgeSection'
+import { VersionSection } from './VersionSection'
 import { useGoogleCalendarStore } from '@/lib/store/googleCalendarStore'
 import { useFoodStore } from '@/lib/store/foodStore'
 import { useTasksStore } from '@/lib/store/tasksStore'
@@ -606,6 +607,7 @@ export function SettingsPage() {
       <HealthWebhookSection />
       <DeviceResyncSection />
       <BackupImportSection />
+      <VersionSection />
     </motion.div>
   )
 }

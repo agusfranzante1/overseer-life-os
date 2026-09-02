@@ -36,7 +36,15 @@ export interface BridgeTask {
   completedAt?: string
   isRecurring?: boolean
   notes?: string
-  subtasks?: { total: number; done: number; pending: { id: string; title: string }[] }
+  subtasks?: {
+    total: number
+    done: number
+    pending: { id: string; title: string }[]
+    /** Solo con `incluirSubtareasHechas`. Sin esto los ids de las subtareas YA
+     *  completadas no salen por ningún lado, y sin id no se pueden destildar
+     *  (`complete_subtasks` con done:false), editar ni borrar. */
+    hechas?: { id: string; title: string }[]
+  }
 }
 
 export interface AgendaEvent {
@@ -171,6 +179,9 @@ export interface TaskFilters {
    *  afuera y por lo tanto imposible de tildar o borrar (los ids solo salen de
    *  acá). Tope 500 para no devolver una respuesta impagable. */
   subtaskLimit?: number
+  /** Devolver también las subtareas ya completadas, con su id. Necesario para
+   *  corregir un tilde puesto de más o reescribir un paso ya hecho. */
+  incluirSubtareasHechas?: boolean
 }
 
 /** `select('*')` a propósito: la tabla `tasks` fue creciendo por migraciones
@@ -209,7 +220,7 @@ export async function getTasks(userId: string, f: TaskFilters = {}): Promise<Bri
   rows = rows.filter((r) => !projects.get(r.project_id as string)?.archived)
 
   const taskIds = rows.map((r) => r.id as string)
-  const subsByTask = await getSubtaskSummary(userId, taskIds, f.subtaskLimit)
+  const subsByTask = await getSubtaskSummary(userId, taskIds, f.subtaskLimit, f.incluirSubtareasHechas)
 
   const out = rows.map((r) => toBridgeTask(r, projects, subsByTask))
 
@@ -225,9 +236,9 @@ export async function getTasks(userId: string, f: TaskFilters = {}): Promise<Bri
   return out.slice(0, f.limit ?? 200)
 }
 
-async function getSubtaskSummary(userId: string, taskIds: string[], porTarea?: number) {
+async function getSubtaskSummary(userId: string, taskIds: string[], porTarea?: number, conHechas?: boolean) {
   const tope = Math.min(Math.max(1, Math.floor(porTarea ?? 30)), 500)
-  const map = new Map<string, { total: number; done: number; pending: { id: string; title: string }[] }>()
+  const map = new Map<string, { total: number; done: number; pending: { id: string; title: string }[]; hechas?: { id: string; title: string }[] }>()
   if (taskIds.length === 0) return map
   const sb = getSupabaseAdmin()
   // El `id` NO es decorativo: `delete_subtasks` borra por id, y sin exponerlo
@@ -249,7 +260,13 @@ async function getSubtaskSummary(userId: string, taskIds: string[], porTarea?: n
     if (!wanted.has(key)) continue
     const entry = map.get(key) ?? { total: 0, done: 0, pending: [] }
     entry.total++
-    if (s.completed) entry.done++
+    if (s.completed) {
+      entry.done++
+      if (conHechas) {
+        entry.hechas ??= []
+        if (entry.hechas.length < tope) entry.hechas.push({ id: s.id as string, title: (s.title as string) ?? '' })
+      }
+    }
     else if (entry.pending.length < tope) {
       entry.pending.push({ id: s.id as string, title: (s.title as string) ?? '' })
     }
