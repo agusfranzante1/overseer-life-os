@@ -26,6 +26,25 @@
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import type { WriteResult } from './writes'
 import { isYmd } from './spiWeek'
+import { getUserPrefs } from './queries'
+
+/** El día de HOY en la zona del usuario, NO en UTC.
+ *
+ *  ⚠️ El repaso de hábitos es a las 22:30 y en Argentina a esa hora ya es el día
+ *  siguiente en UTC. Con `new Date().toISOString()` el chequeo nocturno
+ *  preguntaba por el día equivocado TODAS las noches: mostraba 0/16 con el día
+ *  entero cumplido, y `mark_habit` sin fecha marcaba mañana. Mismo bug que
+ *  tenía el gimnasio, detectado el 2026-09-01 a las 23:10. */
+async function hoyLocal(userId: string): Promise<string> {
+  const { timezone } = await getUserPrefs(userId)
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date())
+  } catch {
+    return new Date().toISOString().slice(0, 10)
+  }
+}
 
 interface HabitRow {
   id: string
@@ -67,14 +86,15 @@ export async function getHabits(userId: string, input: Record<string, unknown> =
     .order('created_at', { ascending: true })
   if (error) return { error: 'db_error', detail: error.message }
 
-  const hoy = new Date()
+  // La ventana se arma hacia atrás desde el día LOCAL del usuario.
+  const hoyStr = await hoyLocal(userId)
+  const ancla = new Date(`${hoyStr}T12:00:00Z`)
   const ventana: string[] = []
   for (let i = 0; i < dias; i++) {
-    const d = new Date(hoy)
-    d.setDate(hoy.getDate() - i)
-    ventana.push(ymdLocal(d))
+    const d = new Date(ancla)
+    d.setUTCDate(ancla.getUTCDate() - i)
+    ventana.push(d.toISOString().slice(0, 10))
   }
-  const hoyStr = ventana[0]
 
   const habits = ((data ?? []) as HabitRow[]).map((h) => {
     const done = new Set(h.completed_dates ?? [])
@@ -168,7 +188,7 @@ export async function upsertHabit(userId: string, input: Record<string, unknown>
     skipped_dates: previo?.skipped_dates ?? [],
     category: typeof input.category === 'string' && input.category.trim()
       ? input.category.trim().slice(0, 60) : previo?.category ?? 'General',
-    created_at: previo?.created_at ?? ymdLocal(new Date()),
+    created_at: previo?.created_at ?? await hoyLocal(userId),
     sort_order: previo?.sort_order ?? 999,
     reminder_time: reminder,
   }
@@ -207,7 +227,7 @@ export async function markHabit(userId: string, input: Record<string, unknown>):
   }
 
   const crudas = input.fechas === undefined
-    ? [ymdLocal(new Date())]
+    ? [await hoyLocal(userId)]
     : Array.isArray(input.fechas) ? input.fechas : [input.fechas]
   const fechas = crudas.filter((f): f is string => typeof f === 'string')
   if (fechas.length === 0) return { ok: false, error: 'bad_input', detail: '`fechas` vacío.' }
