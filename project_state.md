@@ -5,7 +5,7 @@
 > El método de trabajo está en [`instructions.md`](instructions.md); las reglas
 > técnicas no negociables en [`AGENTS.md`](AGENTS.md).
 
-**Última actualización:** 2026-09-01 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
+**Última actualización:** 2026-09-02 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
 
 ✅ **Bridge con Claude EN FUNCIONAMIENTO** (2026-08-29): migraciones corridas, deployado y
 verificado contra la cuenta real — token "pc franzix" resuelve, `list_projects` devuelve los 6
@@ -46,6 +46,27 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 ---
 
 ## ✅ Hecho recientemente
+
+- [x] **`delete_tasks`: el bridge ya puede borrar tareas enteras** (2026-09-02). Antes solo borraba
+  subtareas, así que una tarea creada en el proyecto equivocado quedaba como zombi (se la vaciaba y
+  se le cambiaba el título a "BORRAR" para que el usuario la eliminara a mano). Dos cuidados propios
+  de borrar la fila madre:
+  - `subtasks.task_id` es **FK ON DELETE CASCADE**: las subtareas se van solas y son filas propias en
+    su tabla. Sin tombstone, el primer dispositivo que todavía las tenga en memoria las re-pushea, ya
+    sin madre. Se tombstonea la tarea **y cada subtarea** antes de borrar nada.
+  - **Las recurrentes no se borran de a una.** La serie se identifica por `recurring_head_id`, que
+    sobrevive aunque la madre no exista: borrar solo la madre deja las instancias vivas, y si alguna
+    conserva la regla el cliente vuelve a sembrar la serie al abrir Tareas. O se borra la serie
+    completa (`incluirSerieRecurrente: true`) o falla sin tocar nada. Arriba de 10 tareas exige
+    `confirmarBorradoMasivo`.
+  - **Sin migración.** Verificado en producción: borró 6 tareas con 10 subtareas arrastradas.
+
+- [x] **Plantilla DRM v2 — la PÁGINA va antes que los CREATIVOS** (2026-09-02, pedido del usuario):
+  espiar la landing → hacer la propia → espiar los anuncios → mapear creencias → **4 ángulos = 4
+  celdas**. La página fija la promesa y el precio, y los ángulos se escriben contra eso. `Procesos`
+  es la **biblioteca** de plantillas; las copias de trabajo (`🏁 STH · <oferta>`) van al proyecto
+  donde se ejecutan (DRM LT). **El bridge no puede mover una tarea de proyecto** (`update_task` no
+  toca `project_id`): hay que recrearla en el destino y borrar la vieja.
 
 - [x] **El bridge pasó de 24 a ~45 tools: ahora escribe casi todo Overseer** (2026-09-01, en un
   día de uso real con el usuario dictando):

@@ -114,7 +114,8 @@ su cabecera QUÉ no hace y por qué.
 | Módulo | Dominio |
 |---|---|
 | `taskWrites.ts` | crear tareas, subtareas **anidadas** (`{titulo, hijos}`), recurrencia |
-| `updateWrites.ts` / `completeWrites.ts` / `deleteSubtasks.ts` | editar, completar, borrar subtareas (tombstone ANTES del delete) |
+| `updateWrites.ts` / `completeWrites.ts` | editar y completar tareas y subtareas |
+| `deleteSubtasks.ts` / `deleteTasks.ts` | borrar subtareas y tareas enteras — tombstone ANTES del delete, siempre |
 | `spiWrites.ts` | la semana del SPI + la biblioteca de KPIs |
 | `projectionWrites.ts` | metas de año / semestre / trimestre / mes |
 | `habitWrites.ts` · `gymWrites.ts` · `bookWrites.ts` | hábitos, sesiones de gimnasio, biblioteca |
@@ -130,6 +131,10 @@ su cabecera QUÉ no hace y por qué.
 - **Borrar ofertas.** Ese dominio ya perdió 12 filas por inferir borrados; el
   borrado real va por intención explícita (outbox `pendingDeletes`).
 - **Series/reps/kilos** del gimnasio: se cargan entrenando, no dictados.
+- **Borrar una recurrente de a una.** `delete_tasks` falla si la tarea toca una
+  serie: `recurring_head_id` sobrevive aunque la madre no exista, así que borrar
+  solo la madre deja las instancias vivas y una instancia con la regla vuelve a
+  sembrar la serie. O se borra la serie completa (`incluirSerieRecurrente`) o nada.
 
 **Dos trampas transversales de cualquier tool nueva:**
 1. Todo write **bumpea `updated_at`** — sin eso el pull LWW lo pisa (BASE nº1).
