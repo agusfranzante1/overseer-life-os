@@ -62,6 +62,8 @@ export const TOOLS: ToolDef[] = [
         tags: { type: 'array', items: { type: 'string' }, description: 'Filtrar por etiquetas.' },
         includeCompleted: { type: 'boolean', description: 'Incluir completadas. Default false.' },
         limit: num('Máximo de tareas. Default 200.'),
+        taskId: str('Leer UNA sola tarea. Util para abrir un proceso largo sin arrastrar el resto del tablero.'),
+        subtaskLimit: num('Cuantas subtareas pendientes por tarea. Default 30, tope 500. Subilo para procesos de 100+ pasos: los ids de las subtareas SOLO salen de aca, asi que lo que quede afuera no se puede tildar ni borrar.'),
       },
     },
   },
@@ -711,6 +713,8 @@ export async function callTool(
           tags: Array.isArray(args.tags) ? (args.tags as string[]) : undefined,
           includeCompleted: !!args.includeCompleted,
           limit: typeof args.limit === 'number' ? args.limit : undefined,
+          taskId: args.taskId as string | undefined,
+          subtaskLimit: typeof args.subtaskLimit === 'number' ? args.subtaskLimit : undefined,
         }),
       }
 

@@ -162,6 +162,15 @@ export interface TaskFilters {
   tags?: string[]
   includeCompleted?: boolean
   limit?: number
+  /** Id de UNA tarea. Pensado para leer un proceso largo entero sin arrastrar
+   *  el resto del tablero en la respuesta. */
+  taskId?: string
+  /** Cuántas subtareas pendientes devolver por tarea. Default 30 — que alcanza
+   *  para una tarea normal y se queda MUY corto con un proceso de 100+ pasos:
+   *  sin esto, todo lo que esté después del pendiente nº30 es invisible desde
+   *  afuera y por lo tanto imposible de tildar o borrar (los ids solo salen de
+   *  acá). Tope 500 para no devolver una respuesta impagable. */
+  subtaskLimit?: number
 }
 
 /** `select('*')` a propósito: la tabla `tasks` fue creciendo por migraciones
@@ -186,6 +195,7 @@ export async function getTasks(userId: string, f: TaskFilters = {}): Promise<Bri
   // Las archivadas (papelera) nunca salen: son ruido puro para el planificador.
   rows = rows.filter((r) => !r.archived_at)
   if (!f.includeCompleted) rows = rows.filter((r) => !r.completed_at)
+  if (f.taskId) rows = rows.filter((r) => r.id === f.taskId)
   if (f.projectId) rows = rows.filter((r) => r.project_id === f.projectId)
   if (f.status) rows = rows.filter((r) => r.status === f.status)
   if (f.tags?.length) {
@@ -199,7 +209,7 @@ export async function getTasks(userId: string, f: TaskFilters = {}): Promise<Bri
   rows = rows.filter((r) => !projects.get(r.project_id as string)?.archived)
 
   const taskIds = rows.map((r) => r.id as string)
-  const subsByTask = await getSubtaskSummary(userId, taskIds)
+  const subsByTask = await getSubtaskSummary(userId, taskIds, f.subtaskLimit)
 
   const out = rows.map((r) => toBridgeTask(r, projects, subsByTask))
 
@@ -215,7 +225,8 @@ export async function getTasks(userId: string, f: TaskFilters = {}): Promise<Bri
   return out.slice(0, f.limit ?? 200)
 }
 
-async function getSubtaskSummary(userId: string, taskIds: string[]) {
+async function getSubtaskSummary(userId: string, taskIds: string[], porTarea?: number) {
+  const tope = Math.min(Math.max(1, Math.floor(porTarea ?? 30)), 500)
   const map = new Map<string, { total: number; done: number; pending: { id: string; title: string }[] }>()
   if (taskIds.length === 0) return map
   const sb = getSupabaseAdmin()
@@ -239,7 +250,7 @@ async function getSubtaskSummary(userId: string, taskIds: string[]) {
     const entry = map.get(key) ?? { total: 0, done: 0, pending: [] }
     entry.total++
     if (s.completed) entry.done++
-    else if (entry.pending.length < 30) {
+    else if (entry.pending.length < tope) {
       entry.pending.push({ id: s.id as string, title: (s.title as string) ?? '' })
     }
     map.set(key, entry)
