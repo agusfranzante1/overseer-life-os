@@ -55,6 +55,14 @@ token dura una hora, así que con la app de fondo caduca y el push rebota con `P
 expired`. No es un error: `getSession()` lo renueva y se reintenta UNA vez. Acotado al token —
 migraciones, RLS y red se comportan como siempre, y si el reintento falla se avisa igual.
 
+**El push NO PISA lo más nuevo de la nube** (`lib/supabase/staleGuard.ts`): antes de subir se
+leen los `updated_at` remotos y se descartan las filas que en la nube quedaron más nuevas. Sin
+esto, un dispositivo con la copia vieja en memoria deshacía ediciones hechas en otro lado — pasó
+cuatro veces en un día con lo que escribía el bridge, y una vez se comió un documento de oferta
+entero. Aplicado a `tasks` (+subtasks, que heredan la frescura de la madre), `spi_sessions`,
+`projection_plans` y las tres tablas de ofertas. **`syncDeletes` sigue usando la lista COMPLETA,
+no la filtrada**: una fila que no se subió sigue existiendo local, y verla ausente la borraría.
+
 **El push respeta los tombstones**: antes de subir, `pushTasks` descarta lo que figure en
 `deleted_rows` (`isTombstoned`). Sin eso el upsert resucitaba en la nube lo que otro device o el
 bridge MCP habían borrado mientras este device no pulleaba — el tombstone solo cubría el pull.
@@ -98,15 +106,41 @@ otra cosa: chat con API key facturada por uso. No se mezclan.)
 `mcp_tokens`. Es la única puerta a los datos sin cookie de sesión (el middleware
 ya deja pasar `/api/*`). Se distingue 401 (token malo) de 503 (backend caído).
 
-**Superficie de ESCRITURA — acotada a propósito.** Escribir acá saltea los
-stores y toda la lógica de dominio, que es como este proyecto ya perdió datos
-tres veces. El bridge **no borra nada** (no hay tool de delete) y no toca
-`subtasks` existentes, `archived_at`, `completed_at`, `status` ni `project_id`.
-Puede: escribir `day_plans`, **crear** una tarea (con subtareas y recurrencia),
-mover 4 campos escalares de una tarea (`due_date`, `due_time`,
-`duration_minutes`, `scheduled_for`), poner/sacar la **regla** de recurrencia, y
-mergear `plannerProfile`. Todo write bumpea `updated_at` — sin eso el pull LWW
-lo pisa (BASE nº1).
+**Superficie de ESCRITURA — hoy cubre casi todo el producto** (~45 tools al
+2026-09-01). Escribir acá saltea los stores y toda la lógica de dominio, que es
+como este proyecto ya perdió datos tres veces: por eso cada módulo documenta en
+su cabecera QUÉ no hace y por qué.
+
+| Módulo | Dominio |
+|---|---|
+| `taskWrites.ts` | crear tareas, subtareas **anidadas** (`{titulo, hijos}`), recurrencia |
+| `updateWrites.ts` / `completeWrites.ts` / `deleteSubtasks.ts` | editar, completar, borrar subtareas (tombstone ANTES del delete) |
+| `spiWrites.ts` | la semana del SPI + la biblioteca de KPIs |
+| `projectionWrites.ts` | metas de año / semestre / trimestre / mes |
+| `habitWrites.ts` · `gymWrites.ts` · `bookWrites.ts` | hábitos, sesiones de gimnasio, biblioteca |
+| `offerWrites.ts` | pipeline de ofertas: leer, mover de etapa, escribir documentos |
+| `calendarWrites.ts` · `queries.listCalendars` | eventos de Google, y los calendarios con su color |
+| `progress.ts` · `huecos.ts` | medición ya calculada, y metas declaradas sin completar |
+
+**Lo que NO hace, y son decisiones, no huecos:**
+- **Cerrar la semana del SPI.** Verificado con 3 revisiones adversariales: no es
+  seguro. `closedAt` es irreversible (no hay `reopenSession`), el cierre empuja
+  tareas reales con ids `genId()` y el push del cliente puede borrarlo. Ver la
+  cabecera de `spiWrites.ts`.
+- **Borrar ofertas.** Ese dominio ya perdió 12 filas por inferir borrados; el
+  borrado real va por intención explícita (outbox `pendingDeletes`).
+- **Series/reps/kilos** del gimnasio: se cargan entrenando, no dictados.
+
+**Dos trampas transversales de cualquier tool nueva:**
+1. Todo write **bumpea `updated_at`** — sin eso el pull LWW lo pisa (BASE nº1).
+2. **La fecha por default va en la zona del USUARIO, no en UTC.** Después de las
+   21 en Argentina ya es el día siguiente en UTC: el repaso de hábitos daba 0/16
+   con el día cumplido y el gimnasio guardaba la sesión al día siguiente. Usar
+   `getUserPrefs().timezone`.
+
+**Ofertas — `docRev`, no el reloj.** El `doc` de un sistema/oferta se resuelve
+en el merge por un contador monotónico, NO por `updatedAt`. Escribirlo sin subir
+`docRev` es escribir algo que el próximo pull descarta en silencio.
 
 **Crear tareas es seguro por un motivo puntual:** el pull **recomputa
 `project.taskIds` desde `project_id`**, así que una fila insertada del lado

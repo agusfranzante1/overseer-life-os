@@ -5,7 +5,7 @@
 > El método de trabajo está en [`instructions.md`](instructions.md); las reglas
 > técnicas no negociables en [`AGENTS.md`](AGENTS.md).
 
-**Última actualización:** 2026-08-29 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
+**Última actualización:** 2026-09-01 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
 
 ✅ **Bridge con Claude EN FUNCIONAMIENTO** (2026-08-29): migraciones corridas, deployado y
 verificado contra la cuenta real — token "pc franzix" resuelve, `list_projects` devuelve los 6
@@ -46,6 +46,54 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 ---
 
 ## ✅ Hecho recientemente
+
+- [x] **El bridge pasó de 24 a ~45 tools: ahora escribe casi todo Overseer** (2026-09-01, en un
+  día de uso real con el usuario dictando):
+  - **SPI + KPIs** (`spiWrites.ts`, `spiWeek.ts` con test 20/20): crear la semana, carriles,
+    KPIs encendidos, respuestas y tareas del ritual. Su SPI estaba vacío desde el 15/08 porque
+    cargarlo a mano es la fricción que lo apaga. **La semana del SPI arranca el SÁBADO** — una
+    sesión anclada al sábado X planifica lunes X+2 → domingo X+8; anclarla a otro día la deja
+    invisible.
+  - **Hábitos** (`habitWrites.ts`), **gimnasio** (`gymWrites.ts`), **libros** (`bookWrites.ts`),
+    **proyección** (`projectionWrites.ts`), **ofertas** (`offerWrites.ts` + test 13/13),
+    **`list_calendars`**, **`get_progress`** y **`get_metas_incompletas`** (+ `huecosText.ts`
+    puro, 33/33).
+  - `add_subtasks` ahora acepta **árbol anidado** (`{titulo, hijos}`, 6 niveles). Se insertan
+    padres antes que hijos: `subtasks.parent_id` es FK self-referente.
+  - **Sin migraciones**: todas las tablas ya existían.
+
+- [x] **⚠️ La cascada de `score` de Proyección NO EXISTE** (verificado): `lib/projection/types.ts`
+  promete que el año promedia los trimestres y el mes las semanas, pero **nadie asigna
+  `ProjectionPlan.score` en todo el repo**. Viaja un `undefined` prolijamente sincronizado y el
+  bloque que lo muestra no renderiza nunca. El avance se mide con `get_progress`, que cuenta lo
+  hecho. Corregidos los comentarios del bridge que repetían la promesa.
+
+- [x] **Cerrar la semana del SPI desde el server: NO se hace, y está documentado por qué.**
+  Investigado con 3 revisiones adversariales independientes, las tres NO SEGURO: `closedAt` es
+  irreversible (no existe `reopenSession` en `spiStore`), el cierre hace find-or-create del
+  proyecto SPI **con borrado de duplicados** y empuja tareas reales con ids `genId()`, y el push
+  ciego del cliente podía borrar el cierre y provocar que el usuario duplicara todo al re-cerrar.
+
+- [x] **El push ciego deshacía las ediciones hechas en otro lado** (`staleGuard.ts`, test 17/17):
+  el push subía el store entero con un `upsert` sin comparar nada — el merge LWW vive en el PULL.
+  Un dispositivo con la copia vieja en memoria pisaba lo que escribía el bridge. Pasó **cuatro
+  veces en un día** con subtareas que "se desmarcaban solas", y una vez se comió un documento de
+  oferta entero. Ahora se leen los `updated_at` remotos antes de subir. Aplicado a `tasks`
+  (+subtasks), `spi_sessions`, `projection_plans` y las 3 tablas de ofertas.
+  - Dos trampas que tiene el test: las fechas de Postgres vienen `+00:00` y las del cliente `Z`
+    (mismo instante, y comparadas como TEXTO dan al revés), y **`syncDeletes` sigue usando la
+    lista COMPLETA** — con la filtrada, una fila no subida se habría BORRADO de la nube.
+
+- [x] **Los calendarios destildados en Google seguían entrando** al bridge. La API documenta
+  `selected` como *"Optional, default False"*: cuando se destilda, Google **omite el campo**, y
+  el filtro era `selected !== false`. Ahora se exige `selected === true` (el primario siempre
+  pasa), y `get_agenda` devuelve `calendar.leidos` / `calendar.ignorados` para poder verificarlo.
+
+- [x] **La fecha por default iba en UTC** en hábitos y gimnasio: después de las 21 en Argentina ya
+  es el día siguiente en UTC, así que el repaso nocturno mostraba 0/16 con el día cumplido y una
+  sesión de gimnasio se guardaba al día siguiente. Ahora se resuelve con `getUserPrefs().timezone`.
+  **Vale para cualquier tool nueva.**
+
 
 - [x] **El token vencido rompía el push ("Sync push failed: JWT expired · PGRST303")** (Claude directo):
   Reporte: toast rojo con ese texto crudo. El access token de Supabase dura **una hora**: con la app
