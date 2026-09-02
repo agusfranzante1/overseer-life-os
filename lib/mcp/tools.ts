@@ -11,6 +11,7 @@ import {
 import { saveDayPlan, scheduleTask, updatePlannerProfile } from './writes'
 import { createTask, setTaskRecurrence, addSubtasks } from './taskWrites'
 import { deleteSubtasks } from './deleteSubtasks'
+import { deleteTasks } from './deleteTasks'
 import { getSpi, getKpis, getHistory } from './spiQueries'
 import { completeTasks, completeSubtasks } from './completeWrites'
 import { updateTask, updateSubtask } from './updateWrites'
@@ -219,6 +220,26 @@ export const TOOLS: ToolDef[] = [
         taskId: str('Opcional pero recomendado: si se pasa, falla si alguna subtarea no pertenece a esa tarea.'),
       },
       required: ['subtaskIds'],
+    },
+  },
+  {
+    name: 'delete_tasks',
+    description:
+      'Borra tareas ENTERAS por id, con sus subtareas (la FK es on delete cascade). Escribe tombstones de la tarea Y de cada subtarea antes de borrar, para que no rebote desde otro dispositivo. SE NIEGA si alguna es parte de una serie recurrente: borrar una sola deja el resto vivo y la serie se vuelve a sembrar — hay que pasar `incluirSerieRecurrente: true` para llevarse la serie completa, o usar set_task_recurrence con null si solo se quiere detenerla. Arriba de 10 tareas exige `confirmarBorradoMasivo`. NO borra proyectos ni archiva: esto borra de verdad y no tiene deshacer.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskIds: { type: 'array', items: { type: 'string' }, description: 'Ids de las tareas a borrar.' },
+        incluirSerieRecurrente: {
+          type: 'boolean',
+          description: 'Permite borrar series recurrentes COMPLETAS (madre + todas sus instancias, incluso completadas). Sin esto, tocar una recurrente falla sin borrar nada.',
+        },
+        confirmarBorradoMasivo: {
+          type: 'boolean',
+          description: 'Necesario cuando el pedido termina borrando mas de 10 tareas.',
+        },
+      },
+      required: ['taskIds'],
     },
   },
   {
@@ -725,6 +746,13 @@ export async function callTool(
 
     case 'delete_subtasks':
       return deleteSubtasks(userId, { subtaskIds: args.subtaskIds, taskId: args.taskId as string | undefined })
+
+    case 'delete_tasks':
+      return deleteTasks(userId, {
+        taskIds: args.taskIds,
+        incluirSerieRecurrente: args.incluirSerieRecurrente === true,
+        confirmarBorradoMasivo: args.confirmarBorradoMasivo === true,
+      })
 
     case 'set_task_recurrence':
       return setTaskRecurrence(userId, {
