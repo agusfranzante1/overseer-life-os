@@ -24,6 +24,26 @@
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import type { WriteResult } from './writes'
 import { isYmd } from './spiWeek'
+import { getUserPrefs } from './queries'
+
+/** El día de HOY en la zona del usuario, no en UTC.
+ *
+ *  ⚠️ Esto no es cosmético: entrena a las 19:00 y avisa a las 21:00, y a esa
+ *  hora en Argentina ya es el día siguiente en UTC. Con `new Date()
+ *  .toISOString()` toda sesión avisada después de las 21 se guardaba MAÑANA, y
+ *  el "hace cuántos días" salía corrido. Se detectó el 2026-09-01 a las 21:30,
+ *  con la sesión de ese mismo día reportada como "hace 1 día". */
+async function hoyLocal(userId: string): Promise<string> {
+  const { timezone } = await getUserPrefs(userId)
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date())
+  } catch {
+    // Zona ilegible: se cae a UTC, pero se sabe. No se inventa una zona.
+    return new Date().toISOString().slice(0, 10)
+  }
+}
 
 /** Los grupos que la app usa para clasificar. Se guardan normalizados para que
  *  "espalda" y "Espalda" no cuenten como dos cosas distintas al resumir. */
@@ -60,7 +80,7 @@ export async function logWorkout(userId: string, input: Record<string, unknown>)
 
   const fecha = typeof input.fecha === 'string' && isYmd(input.fecha)
     ? input.fecha
-    : new Date().toISOString().slice(0, 10)
+    : await hoyLocal(userId)
 
   const nombre = typeof input.nombre === 'string' ? input.nombre.trim() : ''
   const grupos = Array.isArray(input.grupos)
@@ -121,7 +141,14 @@ export async function logWorkout(userId: string, input: Record<string, unknown>)
     exercises: ejercicios,
     started_at: inicio,
     ended_at: fin,
-    notes: typeof input.notas === 'string' ? input.notas.slice(0, 2000) : null,
+    // Los grupos se guardan en las notas con un prefijo parseable. Sin esto
+    // `ultimaVezPorGrupo` solo puede razonar sobre el NOMBRE de la rutina
+    // (Push/Pull/Leg), y se pierde el detalle justo cuando no hay ejercicios
+    // cargados — que es el caso normal acá.
+    notes: [
+      grupos.length ? `Grupos: ${grupos.join(', ')}` : '',
+      typeof input.notas === 'string' ? input.notas.slice(0, 2000) : '',
+    ].filter(Boolean).join('\n') || null,
   }
 
   const { error } = await sb.from('gym_sessions').upsert(fila)
@@ -155,20 +182,23 @@ export async function getWorkoutSplit(userId: string, input: Record<string, unkn
   const desde = new Date(Date.now() - dias * 86400000).toISOString().slice(0, 10)
 
   const { data, error } = await sb.from('gym_sessions')
-    .select('date, name, exercises, ended_at, started_at')
+    .select('date, name, exercises, notes, ended_at, started_at')
     .eq('user_id', userId).gte('date', desde).order('date', { ascending: false })
   if (error) return { error: 'db_error', detail: error.message }
 
-  const hoy = new Date().toISOString().slice(0, 10)
+  const hoy = await hoyLocal(userId)
   const diasDesde = (f: string) => Math.round((Date.parse(hoy) - Date.parse(f)) / 86400000)
 
   const sesiones = (data ?? []).map((s) => {
     const ex = Array.isArray(s.exercises) ? (s.exercises as { muscleGroup?: string }[]) : []
+    // De los ejercicios si los hay, y si no de la línea "Grupos:" de las notas.
+    const deNotas = /^Grupos:\s*(.+)$/m.exec(String(s.notes ?? ''))?.[1]
+      ?.split(',').map((g) => g.trim()).filter(Boolean) ?? []
     return {
       fecha: s.date as string,
       hace: diasDesde(s.date as string),
       nombre: s.name as string,
-      grupos: [...new Set(ex.map((e) => e.muscleGroup).filter(Boolean))],
+      grupos: [...new Set([...ex.map((e) => e.muscleGroup).filter(Boolean), ...deNotas])],
       ejercicios: ex.length,
     }
   })
