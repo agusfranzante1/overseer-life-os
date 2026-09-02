@@ -134,12 +134,12 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'add_subtasks',
     description:
-      'Agrega subtareas a una tarea que YA existe (create_task solo sirve para tareas nuevas). Caen al final del checklist. Sirve para desglosar en pasos concretos un proyecto que el usuario tiene modelado como una tarea contenedora.',
+      'Agrega subtareas a una tarea que YA existe (create_task solo sirve para tareas nuevas). Caen al final del checklist. ACEPTA ANIDADO: cada ítem puede ser un string suelto o { titulo, hijos: [...] }, hasta 6 niveles — sirve para cargar un proceso entero con sus etapas, secciones e ítems de una sola vez.',
     inputSchema: {
       type: 'object',
       properties: {
         taskId: str('Tarea a la que se le agregan.'),
-        subtasks: { type: 'array', items: { type: 'string' }, description: 'Títulos, en orden.' },
+        subtasks: { type: 'array', description: 'Strings sueltos o { titulo, hijos: [...] } anidado, en orden.' },
       },
       required: ['taskId', 'subtasks'],
     },

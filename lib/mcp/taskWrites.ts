@@ -263,9 +263,34 @@ export async function addSubtasks(
   if (readErr) return { ok: false, error: 'db_error', detail: readErr.message }
   if (!task) return { ok: false, error: 'not_found', detail: `No existe la tarea ${taskId} en esta cuenta.` }
 
-  const parsed = normalizeSubtasks(input.subtasks, bridgeId)
-  if (!parsed.ok) return { ok: false, error: 'bad_subtasks', detail: parsed.error }
-  if (parsed.subtasks.length === 0) {
+  // Árbol: acepta strings sueltos o { titulo, hijos: [...] } anidado.
+  //
+  // `subtasks.parent_id` es una FK self-referente, así que las filas se insertan
+  // SIEMPRE padres antes que hijos o Postgres rechaza el batch entero. Como el
+  // insert respeta el orden del array, alcanza con aplanar en profundidad.
+  const plano: { id: string; title: string; parentId: string | null; orden: number }[] = []
+  let contador = 0
+  const aplanar = (nodos: unknown, parentId: string | null, nivel: number): string | null => {
+    if (!Array.isArray(nodos)) return null
+    if (nivel > 6) return 'Demasiada anidación (máximo 6 niveles).'
+    for (const raw of nodos) {
+      const esTexto = typeof raw === 'string'
+      const o = (esTexto ? {} : raw) as Record<string, unknown>
+      const titulo = String(esTexto ? raw : (o.titulo ?? o.title ?? '')).trim()
+      if (!titulo) continue
+      const id = bridgeId()
+      plano.push({ id, title: titulo.slice(0, 500), parentId, orden: contador++ })
+      const hijos = o.hijos ?? o.children
+      if (hijos) {
+        const err = aplanar(hijos, id, nivel + 1)
+        if (err) return err
+      }
+    }
+    return null
+  }
+  const errArbol = aplanar(input.subtasks, null, 0)
+  if (errArbol) return { ok: false, error: 'bad_subtasks', detail: errArbol }
+  if (plano.length === 0) {
     return { ok: false, error: 'nothing_to_do', detail: 'No mandaste ninguna subtarea con título.' }
   }
 
@@ -282,14 +307,15 @@ export async function addSubtasks(
     (m, r) => Math.max(m, Number((r as Record<string, unknown>).order ?? 0)), -1,
   )
 
-  const rows = parsed.subtasks.map((s, i) => ({
+  const rows = plano.map((s) => ({
     id: s.id,
     user_id: userId,
     task_id: taskId,
+    parent_id: s.parentId,
     title: s.title,
     completed: false,
     status,
-    order: maxOrder + 1 + i,
+    order: maxOrder + 1 + s.orden,
   }))
 
   const { error } = await sb.from('subtasks').insert(rows)
