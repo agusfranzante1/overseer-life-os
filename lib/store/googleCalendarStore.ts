@@ -145,8 +145,8 @@ interface State {
   error: string | null
 
   // Selected view (persisted across navigation)
-  view: 'month' | 'week'
-  setView: (v: 'month' | 'week') => void
+  view: 'month' | 'week' | 'day'
+  setView: (v: 'month' | 'week' | 'day') => void
 
   // Right side rail visibility (persisted)
   showSideRail: boolean

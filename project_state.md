@@ -47,6 +47,29 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Calendario: vista DIARIA** (2026-09-04, pedido del usuario — antes solo había mes y semana):
+  La vista diaria es la semanal con **una sola columna**, no un componente nuevo: `WeekView` toma un
+  prop `mode` y de ahí sale `days` (7 o 1). Todo lo caro que ya estaba resuelto —grilla horaria con
+  horas ocultas, drag/resize con snap de 15 min, reparto de ancho entre bloques solapados, franja
+  all-day, línea del ahora— sigue valiendo sin tocarse. Los tres `repeat(7, 1fr)` y la matemática
+  del drag horizontal (`/ 7`, `Math.min(6, …)`) pasaron a leer `days.length`.
+  - En vista diaria, **prev/next mueve el día seleccionado también**: si no, el panel lateral
+    ("Tareas + eventos del día") se quedaba mostrando otra fecha que la grilla. Igual el botón "Hoy".
+  - Entrar a **Día se ancla al día seleccionado**, no a hoy: venís de tocar el 12 en el mes y esperás
+    ver ESE día.
+  - La píldora de ocultar la noche ahora aparece en las dos vistas horarias (antes solo semana).
+  - `view` se persiste en `googleCalendarStore` — sumar `'day'` al tipo no cambia el default, así que
+    una cuenta que ya existe abre donde estaba (BASE nº4). **Sin migración.**
+  - **Verificado corriendo la app**, medido en el DOM: la grilla pasa de `56px repeat(7,1fr)` a
+    `56px 774px`; el bloque suelto de 09:00 usa los 761px de la columna y los dos de 14:00/14:30 se
+    reparten 381px cada uno (el solape sigue andando en diaria). Prev/next avanza un día y el panel
+    lateral lo sigue (4→5→6 sep). Elegir el 12 en el mes y tocar Día abre el 12. En mobile (375px):
+    una columna de 287px, sin scroll horizontal. `tsc` + `next build` OK.
+  - **Detalle PRE-EXISTENTE, no lo introduce este cambio:** en mobile, con el panel lateral abierto
+    la grilla del calendario se aplasta a ~2px de alto **en las tres vistas** (mes, semana y día) —
+    el panel se come el alto. Ocultándolo con el botón de la barra queda perfecta (593px de alto).
+    Se puede arreglar aparte si querés.
+
 - [x] **Número de versión visible + `/api/version`** (2026-09-02). Una pestaña abierta sigue
   corriendo el JS del momento en que se cargó: puede estar ejecutando un build sin los arreglos
   del sync mientras el servidor ya tiene otro, y **desde afuera no había forma de saberlo**. Pasó

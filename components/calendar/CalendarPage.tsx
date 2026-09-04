@@ -16,17 +16,17 @@ import { usePriorityGate } from '@/lib/dashboard/priorityGate'
 import {
   format, startOfMonth, endOfMonth, startOfWeek, endOfWeek,
   eachDayOfInterval, isSameMonth, isToday, isSameDay,
-  addMonths, subMonths, addWeeks, subWeeks, addDays,
+  addMonths, subMonths, addWeeks, subWeeks, addDays, subDays,
   differenceInMinutes, parseISO, max as maxDate, min as minDate,
 } from 'date-fns'
 import {
   ChevronLeft, ChevronRight, Calendar, Plus, RefreshCw, Trash2, X,
   Link as LinkIcon, Eye, EyeOff, LogOut, ExternalLink, AlertCircle,
-  LayoutGrid, Rows, Moon, Sun, Settings as SettingsIcon,
+  LayoutGrid, Rows, CalendarDays, Moon, Sun, Settings as SettingsIcon,
   PanelRightOpen, PanelRightClose, Check, Circle, ChevronDown, ListTodo,
 } from 'lucide-react'
 
-type ViewMode = 'month' | 'week'
+type ViewMode = 'month' | 'week' | 'day'
 
 type EventTaskDraft = {
   title: string
@@ -105,8 +105,24 @@ export function CalendarPage() {
   // whether to delete just this occurrence or the whole series.
   const [deleteScopePrompt, setDeleteScopePrompt] = useState<{ ev: GEvent } | null>(null)
 
-  const goPrev = () => setCurrentDate(view === 'month' ? subMonths(currentDate, 1) : subWeeks(currentDate, 1))
-  const goNext = () => setCurrentDate(view === 'month' ? addMonths(currentDate, 1) : addWeeks(currentDate, 1))
+  /** Prev/next se mueve en la unidad de la vista: mes, semana o día. En vista
+   *  diaria el día que se mira ES el día seleccionado — si no, el panel lateral
+   *  ("Tareas + eventos del día") se quedaría mostrando otra fecha que la
+   *  grilla. */
+  const goTo = (d: Date) => {
+    setCurrentDate(d)
+    if (view === 'day') setSelectedDay(d)
+  }
+  const goPrev = () => goTo(
+    view === 'month' ? subMonths(currentDate, 1)
+      : view === 'week' ? subWeeks(currentDate, 1)
+        : subDays(currentDate, 1)
+  )
+  const goNext = () => goTo(
+    view === 'month' ? addMonths(currentDate, 1)
+      : view === 'week' ? addWeeks(currentDate, 1)
+        : addDays(currentDate, 1)
+  )
 
   // Read URL params for OAuth callback feedback
   useEffect(() => {
@@ -466,11 +482,13 @@ export function CalendarPage() {
           <p className="text-zinc-500 text-xs truncate">
             {view === 'month'
               ? format(currentDate, 'MMMM yyyy', { locale: dfLocale })
-              : (() => {
-                  const ws = startOfWeek(currentDate, { weekStartsOn: 1 })
-                  const we = endOfWeek(currentDate, { weekStartsOn: 1 })
-                  return `${format(ws, 'd MMM', { locale: dfLocale })} – ${format(we, 'd MMM yyyy', { locale: dfLocale })}`
-                })()}
+              : view === 'day'
+                ? format(currentDate, 'EEEE d MMM yyyy', { locale: dfLocale })
+                : (() => {
+                    const ws = startOfWeek(currentDate, { weekStartsOn: 1 })
+                    const we = endOfWeek(currentDate, { weekStartsOn: 1 })
+                    return `${format(ws, 'd MMM', { locale: dfLocale })} – ${format(we, 'd MMM yyyy', { locale: dfLocale })}`
+                  })()}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -494,10 +512,25 @@ export function CalendarPage() {
               }`}>
               <Rows className="w-3.5 h-3.5" /> Semana
             </button>
+            {/* Vista diaria — una sola columna a lo ancho. Al entrar se ancla
+                al día que estaba seleccionado (venís de tocar un día en el mes
+                y esperás ver ESE día, no hoy). */}
+            <button onClick={() => {
+                if (selectedDay) setCurrentDate(selectedDay)
+                setView('day')
+              }}
+              title="Vista diaria"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                view === 'day'
+                  ? 'bg-white/[0.10] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]'
+                  : 'text-zinc-500 hover:text-zinc-200'
+              }`}>
+              <CalendarDays className="w-3.5 h-3.5" /> Día
+            </button>
           </div>
 
-          {/* Night-hide pill (week view only) */}
-          {view === 'week' && (
+          {/* Night-hide pill — aplica a las dos vistas con grilla horaria. */}
+          {view !== 'month' && (
             <NightHidePill
               enabled={gcal.hideNight}
               start={gcal.hideStart}
@@ -533,7 +566,7 @@ export function CalendarPage() {
             className="text-zinc-400 hover:text-zinc-100 transition-colors p-2 hover:bg-white/[0.05] rounded-lg">
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <button onClick={() => setCurrentDate(new Date())}
+          <button onClick={() => goTo(new Date())}
             className="text-xs text-zinc-400 hover:text-zinc-100 border border-white/[0.12] hover:border-zinc-500 px-3 py-1.5 rounded-lg transition-colors">
             {t('calendar.today')}
           </button>
@@ -668,6 +701,7 @@ export function CalendarPage() {
         ) : (
           <WeekView
             anchor={currentDate}
+            mode={view === 'day' ? 'day' : 'week'}
             events={mergedEvents}
             tasks={Object.values(tasks)}
             projects={projects}
@@ -1683,6 +1717,10 @@ function isHourHidden(h: number, start: number, end: number, enabled: boolean): 
 
 interface WeekViewProps {
   anchor: Date
+  /** 'week' = las 7 columnas de la semana del `anchor`; 'day' = una sola
+   *  columna, la del `anchor`. Todo lo demás (grilla horaria, drag, solapes,
+   *  franja all-day) es idéntico: la vista diaria es la semanal con un día. */
+  mode?: 'week' | 'day'
   events: GEvent[]
   tasks: { id: string; title: string; dueDate?: string; projectId: string; recurrence?: import('@/types').TaskRecurrence }[]
   projects: Record<string, { color: string; name: string } | undefined> | Record<string, { color: string; name: string }>
@@ -1704,11 +1742,24 @@ interface WeekViewProps {
   onToggleTaskDone?: (ev: GEvent) => void
 }
 
-function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, setSelectedDay, hideNight, hideStart, hideEnd, onEventClick, onCreateAt, onEventMove, onToggleTaskDone }: WeekViewProps) {
+function WeekView({ anchor, mode = 'week', events, tasks, projects, calendarById, selectedDay, setSelectedDay, hideNight, hideStart, hideEnd, onEventClick, onCreateAt, onEventMove, onToggleTaskDone }: WeekViewProps) {
   const { dfLocale } = useTranslation()
-  const weekStart = startOfWeek(anchor, { weekStartsOn: 1 })
-  const weekEnd   = endOfWeek(anchor, { weekStartsOn: 1 })
-  const days = eachDayOfInterval({ start: weekStart, end: weekEnd })
+  const days = useMemo(() => {
+    if (mode === 'day') {
+      const d = new Date(anchor); d.setHours(0, 0, 0, 0)
+      return [d]
+    }
+    return eachDayOfInterval({
+      start: startOfWeek(anchor, { weekStartsOn: 1 }),
+      end: endOfWeek(anchor, { weekStartsOn: 1 }),
+    })
+  }, [anchor, mode])
+  // Extremos del rango visible (1 día o 7). Los usan los buckets de eventos y
+  // la expansión de recurrentes.
+  const rangeStart = useMemo(() => { const d = new Date(days[0]); d.setHours(0, 0, 0, 0); return d }, [days])
+  const rangeEnd = useMemo(() => { const d = new Date(days[days.length - 1]); d.setHours(23, 59, 59, 999); return d }, [days])
+  // Ancho de la grilla: 56px de la columna de horas + una columna por día.
+  const gridCols = `56px repeat(${days.length}, 1fr)`
 
   // All-day strip colapsable — el listado de tareas+eventos all-day por
   // día puede crecer mucho y comerse altura del grid horario. Persistimos
@@ -1768,34 +1819,34 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
     for (const ev of events) {
       if (ev.allDay) continue
       const start = parseISO(ev.start)
-      // Skip events that don't intersect the visible week
-      if (start > weekEnd || parseISO(ev.end) < weekStart) continue
+      // Skip events that don't intersect the visible range
+      if (start > rangeEnd || parseISO(ev.end) < rangeStart) continue
       const key = format(start, 'yyyy-MM-dd')
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(ev)
     }
     return map
-  }, [events, weekStart, weekEnd])
+  }, [events, rangeStart, rangeEnd])
 
   const allDayEventsByDay = useMemo(() => {
     const map = new Map<string, GEvent[]>()
     for (const ev of events) {
       if (!ev.allDay) continue
       const start = parseISO(ev.start + 'T00:00:00')
-      if (start > weekEnd || parseISO(ev.end + 'T00:00:00') < weekStart) continue
+      if (start > rangeEnd || parseISO(ev.end + 'T00:00:00') < rangeStart) continue
       const key = ev.start.slice(0, 10)
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(ev)
     }
     return map
-  }, [events, weekStart, weekEnd])
+  }, [events, rangeStart, rangeEnd])
 
   const tasksByDay = useMemo(() => {
     const map = new Map<string, typeof tasks>()
-    // Rango visible de la semana — para expandir las recurrentes
-    // dentro de esos 7 días sin tener que iterar todas las fechas.
-    const weekStartStr = format(weekStart, 'yyyy-MM-dd')
-    const weekEndStr = format(weekEnd, 'yyyy-MM-dd')
+    // Rango visible (1 día o 7) — para expandir las recurrentes dentro de
+    // esas fechas sin tener que iterar todas.
+    const rangeStartStr = format(rangeStart, 'yyyy-MM-dd')
+    const rangeEndStr = format(rangeEnd, 'yyyy-MM-dd')
     for (const t of tasks) {
       if (!t.dueDate) continue
       // Instancia base (la del store).
@@ -1803,7 +1854,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
       map.get(t.dueDate)!.push(t)
       // Instancias recurrentes proyectadas hacia adelante.
       if (t.recurrence) {
-        const occurrences = expandRecurrenceInRange(t.dueDate, t.recurrence, weekStartStr, weekEndStr)
+        const occurrences = expandRecurrenceInRange(t.dueDate, t.recurrence, rangeStartStr, rangeEndStr)
         for (const occ of occurrences) {
           if (occ === t.dueDate) continue  // ya la metimos arriba
           if (!map.has(occ)) map.set(occ, [])
@@ -1812,7 +1863,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
       }
     }
     return map
-  }, [tasks, weekStart, weekEnd])
+  }, [tasks, rangeStart, rangeEnd])
 
   // Visible hours (whole hours rendered as cells)
   const visibleHours = useMemo(
@@ -1873,7 +1924,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
     >
       {/* Header row — GCal style: day abbreviation small + colored circle
           around today's number, larger and bolder numbers. */}
-      <div className="grid border-b border-white/[0.05] shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
+      <div className="grid border-b border-white/[0.05] shrink-0" style={{ gridTemplateColumns: gridCols }}>
         <div /> {/* empty corner */}
         {days.map((day) => {
           const selected = selectedDay && isSameDay(day, selectedDay)
@@ -1911,7 +1962,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
           izquierda). Cuando está colapsado, cada celda muestra solo un
           contador "N items" en vez de la lista. */}
       {[...allDayEventsByDay.values()].some((arr) => arr.length > 0) || days.some((d) => (tasksByDay.get(format(d, 'yyyy-MM-dd')) ?? []).length > 0) ? (
-        <div className="grid border-b border-white/[0.05] shrink-0" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
+        <div className="grid border-b border-white/[0.05] shrink-0" style={{ gridTemplateColumns: gridCols }}>
           <button
             onClick={() => setAllDayCollapsed((v) => !v)}
             title={allDayCollapsed ? 'Mostrar tareas y eventos all-day' : 'Ocultar tareas y eventos all-day'}
@@ -1989,7 +2040,7 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
           el.dataset.scrolled = '1'
         }
       }}>
-        <div ref={gridRef} className="grid relative" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
+        <div ref={gridRef} className="grid relative" style={{ gridTemplateColumns: gridCols }}>
           {/* Hours column — GCal-style: time labels in lighter zinc-300,
               non-mono sans, slightly larger, no quote marks. */}
           <div className="border-r border-white/[0.05]">
@@ -2154,10 +2205,10 @@ function WeekView({ anchor, events, tasks, projects, calendarById, selectedDay, 
                         if (grid) {
                           const rect = grid.getBoundingClientRect()
                           const dayColsLeft = rect.left + 56
-                          const dayColWidth = (rect.width - 56) / 7
+                          const dayColWidth = (rect.width - 56) / days.length
                           if (dayColWidth > 0) {
                             const targetCol = Math.floor((e.clientX - dayColsLeft) / dayColWidth)
-                            const clamped = Math.max(0, Math.min(6, targetCol))
+                            const clamped = Math.max(0, Math.min(days.length - 1, targetCol))
                             dayShift = clamped - info.originalDayIndex
                           }
                         }
