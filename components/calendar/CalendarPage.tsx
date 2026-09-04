@@ -1812,6 +1812,11 @@ function WeekView({ anchor, mode = 'week', events, tasks, projects, calendarById
     const id = setInterval(() => setNow(new Date()), 60_000)
     return () => clearInterval(id)
   }, [])
+  /** ¿Alguno de los días a la vista es hoy? En semanal casi siempre; en diaria
+   *  solo cuando estás parado en el día de hoy. */
+  const showsToday = days.some((d) => isSameDay(d, now))
+  const nowHourHidden = isHourHidden(now.getHours(), hideStart, hideEnd, hideNight)
+  const scrollerRef = useRef<HTMLDivElement | null>(null)
 
   // Bucket events per day
   const timedEventsByDay = useMemo(() => {
@@ -1884,6 +1889,23 @@ function WeekView({ anchor, mode = 'week', events, tasks, projects, calendarById
     }
     return y
   }
+
+  /** Hora a la que conviene encuadrar el scroll: dos horas antes de ahora (así
+   *  ves lo que viene), o la primera hora visible si la actual está oculta. */
+  const scrollRefHour = () => (
+    nowHourHidden ? (visibleHours[0] ?? 0) : Math.max(0, now.getHours() - 2)
+  )
+
+  // Reencuadrar al cambiar de vista (semana ↔ día). El contenedor scrolleable
+  // es el MISMO nodo en las dos, así que React no lo re-monta y el auto-scroll
+  // del mount no vuelve a correr: sin esto heredás el scroll de la otra vista y
+  // la línea roja de "ahora" puede quedar 12 horas fuera de pantalla — desde
+  // afuera parece que la vista diaria no la dibuja.
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    el.scrollTop = fractionalToY(scrollRefHour())
+  }, [mode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function eventLayout(ev: GEvent, dayStart: Date, dayEnd: Date): { top: number; height: number } | null {
     const evStart = maxDate([parseISO(ev.start), dayStart])
@@ -2031,19 +2053,29 @@ function WeekView({ anchor, mode = 'week', events, tasks, projects, calendarById
 
       {/* Scrollable hour grid (pt-3 prevents the first hour label from being clipped by the top edge) */}
       <div className="overflow-y-auto flex-1 pt-3" ref={(el) => {
+        scrollerRef.current = el
         // Auto-scroll to current hour on mount (skip if current hour is hidden — scroll to first visible)
         if (el && !el.dataset.scrolled) {
-          const refHour = isHourHidden(now.getHours(), hideStart, hideEnd, hideNight)
-            ? (visibleHours[0] ?? 0)
-            : Math.max(0, now.getHours() - 2)
-          el.scrollTop = fractionalToY(refHour)
+          el.scrollTop = fractionalToY(scrollRefHour())
           el.dataset.scrolled = '1'
         }
       }}>
         <div ref={gridRef} className="grid relative" style={{ gridTemplateColumns: gridCols }}>
           {/* Hours column — GCal-style: time labels in lighter zinc-300,
               non-mono sans, slightly larger, no quote marks. */}
-          <div className="border-r border-white/[0.05]">
+          <div className="border-r border-white/[0.05] relative">
+            {/* Hora actual pegada a la línea roja, como en Google Calendar:
+                tapa el label de esa hora y deja claro de un vistazo dónde
+                estás parado (en la vista diaria, con una sola columna, la
+                línea sola se lee menos). */}
+            {showsToday && !nowHourHidden && (
+              <div
+                className="absolute right-1 z-30 -translate-y-1/2 rounded px-1 text-[10px] font-bold text-white bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)] pointer-events-none"
+                style={{ top: fractionalToY(now.getHours() + now.getMinutes() / 60) }}
+              >
+                {format(now, 'HH:mm')}
+              </div>
+            )}
             {visibleHours.map((h, idx) => {
               const prevVisible = idx > 0 ? visibleHours[idx - 1] : -1
               const gapBefore = h !== prevVisible + 1 && idx > 0

@@ -47,6 +47,28 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **La línea roja del "ahora" en la vista diaria: estaba dibujada, quedaba fuera de pantalla**
+  (2026-09-04). Reporte: "en día no aparece la línea roja del horario actual como en semana".
+  - **Causa (medida en el DOM, no supuesta):** la línea SÍ se renderizaba — el problema era el
+    scroll. El contenedor scrolleable de la grilla horaria es el **mismo nodo** en semanal y en
+    diaria (React no re-monta `WeekView` al cambiar de vista, es la misma posición del árbol), y el
+    auto-scroll a la hora actual estaba en el callback del `ref` con guarda `dataset.scrolled`: solo
+    corre en el MOUNT. Al pasar de semana a día heredabas el scroll de la otra vista —medido:
+    `scrollTop 0` con 4003px de grilla, o sea medianoche— y la línea quedaba 12 horas más abajo.
+  - **Fix 1:** `useEffect` sobre `mode` que reencuadra el scroll en la hora actual al cambiar de
+    vista (misma heurística de siempre: dos horas antes de ahora, o la primera hora visible si la
+    actual está oculta por el modo noche).
+  - **Fix 2 (lo que se pidió, y mejora también la semanal):** **chip rojo con la hora** pegado a la
+    línea, en la columna de horas, como hace Google Calendar. Con una sola columna la línea sola se
+    lee menos; el chip la vuelve inconfundible. Tapa el label de esa hora, a propósito.
+  - La línea sigue apareciendo **solo si el día a la vista es hoy** (`showsToday`) — en semanal casi
+    siempre, en diaria solo parado en hoy. Es el mismo criterio que ya tenía.
+  - **Sin migración.**
+  - **Verificado corriendo la app:** en diaria, tras cambiar de vista el scroll queda en 520px con la
+    línea a y=395 dentro del viewport del scroller (232–884) y el chip "12:54" al lado; la línea
+    cruza los 1089px de la columna. En semanal el chip está igual y la línea mide 155px (solo la
+    columna de hoy). Pasando al día siguiente, chip y línea desaparecen. `tsc` + `next build` OK.
+
 - [x] **Calendario: vista DIARIA** (2026-09-04, pedido del usuario — antes solo había mes y semana):
   La vista diaria es la semanal con **una sola columna**, no un componente nuevo: `WeekView` toma un
   prop `mode` y de ahí sale `days` (7 o 1). Todo lo caro que ya estaba resuelto —grilla horaria con
