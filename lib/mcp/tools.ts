@@ -12,6 +12,10 @@ import { saveDayPlan, scheduleTask, updatePlannerProfile } from './writes'
 import { createTask, setTaskRecurrence, addSubtasks } from './taskWrites'
 import { deleteSubtasks } from './deleteSubtasks'
 import { deleteTasks } from './deleteTasks'
+import {
+  listRecords, upsertRecord, deleteRecords,
+  listBeliefs, upsertBelief, deleteBeliefs,
+} from './dataWrites'
 import { getSpi, getKpis, getHistory } from './spiQueries'
 import { completeTasks, completeSubtasks } from './completeWrites'
 import { updateTask, updateSubtask } from './updateWrites'
@@ -590,6 +594,85 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'list_records',
+    description:
+      'LEE cualquiera de los dominios personales que antes no tenian acceso: `journal` (entradas del diario), `meditaciones` (guiones), `youtube` (backlog de videos) y `laboratorio` (sesiones de trabajo interno). Devuelve los registros completos con su id — los ids SOLO salen de aca, asi que sin esto no se puede editar ni borrar nada. Para las CREENCIAS del laboratorio usar list_beliefs, que es otra tabla.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dominio: str('journal | meditaciones | youtube | laboratorio'),
+        id: str('Traer uno solo, por id.'),
+        buscar: str('Filtrar por texto libre en cualquier campo del registro.'),
+        limit: num('Maximo de registros. Default 100, tope 500.'),
+      },
+      required: ['dominio'],
+    },
+  },
+  {
+    name: 'upsert_record',
+    description:
+      'CREA o EDITA un registro en `journal`, `meditaciones`, `youtube` o `laboratorio`. Sin `id` crea; con `id` edita MERGEANDO sobre lo que habia (mandar un solo campo no borra el resto). OJO: solo se guardan los campos que el sync del cliente conserva — cualquier otro se descarta y se avisa en `camposIgnorados`, porque guardarlo seria verlo desaparecer en el proximo pull. Bumpea updated_at, que es lo que hace que el cambio sobreviva al merge.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dominio: str('journal | meditaciones | youtube | laboratorio'),
+        id: str('Id existente para editar. Omitilo para crear.'),
+        datos: {
+          type: 'object',
+          description:
+            'Campos del registro. journal: date (YYYY-MM-DD), title, body. meditaciones: title, script, category, favorite, audioUrl. youtube: title, url, videoId, status (backlog|watching|done), category, notes, favorite. laboratorio: title, exerciseKey, categoryKey, status (open|closed|archived), values, outcome, linkedBeliefId.',
+        },
+      },
+      required: ['dominio', 'datos'],
+    },
+  },
+  {
+    name: 'delete_records',
+    description:
+      'BORRA registros de `journal`, `meditaciones`, `youtube` o `laboratorio` por id. Escribe el tombstone ANTES de borrar para que no rebote desde otro dispositivo. No tiene deshacer.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dominio: str('journal | meditaciones | youtube | laboratorio'),
+        ids: { type: 'array', items: { type: 'string' }, description: 'Ids a borrar.' },
+      },
+      required: ['dominio', 'ids'],
+    },
+  },
+  {
+    name: 'list_beliefs',
+    description:
+      'Las CREENCIAS del Laboratorio, con su estado y las sesiones que trabajaron sobre cada una. Es la otra mitad del laboratorio: las sesiones (list_records dominio=laboratorio) trabajan sobre estas creencias.',
+    inputSchema: {
+      type: 'object',
+      properties: { estado: str('Filtrar: open | working | resolved.') },
+    },
+  },
+  {
+    name: 'upsert_belief',
+    description:
+      'CREA o EDITA una creencia del Laboratorio. Sin `id` crea. `resolvedAt` se pone solo al pasar a resolved y se limpia si se reabre — una creencia reabierta con fecha vieja miente en el historial.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: str('Id existente para editar. Omitilo para crear.'),
+        texto: str('La creencia, en frase corta.'),
+        estado: str('open | working | resolved.'),
+        categoria: str('Categoria. Default "creencias".'),
+        insight: str('Con que insight te quedaste al resolverla.'),
+      },
+    },
+  },
+  {
+    name: 'delete_beliefs',
+    description: 'BORRA creencias del Laboratorio por id. Tombstone antes del delete. No tiene deshacer.',
+    inputSchema: {
+      type: 'object',
+      properties: { ids: { type: 'array', items: { type: 'string' }, description: 'Ids a borrar.' } },
+      required: ['ids'],
+    },
+  },
+  {
     name: 'get_books',
     description:
       'La biblioteca del usuario: qué está leyendo, qué quiere leer y qué terminó, con las fechas de inicio y fin. "Leer 30 min" es uno de sus hábitos diarios, así que esto es el contenido de ese hábito.',
@@ -842,6 +925,27 @@ export async function callTool(
 
     case 'get_metas_incompletas':
       return getMetasIncompletas(userId, args)
+
+    case 'list_records':
+      return listRecords(userId, { dominio: args.dominio, id: args.id, buscar: args.buscar, limit: args.limit })
+
+    case 'upsert_record':
+      return upsertRecord(userId, { dominio: args.dominio, id: args.id, datos: args.datos })
+
+    case 'delete_records':
+      return deleteRecords(userId, { dominio: args.dominio, ids: args.ids })
+
+    case 'list_beliefs':
+      return listBeliefs(userId, { estado: args.estado })
+
+    case 'upsert_belief':
+      return upsertBelief(userId, {
+        id: args.id, texto: args.texto, estado: args.estado,
+        categoria: args.categoria, insight: args.insight,
+      })
+
+    case 'delete_beliefs':
+      return deleteBeliefs(userId, { ids: args.ids })
 
     case 'get_books':
       return getBooks(userId, args)
