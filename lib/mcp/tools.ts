@@ -16,6 +16,10 @@ import {
   listRecords, upsertRecord, deleteRecords,
   listBeliefs, upsertBelief, deleteBeliefs,
 } from './dataWrites'
+import {
+  listLabExercises, listLabCategories,
+  upsertLabExercise, upsertLabCategory, deleteLabExercise,
+} from './labCatalog'
 import { getSpi, getKpis, getHistory } from './spiQueries'
 import { completeTasks, completeSubtasks } from './completeWrites'
 import { updateTask, updateSubtask } from './updateWrites'
@@ -673,6 +677,63 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'list_lab_exercises',
+    description:
+      'El CATALOGO de ejercicios del Laboratorio: los de fabrica (viven en el codigo) y los propios (creados por el usuario). Por default devuelve un resumen; con `completo: true` o una `key` trae los pasos y campos enteros. Un ejercicio propio con la misma key que uno de fabrica lo TAPA — asi es como se "edita" uno de fabrica.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        key: str('Un ejercicio puntual, con todo su detalle.'),
+        categoria: str('Filtrar por categoryKey.'),
+        completo: { type: 'boolean', description: 'Traer pasos y campos de todos. Pesa.' },
+      },
+    },
+  },
+  {
+    name: 'list_lab_categories',
+    description: 'Las categorias del Laboratorio (de fabrica y propias) con cuantos ejercicios tiene cada una.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'upsert_lab_exercise',
+    description:
+      'CREA o EDITA un ejercicio del Laboratorio. Sin `key` crea uno nuevo. Con la key de uno PROPIO lo edita. Con la key de uno de FABRICA crea una copia propia que lo tapa, que es la unica forma de modificarlos. Valida que los campos tengan key/label/type validos, que no haya keys repetidas y que los select tengan opciones — un ejercicio mal armado queda inservible en la app. MERGEA sobre el resto del catalogo: nunca pisa los otros ejercicios.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        key: str('Key del ejercicio a editar. Omitila para crear uno nuevo.'),
+        ejercicio: {
+          type: 'object',
+          description:
+            'El ejercicio. Campos: title, categoryKey, emoji, shortDescription, intro, outro, isQuick, fields[], steps[], titleField. Cada field: { key, label, type (text|textarea|select|checklist|score), placeholder, options (obligatorio si es select), hint, blockquote, epigraph }. Cada step: { key, title, emoji, intro, fields[], defaultCollapsed }. `titleField: { stepKey?, fieldKey }` define que campo auto-titula la sesion.',
+        },
+      },
+      required: ['ejercicio'],
+    },
+  },
+  {
+    name: 'upsert_lab_category',
+    description: 'CREA o EDITA una categoria del Laboratorio. Campos: title, emoji, color (hex), tagline, intro.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        key: str('Key de la categoria a editar. Omitila para crear.'),
+        categoria: { type: 'object', description: 'title, emoji, color, tagline, intro.' },
+      },
+      required: ['categoria'],
+    },
+  },
+  {
+    name: 'delete_lab_exercise',
+    description:
+      'BORRA un ejercicio PROPIO del Laboratorio. Los de fabrica no se pueden borrar (viven en el codigo). Las sesiones ya hechas con ese ejercicio NO se borran: el historial de lo trabajado se conserva aunque la plantilla ya no exista, y la respuesta avisa cuantas eran.',
+    inputSchema: {
+      type: 'object',
+      properties: { key: str('Key del ejercicio propio a borrar.') },
+      required: ['key'],
+    },
+  },
+  {
     name: 'get_books',
     description:
       'La biblioteca del usuario: qué está leyendo, qué quiere leer y qué terminó, con las fechas de inicio y fin. "Leer 30 min" es uno de sus hábitos diarios, así que esto es el contenido de ese hábito.',
@@ -946,6 +1007,21 @@ export async function callTool(
 
     case 'delete_beliefs':
       return deleteBeliefs(userId, { ids: args.ids })
+
+    case 'list_lab_exercises':
+      return listLabExercises(userId, { key: args.key, categoria: args.categoria, completo: args.completo })
+
+    case 'list_lab_categories':
+      return listLabCategories(userId)
+
+    case 'upsert_lab_exercise':
+      return upsertLabExercise(userId, { key: args.key, ejercicio: args.ejercicio })
+
+    case 'upsert_lab_category':
+      return upsertLabCategory(userId, { key: args.key, categoria: args.categoria })
+
+    case 'delete_lab_exercise':
+      return deleteLabExercise(userId, { key: args.key })
 
     case 'get_books':
       return getBooks(userId, args)
