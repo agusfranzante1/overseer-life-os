@@ -4,7 +4,7 @@ import type { LabCategory, LabExercise } from './types'
  *  Cada categoría es un "pabellón" del laboratorio. Pensadas para que el
  *  usuario sepa rápido dónde meterse según lo que está sintiendo HOY.
  */
-export const LAB_CATEGORIES: LabCategory[] = [
+const _ARCHIVO_CATEGORIES: LabCategory[] = [
   {
     key: 'creencias',
     emoji: '🧠',
@@ -56,6 +56,34 @@ export const LAB_CATEGORIES: LabCategory[] = [
 ]
 
 /** Helper — devuelve la categoría por key (o undefined). */
+/** ─── VACIADO A PROPÓSITO — 2026-09-05 ────────────────────────────────────
+ *
+ *  `LAB_CATEGORIES` y `LAB_EXERCISES` ahora se exportan VACÍOS. No es un bug.
+ *
+ *  Los ejercicios que había acá abajo nunca fueron "de fábrica": los escribió
+ *  el usuario, y quedaron hardcodeados cuando migró a Supabase ANTES de
+ *  crearse la cuenta. Eran suyos viviendo en el repo, donde no los podía
+ *  editar sin un deploy.
+ *
+ *  El 05/09 se copiaron los 12 ejercicios y las 6 categorías a su cuenta
+ *  (`lab_config`, con las MISMAS keys para que las sesiones ya hechas sigan
+ *  resolviendo). Desde entonces el catálogo vive en la base y se edita desde
+ *  la app o por el bridge MCP.
+ *
+ *  ⚠️ POR QUÉ VACÍOS Y NO SIMPLEMENTE DUPLICADOS: `exercisesByCategoryCombined`
+ *  en labStore hace `[...custom, ...builtIn]` SIN deduplicar por key. Con los
+ *  dos juegos activos, cada ejercicio aparecía DOS VECES en su categoría.
+ *
+ *  ⚠️ CONSECUENCIA PARA UN DEPLOY NUEVO: una cuenta recién creada arranca con
+ *  el laboratorio VACÍO. Antes heredaba estos ejercicios. Si alguna vez hace
+ *  falta un catálogo inicial, el contenido sigue abajo en `_ARCHIVO_*` y en el
+ *  historial de git — basta con volver a exportarlo.
+ *
+ *  El contenido de abajo se conserva como referencia. No se usa.
+ */
+export const LAB_CATEGORIES: LabCategory[] = []
+export const LAB_EXERCISES: LabExercise[] = []
+
 export function findCategory(key: string): LabCategory | undefined {
   return LAB_CATEGORIES.find((c) => c.key === key)
 }
@@ -491,7 +519,7 @@ const INERCIA_EXERCISES: LabExercise[] = [
   },
 ]
 
-export const LAB_EXERCISES: LabExercise[] = [
+const _ARCHIVO_EXERCISES: LabExercise[] = [
   ...CREENCIAS_EXERCISES,
   ...EMOCIONES_EXERCISES,
   ...PENSAMIENTOS_EXERCISES,
