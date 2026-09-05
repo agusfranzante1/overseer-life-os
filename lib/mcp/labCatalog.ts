@@ -310,3 +310,45 @@ export async function deleteLabExercise(
     } : {}),
   }
 }
+
+export async function deleteLabCategory(
+  userId: string,
+  input: { key?: unknown },
+): Promise<WriteResult> {
+  const key = String(input.key ?? '').trim()
+  if (!key) return { ok: false, error: 'bad_input', detail: 'Falta `key`.' }
+
+  const cfg = await leerConfig(userId)
+  if ('error' in cfg) return { ok: false, error: 'db_error', detail: cfg.error }
+
+  const cat = cfg.categorias.find((c) => c.key === key)
+  if (!cat) {
+    return {
+      ok: false, error: 'not_found',
+      detail: LAB_CATEGORIES.some((c) => c.key === key)
+        ? `"${key}" es una categoría de fábrica: vive en el código y no se borra desde acá.`
+        : `No existe la categoría propia "${key}".`,
+    }
+  }
+
+  // Una categoría con ejercicios adentro los dejaría apuntando a algo que no
+  // existe, y el runner no sabría dónde ponerlos. Se vacía primero.
+  const dentro = [
+    ...cfg.ejercicios.filter((e) => e.categoryKey === key),
+    ...LAB_EXERCISES.filter((e) => e.categoryKey === key && !cfg.ejercicios.some((p) => p.key === e.key)),
+  ]
+  if (dentro.length) {
+    return {
+      ok: false, error: 'no_vacia',
+      detail:
+        `"${cat.title}" todavía tiene ${dentro.length} ejercicio(s): ${dentro.map((e) => e.title).join(', ')}. ` +
+        'Movelos a otra categoría con upsert_lab_exercise antes de borrarla.',
+    }
+  }
+
+  const categorias = cfg.categorias.filter((c) => c.key !== key)
+  const err = await guardarConfig(userId, { categorias })
+  if (err) return { ok: false, error: 'db_error', detail: err }
+
+  return { ok: true, borrada: key, title: cat.title, quedanPropias: categorias.length }
+}

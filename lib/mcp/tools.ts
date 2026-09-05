@@ -18,7 +18,7 @@ import {
 } from './dataWrites'
 import {
   listLabExercises, listLabCategories,
-  upsertLabExercise, upsertLabCategory, deleteLabExercise,
+  upsertLabExercise, upsertLabCategory, deleteLabExercise, deleteLabCategory,
 } from './labCatalog'
 import { getSpi, getKpis, getHistory } from './spiQueries'
 import { completeTasks, completeSubtasks } from './completeWrites'
@@ -734,6 +734,16 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'delete_lab_category',
+    description:
+      'BORRA una categoria PROPIA del Laboratorio. Se NIEGA si todavia tiene ejercicios adentro: quedarian apuntando a una categoria inexistente. Hay que moverlos primero con upsert_lab_exercise.',
+    inputSchema: {
+      type: 'object',
+      properties: { key: str('Key de la categoria a borrar.') },
+      required: ['key'],
+    },
+  },
+  {
     name: 'get_books',
     description:
       'La biblioteca del usuario: qué está leyendo, qué quiere leer y qué terminó, con las fechas de inicio y fin. "Leer 30 min" es uno de sus hábitos diarios, así que esto es el contenido de ese hábito.',
@@ -1022,6 +1032,9 @@ export async function callTool(
 
     case 'delete_lab_exercise':
       return deleteLabExercise(userId, { key: args.key })
+
+    case 'delete_lab_category':
+      return deleteLabCategory(userId, { key: args.key })
 
     case 'get_books':
       return getBooks(userId, args)
