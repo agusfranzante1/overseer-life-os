@@ -62,8 +62,9 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
     bumpea `updatedAt`), `pushDecisions`/`pullDecisions` con **sanitize campo por campo** (BASE nº2),
     `mergeById` + tombstones + baseline `decisions:items`, flag `decisionsInit` reseteado en los 3
     lugares, `scheduleDecisions`, subscribe y `wireCrossTabSync` para el sync entre pestañas.
-  - **⚠️ REQUIERE MIGRACIÓN: `supabase/migration_decisions.sql`.** Hasta correrla, las decisiones se
-    guardan local pero NO sincronizan (el push avisa con un toast diciendo qué correr).
+  - **Migración `supabase/migration_decisions.sql`: CORRIDA el 2026-09-06** (la corrió Claude en el
+    SQL Editor, con el usuario mirando). Verificado en la base: tabla `decisions` con 6 columnas,
+    RLS activo, 4 policies y 2 índices. El sync ya funciona.
   - **De paso — las secciones nuevas ya no caen al fondo del menú** (`lib/utils/navOrder.ts`, puro,
     14/14): el orden del sidebar es el que dejó el usuario, y una clave que ese orden no conoce se
     apilaba **al final**, así que una sección pensada para ir abajo de Journal aparecía después de
@@ -813,8 +814,6 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
 
 ### ⚠️ Pendientes del usuario (Claude no puede hacerlos)
 
-- [ ] **Correr `supabase/migration_decisions.sql`** (sin esto, la sección Decisiones guarda
-      local pero no sincroniza entre dispositivos).
 - [ ] **Correr las 2 migraciones del bridge** (sin esto no se puede generar el token ni
       guardar planes): `supabase/migration_mcp_tokens.sql` y `supabase/migration_day_plans.sql`.
 - [ ] **Generar el token** en Configuración → Conexión con Claude y conectar el MCP.
