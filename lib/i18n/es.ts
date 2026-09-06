@@ -7,6 +7,7 @@ export const es: Translations = {
     spi: 'SPI',
     lab: 'Laboratorio',
     journal: 'My Journal',
+    decisiones: 'Decisiones',
     meditaciones: 'Meditaciones',
     youtube: 'YouTube',
     books: 'Libros',

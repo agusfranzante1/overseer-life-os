@@ -47,6 +47,38 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Sección nueva: DECISIONES** (2026-09-06, pedido del usuario). Registro de las decisiones
+  tomadas y de cómo salieron: texto de la decisión, **qué resultado dio**, veredicto
+  (**pendiente / correcta / incorrecta**), ⭐ **importante** y **proyecto** (los mismos de Tareas).
+  Vive en `/decisiones`, en el sidebar **debajo de My Journal**.
+  - **Por qué el veredicto arranca en `pendiente`:** una decisión recién tomada todavía no tiene
+    resultado. Obligar a juzgarla en el momento sería inventar. Se vuelve después y se marca.
+    Tocar de nuevo el mismo veredicto la devuelve a pendiente (te equivocaste al marcarla y no hay
+    que borrar nada para arreglarlo).
+  - **El marcador es sobre las YA JUZGADAS, no sobre el total** (`aciertoPct` es `null` si no
+    juzgaste ninguna): un 0% cuando todavía no se sabe nada sería mentira, no un dato. Y se calcula
+    sobre lo FILTRADO — si estás mirando un proyecto, el acierto que ves es el de ese proyecto.
+  - **Sync (playbook completo de `ARCHITECTURE.md`):** store `overseer-decisions` (toda mutación
+    bumpea `updatedAt`), `pushDecisions`/`pullDecisions` con **sanitize campo por campo** (BASE nº2),
+    `mergeById` + tombstones + baseline `decisions:items`, flag `decisionsInit` reseteado en los 3
+    lugares, `scheduleDecisions`, subscribe y `wireCrossTabSync` para el sync entre pestañas.
+  - **⚠️ REQUIERE MIGRACIÓN: `supabase/migration_decisions.sql`.** Hasta correrla, las decisiones se
+    guardan local pero NO sincronizan (el push avisa con un toast diciendo qué correr).
+  - **De paso — las secciones nuevas ya no caen al fondo del menú** (`lib/utils/navOrder.ts`, puro,
+    14/14): el orden del sidebar es el que dejó el usuario, y una clave que ese orden no conoce se
+    apilaba **al final**, así que una sección pensada para ir abajo de Journal aparecía después de
+    Alimentación. Ahora se inserta después de su vecina anterior. Aplica a los dos niveles
+    (`orderedNav` y `topTokens`). Vale para cualquier sección futura.
+  - **Nav:** `decisiones` entra en `OPTIONAL_NAV_KEYS` (una cuenta NUEVA arranca sin ella, como el
+    resto de las opcionales) **sin tocar el `migrate`**: la cuenta que ya existe la ve enseguida,
+    que es lo que se pidió, y no le desaparece nada (BASE nº4).
+  - **Verificado corriendo la app:** aparece justo debajo de "My Journal" **también con un `navOrder`
+    guardado que no la conoce** (simulé una cuenta con el menú reordenado). Creé dos decisiones:
+    texto, resultado y proyecto se guardan; correcta → pendiente → correcta con el mismo botón;
+    `updatedAt` se bumpea; ⭐ marca y el filtro deja solo esa; el filtro por proyecto baja el acierto
+    de "50% · 1 de 2" a "100% · 1 de 1"; sobrevive al reload. Mobile 375px sin scroll horizontal.
+    Tests puros del dominio 21/21. `tsc` + `next build` OK.
+
 - [x] **La línea roja del "ahora" en la vista diaria: estaba dibujada, quedaba fuera de pantalla**
   (2026-09-04). Reporte: "en día no aparece la línea roja del horario actual como en semana".
   - **Causa (medida en el DOM, no supuesta):** la línea SÍ se renderizaba — el problema era el
@@ -781,6 +813,8 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
 
 ### ⚠️ Pendientes del usuario (Claude no puede hacerlos)
 
+- [ ] **Correr `supabase/migration_decisions.sql`** (sin esto, la sección Decisiones guarda
+      local pero no sincroniza entre dispositivos).
 - [ ] **Correr las 2 migraciones del bridge** (sin esto no se puede generar el token ni
       guardar planes): `supabase/migration_mcp_tokens.sql` y `supabase/migration_day_plans.sql`.
 - [ ] **Generar el token** en Configuración → Conexión con Claude y conectar el MCP.

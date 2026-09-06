@@ -22,6 +22,7 @@ import { useBacktestStore } from '@/lib/store/backtestStore'
 import { type Book, type BookStatus, useBooksStore } from '@/lib/store/booksStore'
 import { type DayPlan, type DayPlanBlock, type DayPlanBlockKind, useDayPlanStore, dayPlanId } from '@/lib/store/dayPlanStore'
 import { useJournalStore } from '@/lib/store/journalStore'
+import { useDecisionsStore } from '@/lib/store/decisionsStore'
 import { useMeditationsStore } from '@/lib/store/meditationsStore'
 import { useYoutubeStore } from '@/lib/store/youtubeStore'
 import { useOffersStore } from '@/lib/store/offersStore'
@@ -65,6 +66,7 @@ interface SyncState {
   booksInit: boolean
   dayPlansInit: boolean
   journalInit: boolean
+  decisionsInit: boolean
   meditationsInit: boolean
   youtubeInit: boolean
   offersInit: boolean
@@ -95,6 +97,7 @@ const state: SyncState = {
   booksInit: false,
   dayPlansInit: false,
   journalInit: false,
+  decisionsInit: false,
   meditationsInit: false,
   youtubeInit: false,
   offersInit: false,
@@ -124,6 +127,7 @@ let backtestPushTimer: ReturnType<typeof setTimeout> | null = null
 let booksPushTimer: ReturnType<typeof setTimeout> | null = null
 let dayPlansPushTimer: ReturnType<typeof setTimeout> | null = null
 let journalPushTimer: ReturnType<typeof setTimeout> | null = null
+let decisionsPushTimer: ReturnType<typeof setTimeout> | null = null
 let meditationsPushTimer: ReturnType<typeof setTimeout> | null = null
 let youtubePushTimer: ReturnType<typeof setTimeout> | null = null
 let offersPushTimer: ReturnType<typeof setTimeout> | null = null
@@ -2332,6 +2336,92 @@ async function pullJournal(): Promise<boolean> {
   }
 }
 
+// ─── DECISIONES (registro de decisiones y cómo salieron) ─────────────────────
+// Una fila por decisión. Merge: LWW por updatedAt + tombstones.
+// Ver migration_decisions.sql.
+
+async function pushDecisions() {
+  if (!state.userId) return
+  const syncedAt = new Date().toISOString()
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { decisions } = useDecisionsStore.getState()
+
+  const rows = decisions.map((d) => ({
+    id: d.id,
+    user_id: uid,
+    decision_date: d.date,
+    created_at: d.createdAt,
+    updated_at: d.updatedAt,
+    payload: d,
+  }))
+
+  if (rows.length > 0) {
+    const r = await sb.from('decisions').upsert(rows)
+    if (r.error) {
+      reportSyncError(`decisions upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_decisions.sql.`)
+      throw r.error
+    }
+  }
+  await syncDeletes(sb, uid, 'decisions', rows.map((r) => r.id), 'decisions:items')
+  markSynced('decisions', syncedAt)
+}
+
+async function pullDecisions(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('decisions')
+  try {
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('decisions').select('*').eq('user_id', uid)
+    .order('decision_date', { ascending: false })
+  if (res.error) {
+    console.error('Decisions pull failed (run migration_decisions.sql?):', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) { markSynced('decisions'); return false }
+
+  type DecisionRow = { payload: unknown }
+  // OJO (BASE nº2): el sanitize reconstruye la decisión campo por campo — un
+  // campo que no esté acá SE BORRA al sincronizar, aunque el push lo mande.
+  // Si sumás uno nuevo al store, sumalo también acá.
+  const sanitize = (raw: unknown): import('@/lib/store/decisionsStore').Decision => {
+    const p = (raw ?? {}) as Partial<import('@/lib/store/decisionsStore').Decision>
+    const verdict = p.verdict === 'correcta' || p.verdict === 'incorrecta' ? p.verdict : 'pendiente'
+    return {
+      id: p.id ?? '',
+      date: p.date ?? new Date().toISOString().slice(0, 10),
+      title: p.title ?? '',
+      body: p.body ?? '',
+      outcome: p.outcome ?? '',
+      verdict,
+      important: p.important === true,
+      projectId: typeof p.projectId === 'string' && p.projectId ? p.projectId : undefined,
+      createdAt: p.createdAt ?? new Date().toISOString(),
+      updatedAt: p.updatedAt ?? new Date().toISOString(),
+    }
+  }
+  const remoteDecisions: import('@/lib/store/decisionsStore').Decision[] =
+    (res.data ?? []).map((r: DecisionRow) => sanitize(r.payload))
+  const tombs = await fetchTombstones(sb, uid, ['decisions'])
+  const merged = mergeById<import('@/lib/store/decisionsStore').Decision>({
+    local: useDecisionsStore.getState().decisions,
+    remote: remoteDecisions,
+    baseline: getBaseline('decisions:items'),
+    getId: (x) => x.id,
+    getUpdatedAt: (x) => x.updatedAt,
+    tombstones: tombs.get('decisions'),
+  })
+  useDecisionsStore.setState({ decisions: merged })
+  setBaseline('decisions:items', remoteDecisions.map((x) => x.id))
+  markSynced('decisions')
+  return true
+  } finally {
+    endPulling('decisions')
+  }
+}
+
 // ─── MEDITACIONES (biblioteca de meditaciones / respiración) ─────────────────
 // Una fila por meditación. Merge: LWW por updatedAt + tombstones.
 // Ver migration_meditations.sql.
@@ -4281,6 +4371,7 @@ function scheduleBacktests()  { schedule(backtestPushTimer,   pushBacktests,  (t
 function scheduleBooks()      { schedule(booksPushTimer,      pushBooks,      (t) => { booksPushTimer = t }) }
 function scheduleDayPlans()   { schedule(dayPlansPushTimer,   pushDayPlans,   (t) => { dayPlansPushTimer = t }) }
 function scheduleJournal()     { schedule(journalPushTimer,    pushJournal,    (t) => { journalPushTimer = t }) }
+function scheduleDecisions()   { schedule(decisionsPushTimer,  pushDecisions,  (t) => { decisionsPushTimer = t }) }
 function scheduleMeditations() { schedule(meditationsPushTimer, pushMeditations, (t) => { meditationsPushTimer = t }) }
 function scheduleYoutube()     { schedule(youtubePushTimer,     pushYoutube,     (t) => { youtubePushTimer = t }) }
 function scheduleOffers()      { schedule(offersPushTimer,      pushOffers,      (t) => { offersPushTimer = t }) }
@@ -4520,6 +4611,16 @@ async function initAllDomains() {
     if (hasLocal) await pushJournal().catch((e) => console.error('Journal post-pull push failed', e))
   }
 
+  // ─── Decisiones ───────────────────────────────────────────────────────
+  // Pull-first: LWW por updatedAt + tombstones (mismo patrón que journal).
+  if (!state.decisionsInit) {
+    state.decisionsInit = true
+    const { decisions } = useDecisionsStore.getState()
+    const hasLocal = decisions.length > 0
+    await pullDecisions()
+    if (hasLocal) await pushDecisions().catch((e) => console.error('Decisions post-pull push failed', e))
+  }
+
   // ─── Meditaciones ─────────────────────────────────────────────────────
   // Pull-first: LWW por updatedAt + tombstones (mismo patrón que journal).
   if (!state.meditationsInit) {
@@ -4688,6 +4789,7 @@ export function useSupabaseSync() {
       useBooksStore.subscribe(() => { markModifiedIfNotPulling('books'); if (state.userId) scheduleBooks() })
       useDayPlanStore.subscribe(() => { markModifiedIfNotPulling('dayPlans'); if (state.userId) scheduleDayPlans() })
       useJournalStore.subscribe(() => { markModifiedIfNotPulling('journal'); if (state.userId) scheduleJournal() })
+      useDecisionsStore.subscribe(() => { markModifiedIfNotPulling('decisions'); if (state.userId) scheduleDecisions() })
       useMeditationsStore.subscribe(() => { markModifiedIfNotPulling('meditations'); if (state.userId) scheduleMeditations() })
       useYoutubeStore.subscribe(() => { markModifiedIfNotPulling('youtube'); if (state.userId) scheduleYoutube() })
       useOffersStore.subscribe(() => { markModifiedIfNotPulling('offers'); if (state.userId) scheduleOffers() })
@@ -4724,6 +4826,7 @@ export function useSupabaseSync() {
       state.booksInit = false
       state.dayPlansInit = false
       state.journalInit = false
+      state.decisionsInit = false
       state.meditationsInit = false
       state.youtubeInit = false
       state.offersInit = false
@@ -4782,6 +4885,7 @@ export function useSupabaseSync() {
       state.booksInit = false
       state.dayPlansInit = false
       state.journalInit = false
+      state.decisionsInit = false
       state.meditationsInit = false
       state.youtubeInit = false
       state.offersInit = false
@@ -4867,6 +4971,7 @@ export async function forceSyncAll(): Promise<void> {
   state.booksInit = false
   state.dayPlansInit = false
   state.journalInit = false
+  state.decisionsInit = false
   state.meditationsInit = false
   state.youtubeInit = false
   state.offersInit = false
@@ -4939,6 +5044,8 @@ export async function forceSyncBacktests() { await pushBacktests() }
 export async function forcePullBacktests() { return pullBacktests() }
 export async function forceSyncJournal()   { await pushJournal() }
 export async function forcePullJournal()   { return pullJournal() }
+export async function forceSyncDecisions() { await pushDecisions() }
+export async function forcePullDecisions() { return pullDecisions() }
 export async function forceSyncMeditations() { await pushMeditations() }
 export async function forcePullMeditations() { return pullMeditations() }
 export async function forceSyncFavorites()  { await pushFavorites() }

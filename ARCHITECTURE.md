@@ -180,7 +180,9 @@ son compromisos reales, no decoración).
   sección opcional nueva → sumarla a `OPTIONAL_NAV_KEYS` **y** al `migrate` para
   que quede oculta en cuentas existentes (BASE nº4), bump de `version`.
 - `components/layout/Sidebar.tsx`: `NAV_ITEMS` (ícono + href + key). Carpetas,
-  orden y ocultar viven acá + en el blob `app_preferences`.
+  orden y ocultar viven acá + en el blob `app_preferences`. El orden guardado se
+  mezcla con `NAV_ITEMS` vía `mergeNavOrder` (`lib/utils/navOrder.ts`): una sección
+  NUEVA cae al lado de su vecina de `NAV_ITEMS`, no apilada al final del menú.
 
 ## Feature → archivos (grueso; el código manda)
 | Feature | Store | UI | Sync / notas |
@@ -194,6 +196,7 @@ son compromisos reales, no decoración).
 | Priority Gate | `lib/dashboard/priorityGate.ts` (`usePriorityGate`) | `components/common/PriorityGate.tsx` | única fuente de verdad; usado en Panel/Tasks/Calendar |
 | **Plan del día / Bridge con Claude** | `dayPlanStore` | `components/dashboard/DayPlanPanel.tsx`, `components/settings/ClaudeBridgeSection.tsx` | per-fila `day_plans` (columnas reales, id determinista `plan_<fecha>`). El plan lo escribe Claude DESDE AFUERA vía el bridge — ver abajo |
 | Libros | `booksStore` | `components/books/BooksPage.tsx` | per-fila `books` |
+| Decisiones | `decisionsStore` | `components/decisiones/DecisionesPage.tsx` | per-fila `decisions`; veredicto pendiente/correcta/incorrecta (arranca pendiente: el resultado se sabe después), ⭐ importante y `projectId` de Tareas. Helpers puros (orden, filtros, `decisionStats`) en el store, con test |
 | Panel/Dashboard | (varios) | `components/dashboard/*` (`DashboardPage` = widgets reordenables) | orden en localStorage |
 | SPI / Proyección | `spiStore`, `projectionStore` | `components/spi/*`, `components/projection/*` | per-fila |
 | Billetera / Hábitos / Salud / Gym / Comida / Trading / Journal / Meditaciones / YouTube / KPIs / Lab | `walletStore` / `habitsStore` / … | `components/<seccion>/*` | per-fila |

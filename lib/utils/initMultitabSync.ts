@@ -14,6 +14,7 @@ import { useGymStore } from '@/lib/store/gymStore'
 import { useHabitsStore } from '@/lib/store/habitsStore'
 import { useHealthStore } from '@/lib/store/healthStore'
 import { useJournalStore } from '@/lib/store/journalStore'
+import { useDecisionsStore } from '@/lib/store/decisionsStore'
 import { useKpisStore } from '@/lib/store/kpisStore'
 import { useLabStore } from '@/lib/store/labStore'
 import { useMeditationsStore } from '@/lib/store/meditationsStore'
@@ -68,6 +69,7 @@ export function initMultitabSync(): void {
   wireCrossTabSync(useHabitsStore, 'overseer-habits')
   wireCrossTabSync(useHealthStore, 'overseer-health')
   wireCrossTabSync(useJournalStore, 'overseer-journal')
+  wireCrossTabSync(useDecisionsStore, 'overseer-decisions')
   wireCrossTabSync(useKpisStore, 'overseer-kpis')
   wireCrossTabSync(useLabStore, 'overseer-lab')
   wireCrossTabSync(useMeditationsStore, 'overseer-meditations')

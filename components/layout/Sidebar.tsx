@@ -10,9 +10,10 @@ import {
   TrendingUp, GripVertical, Check, RotateCcw, Settings2, Cog, LogOut,
   Clock, Search, X as XIcon, Infinity as InfinityIcon, FlaskConical,
   Network, ChevronUp, ChevronDown, ChevronRight, Target, GraduationCap, Sparkles,
-  Sun, Moon, NotebookPen, Wind, Pencil, SquarePlay, Rocket, FolderPlus,
+  Sun, Moon, NotebookPen, Wind, Pencil, SquarePlay, Rocket, FolderPlus, Scale,
 } from 'lucide-react'
 import { SidebarLinks } from './SidebarLinks'
+import { mergeNavOrder } from '@/lib/utils/navOrder'
 import { listTimezones, formatTzOffset, detectTimezone } from '@/lib/utils/dateInTz'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -33,6 +34,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/proyeccion', icon: InfinityIcon,    key: 'spi' },
   { href: '/laboratorio', icon: FlaskConical,    key: 'lab' },
   { href: '/journal',     icon: NotebookPen,     key: 'journal' },
+  { href: '/decisiones',  icon: Scale,           key: 'decisiones' },
   { href: '/meditaciones', icon: Wind,           key: 'meditaciones' },
   { href: '/youtube',    icon: SquarePlay,       key: 'youtube' },
   { href: '/libros',     icon: BookOpen,         key: 'books' },
@@ -168,19 +170,10 @@ export function Sidebar({
 
   const orderedNav = useMemo(() => {
     const knownByKey = new Map(NAV_ITEMS.map((n) => [n.key, n]))
-    const userOrder = navOrder && navOrder.length > 0 ? navOrder : DEFAULT_ORDER
-    const seen = new Set<string>()
-    const result: NavItem[] = []
-    for (const key of userOrder) {
-      const item = knownByKey.get(key)
-      if (item && !seen.has(key)) {
-        result.push(item)
-        seen.add(key)
-      }
-    }
-    for (const item of NAV_ITEMS) {
-      if (!seen.has(item.key)) result.push(item)
-    }
+    // Una sección NUEVA (que el orden guardado todavía no conoce) entra en su
+    // lugar según DEFAULT_ORDER, no apilada al final — ver navOrder.ts.
+    const keys = mergeNavOrder(navOrder ?? [], DEFAULT_ORDER)
+    const result = keys.map((k) => knownByKey.get(k)).filter((x): x is NavItem => !!x)
     // Las secciones que el usuario sacó no se muestran. Las core nunca se
     // pueden ocultar, pero filtramos igual por si quedó basura guardada.
     const hidden = new Set(hiddenNavKeys ?? [])
@@ -210,12 +203,15 @@ export function Sidebar({
     const isValid = (t: string) =>
       t.startsWith('g:') ? groupIds.has(t.slice(2)) : looseKeys.includes(t.slice(2))
     const saved = (navTopOrder ?? []).filter(isValid)
-    const seen = new Set(saved)
-    const missing = [
+    // Referencia del primer nivel: las sueltas en su orden + las carpetas
+    // después. Las claves que falten se insertan EN SU LUGAR (una sección
+    // nueva abajo de su vecina, no al fondo del menú); las carpetas nuevas
+    // siguen cayendo al final, que es donde se esperan.
+    const reference = [
       ...looseKeys.map((k) => `k:${k}`),
       ...[...(navGroups ?? [])].sort((a, b) => a.order - b.order).map((g) => `g:${g.id}`),
-    ].filter((t) => !seen.has(t))
-    return [...saved, ...missing]
+    ]
+    return mergeNavOrder(saved, reference)
   }, [orderedNav, navGroups, navTopOrder])
 
   /** Mueve un token (sección suelta o carpeta) dentro del primer nivel. */
