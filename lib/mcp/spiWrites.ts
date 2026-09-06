@@ -400,6 +400,20 @@ export async function setSpiTasks(userId: string, input: Record<string, unknown>
         else if (!isYmd(u.dueDate)) return { ok: false, error: 'bad_date', detail: `"${hit.title}": \`dueDate\` tiene que ser YYYY-MM-DD.` }
         else hit.dueDate = u.dueDate
       }
+      // Un campo que no existe se ignoraba EN SILENCIO y la respuesta decia
+      // "editada" igual (BASE nº6). Paso real: se intento mandar `done`, que
+      // no existe en SPITask — las tareas del SPI son el PLAN de la semana, no
+      // un checklist; se completan recien cuando el cierre las empuja al task
+      // manager. Devolver ok sin tocar nada hace creer que quedo guardado.
+      const CONOCIDOS = new Set(['taskId', 'title', 'important', 'priority', 'whyPurpose', 'dueDate'])
+      const ignorados = Object.keys(u).filter((k) => !CONOCIDOS.has(k))
+      if (ignorados.length > 0) {
+        warnings.push(
+          `"${hit.title}": estos campos NO existen en una tarea del SPI y no se guardaron: ${ignorados.join(', ')}. ` +
+          `Los validos son ${[...CONOCIDOS].filter((k) => k !== 'taskId').join(', ')}. ` +
+          'Ojo con `done`: las tareas del SPI no tienen estado de completado — se completan en el task manager despues del cierre semanal.',
+        )
+      }
       editadas.push(hit.title)
     }
   }
