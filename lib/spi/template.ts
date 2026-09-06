@@ -128,10 +128,15 @@ export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
       intro: 'Comprender dónde poner la energía. Cuál es el 20% que hace girar el 80% del reloj. + análisis de proyectos a vista de águila.',
       fields: [
         {
+          // La `key` sigue diciendo 90dias por compatibilidad: cambiarla dejaria
+          // huerfanas las respuestas de todos los SPI anteriores. Lo que cambia
+          // es la PREGUNTA. Corregido el 06/09 por el usuario: el foco a 90 dias
+          // es trimestral y ya vive en Proyeccion; el SPI es SEMANAL, asi que
+          // preguntar por 90 dias todas las semanas duplicaba y desenfocaba.
           key: 'foco_90dias',
-          label: 'En qué te enfocarías si quisieras ÉXITO ASEGURADO en los próximos 90 días',
+          label: 'En qué te enfocarías si quisieras ÉXITO ASEGURADO en los próximos 7 DÍAS',
           type: 'textarea',
-          hint: 'Qué hábito, pilar o dominio sería. Qué tendrías en claro desde YA.',
+          hint: 'Qué hábito, pilar o dominio sería ESTA semana. Qué tendrías en claro desde YA. (El foco trimestral vive en Proyección, no acá.)',
         },
         {
           key: 'persona_lograda',
