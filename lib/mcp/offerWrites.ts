@@ -370,3 +370,103 @@ export async function setOfferDoc(userId: string, input: Record<string, unknown>
       : {}),
   }
 }
+
+// ─── PLANTILLAS DE OFERTA ───────────────────────────────────────────────────
+//
+// `offer_templates`: una fila por plantilla reutilizable. Mismo patron que
+// offer_systems/offers — el documento entero vive en `payload` jsonb.
+//
+// Se aplican a una oferta desde la app (clona los bloques con ids frescos para
+// no compartir referencias). Desde acá solo se leen y se escriben: aplicarlas
+// tiene logica de dominio en el cliente.
+
+interface TemplateRow { id: string; payload: unknown }
+
+export async function listOfferTemplates(
+  userId: string,
+  input: { conDocumento?: unknown } = {},
+): Promise<WriteResult> {
+  const sb = getSupabaseAdmin()
+  const { data, error } = await sb
+    .from('offer_templates').select('id, payload, updated_at')
+    .eq('user_id', userId).order('updated_at', { ascending: false })
+  if (error) {
+    return { ok: false, error: 'db_error', detail: `${error.message} — ¿falta correr migration_offer_templates.sql?` }
+  }
+  const plantillas = ((data ?? []) as TemplateRow[]).map((r) => {
+    const p = (r.payload ?? {}) as Record<string, unknown>
+    const doc = Array.isArray(p.doc) ? (p.doc as Block[]) : []
+    return {
+      id: r.id,
+      nombre: String(p.name ?? '(sin nombre)'),
+      bloques: doc.length,
+      ...(input.conDocumento === true ? { doc: bloquesATexto(doc) } : {}),
+    }
+  })
+  return { ok: true, total: plantillas.length, plantillas }
+}
+
+export async function upsertOfferTemplate(
+  userId: string,
+  input: { templateId?: unknown; nombre?: unknown; bloques?: unknown; modo?: unknown },
+): Promise<WriteResult> {
+  const sb = getSupabaseAdmin()
+  const id = input.templateId ? String(input.templateId) : null
+
+  let previo: Record<string, unknown> | null = null
+  if (id) {
+    const { data } = await sb.from('offer_templates').select('payload')
+      .eq('id', id).eq('user_id', userId).maybeSingle()
+    if (!data) return { ok: false, error: 'not_found', detail: `No existe la plantilla ${id}.` }
+    previo = (data.payload ?? {}) as Record<string, unknown>
+  }
+
+  const nombre = input.nombre !== undefined ? String(input.nombre).trim() : String(previo?.name ?? '')
+  if (!nombre) return { ok: false, error: 'bad_input', detail: 'Falta `nombre`.' }
+
+  // Crear con el nombre de una que ya existe casi siempre es un descuido: la
+  // app las lista por nombre y dos iguales son indistinguibles.
+  if (!id) {
+    const { data: todas } = await sb.from('offer_templates').select('payload').eq('user_id', userId)
+    const choca = (todas ?? []).some((r) => {
+      const p = (r.payload ?? {}) as Record<string, unknown>
+      return String(p.name ?? '').trim().toLowerCase() === nombre.toLowerCase()
+    })
+    if (choca) {
+      return {
+        ok: false, error: 'nombre_repetido',
+        detail: `Ya existe una plantilla llamada "${nombre}". Pasá \`templateId\` para editarla, o usá otro nombre — dos con el mismo nombre son indistinguibles en la app.`,
+      }
+    }
+  }
+
+  const anteriores = Array.isArray(previo?.doc) ? (previo!.doc as Block[]) : []
+  const nuevos = input.bloques !== undefined ? normalizarBloques(input.bloques) : []
+  const reemplazar = String(input.modo ?? 'agregar') === 'reemplazar'
+  const doc = input.bloques === undefined ? anteriores : (reemplazar ? nuevos : [...anteriores, ...nuevos])
+
+  const ahora = new Date().toISOString()
+  const payload = {
+    ...(previo ?? {}),
+    id: id ?? 'tpl_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4),
+    name: nombre,
+    doc,
+    createdAt: (previo?.createdAt as string) ?? ahora,
+    updatedAt: ahora,
+  }
+
+  const { error } = await sb.from('offer_templates').upsert(
+    { id: payload.id, user_id: userId, payload, updated_at: ahora, ...(previo ? {} : { created_at: ahora }) },
+    { onConflict: 'id' },
+  )
+  if (error) return { ok: false, error: 'db_error', detail: error.message }
+
+  return {
+    ok: true,
+    creada: !previo,
+    id: payload.id,
+    nombre,
+    bloques: doc.length,
+    ...(previo && !reemplazar && nuevos.length ? { detail: `Se agregaron ${nuevos.length} bloques al final; habia ${anteriores.length}.` } : {}),
+  }
+}

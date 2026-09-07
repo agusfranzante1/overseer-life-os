@@ -32,7 +32,7 @@ import { getProjection, updateProjection } from './projectionWrites'
 import { getMetasIncompletas } from './huecos'
 import { getBooks, upsertBook } from './bookWrites'
 import { listCalendars } from './queries'
-import { getOffers, upsertOffer, setOfferDoc } from './offerWrites'
+import { getOffers, upsertOffer, setOfferDoc, listOfferTemplates, upsertOfferTemplate } from './offerWrites'
 import { logWorkout, getWorkoutSplit } from './gymWrites'
 
 export interface ToolDef {
@@ -757,6 +757,29 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'list_offer_templates',
+    description:
+      'Las PLANTILLAS de oferta: documentos reutilizables que despues se aplican a una oferta desde la app (clonando los bloques con ids frescos). Con `conDocumento` trae el contenido entero.',
+    inputSchema: {
+      type: 'object',
+      properties: { conDocumento: { type: 'boolean', description: 'Traer el documento completo de cada una. Pesa.' } },
+    },
+  },
+  {
+    name: 'upsert_offer_template',
+    description:
+      'CREA o EDITA una plantilla de oferta. Sin `templateId` crea; con `templateId` edita. Por default AGREGA bloques al final; `modo: "reemplazar"` pisa el documento. Se NIEGA a crear una con un nombre que ya existe: la app las lista por nombre y dos iguales son indistinguibles — pasar `templateId` para editar la que ya esta.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        templateId: str('Id de la plantilla a editar. Omitilo para crear una nueva.'),
+        nombre: str('Nombre de la plantilla.'),
+        bloques: { type: 'array', description: 'Strings o {tipo, texto, hijos}. tipo: text | bullet | toggle | page. Un string que empieza con "- " es vinieta.' },
+        modo: str('agregar (default) | reemplazar.'),
+      },
+    },
+  },
+  {
     name: 'get_books',
     description:
       'La biblioteca del usuario: qué está leyendo, qué quiere leer y qué terminó, con las fechas de inicio y fin. "Leer 30 min" es uno de sus hábitos diarios, así que esto es el contenido de ese hábito.',
@@ -1051,6 +1074,14 @@ export async function callTool(
 
     case 'mark_review_seen':
       return markReviewSeen(userId, { cadencia: args.cadencia, periodo: args.periodo })
+
+    case 'list_offer_templates':
+      return listOfferTemplates(userId, { conDocumento: args.conDocumento })
+
+    case 'upsert_offer_template':
+      return upsertOfferTemplate(userId, {
+        templateId: args.templateId, nombre: args.nombre, bloques: args.bloques, modo: args.modo,
+      })
 
     case 'get_books':
       return getBooks(userId, args)
