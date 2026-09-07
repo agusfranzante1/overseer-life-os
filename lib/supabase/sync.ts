@@ -29,6 +29,7 @@ import { useOffersStore } from '@/lib/store/offersStore'
 import { useFavoritesStore } from '@/lib/store/favoritesStore'
 import { useConceptStore } from '@/lib/store/conceptStore'
 import { useTaskUiStore } from '@/lib/store/taskUiStore'
+import { useReviewsStore } from '@/lib/store/reviewsStore'
 import { migrateMapNotes } from '@/lib/study/concepts'
 import type { Block, BlockType } from '@/lib/offers/blocks'
 import {
@@ -3183,6 +3184,14 @@ function appPrefsFields(): Record<string, unknown> {
     // sube nunca: el fingerprint de onAppPrefsChange se arma justamente
     // sobre las claves de esta función (BASE nº1).
     plannerProfile: s.plannerProfile,
+    // Revisiones ya reconocidas (SPI semanal, plan mensual/trimestral/semestral).
+    // Antes era LOCAL a cada dispositivo a proposito: "dejá de titilar en ESTE
+    // device porque ya lo miré". Se hizo sincronizado el 06/09 porque el badge
+    // quedaba en rojo cuando la revisión se abría y se trabajaba DESDE EL CHAT
+    // (bridge MCP), que no es un dispositivo que el usuario mire. Con esto el
+    // bridge puede reconocerla y el badge deja de mentir.
+    // Consecuencia asumida: reconocerla en el celu la apaga tambien en la PC.
+    reviewsSeen: useReviewsStore.getState().seen,
   }
 }
 
@@ -3222,8 +3231,9 @@ function applyPrefsFields(f: Record<string, unknown>): void {
 }
 
 function applyPrefsFieldsInner(f: Record<string, unknown>): void {
-  const { offerStages, offerCategories, offerGeos, hiddenProjects, savedViews, ...appFields } = f as Record<string, unknown> & {
-    offerStages?: unknown; offerCategories?: unknown; offerGeos?: unknown; hiddenProjects?: unknown; savedViews?: unknown
+  const { offerStages, offerCategories, offerGeos, hiddenProjects, savedViews, reviewsSeen, ...appFields } = f as Record<string, unknown> & {
+    offerStages?: unknown; offerCategories?: unknown; offerGeos?: unknown; hiddenProjects?: unknown
+    savedViews?: unknown; reviewsSeen?: unknown
   }
   useAppStore.setState((prev) => ({ ...prev, ...appFields }))
   // hiddenProjects y savedViews viven en taskUiStore, no en appStore: los ruteamos ahí.
@@ -3232,6 +3242,10 @@ function applyPrefsFieldsInner(f: Record<string, unknown>): void {
   }
   if (Array.isArray(savedViews)) {
     useTaskUiStore.setState({ savedViews: savedViews as import('@/lib/tasks/savedViews').SavedTaskView[] })
+  }
+  // reviewsSeen vive en reviewsStore, no en appStore.
+  if (reviewsSeen && typeof reviewsSeen === 'object') {
+    useReviewsStore.setState({ seen: reviewsSeen as Record<string, string> })
   }
   useOffersStore.setState({
     ...(Array.isArray(offerStages) && offerStages.length ? { stages: offerStages as never } : {}),
@@ -4781,6 +4795,9 @@ export function useSupabaseSync() {
       // en el blob. taskExpanded/subtaskCollapsed NO están en appPrefsFields(),
       // así que tocarlos no genera changedFields → no ensucia el blob.
       useTaskUiStore.subscribe(onAppPrefsChange)
+      // Sin esta linea, marcar una revision como vista no ensuciaria appPrefs
+      // y no se subiria nunca (BASE nº1).
+      useReviewsStore.subscribe(onAppPrefsChange)
       useMindMapStore.subscribe(() => { markModifiedIfNotPulling('mindmaps'); if (state.userId) scheduleMindMaps() })
       useKpisStore.subscribe(() => { markModifiedIfNotPulling('kpis'); if (state.userId) scheduleKpis() })
       useStudyStore.subscribe(() => { markModifiedIfNotPulling('study'); if (state.userId) scheduleStudy() })

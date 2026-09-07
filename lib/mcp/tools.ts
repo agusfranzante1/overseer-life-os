@@ -8,7 +8,7 @@
 import {
   getAgenda, getTasks, getPlannerProfile, getPlanHistory, getProjects, getRecurringSeries, getGym, getWallet,
 } from './queries'
-import { saveDayPlan, scheduleTask, updatePlannerProfile } from './writes'
+import { saveDayPlan, scheduleTask, updatePlannerProfile, markReviewSeen } from './writes'
 import { createTask, setTaskRecurrence, addSubtasks } from './taskWrites'
 import { deleteSubtasks } from './deleteSubtasks'
 import { deleteTasks } from './deleteTasks'
@@ -744,6 +744,19 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'mark_review_seen',
+    description:
+      'Apaga el punto rojo del sidebar para una revision periodica. El badge cuenta las cadencias PENDIENTES (sin cerrar) y todavia NO VISTAS; el "visto" solo lo marcaba la app al entrar a la pantalla, asi que abrir y trabajar el SPI desde el chat lo dejaba en rojo como si no se hubiera tocado. NO cierra nada: pendiente sigue pendiente, solo queda reconocida.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cadencia: str('weekly | monthly | quarterly | semestral.'),
+        periodo: str('Clave del periodo: sabado YYYY-MM-DD para weekly, 2026-09 para monthly, 2026-Q3, 2026-H2.'),
+      },
+      required: ['cadencia', 'periodo'],
+    },
+  },
+  {
     name: 'get_books',
     description:
       'La biblioteca del usuario: qué está leyendo, qué quiere leer y qué terminó, con las fechas de inicio y fin. "Leer 30 min" es uno de sus hábitos diarios, así que esto es el contenido de ese hábito.',
@@ -1035,6 +1048,9 @@ export async function callTool(
 
     case 'delete_lab_category':
       return deleteLabCategory(userId, { key: args.key })
+
+    case 'mark_review_seen':
+      return markReviewSeen(userId, { cadencia: args.cadencia, periodo: args.periodo })
 
     case 'get_books':
       return getBooks(userId, args)

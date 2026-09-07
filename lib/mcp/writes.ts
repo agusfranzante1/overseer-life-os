@@ -269,3 +269,65 @@ function sanitizeProfile(p: Partial<PlannerProfile>): Partial<PlannerProfile> {
   }
   return out
 }
+
+/** Marca una revisión periódica como RECONOCIDA, para que el badge rojo del
+ *  sidebar deje de titilar.
+ *
+ *  El badge cuenta las cadencias que están pendientes (sin cerrar) Y todavía
+ *  no vistas. El "visto" lo marcaba solo la app al entrar a la pantalla — así
+ *  que abrir y trabajar el SPI DESDE EL CHAT dejaba el badge en rojo como si
+ *  no se hubiera tocado. Esto lo arregla desde el otro lado.
+ *
+ *  Ojo con lo que NO hace: no cierra nada. Pendiente sigue siendo pendiente;
+ *  lo único que cambia es que ya está reconocida. Si además se cierra, el
+ *  badge se apaga por la otra vía.
+ *
+ *  Mismas dos reglas que `updatePlannerProfile`: se MERGEA el blob (BASE nº3)
+ *  y se sella `_t.reviewsSeen`, porque sin la marca el próximo push del
+ *  cliente lo pisa con su copia vieja.
+ */
+export async function markReviewSeen(
+  userId: string,
+  input: { cadencia?: unknown; periodo?: unknown },
+): Promise<WriteResult> {
+  const CADENCIAS = ['weekly', 'monthly', 'quarterly', 'semestral'] as const
+  const cadencia = String(input.cadencia ?? '').trim()
+  if (!CADENCIAS.includes(cadencia as typeof CADENCIAS[number])) {
+    return {
+      ok: false, error: 'bad_input',
+      detail: `\`cadencia\` inválida: "${cadencia}". Las válidas: ${CADENCIAS.join(', ')}.`,
+    }
+  }
+  const periodo = String(input.periodo ?? '').trim()
+  if (!periodo) {
+    return {
+      ok: false, error: 'bad_input',
+      detail: 'Falta `periodo` (la clave del período: sábado YYYY-MM-DD para weekly, 2026-09 para monthly, 2026-Q3, 2026-H2).',
+    }
+  }
+
+  const sb = getSupabaseAdmin()
+  const { data: row } = await sb
+    .from('app_preferences').select('payload').eq('user_id', userId).maybeSingle()
+
+  const payload = { ...((row?.payload ?? {}) as Record<string, unknown>) }
+  const times = { ...((payload._t ?? {}) as Record<string, string>) }
+  const seen = { ...((payload.reviewsSeen ?? {}) as Record<string, string>) }
+
+  if (seen[cadencia] === periodo) {
+    return { ok: true, sinCambios: true, cadencia, periodo, detail: 'Ya estaba reconocida para ese período.' }
+  }
+
+  const now = new Date().toISOString()
+  seen[cadencia] = periodo
+  payload.reviewsSeen = seen
+  times.reviewsSeen = now
+  payload._t = times
+
+  const { error } = await sb.from('app_preferences').upsert(
+    { user_id: userId, payload, updated_at: now },
+    { onConflict: 'user_id' },
+  )
+  if (error) return { ok: false, error: 'db_error', detail: error.message }
+  return { ok: true, cadencia, periodo, reviewsSeen: seen }
+}

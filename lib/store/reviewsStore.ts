@@ -6,9 +6,17 @@
  * (entró a la pestaña correspondiente). El badge del sidebar titila solo
  * cuando hay una revisión PENDIENTE cuyo período todavía NO fue visto.
  *
- * Es local al dispositivo (no se sincroniza): el nudge cross-device lo cubre
- * la notificación push. Acá solo se trata de "dejá de titilar en ESTE device
- * porque ya lo miré".
+ * ⚠️ CAMBIÓ EL 06/09: antes era local al dispositivo a propósito ("dejá de
+ * titilar en ESTE device porque ya lo miré"). Ahora VIAJA en el blob
+ * `app_preferences` (`reviewsSeen` en `appPrefsFields`), mergeado por campo.
+ *
+ * El motivo: el badge quedaba en rojo cuando la revisión se abría y se
+ * trabajaba DESDE EL CHAT por el bridge MCP — que no es un dispositivo que el
+ * usuario mire, así que nadie marcaba el "visto" y el badge mentía.
+ *
+ * Consecuencia asumida: reconocer una revisión en el celular la apaga también
+ * en la PC. Se prefiere eso a un badge que dice "sin tocar" sobre algo que se
+ * acaba de trabajar durante una hora.
  */
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
