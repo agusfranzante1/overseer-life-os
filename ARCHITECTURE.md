@@ -63,6 +63,12 @@ entero. Aplicado a `tasks` (+subtasks, que heredan la frescura de la madre), `sp
 `projection_plans` y las tres tablas de ofertas. **`syncDeletes` sigue usando la lista COMPLETA,
 no la filtrada**: una fila que no se subió sigue existiendo local, y verla ausente la borraría.
 
+**Solo se tombstonea lo que se borró DE VERDAD** (`reconcileDeletes` devuelve los ids borrados y
+`syncDeletes` tombstonea eso, nada más): la guarda anti-borrado-masivo veta la propagación cuando el
+local está parcial, pero antes `writeTombstones` corría igual con la lista completa. Las filas
+quedaban **vivas en la nube y con lápida** → invisibles en todos los clientes. La guarda salvaba los
+datos y los escondía (BASE nº6). Pasó con las carpetas de mapas; aplica a todos los per-fila.
+
 **El push respeta los tombstones**: antes de subir, `pushTasks` descarta lo que figure en
 `deleted_rows` (`isTombstoned`). Sin eso el upsert resucitaba en la nube lo que otro device o el
 bridge MCP habían borrado mientras este device no pulleaba — el tombstone solo cubría el pull.
@@ -122,6 +128,7 @@ su cabecera QUÉ no hace y por qué.
 | `offerWrites.ts` | pipeline de ofertas: leer, mover de etapa, escribir documentos |
 | `calendarWrites.ts` · `queries.listCalendars` | eventos de Google, y los calendarios con su color |
 | `progress.ts` · `huecos.ts` | medición ya calculada, y metas declaradas sin completar |
+| `dataWrites.ts` | ABM genérico de los dominios con `payload jsonb`: journal, meditaciones, youtube, laboratorio, **mapas mentales y sus carpetas** |
 
 **Lo que NO hace, y son decisiones, no huecos:**
 - **Cerrar la semana del SPI.** Verificado con 3 revisiones adversariales: no es

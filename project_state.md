@@ -47,6 +47,37 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **"Desaparecieron todas las carpetas de mapas" — la guarda anti-borrado-masivo las escondía**
+  (2026-09-08, reportado por el usuario). En Supabase estaban las 8 carpetas con sus 14 mapas y todos
+  los `folderId`. **No se perdió nada: no se veían.**
+  - **Causa, en `syncDeletes`:** `reconcileDeletes` se niega a propagar un borrado que se lleva >=4
+    filas y >=40% del baseline (un local parcial, no una intención del usuario) — pero
+    `writeTombstones` corría **después, con la lista COMPLETA**, sin enterarse del veto. Las filas
+    quedaban **vivas en la nube y con lápida**, y el pull de todo cliente descarta lo que tiene
+    lápida. La guarda salvaba los datos y los volvía invisibles — un fallo mudo (BASE nº6).
+  - Se disparó porque una pestaña abierta tenía 4 carpetas en memoria con el baseline ya en 8.
+    **Es transversal:** valía para tareas, ofertas, journal y todos los per-fila.
+  - **Fix:** `reconcileDeletes` devuelve los ids que REALMENTE borró y eso es lo único que se
+    tombstonea (los que ni existen en remoto tampoco generan lápida fantasma). Sale `deletedSince`.
+  - **Datos recuperados sin tocar nada:** `tombDead` es `lápida > updatedAt`, así que bumpear el
+    `updatedAt` de las 8 carpetas y los 14 mapas los devuelve. Verificado después de que el cliente
+    del usuario volviera a pushear: la estructura sobrevivió (NQNSurvey pasó de 8 a 11 nodos y siguió
+    en su carpeta).
+  - **Sin migración.** Test `lib/supabase/tombstoneGuard.test.ts` 9/9 con el caso real de 4/8.
+  - ⚠️ **`pushMindMaps` sigue SIN `staleGuard`** (upsert ciego del store entero). No causó esto,
+    pero es el mismo terreno: una pestaña vieja puede deshacer lo que escriba el bridge. Pendiente.
+
+- [x] **El bridge ya lee y ordena los MAPAS MENTALES** (2026-09-08). Era el último dominio grande sin
+  acceso. Entran al motor genérico de `dataWrites.ts` como `mapas` y `carpetas` (las dos tablas ya
+  guardan `payload jsonb`). Se puede leer, renombrar, mover de carpeta, reordenar y borrar; el motor
+  **mergea sobre lo previo**, así que mandar solo `title` o `folderId` no toca los nodos.
+  - Tres guardas que el store ya aplica en el cliente y el server tenía que espejar: las carpetas
+    `locked` son de un módulo (no se renombran ni se borran, y sus mapas no se sacan), borrar una
+    carpeta **no** borra sus mapas (quedan sueltos, con el `updatedAt` bumpeado o el merge lo
+    revierte), y escribir nodos exige `x/y/width/height` — sin geometría se apilan en el origen.
+  - **Sin migración.** Ordenado en vivo: de 8 mapas sueltos quedó 1, en 8 carpetas.
+
+
 - [x] **Sección nueva: DECISIONES** (2026-09-06, pedido del usuario). Registro de las decisiones
   tomadas y de cómo salieron: texto de la decisión, **qué resultado dio**, veredicto
   (**pendiente / correcta / incorrecta**), ⭐ **importante** y **proyecto** (los mismos de Tareas).
