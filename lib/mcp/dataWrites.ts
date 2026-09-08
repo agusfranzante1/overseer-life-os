@@ -203,14 +203,16 @@ const DOMINIOS: Record<string, Dominio> = {
     defaults: { name: 'Carpeta', order: 0 },
     validar: (p) => {
       if (p.order !== undefined && typeof p.order !== 'number') return '`order` tiene que ser un numero (menor = mas a la izquierda).'
-      // `locked` se lo pone un modulo al aduenarse de la carpeta. Que lo
-      // ponga el bridge dejaria una carpeta que despues nadie puede tocar.
-      if (p.locked !== undefined && p.locked !== false) {
-        return '`locked` no se setea desde aca: lo pone el modulo que se aduena de la carpeta (Estudio, Content Strategy).'
-      }
       return null
     },
     guardEscritura: async ({ previo, payload }) => {
+      // `locked` se lo pone un modulo al aduenarse de la carpeta; el bridge no
+      // lo setea. Se compara contra `previo` a proposito: el payload viene
+      // MERGEADO, asi que mirar solo `payload.locked` rechazaba tambien un
+      // upsert que no lo tocaba (y dejaba la carpeta 🔒 sin poder ni tocarse).
+      if (payload.locked !== (previo?.locked ?? undefined)) {
+        return '`locked` no se setea desde aca: lo pone el modulo que se aduena de la carpeta (Estudio, Content Strategy).'
+      }
       if (previo?.locked && payload.name !== previo.name) {
         return `La carpeta "${String(previo.name)}" esta BLOQUEADA (es de un modulo) y no se renombra.`
       }

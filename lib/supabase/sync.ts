@@ -450,13 +450,6 @@ async function safeSingletonUpsert(
   return sb.from(table).upsert(row, { onConflict: 'user_id' })
 }
 
-/** Ids que estaban en el baseline (ya sincronizados) y ya no están en local =
- *  borrados a propósito por el user en este device. */
-function deletedSince(baseline: Set<string>, localIds: string[]): string[] {
-  const localSet = new Set(localIds)
-  return [...baseline].filter((id) => !localSet.has(id))
-}
-
 /** Cierre del lado PUSH para una tabla de colección: borra de remoto lo que el
  *  user quitó (baseline ∩ ¬local), registra esos borrados como tombstones para
  *  que se propaguen a otros devices, y actualiza el baseline local = lo que
@@ -477,8 +470,14 @@ async function syncDeletes(
     console.warn(`[sync] syncDeletes(${table}): local vacío con baseline de ${base.size} → skip TOTAL (no borra, no tombstonea, no toca baseline)`)
     return
   }
-  await reconcileDeletes(sb, table, uid, localIds, base, idColumn)
-  await writeTombstones(sb, uid, table, deletedSince(base, localIds))
+  // Se tombstonea SOLO lo que reconcileDeletes borró de verdad. Antes se
+  // tombstoneaba `deletedSince(base, localIds)` entero: cuando la guarda
+  // anti-borrado-masivo se negaba a borrar, las filas quedaban VIVAS en la
+  // nube pero con lápida, así que ningún cliente las volvía a ver. La guarda
+  // salvaba los datos y los escondía igual — un fallo mudo (BASE nº6).
+  // Le pasó a las carpetas de mapas el 08/09.
+  const borradas = await reconcileDeletes(sb, table, uid, localIds, base, idColumn)
+  await writeTombstones(sb, uid, table, borradas)
   setBaseline(baselineKey, localIds)
 }
 

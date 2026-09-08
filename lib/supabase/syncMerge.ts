@@ -152,8 +152,8 @@ export async function reconcileDeletes(
   /** Columna clave de la tabla. Default 'id'; usar 'code' (wallet_currencies)
    *  o 'date' (health_snapshots) para tablas con PK natural distinta. */
   idColumn: string = 'id',
-): Promise<void> {
-  if (baseline.size === 0) return
+): Promise<string[]> {
+  if (baseline.size === 0) return []
   // ── BLINDAJE ANTI-WIPE ──────────────────────────────────────────────
   // Si el local quedó COMPLETAMENTE vacío pero el baseline tenía filas, casi
   // nunca es un borrado real: es un store que no rehidrató / falló al cargar
@@ -163,11 +163,11 @@ export async function reconcileDeletes(
   // re-pulla; datos perdidos en la nube no se recuperan.
   if (localIds.length === 0) {
     console.warn(`[sync] reconcileDeletes(${table}): local vacío con baseline de ${baseline.size} → skip para no borrar todo de la nube`)
-    return
+    return []
   }
   const localSet = new Set(localIds)
   const intentional = [...baseline].filter((id) => !localSet.has(id))
-  if (intentional.length === 0) return
+  if (intentional.length === 0) return []
 
   // ── BLINDAJE ANTI-BORRADO-MASIVO ────────────────────────────────────
   // Un borrado que se lleva una porción GRANDE del baseline de un saque casi
@@ -181,18 +181,20 @@ export async function reconcileDeletes(
   // un borrado masivo legítimo simplemente hay que hacerlo por device (raro).
   if (intentional.length >= 4 && intentional.length >= Math.ceil(baseline.size * 0.4)) {
     console.warn(`[sync] reconcileDeletes(${table}): borrado masivo sospechoso (${intentional.length}/${baseline.size}) → SKIP para no destruir datos en la nube. Si fue a propósito, borralas de a poco.`)
-    return
+    return []
   }
 
   // Intersectar con lo que existe realmente en remoto (evita DELETEs de ids
   // fantasma y nos dice qué borrar de verdad).
   const { data } = await sb.from(table).select(idColumn).eq('user_id', userId)
-  if (!data) return
+  if (!data) return []
   const remoteIds = new Set((data as unknown as Record<string, string>[]).map((r) => r[idColumn]))
   const toDelete = intentional.filter((id) => remoteIds.has(id))
-  if (toDelete.length === 0) return
+  if (toDelete.length === 0) return []
 
   await sb.from(table).delete().eq('user_id', userId).in(idColumn, toDelete)
+  // Devuelve lo que REALMENTE se borró: el que llama tombstonea solo esto.
+  return toDelete
 }
 
 // ─── mergeSpiSession: deep-merge campo-por-campo de una sesión SPI ──────────
