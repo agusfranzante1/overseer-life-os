@@ -44,6 +44,40 @@ interface Dominio {
   columnas?: (p: Record<string, unknown>) => Record<string, unknown>
   /** Validaciones propias del dominio. Devuelve el error o null. */
   validar?: (p: Record<string, unknown>) => string | null
+  /** Guardas que necesitan LEER la base (p. ej. si la carpeta esta bloqueada).
+   *  `validar` es sincrono y no alcanza para eso. Devuelve el error o null. */
+  guardEscritura?: (ctx: GuardCtx) => Promise<string | null>
+  guardBorrado?: (ctx: GuardBorradoCtx) => Promise<string | null>
+  /** Cascadas que el store hace en el cliente y el server tiene que espejar. */
+  trasBorrar?: (ctx: GuardBorradoCtx) => Promise<void>
+}
+
+type SB = ReturnType<typeof getSupabaseAdmin>
+interface GuardCtx {
+  sb: SB
+  userId: string
+  id: string | null
+  previo: Record<string, unknown> | null
+  payload: Record<string, unknown>
+}
+interface GuardBorradoCtx {
+  sb: SB
+  userId: string
+  ids: string[]
+  filas: { id: string; payload: Record<string, unknown> }[]
+}
+
+/** Las carpetas `locked` son del SISTEMA: un modulo se aduena de ellas (el mapa
+ *  de conceptos de Estudio, los perfiles de Content Strategy) y sus mapas no se
+ *  pueden mover ni borrar. El store lo hace cumplir en el cliente; si el server
+ *  no lo hiciera, el bridge seria la unica puerta capaz de romper el invariante. */
+async function carpetasBloqueadas(sb: SB, userId: string): Promise<Set<string>> {
+  const { data } = await sb.from('mindmap_folders').select('id, payload').eq('user_id', userId)
+  const out = new Set<string>()
+  for (const f of data ?? []) {
+    if ((f.payload as Record<string, unknown> | null)?.locked) out.add(f.id as string)
+  }
+  return out
 }
 
 const DOMINIOS: Record<string, Dominio> = {
@@ -98,6 +132,107 @@ const DOMINIOS: Record<string, Dominio> = {
         return `status inválido: "${String(s)}". Los válidos son open, closed, archived.`
       }
       return null
+    },
+  },
+  mapas: {
+    etiqueta: 'Mapas mentales',
+    tabla: 'mindmaps',
+    // Exactamente lo que preserva el `sanitize` de pullMindMaps (BASE nº2).
+    campos: ['id', 'title', 'folderId', 'nodes', 'edges', 'shapes', 'createdAt', 'updatedAt'],
+    requeridos: ['title'],
+    defaults: { title: 'Mapa', nodes: [], edges: [], shapes: [] },
+    columnas: (p) => ({ title: p.title ?? 'Mapa' }),
+    validar: (p) => {
+      // Un nodo sin geometria no se dibuja donde uno cree: `x/y/width/height`
+      // son obligatorios en MindMapNode y el lienzo no los infiere. Si se
+      // escriben nodos a medias, el mapa queda apilado en el origen — un
+      // fallo mudo, que es justo lo que no queremos (BASE nº6).
+      const ns = p.nodes
+      if (ns !== undefined) {
+        if (!Array.isArray(ns)) return '`nodes` tiene que ser un array.'
+        const malos = ns.filter((n) => {
+          const o = (n ?? {}) as Record<string, unknown>
+          return ['id', 'x', 'y', 'width', 'height', 'text'].some((k) =>
+            o[k] === undefined || (k !== 'id' && k !== 'text' && typeof o[k] !== 'number'))
+        })
+        if (malos.length) {
+          return `${malos.length} nodo(s) sin geometria completa. Cada nodo necesita id, x, y, width, height y text (los cuatro del medio, numeros). ` +
+            'Sin eso se apilan todos en el origen y el mapa queda ilegible.'
+        }
+      }
+      if (p.edges !== undefined && !Array.isArray(p.edges)) return '`edges` tiene que ser un array.'
+      if (p.shapes !== undefined && !Array.isArray(p.shapes)) return '`shapes` tiene que ser un array.'
+      return null
+    },
+    guardEscritura: async ({ sb, userId, previo, payload }) => {
+      const bloq = await carpetasBloqueadas(sb, userId)
+      const antes = (previo?.folderId as string | undefined) ?? null
+      const despues = (payload.folderId as string | undefined) ?? null
+      if (antes !== despues && antes && bloq.has(antes)) {
+        return `Ese mapa vive en una carpeta BLOQUEADA (${antes}) y no se puede sacar de ahi. ` +
+          'Las carpetas bloqueadas son de un modulo (Estudio, Content Strategy): sus mapas se generan solos y moverlos los rompe.'
+      }
+      if (despues && !antes && bloq.has(despues)) {
+        return `No se puede meter un mapa a mano en la carpeta bloqueada ${despues}: esa carpeta la llena su modulo.`
+      }
+      return null
+    },
+    guardBorrado: async ({ sb, userId, filas }) => {
+      const bloq = await carpetasBloqueadas(sb, userId)
+      const presos = filas.filter((f) => {
+        const fid = f.payload?.folderId
+        return typeof fid === 'string' && bloq.has(fid)
+      })
+      if (presos.length) {
+        return `${presos.length} de esos mapas viven en una carpeta BLOQUEADA y los regenera su modulo: borrarlos no sirve (vuelven) y rompe el modulo. Ids: ${presos.map((p) => p.id).join(', ')}.`
+      }
+      return null
+    },
+  },
+  carpetas: {
+    etiqueta: 'Carpetas de mapas',
+    tabla: 'mindmap_folders',
+    campos: ['id', 'name', 'order', 'locked', 'createdAt', 'updatedAt'],
+    requeridos: ['name'],
+    defaults: { name: 'Carpeta', order: 0 },
+    validar: (p) => {
+      if (p.order !== undefined && typeof p.order !== 'number') return '`order` tiene que ser un numero (menor = mas a la izquierda).'
+      // `locked` se lo pone un modulo al aduenarse de la carpeta. Que lo
+      // ponga el bridge dejaria una carpeta que despues nadie puede tocar.
+      if (p.locked !== undefined && p.locked !== false) {
+        return '`locked` no se setea desde aca: lo pone el modulo que se aduena de la carpeta (Estudio, Content Strategy).'
+      }
+      return null
+    },
+    guardEscritura: async ({ previo, payload }) => {
+      if (previo?.locked && payload.name !== previo.name) {
+        return `La carpeta "${String(previo.name)}" esta BLOQUEADA (es de un modulo) y no se renombra.`
+      }
+      return null
+    },
+    guardBorrado: async ({ filas }) => {
+      const bloq = filas.filter((f) => f.payload?.locked)
+      if (bloq.length) {
+        return `No se pueden borrar carpetas bloqueadas: ${bloq.map((f) => String(f.payload?.name ?? f.id)).join(', ')}. Son de un modulo y se regeneran solas.`
+      }
+      return null
+    },
+    // Espeja `deleteFolder` del store: los mapas NO se borran con la carpeta,
+    // quedan sueltos y siguen visibles en General. Sin esto quedarian con un
+    // `folderId` colgado apuntando a una carpeta que ya no existe.
+    trasBorrar: async ({ sb, userId, ids }) => {
+      const { data } = await sb.from('mindmaps').select('id, payload').eq('user_id', userId)
+      const ahora = new Date().toISOString()
+      const huerfanos = (data ?? []).filter((m) => {
+        const fid = (m.payload as Record<string, unknown> | null)?.folderId
+        return typeof fid === 'string' && ids.includes(fid)
+      })
+      for (const m of huerfanos) {
+        const p = { ...(m.payload as Record<string, unknown>) }
+        delete p.folderId
+        p.updatedAt = ahora   // sin el bump, el merge LWW del pull lo revierte
+        await sb.from('mindmaps').update({ payload: p, updated_at: ahora }).eq('id', m.id).eq('user_id', userId)
+      }
     },
   },
 }
@@ -213,6 +348,9 @@ export async function upsertRecord(
   const problema = dom.validar?.(payload)
   if (problema) return { ok: false, error: 'bad_input', detail: problema }
 
+  const guarda = await dom.guardEscritura?.({ sb, userId, id, previo, payload })
+  if (guarda) return { ok: false, error: 'bloqueado', detail: guarda }
+
   const fila: Record<string, unknown> = {
     id: payload.id,
     user_id: userId,
@@ -266,6 +404,16 @@ export async function deleteRecords(
     return { ok: false, error: 'not_found', detail: `Ninguno de esos ids existe en ${dom.etiqueta}.` }
   }
 
+  const filas = (data ?? []).map((x) => ({
+    id: x.id as string,
+    payload: (x.payload ?? {}) as Record<string, unknown>,
+  }))
+  // La guarda va ANTES del tombstone: si se escribe el tombstone y despues se
+  // aborta, la fila queda viva pero marcada como borrada y desaparece del
+  // proximo pull. O se hace todo o no se toca nada.
+  const veto = await dom.guardBorrado?.({ sb, userId, ids: existen, filas })
+  if (veto) return { ok: false, error: 'bloqueado', detail: veto }
+
   // 1) Tombstones PRIMERO. Sin esto el borrado rebota: el primer dispositivo
   //    que todavía tenga la fila en memoria la vuelve a subir.
   const ahora = new Date().toISOString()
@@ -283,10 +431,10 @@ export async function deleteRecords(
   const { error } = await sb.from(dom.tabla).delete().in('id', existen).eq('user_id', userId)
   if (error) return { ok: false, error: 'db_error', detail: error.message }
 
-  const titulos = (data ?? []).map((x) => {
-    const p = (x.payload ?? {}) as Record<string, unknown>
-    return String(p.title ?? p.text ?? x.id).slice(0, 60)
-  })
+  await dom.trasBorrar?.({ sb, userId, ids: existen, filas })
+
+  const titulos = filas.map((f) =>
+    String(f.payload.title ?? f.payload.name ?? f.payload.text ?? f.id).slice(0, 60))
 
   return {
     ok: true,
