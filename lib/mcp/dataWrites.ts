@@ -21,10 +21,16 @@
  *  - **Tombstone ANTES del delete.** Si se borra sin tombstone, el primer
  *    dispositivo que todavía tenga la fila la vuelve a subir.
  *
- *  NO cubre todavía: Salud, Comida, Trading (la sección), Estudio, Mapas
- *  mentales y Content Strategy. Los tres primeros usan columnas reales en vez
- *  de payload y necesitan su propio mapeo; los otros tres son árboles con
- *  varias tablas relacionadas. Ver `project_state.md`.
+ *  NO cubre todavía: Salud, Comida, Trading (la sección), Estudio y Content
+ *  Strategy. Los tres primeros usan columnas reales en vez de payload y
+ *  necesitan su propio mapeo; los otros dos son árboles con varias tablas
+ *  relacionadas. Ver `project_state.md`.
+ *
+ *  ⚠️ MAPAS MENTALES — el push del cliente NO tiene staleGuard. `pushMindMaps`
+ *  sube el store entero con un upsert ciego, así que una pestaña abierta con
+ *  la copia vieja en memoria puede DESHACER lo que se escriba desde acá (es
+ *  el mismo bug que ya pasó cuatro veces en un día con las tareas, y por eso
+ *  existe `staleGuard.ts` — pero nunca se aplicó a este dominio).
  */
 
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
