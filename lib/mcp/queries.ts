@@ -39,12 +39,22 @@ export interface BridgeTask {
   subtasks?: {
     total: number
     done: number
-    pending: { id: string; title: string }[]
+    pending: BridgeSubtask[]
     /** Solo con `incluirSubtareasHechas`. Sin esto los ids de las subtareas YA
      *  completadas no salen por ningún lado, y sin id no se pueden destildar
      *  (`complete_subtasks` con done:false), editar ni borrar. */
-    hechas?: { id: string; title: string }[]
+    hechas?: BridgeSubtask[]
   }
+}
+
+/** Las NOTAS de una subtarea se devuelven junto al título por un motivo
+ *  concreto: ahí viven los PROMPTS de las plantillas de proceso. Sin esto el
+ *  bridge podía escribirlas (`update_subtask`) pero NUNCA volver a leerlas —
+ *  datos de solo-escritura, que es la peor variante de un fallo mudo. */
+export interface BridgeSubtask {
+  id: string
+  title: string
+  notes?: string
 }
 
 export interface AgendaEvent {
@@ -238,7 +248,7 @@ export async function getTasks(userId: string, f: TaskFilters = {}): Promise<Bri
 
 async function getSubtaskSummary(userId: string, taskIds: string[], porTarea?: number, conHechas?: boolean) {
   const tope = Math.min(Math.max(1, Math.floor(porTarea ?? 30)), 500)
-  const map = new Map<string, { total: number; done: number; pending: { id: string; title: string }[]; hechas?: { id: string; title: string }[] }>()
+  const map = new Map<string, { total: number; done: number; pending: BridgeSubtask[]; hechas?: BridgeSubtask[] }>()
   if (taskIds.length === 0) return map
   const sb = getSupabaseAdmin()
   // El `id` NO es decorativo: `delete_subtasks` borra por id, y sin exponerlo
@@ -246,7 +256,7 @@ async function getSubtaskSummary(userId: string, taskIds: string[], porTarea?: n
   // subtarea desde afuera).
   const { data } = await sb
     .from('subtasks')
-    .select('id, task_id, title, completed, "order"')
+    .select('id, task_id, title, notes, completed, "order"')
     .eq('user_id', userId)
     .limit(5000)
 
@@ -254,6 +264,17 @@ async function getSubtaskSummary(userId: string, taskIds: string[], porTarea?: n
   const rows = (data ?? []).slice().sort(
     (a, b) => Number((a as Record<string, unknown>).order ?? 0) - Number((b as Record<string, unknown>).order ?? 0),
   )
+
+  const aSubtarea = (s: Record<string, unknown>): BridgeSubtask => {
+    const n = typeof s.notes === 'string' ? s.notes.trim() : ''
+    return {
+      id: s.id as string,
+      title: (s.title as string) ?? '',
+      // Tope alto a propósito: acá viven los prompts de las plantillas y
+      // cortarlos a la mitad los vuelve inservibles.
+      ...(n ? { notes: n.slice(0, 4000) } : {}),
+    }
+  }
 
   for (const s of rows) {
     const key = s.task_id as string
@@ -264,11 +285,11 @@ async function getSubtaskSummary(userId: string, taskIds: string[], porTarea?: n
       entry.done++
       if (conHechas) {
         entry.hechas ??= []
-        if (entry.hechas.length < tope) entry.hechas.push({ id: s.id as string, title: (s.title as string) ?? '' })
+        if (entry.hechas.length < tope) entry.hechas.push(aSubtarea(s))
       }
     }
     else if (entry.pending.length < tope) {
-      entry.pending.push({ id: s.id as string, title: (s.title as string) ?? '' })
+      entry.pending.push(aSubtarea(s))
     }
     map.set(key, entry)
   }
@@ -278,7 +299,7 @@ async function getSubtaskSummary(userId: string, taskIds: string[], porTarea?: n
 function toBridgeTask(
   r: Record<string, unknown>,
   projects: Map<string, { name: string }>,
-  subs: Map<string, { total: number; done: number; pending: { id: string; title: string }[] }>,
+  subs: Map<string, { total: number; done: number; pending: BridgeSubtask[] }>,
 ): BridgeTask {
   const notes = typeof r.notes === 'string' ? r.notes : undefined
   const sub = subs.get(r.id as string)
