@@ -271,8 +271,9 @@ async function getSubtaskSummary(userId: string, taskIds: string[], porTarea?: n
       id: s.id as string,
       title: (s.title as string) ?? '',
       // Tope alto a propósito: acá viven los prompts de las plantillas y
-      // cortarlos a la mitad los vuelve inservibles.
-      ...(n ? { notes: n.slice(0, 4000) } : {}),
+      // cortarlos a la mitad los vuelve inservibles. 4000 ya se quedó corto el
+      // mismo día (el prompt único de DRM mide 7k), así que va con margen.
+      ...(n ? { notes: n.slice(0, 20000) } : {}),
     }
   }
 
