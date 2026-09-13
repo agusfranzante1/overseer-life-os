@@ -1,6 +1,6 @@
 /** ABM genérico de los dominios "per-fila con payload jsonb".
  *
- *  Journal, Meditaciones, YouTube y Laboratorio guardan cada entidad como una
+ *  Journal, Meditaciones, YouTube, Laboratorio y Herramientas guardan cada entidad como una
  *  fila `{ id, user_id, created_at, updated_at, payload jsonb }`. Escribir cada
  *  uno a mano sería el mismo archivo cuatro veces, así que acá va el motor y
  *  abajo el registro de dominios.
@@ -117,6 +117,14 @@ const DOMINIOS: Record<string, Dominio> = {
       }
       return null
     },
+  },
+  herramientas: {
+    etiqueta: 'Herramientas',
+    tabla: 'tools',
+    // Exactamente lo que preserva el `sanitize` de pullTools (BASE nº2).
+    campos: ['id', 'name', 'url', 'category', 'notes', 'favorite', 'createdAt', 'updatedAt'],
+    requeridos: ['name'],
+    defaults: { name: '', url: '', category: '', notes: '', favorite: false },
   },
   laboratorio: {
     etiqueta: 'Laboratorio (sesiones)',

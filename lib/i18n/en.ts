@@ -9,6 +9,7 @@ export const en: Record<string, any> = {
     decisiones: 'Decisions',
     meditaciones: 'Meditations',
     youtube: 'YouTube',
+    herramientas: 'Tools',
     books: 'Books',
     ofertas: 'Offers',
     mindmaps: 'Mind Maps',

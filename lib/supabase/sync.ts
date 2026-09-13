@@ -23,6 +23,7 @@ import { type Book, type BookStatus, useBooksStore } from '@/lib/store/booksStor
 import { type DayPlan, type DayPlanBlock, type DayPlanBlockKind, useDayPlanStore, dayPlanId } from '@/lib/store/dayPlanStore'
 import { useJournalStore } from '@/lib/store/journalStore'
 import { useDecisionsStore } from '@/lib/store/decisionsStore'
+import { useToolsStore } from '@/lib/store/toolsStore'
 import { useMeditationsStore } from '@/lib/store/meditationsStore'
 import { useYoutubeStore } from '@/lib/store/youtubeStore'
 import { useOffersStore } from '@/lib/store/offersStore'
@@ -68,6 +69,7 @@ interface SyncState {
   dayPlansInit: boolean
   journalInit: boolean
   decisionsInit: boolean
+  toolsInit: boolean
   meditationsInit: boolean
   youtubeInit: boolean
   offersInit: boolean
@@ -99,6 +101,7 @@ const state: SyncState = {
   dayPlansInit: false,
   journalInit: false,
   decisionsInit: false,
+  toolsInit: false,
   meditationsInit: false,
   youtubeInit: false,
   offersInit: false,
@@ -129,6 +132,7 @@ let booksPushTimer: ReturnType<typeof setTimeout> | null = null
 let dayPlansPushTimer: ReturnType<typeof setTimeout> | null = null
 let journalPushTimer: ReturnType<typeof setTimeout> | null = null
 let decisionsPushTimer: ReturnType<typeof setTimeout> | null = null
+let toolsPushTimer: ReturnType<typeof setTimeout> | null = null
 let meditationsPushTimer: ReturnType<typeof setTimeout> | null = null
 let youtubePushTimer: ReturnType<typeof setTimeout> | null = null
 let offersPushTimer: ReturnType<typeof setTimeout> | null = null
@@ -2422,6 +2426,88 @@ async function pullDecisions(): Promise<boolean> {
   }
 }
 
+// ─── HERRAMIENTAS (catálogo de herramientas: edición, IA, voces…) ───────────
+// Una fila por herramienta. Merge: LWW por updatedAt + tombstones.
+// Ver migration_tools.sql.
+
+async function pushTools() {
+  if (!state.userId) return
+  const syncedAt = new Date().toISOString()
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { tools } = useToolsStore.getState()
+
+  const rows = tools.map((t) => ({
+    id: t.id,
+    user_id: uid,
+    created_at: t.createdAt,
+    updated_at: t.updatedAt,
+    payload: t,
+  }))
+
+  if (rows.length > 0) {
+    const r = await sb.from('tools').upsert(rows)
+    if (r.error) {
+      reportSyncError(`tools upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_tools.sql.`)
+      throw r.error
+    }
+  }
+  await syncDeletes(sb, uid, 'tools', rows.map((r) => r.id), 'tools:items')
+  markSynced('tools', syncedAt)
+}
+
+async function pullTools(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('tools')
+  try {
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('tools').select('*').eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+  if (res.error) {
+    console.error('Tools pull failed (run migration_tools.sql?):', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) { markSynced('tools'); return false }
+
+  type ToolRow = { payload: unknown }
+  // OJO (BASE nº2): el sanitize reconstruye la herramienta campo por campo — un
+  // campo que no esté acá SE BORRA al sincronizar, aunque el push lo mande.
+  // Si sumás uno nuevo al store, sumalo también acá.
+  const sanitize = (raw: unknown): import('@/lib/store/toolsStore').Tool => {
+    const p = (raw ?? {}) as Partial<import('@/lib/store/toolsStore').Tool>
+    return {
+      id: p.id ?? '',
+      name: p.name ?? '',
+      url: p.url ?? '',
+      category: p.category ?? '',
+      notes: p.notes ?? '',
+      favorite: p.favorite === true,
+      createdAt: p.createdAt ?? new Date().toISOString(),
+      updatedAt: p.updatedAt ?? new Date().toISOString(),
+    }
+  }
+  const remoteTools: import('@/lib/store/toolsStore').Tool[] =
+    (res.data ?? []).map((r: ToolRow) => sanitize(r.payload))
+  const tombs = await fetchTombstones(sb, uid, ['tools'])
+  const merged = mergeById<import('@/lib/store/toolsStore').Tool>({
+    local: useToolsStore.getState().tools,
+    remote: remoteTools,
+    baseline: getBaseline('tools:items'),
+    getId: (x) => x.id,
+    getUpdatedAt: (x) => x.updatedAt,
+    tombstones: tombs.get('tools'),
+  })
+  useToolsStore.setState({ tools: merged })
+  setBaseline('tools:items', remoteTools.map((x) => x.id))
+  markSynced('tools')
+  return true
+  } finally {
+    endPulling('tools')
+  }
+}
+
 // ─── MEDITACIONES (biblioteca de meditaciones / respiración) ─────────────────
 // Una fila por meditación. Merge: LWW por updatedAt + tombstones.
 // Ver migration_meditations.sql.
@@ -4385,6 +4471,7 @@ function scheduleBooks()      { schedule(booksPushTimer,      pushBooks,      (t
 function scheduleDayPlans()   { schedule(dayPlansPushTimer,   pushDayPlans,   (t) => { dayPlansPushTimer = t }) }
 function scheduleJournal()     { schedule(journalPushTimer,    pushJournal,    (t) => { journalPushTimer = t }) }
 function scheduleDecisions()   { schedule(decisionsPushTimer,  pushDecisions,  (t) => { decisionsPushTimer = t }) }
+function scheduleTools()       { schedule(toolsPushTimer,      pushTools,      (t) => { toolsPushTimer = t }) }
 function scheduleMeditations() { schedule(meditationsPushTimer, pushMeditations, (t) => { meditationsPushTimer = t }) }
 function scheduleYoutube()     { schedule(youtubePushTimer,     pushYoutube,     (t) => { youtubePushTimer = t }) }
 function scheduleOffers()      { schedule(offersPushTimer,      pushOffers,      (t) => { offersPushTimer = t }) }
@@ -4634,6 +4721,16 @@ async function initAllDomains() {
     if (hasLocal) await pushDecisions().catch((e) => console.error('Decisions post-pull push failed', e))
   }
 
+  // ─── Herramientas ─────────────────────────────────────────────────────
+  // Pull-first: LWW por updatedAt + tombstones (mismo patrón que decisiones).
+  if (!state.toolsInit) {
+    state.toolsInit = true
+    const { tools } = useToolsStore.getState()
+    const hasLocal = tools.length > 0
+    await pullTools()
+    if (hasLocal) await pushTools().catch((e) => console.error('Tools post-pull push failed', e))
+  }
+
   // ─── Meditaciones ─────────────────────────────────────────────────────
   // Pull-first: LWW por updatedAt + tombstones (mismo patrón que journal).
   if (!state.meditationsInit) {
@@ -4806,6 +4903,7 @@ export function useSupabaseSync() {
       useDayPlanStore.subscribe(() => { markModifiedIfNotPulling('dayPlans'); if (state.userId) scheduleDayPlans() })
       useJournalStore.subscribe(() => { markModifiedIfNotPulling('journal'); if (state.userId) scheduleJournal() })
       useDecisionsStore.subscribe(() => { markModifiedIfNotPulling('decisions'); if (state.userId) scheduleDecisions() })
+      useToolsStore.subscribe(() => { markModifiedIfNotPulling('tools'); if (state.userId) scheduleTools() })
       useMeditationsStore.subscribe(() => { markModifiedIfNotPulling('meditations'); if (state.userId) scheduleMeditations() })
       useYoutubeStore.subscribe(() => { markModifiedIfNotPulling('youtube'); if (state.userId) scheduleYoutube() })
       useOffersStore.subscribe(() => { markModifiedIfNotPulling('offers'); if (state.userId) scheduleOffers() })
@@ -4843,6 +4941,7 @@ export function useSupabaseSync() {
       state.dayPlansInit = false
       state.journalInit = false
       state.decisionsInit = false
+      state.toolsInit = false
       state.meditationsInit = false
       state.youtubeInit = false
       state.offersInit = false
@@ -4902,6 +5001,7 @@ export function useSupabaseSync() {
       state.dayPlansInit = false
       state.journalInit = false
       state.decisionsInit = false
+      state.toolsInit = false
       state.meditationsInit = false
       state.youtubeInit = false
       state.offersInit = false
@@ -4988,6 +5088,7 @@ export async function forceSyncAll(): Promise<void> {
   state.dayPlansInit = false
   state.journalInit = false
   state.decisionsInit = false
+  state.toolsInit = false
   state.meditationsInit = false
   state.youtubeInit = false
   state.offersInit = false
@@ -5062,6 +5163,7 @@ export async function forceSyncJournal()   { await pushJournal() }
 export async function forcePullJournal()   { return pullJournal() }
 export async function forceSyncDecisions() { await pushDecisions() }
 export async function forcePullDecisions() { return pullDecisions() }
+export async function forcePullTools() { return pullTools() }
 export async function forceSyncMeditations() { await pushMeditations() }
 export async function forcePullMeditations() { return pullMeditations() }
 export async function forceSyncFavorites()  { await pushFavorites() }

@@ -10,6 +10,7 @@ export const es: Translations = {
     decisiones: 'Decisiones',
     meditaciones: 'Meditaciones',
     youtube: 'YouTube',
+    herramientas: 'Herramientas',
     books: 'Libros',
     ofertas: 'Ofertas',
     mindmaps: 'Mapas Mentales',
