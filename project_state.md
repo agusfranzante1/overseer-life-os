@@ -47,6 +47,29 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Sección nueva: HERRAMIENTAS** (2026-09-13, pedido del usuario: *"una sección de herramientas
+  para editar, hacer personajes con IA, etc."*). El catálogo de **con qué se hace** cada cosa: nombre,
+  link, categoría libre, notas y ⭐. Vive en `/herramientas`, en el sidebar **después de YouTube**.
+  - **No es el backlog de YouTube** ("qué ver"): un tutorial entra acá cuando lo que importa es la
+    HERRAMIENTA que muestra. La primera es VibeCut (edición automática), del video que mandó.
+  - **Categorías de texto libre, sin lista fija:** la taxonomía la arma él ("Edición de video",
+    "Personajes IA"…). La UI ofrece las que ya existen (`datalist`) para no duplicar por acento, y
+    las muestra como chips de filtro.
+  - **Favoritas arriba** (al revés que Decisiones): un catálogo no tiene línea de tiempo que cuidar.
+  - **Sync (playbook completo de `ARCHITECTURE.md`):** store `overseer-tools`, `pushTools`/`pullTools`
+    con sanitize campo por campo (BASE nº2), `mergeById` + tombstones + baseline `tools:items`, flag
+    `toolsInit` en los 3 resets, `scheduleTools`, subscribe y `wireCrossTabSync`.
+  - **Nav:** `herramientas` en `OPTIONAL_NAV_KEYS` sin tocar el `migrate` — la cuenta existente la ve
+    enseguida (verificado simulando un `hiddenNavKeys` viejo), una nueva arranca sin ella (BASE nº4).
+  - **Bridge:** dominio `herramientas` en `dataWrites.ts` → se cargan desde el chat con `upsert_record`.
+  - ⚠️ **Migración `supabase/migration_tools.sql`: PENDIENTE de correr.** Hasta entonces el push de
+    herramientas falla con toast (la migración faltante ya no corta el resto del sync).
+  - **Verificado corriendo la app:** crear, llenar los 4 campos, ⭐ y filtro por chip persisten y
+    bumpean `updatedAt`; sobrevive al reload; sidebar de cuenta existente; mobile 375px sin scroll
+    horizontal. Tests puros 13/13. `tsc` + `next build` OK.
+  - **NO verificado:** el round-trip contra Supabase (la tabla no existe hasta correr la migración).
+
+
 - [x] **"Desaparecieron todas las carpetas de mapas" — la guarda anti-borrado-masivo las escondía**
   (2026-09-08, reportado por el usuario). En Supabase estaban las 8 carpetas con sus 14 mapas y todos
   los `folderId`. **No se perdió nada: no se veían.**
@@ -845,6 +868,8 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
 
 ### ⚠️ Pendientes del usuario (Claude no puede hacerlos)
 
+- [ ] **Correr `supabase/migration_tools.sql`** (sección Herramientas, 2026-09-13). Sin esto las
+      herramientas no sincronizan ni se pueden cargar desde el chat.
 - [ ] **Correr las 2 migraciones del bridge** (sin esto no se puede generar el token ni
       guardar planes): `supabase/migration_mcp_tokens.sql` y `supabase/migration_day_plans.sql`.
 - [ ] **Generar el token** en Configuración → Conexión con Claude y conectar el MCP.

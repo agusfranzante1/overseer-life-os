@@ -128,7 +128,7 @@ su cabecera QUÉ no hace y por qué.
 | `offerWrites.ts` | pipeline de ofertas: leer, mover de etapa, escribir documentos |
 | `calendarWrites.ts` · `queries.listCalendars` | eventos de Google, y los calendarios con su color |
 | `progress.ts` · `huecos.ts` | medición ya calculada, y metas declaradas sin completar |
-| `dataWrites.ts` | ABM genérico de los dominios con `payload jsonb`: journal, meditaciones, youtube, laboratorio, **mapas mentales y sus carpetas** |
+| `dataWrites.ts` | ABM genérico de los dominios con `payload jsonb`: journal, meditaciones, youtube, laboratorio, herramientas, **mapas mentales y sus carpetas** |
 
 **Lo que NO hace, y son decisiones, no huecos:**
 - **Cerrar la semana del SPI.** Verificado con 3 revisiones adversariales: no es
@@ -203,6 +203,7 @@ son compromisos reales, no decoración).
 | Priority Gate | `lib/dashboard/priorityGate.ts` (`usePriorityGate`) | `components/common/PriorityGate.tsx` | única fuente de verdad; usado en Panel/Tasks/Calendar |
 | **Plan del día / Bridge con Claude** | `dayPlanStore` | `components/dashboard/DayPlanPanel.tsx`, `components/settings/ClaudeBridgeSection.tsx` | per-fila `day_plans` (columnas reales, id determinista `plan_<fecha>`). El plan lo escribe Claude DESDE AFUERA vía el bridge — ver abajo |
 | Libros | `booksStore` | `components/books/BooksPage.tsx` | per-fila `books` |
+| Herramientas | `toolsStore` | `components/herramientas/HerramientasPage.tsx` | per-fila `tools` (payload jsonb); catálogo de "con qué se hace" (link + categoría libre + notas + ⭐). Categorías sin lista fija: las arma el usuario. Helpers puros con test |
 | Decisiones | `decisionsStore` | `components/decisiones/DecisionesPage.tsx` | per-fila `decisions`; veredicto pendiente/correcta/incorrecta (arranca pendiente: el resultado se sabe después), ⭐ importante y `projectId` de Tareas. Helpers puros (orden, filtros, `decisionStats`) en el store, con test |
 | Panel/Dashboard | (varios) | `components/dashboard/*` (`DashboardPage` = widgets reordenables) | orden en localStorage |
 | SPI / Proyección | `spiStore`, `projectionStore` | `components/spi/*`, `components/projection/*` | per-fila |
