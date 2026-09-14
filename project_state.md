@@ -75,10 +75,10 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
     sin auth: la sección de push renderiza, el efecto del AppShell no tira errores (sale por
     "sin permiso"), y la ruta devuelve **503 con mensaje** sin backend (antes 500 vacío) — en
     producción da 401 sin sesión. `sw.js` parsea.
-  - **NO verificado (BASE nº7):** el round-trip real en el celu — el navegador de prueba tiene el
-    permiso denegado y sin SW. Se confirma así: abrir la app en el celu (ya deployada), ir a
-    Configuración → Notificaciones push y ver "Registrada en el servidor: ✓ sí"; o consultar
-    `select count(*) from push_subscriptions` → debe dar ≥ 1. Después "Probar".
+  - **Round-trip VERIFICADO en producción el 2026-09-14** (consultando la base con el usuario): al
+    abrir la app en el iPhone la fila volvió sola (`push_subscriptions`: iPhone iOS 18.7, creada
+    20:43:11) y **un minuto después** el dispatcher mandó un `habit_specific` a ese endpoint con
+    `gone: []` (20:44:17). Cadena completa: re-registro → cron → envío aceptado por Apple.
   - **Si aun así iOS no entrega:** iOS solo manda push a la PWA **instalada en el inicio** (nunca
     a una pestaña de Safari), y con el celu en modo Concentración/Ahorro puede demorar. Plan B
     ofrecido al usuario: bot de Telegram (gratis, llega siempre, ~40 líneas server-side).
