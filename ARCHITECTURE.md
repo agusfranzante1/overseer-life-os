@@ -122,7 +122,7 @@ su cabecera QUÉ no hace y por qué.
 | `taskWrites.ts` | crear tareas, subtareas **anidadas** (`{titulo, hijos}`), recurrencia |
 | `updateWrites.ts` / `completeWrites.ts` | editar y completar tareas y subtareas |
 | `deleteSubtasks.ts` / `deleteTasks.ts` | borrar subtareas y tareas enteras — tombstone ANTES del delete, siempre |
-| `spiWrites.ts` | la semana del SPI + la biblioteca de KPIs |
+| `spiWrites.ts` | la semana del SPI, la biblioteca de KPIs y **las preguntas del formulario** (`get/update_spi_template`) |
 | `projectionWrites.ts` | metas de año / semestre / trimestre / mes |
 | `habitWrites.ts` · `gymWrites.ts` · `bookWrites.ts` | hábitos, sesiones de gimnasio, biblioteca |
 | `offerWrites.ts` | pipeline de ofertas: leer, mover de etapa, escribir documentos |
@@ -149,6 +149,12 @@ su cabecera QUÉ no hace y por qué.
    21 en Argentina ya es el día siguiente en UTC: el repaso de hábitos daba 0/16
    con el día cumplido y el gimnasio guardaba la sesión al día siguiente. Usar
    `getUserPrefs().timezone`.
+
+**El formulario del SPI NO es `lib/spi/template.ts`.** Ese archivo es el default de una cuenta
+nueva (y lo que restaura "resetear"). Lo que el usuario ve vive en su fila `spi_template`
+(payload + `version`), y el pull la trae solo si la versión remota es MAYOR. Editar el archivo no
+le cambia nada a una cuenta existente: se edita la fila por clave con `update_spi_template`
+(lee, toca solo eso, escribe `version+1`). Así se perdieron dos reformulaciones antes de saberlo.
 
 **Ofertas — `docRev`, no el reloj.** El `doc` de un sistema/oferta se resuelve
 en el merge por un contador monotónico, NO por `updatedAt`. Escribirlo sin subir

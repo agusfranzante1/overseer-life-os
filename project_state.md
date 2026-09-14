@@ -47,6 +47,19 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **El bridge ya edita las PREGUNTAS del SPI** (2026-09-14, `get_spi_template` / `update_spi_template`).
+  Hallazgo: el formulario que el usuario ve **no es `lib/spi/template.ts`** — vive en su fila
+  `spi_template` versionada, y el pull la trae solo si la versión remota es mayor. Dos cambios
+  acordados en el chat nunca le habían llegado ("90 días → 7 días" del 02/09, y la reformulación
+  del 05/09 de *"¿qué detalles no estoy viendo?"*, que en la práctica pasó a responderla Claude
+  desde los registros). Su plantilla estaba en v9 con las redacciones viejas; ahora v10.
+  - Se edita **por clave** (título/intro de sección, label/hint de campo, o agregar un campo de
+    texto), leyendo la fila, tocando solo eso y escribiendo `version+1` (BASE nº3).
+  - Campo nuevo `detalles.puntos_ciegos`: los tres puntos ciegos del 05/09 estaban guardados en una
+    clave que la app no renderiza; movidos ahí. Default empaquetado en v5, igual a lo acordado.
+  - También `decisiones` y `herramientas` entraron al motor genérico de `dataWrites.ts`.
+
+
 - [x] **Sección nueva: HERRAMIENTAS** (2026-09-13, pedido del usuario: *"una sección de herramientas
   para editar, hacer personajes con IA, etc."*). El catálogo de **con qué se hace** cada cosa: nombre,
   link, categoría libre, notas y ⭐. Vive en `/herramientas`, en el sidebar **después de YouTube**.
