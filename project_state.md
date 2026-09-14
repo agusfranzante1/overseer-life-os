@@ -62,12 +62,12 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
   - **Nav:** `herramientas` en `OPTIONAL_NAV_KEYS` sin tocar el `migrate` — la cuenta existente la ve
     enseguida (verificado simulando un `hiddenNavKeys` viejo), una nueva arranca sin ella (BASE nº4).
   - **Bridge:** dominio `herramientas` en `dataWrites.ts` → se cargan desde el chat con `upsert_record`.
-  - ⚠️ **Migración `supabase/migration_tools.sql`: PENDIENTE de correr.** Hasta entonces el push de
-    herramientas falla con toast (la migración faltante ya no corta el resto del sync).
+  - **Migración `supabase/migration_tools.sql`: CORRIDA el 2026-09-14** (la corrió el usuario).
   - **Verificado corriendo la app:** crear, llenar los 4 campos, ⭐ y filtro por chip persisten y
     bumpean `updatedAt`; sobrevive al reload; sidebar de cuenta existente; mobile 375px sin scroll
     horizontal. Tests puros 13/13. `tsc` + `next build` OK.
-  - **NO verificado:** el round-trip contra Supabase (la tabla no existe hasta correr la migración).
+  - **Round-trip verificado el 2026-09-14** por el bridge: `upsert_record` creó VibeCut en `tools` y
+    `list_records` la leyó de vuelta. El pull del cliente la trae al abrir la sección.
 
 
 - [x] **"Desaparecieron todas las carpetas de mapas" — la guarda anti-borrado-masivo las escondía**
@@ -868,8 +868,6 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
 
 ### ⚠️ Pendientes del usuario (Claude no puede hacerlos)
 
-- [ ] **Correr `supabase/migration_tools.sql`** (sección Herramientas, 2026-09-13). Sin esto las
-      herramientas no sincronizan ni se pueden cargar desde el chat.
 - [ ] **Correr las 2 migraciones del bridge** (sin esto no se puede generar el token ni
       guardar planes): `supabase/migration_mcp_tokens.sql` y `supabase/migration_day_plans.sql`.
 - [ ] **Generar el token** en Configuración → Conexión con Claude y conectar el MCP.
