@@ -600,11 +600,11 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'list_records',
     description:
-      'LEE cualquiera de los dominios personales que antes no tenian acceso: `journal` (entradas del diario), `meditaciones` (guiones), `youtube` (backlog de videos), `laboratorio` (sesiones de trabajo interno), `mapas` (mapas mentales, con sus nodos), `carpetas` (las carpetas donde viven los mapas) y `herramientas` (el catalogo de herramientas: edicion, IA, voces — nombre, url, categoria, notas). Devuelve los registros completos con su id — los ids SOLO salen de aca, asi que sin esto no se puede editar ni borrar nada. Para las CREENCIAS del laboratorio usar list_beliefs, que es otra tabla.',
+      'LEE cualquiera de los dominios personales que antes no tenian acceso: `journal` (entradas del diario), `meditaciones` (guiones), `youtube` (backlog de videos), `laboratorio` (sesiones de trabajo interno), `mapas` (mapas mentales, con sus nodos), `carpetas` (las carpetas donde viven los mapas) `herramientas` (el catalogo de herramientas: edicion, IA, voces — nombre, url, categoria, notas) y `decisiones` (el registro de decisiones tomadas: title, body, outcome, verdict pendiente|correcta|incorrecta, important, projectId, date). Devuelve los registros completos con su id — los ids SOLO salen de aca, asi que sin esto no se puede editar ni borrar nada. Para las CREENCIAS del laboratorio usar list_beliefs, que es otra tabla.',
     inputSchema: {
       type: 'object',
       properties: {
-        dominio: str('journal | meditaciones | youtube | laboratorio | mapas | carpetas | herramientas'),
+        dominio: str('journal | meditaciones | youtube | laboratorio | mapas | carpetas | herramientas | decisiones'),
         id: str('Traer uno solo, por id.'),
         buscar: str('Filtrar por texto libre en cualquier campo del registro.'),
         limit: num('Maximo de registros. Default 100, tope 500.'),
@@ -619,7 +619,7 @@ export const TOOLS: ToolDef[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        dominio: str('journal | meditaciones | youtube | laboratorio | mapas | carpetas | herramientas'),
+        dominio: str('journal | meditaciones | youtube | laboratorio | mapas | carpetas | herramientas | decisiones'),
         id: str('Id existente para editar. Omitilo para crear.'),
         datos: {
           type: 'object',
@@ -637,7 +637,7 @@ export const TOOLS: ToolDef[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        dominio: str('journal | meditaciones | youtube | laboratorio | mapas | carpetas | herramientas'),
+        dominio: str('journal | meditaciones | youtube | laboratorio | mapas | carpetas | herramientas | decisiones'),
         ids: { type: 'array', items: { type: 'string' }, description: 'Ids a borrar.' },
       },
       required: ['dominio', 'ids'],

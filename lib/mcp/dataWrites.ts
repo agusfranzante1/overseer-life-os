@@ -1,6 +1,6 @@
 /** ABM genérico de los dominios "per-fila con payload jsonb".
  *
- *  Journal, Meditaciones, YouTube, Laboratorio y Herramientas guardan cada entidad como una
+ *  Journal, Meditaciones, YouTube, Laboratorio, Herramientas y Decisiones guardan cada entidad como una
  *  fila `{ id, user_id, created_at, updated_at, payload jsonb }`. Escribir cada
  *  uno a mano sería el mismo archivo cuatro veces, así que acá va el motor y
  *  abajo el registro de dominios.
@@ -115,6 +115,24 @@ const DOMINIOS: Record<string, Dominio> = {
         // fallar acá que dejar el item en una columna que el usuario no pidió.
         return `status inválido: "${String(s)}". Los válidos son backlog, watching, done.`
       }
+      return null
+    },
+  },
+  decisiones: {
+    etiqueta: 'Decisiones',
+    tabla: 'decisions',
+    // Exactamente lo que preserva el `sanitize` de pullDecisions (BASE nº2).
+    campos: ['id', 'date', 'title', 'body', 'outcome', 'verdict', 'important', 'projectId', 'createdAt', 'updatedAt'],
+    requeridos: ['title'],
+    defaults: { title: '', body: '', outcome: '', verdict: 'pendiente', important: false },
+    columnas: (p) => ({ decision_date: p.date ?? new Date().toISOString().slice(0, 10) }),
+    validar: (p) => {
+      const v = p.verdict
+      if (v !== undefined && v !== 'pendiente' && v !== 'correcta' && v !== 'incorrecta') {
+        // El pull degrada cualquier otro valor a 'pendiente' en silencio.
+        return `verdict inválido: "${String(v)}". Los válidos son pendiente, correcta, incorrecta.`
+      }
+      if (p.date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(p.date))) return '`date` tiene que ser YYYY-MM-DD.'
       return null
     },
   },
