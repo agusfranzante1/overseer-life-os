@@ -895,7 +895,7 @@ function GCalTasksSyncSection() {
 // ─────────────────────────────────────────────────────────────────────
 function PushNotificationsSection() {
   const [mounted, setMounted] = useState(false)
-  const [cap, setCap] = useState<{ supported: boolean; permission: NotificationPermission; subscribed: boolean; reason?: string } | null>(null)
+  const [cap, setCap] = useState<{ supported: boolean; permission: NotificationPermission; subscribed: boolean; registeredOnServer: boolean | null; reason?: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
   const [isStandalone, setIsStandalone] = useState(false)
@@ -925,10 +925,19 @@ function PushNotificationsSection() {
     setBusy('subscribe')
     setFeedback(null)
     try {
-      const { subscribeToPush } = await import('@/lib/push/client')
-      const result = await subscribeToPush()
+      const { subscribeToPush, ensurePushSubscriptionSynced } = await import('@/lib/push/client')
+      // Reparar = la local existe pero el servidor no la tiene. Si la borró fue
+      // por 410, el endpoint local puede estar muerto: se crea uno NUEVO.
+      const reparando = !!cap?.subscribed && cap.registeredOnServer === false
+      const result = reparando
+        ? await ensurePushSubscriptionSynced({ force: true, fresh: true }).then((r) =>
+            r.status === 'ok' ? { ok: true as const } : { ok: false as const, error: r.status === 'error' ? r.error : r.reason })
+        : await subscribeToPush()
       if (result.ok) {
-        setFeedback({ kind: 'ok', msg: '✓ Suscripción activa en este dispositivo' })
+        // Deja el sello de "recién sincronizado" para que el auto-chequeo no
+        // vuelva a correr enseguida.
+        if (!reparando) await ensurePushSubscriptionSynced({ force: true })
+        setFeedback({ kind: 'ok', msg: '✓ Suscripción activa y registrada en el servidor' })
       } else {
         setFeedback({ kind: 'err', msg: result.error })
       }
@@ -1031,6 +1040,23 @@ function PushNotificationsSection() {
               {cap.subscribed ? '✓ activa' : 'inactiva'}
             </span>
           </div>
+          {/* Lo que de verdad importa: sin la fila en la nube, el dispatcher no
+              tiene a quién mandarle nada aunque acá arriba diga "activa". Así
+              estuvo el celu del usuario 4 días sin que nada lo dijera. */}
+          {cap.subscribed && (
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-500">Registrada en el servidor</span>
+              <span className={
+                cap.registeredOnServer === true ? 'text-emerald-400'
+                : cap.registeredOnServer === false ? 'text-red-400'
+                : 'text-zinc-500'
+              }>
+                {cap.registeredOnServer === true ? '✓ sí'
+                : cap.registeredOnServer === false ? '✗ NO — tocá "Reparar" abajo'
+                : 'sin verificar (¿sesión?)'}
+              </span>
+            </div>
+          )}
           {isIOS && (
             <div className="flex items-center justify-between">
               <span className="text-zinc-500">Modo standalone (PWA)</span>
@@ -1047,6 +1073,16 @@ function PushNotificationsSection() {
 
       {/* Actions */}
       <div className="flex gap-2 flex-wrap">
+        {cap?.subscribed && cap.registeredOnServer === false && (
+          <button
+            onClick={handleSubscribe}
+            disabled={busy !== null}
+            className="px-4 py-2 bg-amber-500/15 border border-amber-500/40 hover:bg-amber-500/25 disabled:opacity-40 text-amber-200 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5"
+          >
+            {busy === 'subscribe' ? <Loader2 className="w-4 h-4 animate-spin" /> : '🛠'}
+            Reparar registro
+          </button>
+        )}
         {!cap?.subscribed ? (
           <button
             onClick={handleSubscribe}

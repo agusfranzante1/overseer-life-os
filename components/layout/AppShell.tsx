@@ -175,6 +175,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     initMultitabSync()
   }, [])
 
+  // Auto-reparación de la suscripción push (ver lib/push/client.ts): si el
+  // browser rotó o tiró el endpoint, la fila en la nube desaparece (410 →
+  // el dispatcher la borra) y este dispositivo queda mudo sin que la UI lo
+  // diga. Al abrir la app y al volver al foco nos aseguramos de que exista y
+  // de que el servidor la tenga. Throttleado adentro (6 h); nunca pide permiso.
+  useEffect(() => {
+    let cancelled = false
+    const run = () => {
+      import('@/lib/push/client').then(({ ensurePushSubscriptionSynced }) => {
+        if (cancelled) return
+        ensurePushSubscriptionSynced().then((r) => {
+          if (r.status === 'ok' && r.resubscribed) console.info('[push] suscripción re-creada y registrada')
+          else if (r.status === 'error') console.warn('[push] no se pudo reparar la suscripción:', r.error)
+        })
+      }).catch(() => { /* noop */ })
+    }
+    run()
+    const onVisible = () => { if (document.visibilityState === 'visible') run() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { cancelled = true; document.removeEventListener('visibilitychange', onVisible) }
+  }, [])
+
   useEffect(() => {
     if (!autoPurgeCompletedTasks) return
 

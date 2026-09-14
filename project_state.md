@@ -5,7 +5,7 @@
 > El método de trabajo está en [`instructions.md`](instructions.md); las reglas
 > técnicas no negociables en [`AGENTS.md`](AGENTS.md).
 
-**Última actualización:** 2026-09-02 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
+**Última actualización:** 2026-09-14 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
 
 ✅ **Bridge con Claude EN FUNCIONAMIENTO** (2026-08-29): migraciones corridas, deployado y
 verificado contra la cuenta real — token "pc franzix" resuelve, `list_projects` devuelve los 6
@@ -46,6 +46,42 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 ---
 
 ## ✅ Hecho recientemente
+
+- [x] **Push en el celu: la tabla de suscripciones estaba VACÍA y nadie lo decía** (2026-09-14).
+  Reporte: "no he podido arreglar las notificaciones push en mobile, qué otra forma hay".
+  - **Causa (medida en la base, no supuesta):** `push_subscriptions` tenía **0 filas**. El último
+    `notification_log` con envío real es del **2026-09-10 14:01** y dice `gone: [<la única
+    suscripción>]`: el endpoint del celu devolvió **410 Gone**, el dispatcher borró la fila (correcto)
+    y **nadie volvió a escribirla**. Desde entonces el cron corre, evalúa, y no tiene a quién
+    mandarle nada — todos los logs posteriores con `gone: []` y 0 enviados. Un fallo mudo (BASE nº6).
+  - **El hueco de código:** la fila solo se escribía cuando el usuario tocaba "Activar". El browser
+    ROTA o INVALIDA el endpoint por su cuenta (Apple y Google lo hacen cada tanto) y no había ni
+    re-sync al abrir la app ni handler de `pushsubscriptionchange`. Y la UI de Configuración decía
+    "✓ activa" mirando solo el estado LOCAL del celu — nunca preguntaba si el servidor la tenía.
+  - **Fix, tres piezas:**
+    1. `ensurePushSubscriptionSynced()` (`lib/push/client.ts`): al abrir la app y al volver al
+       foco (AppShell), si el permiso está otorgado se asegura de que la suscripción local exista
+       (si el browser la tiró, re-suscribe **sin prompt**) y hace upsert por endpoint en la nube.
+       Throttle 6 h. **Nunca pide permiso.** Con esto, abrir la app en el celu **repara solo**.
+    2. `pushsubscriptionchange` en `public/sw.js` → re-suscribe con la misma VAPID key y avisa a la
+       ruta nueva **`POST /api/push/subscribe`** (auth por cookie de sesión, que el SW sí manda;
+       borra el `oldEndpoint` para no dejar uno muerto).
+    3. Configuración dice la verdad: fila **"Registrada en el servidor"** consultando la tabla por
+       el endpoint local. Si está local pero no en la nube: "✗ NO" + botón **"Reparar registro"**,
+       que tira la suscripción local y crea una FRESCA (si la nube la borró fue por 410 → la local
+       puede estar muerta, y re-registrar un endpoint muerto solo repite el ciclo).
+  - **Sin migración** (tablas existentes).
+  - **Verificado:** `tsc` + `next build` OK (ruta `/api/push/subscribe` compilada). Corriendo la app
+    sin auth: la sección de push renderiza, el efecto del AppShell no tira errores (sale por
+    "sin permiso"), y la ruta devuelve **503 con mensaje** sin backend (antes 500 vacío) — en
+    producción da 401 sin sesión. `sw.js` parsea.
+  - **NO verificado (BASE nº7):** el round-trip real en el celu — el navegador de prueba tiene el
+    permiso denegado y sin SW. Se confirma así: abrir la app en el celu (ya deployada), ir a
+    Configuración → Notificaciones push y ver "Registrada en el servidor: ✓ sí"; o consultar
+    `select count(*) from push_subscriptions` → debe dar ≥ 1. Después "Probar".
+  - **Si aun así iOS no entrega:** iOS solo manda push a la PWA **instalada en el inicio** (nunca
+    a una pestaña de Safari), y con el celu en modo Concentración/Ahorro puede demorar. Plan B
+    ofrecido al usuario: bot de Telegram (gratis, llega siempre, ~40 líneas server-side).
 
 - [x] **El bridge ya edita las PREGUNTAS del SPI** (2026-09-14, `get_spi_template` / `update_spi_template`).
   Hallazgo: el formulario que el usuario ve **no es `lib/spi/template.ts`** — vive en su fila

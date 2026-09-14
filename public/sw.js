@@ -86,6 +86,41 @@ self.addEventListener('push', (event) => {
   event.waitUntil(self.registration.showNotification(title, options))
 })
 
+// El browser puede ROTAR la suscripción por su cuenta (Apple y Google lo hacen
+// cada tanto, sin avisar). Cuando pasa, el endpoint viejo empieza a devolver
+// 410 Gone, el dispatcher borra esa fila, y si nadie registra la nueva el
+// dispositivo queda MUDO aunque la app diga "suscripción activa". Acá nos
+// volvemos a suscribir con la misma VAPID key y se lo contamos al servidor
+// (la ruta autentica por la cookie de sesión, que el SW sí manda).
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil((async () => {
+    const old = event.oldSubscription
+    const key = (old && old.options && old.options.applicationServerKey)
+      || (event.newSubscription && event.newSubscription.options && event.newSubscription.options.applicationServerKey)
+    let sub = event.newSubscription || null
+    if (!sub && key) {
+      try {
+        sub = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key })
+      } catch (_) { sub = null }
+    }
+    if (!sub) return
+    const json = sub.toJSON()
+    try {
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          endpoint: json.endpoint,
+          keys: json.keys,
+          userAgent: self.navigator ? self.navigator.userAgent : undefined,
+          oldEndpoint: old ? old.endpoint : undefined,
+        }),
+      })
+    } catch (_) { /* sin red: la app lo repara al abrirse (ensurePushSubscriptionSynced) */ }
+  })())
+})
+
 // When the user taps a notification, focus an existing tab if we have one
 // open on the target URL, otherwise open a new tab.
 self.addEventListener('notificationclick', (event) => {
