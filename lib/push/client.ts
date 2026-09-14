@@ -65,11 +65,19 @@ export async function getPushCapability(): Promise<PushCapability> {
 
   let subscribed = false
   let endpoint: string | null = null
+  let swReason: string | undefined
   try {
-    const reg = await navigator.serviceWorker.ready
-    const sub = await reg.pushManager.getSubscription()
-    subscribed = !!sub
-    endpoint = sub?.endpoint ?? null
+    // `serviceWorker.ready` NUNCA resuelve si el SW no está registrado (modo
+    // dev, o una instalación rota): sin este tope, la caja de estado de
+    // Configuración no aparecía nunca y no había forma de saber por qué.
+    const reg = await withTimeout(navigator.serviceWorker.ready, 3000)
+    if (!reg) {
+      swReason = 'El service worker no está activo en esta pestaña — recargá la app.'
+    } else {
+      const sub = await reg.pushManager.getSubscription()
+      subscribed = !!sub
+      endpoint = sub?.endpoint ?? null
+    }
   } catch { /* noop */ }
 
   return {
@@ -77,7 +85,16 @@ export async function getPushCapability(): Promise<PushCapability> {
     permission: Notification.permission,
     subscribed,
     registeredOnServer: endpoint ? await isEndpointOnServer(endpoint) : (subscribed ? null : false),
+    reason: swReason,
   }
+}
+
+/** Resuelve `null` si la promesa no termina a tiempo. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(null), ms)
+    p.then((v) => { clearTimeout(t); resolve(v) }, () => { clearTimeout(t); resolve(null) })
+  })
 }
 
 /** ¿El servidor tiene una fila con este endpoint? RLS ya limita al usuario

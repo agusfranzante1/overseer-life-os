@@ -47,6 +47,37 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **"Quiero que me lleguen TODAS, en horario" — latido del dispatcher + un canal apagado**
+  (2026-09-14). Auditoría con la base, canal por canal:
+  - **Prefs reales del usuario:** `taskDueSoon`, `taskOverdue`, `spiNewSession`,
+    `habitSpecificReminders` en ON; **`habitReminder` (el repaso de las 21:00) en OFF explícito**
+    → ese lo enciende él en Configuración → "Recordatorio diario de hábitos" (un toque). Enviados
+    los últimos 14 días: habit_specific 46, task_due 17, task_overdue 10, review_pending 2, spi_new 1.
+  - **Solo 4 de sus 13 hábitos tienen hora** (22:45, 18:00, 13:30 ×2). Los demás (Entrenar, 7k
+    pasos, Leer, Journal Trading, Exposición al sol…) **no avisan solos**: los cubre únicamente el
+    repaso de las 21:00 — por eso importa encenderlo. Hay basura: hábitos ".", "A" y "limpiexa
+    facial" duplicado de "Limpieza Facial 13h".
+  - **Mismatch UI/servidor arreglado:** Configuración dibujaba `habitReminder` como ON por default
+    (`!== false`) pero el dispatcher exigía `=== true` (opt-in). Una cuenta nueva lo veía encendido
+    y no le llegaba. Ahora el servidor usa `!== false` como los otros 4 canales.
+  - **Latido (`heartbeat`)** — lo que vuelve verificable "en horario": el dispatcher pisa UNA fila
+    por usuario (`notification_log` tipo `heartbeat` / `last`) en cada corrida, **antes** del skip
+    por "sin dispositivos" (justo ahí es cuando más hace falta). `GET /api/notifications/status`
+    la expone y **Configuración → Notificaciones push muestra "Último chequeo del servidor: hace N
+    min · N dispositivos"**, verde ≤10 min, ámbar ≤60, rojo si más (= cron-job.org apagado otra vez).
+    Evidencia de que cron-job.org está vivo: el envío de las 20:44Z de hoy no coincide con ninguna
+    corrida de GitHub (19:10Z) ni de Vercel (00:10Z).
+  - **Dos bugs previos encontrados de paso:** (1) `/api/notifications/diagnose` pedía columnas
+    `channel`/`created_at` que no existen (son `notification_type`/`sent_at`) → su listado de
+    "últimas 24 h" fallaba en silencio y venía siempre vacío. (2) `getPushCapability` esperaba
+    `serviceWorker.ready` sin tope: si el SW no está (dev, instalación rota) **la caja de estado de
+    Configuración no aparecía nunca**. Ahora 3 s de tope y un motivo visible.
+  - **Sin migración** (el `heartbeat` usa el unique existente de `notification_log`).
+  - **Verificado:** `tsc` + `next build` OK (ruta `status` compilada). Corriendo la app sin auth, la
+    caja de estado ahora renderiza (antes no) con "Último chequeo del servidor: sin dato (motivo)" y
+    el aviso del SW; la ruta devuelve 503 con mensaje. **NO verificado:** el latido en producción —
+    se ve solo con el deploy corriendo: Configuración debe decir "hace ≤ 5 min · 1 dispositivo".
+
 - [x] **Push en el celu: la tabla de suscripciones estaba VACÍA y nadie lo decía** (2026-09-14).
   Reporte: "no he podido arreglar las notificaciones push en mobile, qué otra forma hay".
   - **Causa (medida en la base, no supuesta):** `push_subscriptions` tenía **0 filas**. El último
@@ -925,11 +956,9 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
   - [ ] `supabase/migration_offers.sql`
   - [ ] `supabase/migration_youtube.sql`
   - [ ] `supabase/migration_mindmap_folders.sql`
-- [ ] **(opcional, para que lleguen PUNTUALES) Cron externo cada 5 min** en
-      cron-job.org apuntando a `/api/notifications/dispatch` con el header
-      `Authorization: Bearer <CRON_SECRET>`. Pasos en el workflow. Sin esto las
-      notificaciones llegan igual, pero tarde (hasta 6 h después del horario).
-      *El `CRON_SECRET` YA está bien: los runs del workflow salen en success.*
+- [x] ~~Cron externo cada 5 min~~ — **cron-job.org ACTIVO** (confirmado por el usuario el
+      2026-09-14; el envío de las 20:44Z no coincide con GitHub ni Vercel). Si vuelve el mail de
+      "Cronjob disabled", reactivarlo ahí. Configuración ahora muestra el último latido.
 - [ ] **Rehacer la config del sidebar** que se había borrado — recién DESPUÉS
       de que los dos dispositivos tengan el build nuevo, si no se puede volver a
       pisar.

@@ -3,7 +3,7 @@ import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import { sendPushToMany, type StoredSubscription } from '@/lib/push/server'
 import { localTimeIn, localYmdHmToUtc } from '@/lib/notifications/tz'
 import { shouldFireDaily, shouldFireUntil, minutesUntil, CATCH_UP_MIN } from '@/lib/notifications/timeWindow'
-import { wasSent, logSent } from '@/lib/notifications/idempotency'
+import { wasSent, logSent, recordHeartbeat } from '@/lib/notifications/idempotency'
 import {
   buildHabitReminderPayload,
   buildHabitSpecificPayload,
@@ -193,15 +193,23 @@ export async function POST(req: NextRequest) {
       const subs = subsByUser.get(userId) ?? []
       const prefs = (settings.notification_prefs ?? {}) as Record<string, unknown>
       const emailEnabled = prefs.emailNotifications === true || prefs.emailNotifications === 'true'
+      const tz = settings.timezone || 'UTC'
+      const local = localTimeIn(tz, now)
+      // Latido ANTES del skip: si no hay a quién mandarle, es justo cuando
+      // más hace falta que Configuración pueda decir "el servidor miró hace
+      // 3 min y tenía 0 dispositivos" en vez de un silencio indistinguible
+      // de un cron caído.
+      await recordHeartbeat(sb, userId, { subs: subs.length, tz, localTime: `${local.ymd} ${String(local.hour).padStart(2, '0')}:${String(local.minute).padStart(2, '0')}` })
       // El user califica para despacho si tiene push O email habilitado.
       // Si no tiene ninguno (caso raro: estaba en una de las listas pero
       // sin nada activo), skipeamos.
       if (subs.length === 0 && !emailEnabled) continue
-      const tz = settings.timezone || 'UTC'
-      const local = localTimeIn(tz, now)
 
       // ── CANAL 1: habit_reminder ──
-      if (prefs.habitReminder === true || prefs.habitReminder === 'true') {
+      // Default ON (undefined → true), igual que los otros 4 canales y que lo
+      // que muestra Configuración (`!== false`). Antes era opt-in acá y la UI
+      // lo dibujaba encendido: una cuenta nueva lo veía ON y no le llegaba.
+      if (prefs.habitReminder !== false && prefs.habitReminder !== 'false') {
         const targetH = settings.habit_reminder_hour ?? 21
         const targetM = settings.habit_reminder_minute ?? 0
         if (shouldFireDaily(local.hour, local.minute, targetH, targetM, CATCH_UP)) {

@@ -127,12 +127,17 @@ export async function GET(_req: NextRequest) {
 
   // 5) Check de notification_log (últimas 24h)
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
+  // OJO: las columnas reales son `notification_type` y `sent_at` (no
+  // `channel`/`created_at`, que era lo que se pedía antes y hacía que esta
+  // consulta fallara en silencio y devolviera siempre vacío). El latido
+  // (`heartbeat`) no es una notificación: se excluye.
   const { data: recentLogs } = await sb
     .from('notification_log')
-    .select('channel, dedupe_key, created_at')
+    .select('notification_type, dedupe_key, sent_at, result')
     .eq('user_id', user.id)
-    .gte('created_at', yesterday)
-    .order('created_at', { ascending: false })
+    .neq('notification_type', 'heartbeat')
+    .gte('sent_at', yesterday)
+    .order('sent_at', { ascending: false })
     .limit(50)
 
   return NextResponse.json({

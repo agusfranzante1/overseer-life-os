@@ -900,6 +900,16 @@ function PushNotificationsSection() {
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
   const [isStandalone, setIsStandalone] = useState(false)
   const [isIOS, setIsIOS] = useState(false)
+  // Último latido del dispatcher (ver /api/notifications/status). Es lo que
+  // vuelve verificable "en horario": si dice "hace 4 min", el cron externo
+  // está vivo; si dice "hace 3 horas", se cayó otra vez.
+  const [heartbeat, setHeartbeat] = useState<{ minutesAgo: number | null; subsAtRun: number | null; error?: string } | null>(null)
+  useEffect(() => {
+    fetch('/api/notifications/status', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((j) => setHeartbeat(j.ok ? { minutesAgo: j.minutesAgo, subsAtRun: j.subsAtRun } : { minutesAgo: null, subsAtRun: null, error: j.error }))
+      .catch(() => setHeartbeat({ minutesAgo: null, subsAtRun: null, error: 'sin conexión' }))
+  }, [])
 
   useEffect(() => {
     setMounted(true)
@@ -1054,6 +1064,25 @@ function PushNotificationsSection() {
                 {cap.registeredOnServer === true ? '✓ sí'
                 : cap.registeredOnServer === false ? '✗ NO — tocá "Reparar" abajo'
                 : 'sin verificar (¿sesión?)'}
+              </span>
+            </div>
+          )}
+          {/* ¿El servidor está mirando? Con cron-job.org cada 5 min esto
+              debería decir siempre "hace < 10 min". Verde/ámbar/rojo según
+              la demora — rojo = el cron externo se apagó (pasó: cron-job.org
+              deshabilita el job tras muchos fallos seguidos). */}
+          {heartbeat && (
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-500">Último chequeo del servidor</span>
+              <span className={
+                heartbeat.minutesAgo === null ? 'text-zinc-500'
+                : heartbeat.minutesAgo <= 10 ? 'text-emerald-400'
+                : heartbeat.minutesAgo <= 60 ? 'text-amber-400'
+                : 'text-red-400'
+              }>
+                {heartbeat.error ? `sin dato (${heartbeat.error})`
+                : heartbeat.minutesAgo === null ? 'todavía nunca (¿cron apagado?)'
+                : `hace ${heartbeat.minutesAgo} min · ${heartbeat.subsAtRun ?? '?'} dispositivo${heartbeat.subsAtRun === 1 ? '' : 's'}`}
               </span>
             </div>
           )}
