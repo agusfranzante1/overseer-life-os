@@ -25,7 +25,7 @@ import { completeTasks, completeSubtasks } from './completeWrites'
 import { updateTask, updateSubtask } from './updateWrites'
 import { deleteCalendarEvent, createCalendarEvent } from './calendarWrites'
 import { getUserPrefs } from './queries'
-import { ensureSpiWeek, updateSpiWeek, setSpiTasks, upsertKpi, setKpiValue } from './spiWrites'
+import { ensureSpiWeek, updateSpiWeek, setSpiTasks, upsertKpi, setKpiValue, getSpiTemplate, updateSpiTemplate } from './spiWrites'
 import { getHabits, upsertHabit, markHabit, deleteHabit } from './habitWrites'
 import { getProgress } from './progress'
 import { getProjection, updateProjection } from './projectionWrites'
@@ -436,6 +436,28 @@ export const TOOLS: ToolDef[] = [
         mainChecklist: { type: 'object', description: '{clave: true|false} del checklist principal.' },
         notes: str('Notas de cierre / reflexión.'),
       },
+    },
+  },
+  {
+    name: 'get_spi_template',
+    description:
+      'LEE las PREGUNTAS del SPI tal como las ve el usuario: secciones, carriles, labels y hints. Es la plantilla VIVA de su cuenta (fila spi_template), no el archivo del repo. Usalo antes de editar una pregunta, para tener las claves exactas.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'update_spi_template',
+    description:
+      'EDITA las preguntas del SPI por clave: el titulo/intro de una seccion, o el label/hint de un campo. Solo toca lo que se manda (es una fila-blob: se lee, se cambia eso y se escribe con version+1, asi todos los dispositivos la traen). Para reformular una pregunta que quedo mal, NO para reestructurar la plantilla. Las claves salen de get_spi_template.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cambios: {
+          type: 'array',
+          description: 'Lista de cambios. Cada uno: {seccion, campo?, titulo?, intro?, label?, hint?, nuevoCampo?: {key, label, type?, hint?}, posicion?: inicio|fin}. Sin `campo` edita la seccion (titulo/intro); con `campo` edita ese campo (label/hint); con `nuevoCampo` agrega un campo de texto a la seccion.',
+          items: { type: 'object' },
+        },
+      },
+      required: ['cambios'],
     },
   },
   {
@@ -999,6 +1021,12 @@ export async function callTool(
 
     case 'update_spi_week':
       return updateSpiWeek(userId, args)
+
+    case 'get_spi_template':
+      return getSpiTemplate(userId)
+
+    case 'update_spi_template':
+      return updateSpiTemplate(userId, args)
 
     case 'set_spi_tasks':
       return setSpiTasks(userId, args)

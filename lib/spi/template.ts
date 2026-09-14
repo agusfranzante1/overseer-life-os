@@ -16,7 +16,7 @@ import type { SPITemplate } from './types'
  *  prefixes (see spiStore onRehydrateStorage).
  */
 export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
-  version: 4,
+  version: 5,
 
   mainChecklist: [
     { key: 'aaa', label: 'Ejecutar Protocolo de Control [AAA]' },
@@ -140,9 +140,9 @@ export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
         },
         {
           key: 'persona_lograda',
-          label: 'Cómo se comporta la persona que ya consiguió eso?',
+          label: 'Cómo se comporta el que hace que eso pase SEGUIDO?',
           type: 'textarea',
-          hint: 'Cómo actúa, piensa, se mueve, qué energía emana. Debemos convertirnos en ello.',
+          hint: 'No "el que ya lo tiene" (ese no hace nada): el modo de funcionar, no la meta. Cómo actúa, piensa, se mueve, qué energía emana.',
         },
         {
           key: 'analisis_proyectos',
@@ -159,9 +159,15 @@ export const DEFAULT_SPI_TEMPLATE: SPITemplate = {
       key: 'detalles',
       laneKey: 'reflexivo',
       emoji: '🧠',
-      title: 'Qué detalles no estoy viendo?',
-      intro: 'Sabiendo hacia dónde nos dirigimos, analizamos catalizadores de la rutina, drenajes de energía, pumps, momentum.',
+      title: 'Qué detalles no estoy viendo? — los saca Claude de mis registros',
+      intro: 'Si no lo estoy viendo, no lo puedo responder yo. Claude mira mis datos (errores de ejecución, tareas vencidas, el SPI anterior, lo que dije esta semana) y me dice qué no estoy viendo; yo reacciono. Después: catalizadores de la rutina, drenajes de energía, pumps, momentum.',
       fields: [
+        {
+          key: 'puntos_ciegos',
+          label: 'Lo que Claude vio en mis datos que yo no — y mi reacción',
+          type: 'textarea',
+          hint: 'Reformulado el 05/09: la pregunta no se responde desde adentro. Se responde mirando los registros.',
+        },
         {
           key: 'habito_clave',
           label: 'Qué acción, convertida en HÁBITO en el calendario, generaría el resultado deseado?',

@@ -559,3 +559,98 @@ export async function setKpiValue(userId: string, input: Record<string, unknown>
   if (err) return { ok: false, error: 'db_error', detail: err }
   return { ok: true, semana: w.week, kpiId, valor: p.values.kpis[kpiId] }
 }
+
+// ─── EL TEMPLATE DEL SPI (las preguntas) ────────────────────────────────────
+//
+// El formulario del SPI NO es `lib/spi/template.ts`: ese es el default con el
+// que arranca una cuenta nueva (y lo que restaura "resetear"). La plantilla
+// que el usuario VE vive en su fila `spi_template` (payload jsonb + version),
+// y el pull la trae solo si la versión remota es MAYOR que la local. Editar
+// el archivo no le cambia nada a una cuenta que ya existe — así se perdió el
+// cambio de "próximos 90 días" a "7 días", y la reformulación del 05/09 de
+// "¿qué detalles no estoy viendo?" nunca llegó a la app.
+//
+// Es una fila-blob: se lee, se cambia SOLO el campo pedido y se escribe con
+// version+1 (BASE nº3). Nunca se reemplaza el payload entero desde acá.
+
+interface TplField { key: string; label?: string; hint?: string; type?: string; [k: string]: unknown }
+interface TplSection { key: string; title?: string; intro?: string; laneKey?: string; fields?: TplField[]; [k: string]: unknown }
+interface TplPayload { version?: number; sections?: TplSection[]; [k: string]: unknown }
+
+async function loadTemplate(userId: string): Promise<{ payload: TplPayload; version: number; existe: boolean }> {
+  const sb = getSupabaseAdmin()
+  const { data } = await sb.from('spi_template').select('payload, version').eq('user_id', userId).maybeSingle()
+  if (data?.payload) {
+    return { payload: data.payload as TplPayload, version: (data.version as number) ?? 0, existe: true }
+  }
+  // Sin fila propia la app está usando el default empaquetado: se parte de ahí.
+  const { DEFAULT_SPI_TEMPLATE } = await import('@/lib/spi/template')
+  const tpl = DEFAULT_SPI_TEMPLATE as unknown as TplPayload
+  return { payload: tpl, version: tpl.version ?? 0, existe: false }
+}
+
+export async function getSpiTemplate(userId: string): Promise<WriteResult> {
+  const { payload, version, existe } = await loadTemplate(userId)
+  return {
+    ok: true,
+    version,
+    origen: existe ? 'fila propia (spi_template)' : 'default empaquetado (la cuenta no tiene fila propia todavía)',
+    secciones: (payload.sections ?? []).map((s) => ({
+      key: s.key,
+      carril: s.laneKey,
+      titulo: s.title,
+      intro: s.intro,
+      campos: (s.fields ?? []).map((f) => ({ key: f.key, label: f.label, hint: f.hint, type: f.type })),
+    })),
+  }
+}
+
+/** Edita títulos, intros, labels o hints por clave. Cada cambio nombra la
+ *  sección (y el campo, si aplica) y solo las propiedades que trae. */
+export async function updateSpiTemplate(userId: string, input: { cambios?: unknown }): Promise<WriteResult> {
+  const cambios = Array.isArray(input.cambios) ? input.cambios as Record<string, unknown>[] : []
+  if (!cambios.length) return { ok: false, error: 'bad_input', detail: 'Falta `cambios` (array de {seccion, campo?, titulo?, intro?, label?, hint?}).' }
+
+  const { payload, version } = await loadTemplate(userId)
+  const sections = payload.sections ?? []
+  const aplicados: string[] = []
+
+  for (const c of cambios) {
+    const sec = sections.find((s) => s.key === String(c.seccion ?? ''))
+    if (!sec) return { ok: false, error: 'not_found', detail: `No existe la sección "${String(c.seccion)}". Las que hay: ${sections.map((s) => s.key).join(', ')}.` }
+    if (c.nuevoCampo && typeof c.nuevoCampo === 'object') {
+      const nc = c.nuevoCampo as Record<string, unknown>
+      const key = String(nc.key ?? '').trim()
+      if (!key || !/^[a-z0-9_]+$/.test(key)) return { ok: false, error: 'bad_input', detail: 'nuevoCampo.key tiene que ser snake_case (a-z, 0-9, _).' }
+      if ((sec.fields ?? []).some((x) => x.key === key)) return { ok: false, error: 'bad_input', detail: `La sección "${sec.key}" ya tiene un campo "${key}".` }
+      if (typeof nc.label !== 'string' || !nc.label.trim()) return { ok: false, error: 'bad_input', detail: 'nuevoCampo.label es obligatorio.' }
+      const tipo = typeof nc.type === 'string' ? nc.type : 'textarea'
+      if (!['text', 'textarea'].includes(tipo)) return { ok: false, error: 'bad_input', detail: 'nuevoCampo.type: text o textarea (los otros tipos necesitan config que esta tool no maneja).' }
+      const campo: TplField = { key, label: nc.label, type: tipo, ...(typeof nc.hint === 'string' ? { hint: nc.hint } : {}) }
+      sec.fields ??= []
+      if (c.posicion === 'inicio') sec.fields.unshift(campo); else sec.fields.push(campo)
+      aplicados.push(`${sec.key}.${key} (nuevo)`)
+      continue
+    }
+    if (c.campo) {
+      const f = (sec.fields ?? []).find((x) => x.key === String(c.campo))
+      if (!f) return { ok: false, error: 'not_found', detail: `La sección "${sec.key}" no tiene el campo "${String(c.campo)}". Tiene: ${(sec.fields ?? []).map((x) => x.key).join(', ')}.` }
+      if (typeof c.label === 'string') f.label = c.label
+      if (typeof c.hint === 'string') f.hint = c.hint
+      aplicados.push(`${sec.key}.${f.key}`)
+    } else {
+      if (typeof c.titulo === 'string') sec.title = c.titulo
+      if (typeof c.intro === 'string') sec.intro = c.intro
+      aplicados.push(sec.key)
+    }
+  }
+
+  const nueva = version + 1
+  const sb = getSupabaseAdmin()
+  const { error } = await sb.from('spi_template').upsert(
+    { user_id: userId, payload: { ...payload, version: nueva }, version: nueva, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id' },
+  )
+  if (error) return { ok: false, error: 'db_error', detail: `${error.message} — ¿falta correr migration_spi_template.sql?` }
+  return { ok: true, version: nueva, aplicados, aviso: 'Los dispositivos lo traen en el próximo pull (versión mayor gana). Las semanas ya creadas muestran las preguntas nuevas: el formulario lee el template vivo.' }
+}
