@@ -31,7 +31,7 @@ import { getProgress } from './progress'
 import { getProjection, updateProjection } from './projectionWrites'
 import { getMetasIncompletas } from './huecos'
 import { getBooks, upsertBook } from './bookWrites'
-import { listCalendars } from './queries'
+import { listCalendars, getTombstones } from './queries'
 import { getOffers, upsertOffer, setOfferDoc, listOfferTemplates, upsertOfferTemplate } from './offerWrites'
 import { logWorkout, getWorkoutSplit } from './gymWrites'
 
@@ -443,6 +443,20 @@ export const TOOLS: ToolDef[] = [
     description:
       'LEE las PREGUNTAS del SPI tal como las ve el usuario: secciones, carriles, labels y hints. Es la plantilla VIVA de su cuenta (fila spi_template), no el archivo del repo. Usalo antes de editar una pregunta, para tener las claves exactas.',
     inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_tombstones',
+    description:
+      'SOLO LECTURA. La tabla de borrados (deleted_rows): que filas tienen lapida, de que tabla y cuando. Usalo cuando algo "desaparecio" para distinguir dos causas distintas: (a) tiene lapida → la borro un sync o el bridge, y la fecha dice cuando; (b) no tiene lapida → nunca llego a la nube (push descartado). Devuelve ademas los LOTES: varias lapidas con el mismo deleted_at son UN evento de syncDeletes, no borrados del usuario.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tabla: str('Filtrar por tabla: tasks, subtasks, mindmaps, mindmap_folders, offers, decisions, tools...'),
+        rowId: str('Buscar una fila puntual por id.'),
+        desde: str('Solo lapidas desde esta fecha (ISO). Ej. 2026-09-10.'),
+        limit: num('Maximo de filas. Default 100, tope 1000.'),
+      },
+    },
   },
   {
     name: 'update_spi_template',
@@ -1024,6 +1038,9 @@ export async function callTool(
 
     case 'get_spi_template':
       return getSpiTemplate(userId)
+
+    case 'get_tombstones':
+      return getTombstones(userId, args)
 
     case 'update_spi_template':
       return updateSpiTemplate(userId, args)

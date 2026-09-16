@@ -958,3 +958,41 @@ export async function getBrief(userId: string, origin: string, days = 14) {
     planHistory: history,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Tombstones — la tabla de borrados, de solo lectura
+// ---------------------------------------------------------------------------
+//
+// Tres veces en una semana algo "desapareció" (carpetas de mapas, videos de
+// una tarea, tareas creadas por el bridge) y no había forma de ver si tenía
+// lápida o si nunca llegó a la nube. Son dos causas distintas con dos
+// arreglos distintos, y sin esto se adivina. Solo lee; nunca escribe.
+
+export async function getTombstones(
+  userId: string,
+  input: { tabla?: unknown; rowId?: unknown; desde?: unknown; limit?: unknown },
+) {
+  const sb = getSupabaseAdmin()
+  let q = sb.from('deleted_rows').select('table_name, row_id, deleted_at').eq('user_id', userId)
+  if (input.tabla) q = q.eq('table_name', String(input.tabla))
+  if (input.rowId) q = q.eq('row_id', String(input.rowId))
+  if (input.desde) q = q.gte('deleted_at', String(input.desde))
+  const { data, error } = await q.order('deleted_at', { ascending: false }).limit(Math.min(Math.max(1, Number(input.limit) || 100), 1000))
+  if (error) return { ok: false, error: 'db_error', detail: error.message }
+  const filas = (data ?? []) as { table_name: string; row_id: string; deleted_at: string }[]
+  // Agrupar por instante: un lote con el mismo timestamp es UN evento de sync
+  // (syncDeletes escribe todas las lápidas de una pasada con la misma hora),
+  // no borrados sueltos del usuario. Es la firma que delata al reconcile.
+  const lotes = new Map<string, { table_name: string; row_id: string }[]>()
+  for (const f of filas) {
+    const k = `${f.table_name}@${f.deleted_at}`
+    if (!lotes.has(k)) lotes.set(k, [])
+    lotes.get(k)!.push({ table_name: f.table_name, row_id: f.row_id })
+  }
+  return {
+    ok: true,
+    total: filas.length,
+    lapidas: filas,
+    lotes: [...lotes.entries()].map(([k, rows]) => ({ tabla: k.split('@')[0], deleted_at: k.split('@')[1], cantidad: rows.length, rowIds: rows.map((r) => r.row_id) })),
+  }
+}
