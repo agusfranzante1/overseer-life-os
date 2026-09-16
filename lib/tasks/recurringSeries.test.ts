@@ -7,7 +7,7 @@
  *  llegó a este device por sync) se fragmentaba en una serie por instancia y
  *  cada apertura de /tasks generaba copias del mismo día. */
 
-import { useTasksStore } from '@/lib/store/tasksStore'
+import { useTasksStore, rootSeriesId } from '@/lib/store/tasksStore'
 import { DEFAULT_STATUSES } from '@/lib/utils/constants'
 import type { Task } from '@/types'
 
@@ -195,6 +195,47 @@ console.log('\n9) Borrar la madre y arrepentirse: restaurarla trae las futuras d
   check('restaurar la madre devuelve toda la serie', stats().live === antes, `${antes} -> ${stats().live}`)
 }
 
+
+console.log('\n10) EL CASO REAL de "Backtesting Sesh #1": etiquetas anidadas rec_rec_rec_…')
+{
+  // La madre original ya no existe. Quedaron tres generaciones, cada una
+  // anclada a la instancia anterior (lo que hacía el heal viejo), y las
+  // hijas de la última llevan cuatro `rec_`.
+  const ROOT = 'uamye4a9mr42v51x'
+  const g1 = `rec_${ROOT}_2026-08-17`
+  const g2 = `rec_${g1}_2026-08-24`
+  const g3 = `rec_${g2}_2026-09-07`
+  const RULE = { kind: 'daily' as const }   // diaria: el buffer tiene que generar sí o sí
+  const tasks: Record<string, Task> = {}
+  tasks[g3] = { ...BASE, id: g3, dueDate: plus(-2), recurringHeadId: g3, recurrence: RULE } as Task
+  for (const dd of [plus(1), plus(2), plus(3)]) {
+    const id = `rec_${g3}_${dd}`
+    tasks[id] = { ...BASE, id, dueDate: dd, recurringHeadId: g3, recurrence: RULE } as Task
+  }
+  useTasksStore.setState({
+    projects: { P1: { id: 'P1', name: 'Trading', color: '#8b5cf6', statuses: DEFAULT_STATUSES,
+      taskIds: Object.keys(tasks), createdAt: iso } as never },
+    tasks,
+  })
+  check('rootSeriesId saca todos los niveles', rootSeriesId(`rec_${g3}_2026-09-21`) === ROOT)
+  check('rootSeriesId deja intacto un id sin anidar', rootSeriesId('mother1') === 'mother1')
+  check('rootSeriesId de una instancia sana → su madre', rootSeriesId('rec_mother1_2026-09-21') === 'mother1')
+
+  openApp()
+  const all = Object.values(useTasksStore.getState().tasks).filter((t) => !t.archivedAt)
+  const labels = new Set(all.map((t) => t.recurringHeadId))
+  check('todas las filas quedan con UNA etiqueta: la raíz', labels.size === 1 && labels.has(ROOT), [...labels].join(' | '))
+  const nuevas = all.filter((t) => !tasks[t.id])
+  check('el buffer generó instancias nuevas', nuevas.length > 0, String(nuevas.length))
+  check('las nuevas salen rec_<raíz>_<fecha>, sin anidar más',
+    nuevas.every((t) => t.id === `rec_${ROOT}_${t.dueDate}`), nuevas.map((t) => t.id).join(' | '))
+  const porFecha = new Map<string, number>()
+  for (const t of all) porFecha.set(t.dueDate!, (porFecha.get(t.dueDate!) ?? 0) + 1)
+  check('ninguna fecha duplicada', [...porFecha.values()].every((n) => n === 1))
+  const antes = Object.keys(useTasksStore.getState().tasks).sort().join()
+  openApp()
+  check('segunda apertura: estable', Object.keys(useTasksStore.getState().tasks).sort().join() === antes)
+}
 
 console.log(`\n${fail === 0 ? 'TODO OK' : 'HAY FALLAS'} — ${pass} ok, ${fail} fail\n`)
 process.exit(fail === 0 ? 0 : 1)

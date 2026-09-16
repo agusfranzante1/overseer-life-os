@@ -21,6 +21,21 @@ function recurringInstanceId(motherId: string, dueDate: string): string {
   return `rec_${motherId}_${dueDate}`
 }
 
+/** La RAÍZ de una etiqueta de serie. Una instancia que en algún momento quedó
+ *  de madre tiene id `rec_<madre>_<fecha>`; si a su vez espawneó, sus hijas
+ *  salen `rec_rec_<madre>_<fecha>_<fecha>`, y así. Todas son la MISMA serie:
+ *  la identidad es la madre original, exista o no su fila. Se sacan los `rec_`
+ *  de adelante y las fechas de atrás, de a pares, hasta que no quede ninguno.
+ *  Un id sin anidar vuelve tal cual. */
+export function rootSeriesId(id: string): string {
+  let cur = id
+  for (;;) {
+    const m = /^rec_(.+)_(\d{4}-\d{2}-\d{2})$/.exec(cur)
+    if (!m) return cur
+    cur = m[1]
+  }
+}
+
 /** Id DETERMINISTA para la copia de una subtarea dentro de una instancia
  *  recurrente. Mismo motivo que `recurringInstanceId`: la instancia ya tenía id
  *  determinista, pero sus SUBTAREAS se creaban con `genId()`, así que dos
@@ -2135,12 +2150,27 @@ export const useTasksStore = create<TasksState>()(
           }
           const motherByKey = new Map<string, string>()
           for (const [key, arr] of byKey) {
-            // Puede haber VARIAS madres establecidas si la serie se fragmentó
-            // (madre borrada → cada instancia abrió serie propia). Nos
-            // quedamos con la más vieja y el paso 2 re-ancla el resto.
-            const established = arr.filter((t) => t.recurringHeadId && t.recurringHeadId === t.id)
-            if (established.length > 0) {
-              motherByKey.set(key, [...established].sort(oldestFirst)[0].id)
+            // ── La ETIQUETA que ya existe es la identidad, exista o no su fila ──
+            // Antes: sin fila de madre, se elegía "la instancia más vieja con
+            // recurrence" como madre nueva. Como el spawn copia `recurrence` a
+            // TODAS las instancias, eso volvía a una instancia su propia cabeza,
+            // sus spawns salían `rec_<instancia>_<fecha>` (una `rec_` más), y
+            // cada vez que el user borraba esa "madre" se anidaba otro nivel:
+            // `rec_rec_rec_rec_…`, con la serie partida en fragmentos de 1-3.
+            // Pasó con "Backtesting Sesh #1" (visto en las lápidas del 13-14/09).
+            // Ahora, si el grupo ya tiene etiquetas, la canónica es la RAÍZ
+            // común (la madre original, aunque ya no exista) — nunca una
+            // instancia. Solo un grupo SIN ninguna etiqueta (datos pre-migración)
+            // cae en el criterio viejo.
+            const labeled = arr.filter((t) => t.recurringHeadId)
+            if (labeled.length > 0) {
+              const roots = [...new Set(labeled.map((t) => rootSeriesId(t.recurringHeadId!)))]
+              // Varias raíces = dos series distintas que comparten título. Se
+              // elige la del miembro más viejo (determinista), sin mezclarlas.
+              const canonical = roots.length === 1
+                ? roots[0]
+                : rootSeriesId([...labeled].sort(oldestFirst)[0].recurringHeadId!)
+              motherByKey.set(key, canonical)
               continue
             }
             const recurring = arr.filter((t) => t.recurrence)
@@ -2163,17 +2193,23 @@ export const useTasksStore = create<TasksState>()(
             if (!motherId) continue
             if (t.recurringHeadId === motherId) continue          // ya anclada (idempotente)
             if (t.recurringHeadId) {
-              // Solo re-anclamos FRAGMENTOS, no series sanas:
-              //   - huérfana: su madre ya no existe, o
-              //   - auto-anclada (es su propia madre) pero no es la canónica
-              //     → la serie se partió en una serie por instancia.
-              // Si apunta a otra tarea que SÍ existe (aunque esté archivada,
-              // = serie detenida a propósito), no se toca: re-anclarla la
-              // desengancharía de su madre y la cadena volvería a arrancar.
-              const orphan = !s.tasks[t.recurringHeadId]
-              const selfAnchored = t.recurringHeadId === t.id
-              if (!orphan && !selfAnchored) continue
-              if (!t.recurrence) continue                         // no arrastramos one-offs ya anclados
+              // Etiqueta ANIDADA de la misma raíz (`rec_rec_…`): es esta serie
+              // con un nivel de más → se normaliza a la raíz. Es lo que corta
+              // la cadena de `rec_` que crecía en cada borrado.
+              const nested = t.recurringHeadId !== motherId && rootSeriesId(t.recurringHeadId) === motherId
+              if (!nested) {
+                // Solo re-anclamos FRAGMENTOS, no series sanas:
+                //   - huérfana: su madre ya no existe, o
+                //   - auto-anclada (es su propia madre) pero no es la canónica
+                //     → la serie se partió en una serie por instancia.
+                // Si apunta a otra tarea que SÍ existe (aunque esté archivada,
+                // = serie detenida a propósito), no se toca: re-anclarla la
+                // desengancharía de su madre y la cadena volvería a arrancar.
+                const orphan = !s.tasks[t.recurringHeadId]
+                const selfAnchored = t.recurringHeadId === t.id
+                if (!orphan && !selfAnchored) continue
+                if (!t.recurrence) continue                       // no arrastramos one-offs ya anclados
+              }
             } else if (!t.recurrence && !t.dueDate) {
               continue                                            // guarda anti-absorción
             }
