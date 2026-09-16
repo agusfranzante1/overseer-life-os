@@ -47,6 +47,19 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Recurrentes: el heal anidaba la serie un nivel por cada madre borrada** (2026-09-16). Visto en
+  las lápidas: "Backtesting Sesh #1" con ids `rec_rec_rec_rec_…`, partida en tres "series" de 1-3.
+  - **Mecanismo:** el spawn copia `...mother` entero → toda instancia lleva `recurrence`. Sin fila de
+    madre, `migrateRecurringHeads` elegía "la instancia más vieja con recurrence" como madre nueva
+    → una instancia pasaba a ser su propia cabeza → sus spawns `rec_<instancia>_<fecha>` → al
+    borrar esa "madre", otro nivel. El spawn respetaba la regla del mapa (la etiqueta sobrevive a
+    la madre); el heal no.
+  - **Fix:** `rootSeriesId()` + heal: si el grupo ya tiene etiquetas, la canónica es la **raíz**
+    común, nunca una instancia; las anidadas de la misma raíz se normalizan. Repara al abrir
+    Tareas. Test `recurringSeries` 31/31 con el caso real. Cliente: **recargar los dispositivos**
+    (uno con el build viejo re-anida hasta actualizarse).
+
+
 - [x] **Tres tareas del bridge "desaparecieron" — y la serie de hábitos también** (2026-09-16).
   Con `get_tombstones` (tool nueva, solo lectura) la autopsia fue directa: **12/09 08:45:54, un
   lote de 7 tareas** (plantilla DRM v2, STH Limpieza, Pilates a centros + 4 instancias viejas) y
