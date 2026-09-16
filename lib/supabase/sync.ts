@@ -377,11 +377,18 @@ type Tombstones = Map<string, Map<string, number>> // table_name → (row_id →
 
 /** Trae los tombstones de las tablas pedidas en un solo query. Siempre devuelve
  *  un map por tabla (vacío si falta la migration o falla el query). */
+/** Cuándo ESTA pestaña pulleó cada tabla por última vez. En memoria a propósito,
+ *  NO en localStorage: el baseline se comparte entre pestañas pero el store de
+ *  cada una es el suyo, y ese desfase es justo lo que borraba filas ajenas. Se
+ *  sella acá porque `fetchTombstones` lo llaman SOLO los pulls, antes del merge. */
+const tabPulledAt = new Map<string, number>()
+
 async function fetchTombstones(
   sb: ReturnType<typeof getSupabaseBrowser>, userId: string, tableNames: string[],
 ): Promise<Tombstones> {
   const out: Tombstones = new Map()
-  for (const t of tableNames) out.set(t, new Map())
+  const ahora = Date.now()
+  for (const t of tableNames) { out.set(t, new Map()); tabPulledAt.set(t, ahora) }
   try {
     const { data, error } = await sb.from('deleted_rows')
       .select('table_name,row_id,deleted_at')
@@ -480,7 +487,7 @@ async function syncDeletes(
   // nube pero con lápida, así que ningún cliente las volvía a ver. La guarda
   // salvaba los datos y los escondía igual — un fallo mudo (BASE nº6).
   // Le pasó a las carpetas de mapas el 08/09.
-  const borradas = await reconcileDeletes(sb, table, uid, localIds, base, idColumn)
+  const borradas = await reconcileDeletes(sb, table, uid, localIds, base, idColumn, tabPulledAt.get(table))
   await writeTombstones(sb, uid, table, borradas)
   setBaseline(baselineKey, localIds)
 }

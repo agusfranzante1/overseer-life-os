@@ -152,6 +152,10 @@ export async function reconcileDeletes(
   /** Columna clave de la tabla. Default 'id'; usar 'code' (wallet_currencies)
    *  o 'date' (health_snapshots) para tablas con PK natural distinta. */
   idColumn: string = 'id',
+  /** Cuándo ESTA pestaña pulleó esta tabla por última vez (ms). Una fila remota
+   *  más nueva que eso nunca estuvo en la memoria de esta pestaña → no la pudo
+   *  borrar el usuario → no se toca. `undefined` = nunca pulleó = no borra nada. */
+  pulledAtMs?: number,
 ): Promise<string[]> {
   if (baseline.size === 0) return []
   // ── BLINDAJE ANTI-WIPE ──────────────────────────────────────────────
@@ -186,10 +190,41 @@ export async function reconcileDeletes(
 
   // Intersectar con lo que existe realmente en remoto (evita DELETEs de ids
   // fantasma y nos dice qué borrar de verdad).
-  const { data } = await sb.from(table).select(idColumn).eq('user_id', userId)
-  if (!data) return []
-  const remoteIds = new Set((data as unknown as Record<string, string>[]).map((r) => r[idColumn]))
-  const toDelete = intentional.filter((id) => remoteIds.has(id))
+  // ── BLINDAJE "MÁS NUEVO QUE MI PULL" ────────────────────────────────
+  // El bridge (y otros devices) crean filas del lado server. Una pestaña con
+  // la copia vieja en memoria y el baseline compartido (localStorage) al día
+  // ve esas filas en `baseline − local` y las "borra" — pero nunca las tuvo,
+  // así que nadie las borró. Pasó el 12/09: 7 tareas y 127 subtareas en un
+  // segundo, bajo el umbral de la guarda anti-masivo. Si la fila remota es
+  // más nueva que el último pull de ESTA pestaña, se deja: el próximo pull
+  // la trae a local y deja de ser candidata.
+  let rows: Record<string, string>[] | null = null
+  let conUpdatedAt = true
+  {
+    const r1 = await sb.from(table).select(`${idColumn}, updated_at`).eq('user_id', userId)
+    if (r1.error) {
+      conUpdatedAt = false   // tablas sin updated_at: sin protección, como antes
+      const r2 = await sb.from(table).select(idColumn).eq('user_id', userId)
+      rows = (r2.data ?? null) as unknown as Record<string, string>[] | null
+    } else {
+      rows = r1.data as unknown as Record<string, string>[]
+    }
+  }
+  if (!rows) return []
+  const remoteIds = new Set(rows.map((r) => r[idColumn]))
+  const remoteUpdated = new Map(rows.map((r) => [r[idColumn], r.updated_at]))
+  const protegidas: string[] = []
+  const toDelete = intentional.filter((id) => {
+    if (!remoteIds.has(id)) return false
+    if (!conUpdatedAt) return true
+    if (pulledAtMs === undefined) { protegidas.push(id); return false }
+    const u = Date.parse(remoteUpdated.get(id) ?? '')
+    if (Number.isFinite(u) && u > pulledAtMs) { protegidas.push(id); return false }
+    return true
+  })
+  if (protegidas.length > 0) {
+    console.warn(`[sync] reconcileDeletes(${table}): ${protegidas.length} fila(s) son más nuevas que el último pull de esta pestaña → NO se borran (nunca estuvieron acá; el próximo pull las trae)`, protegidas)
+  }
   if (toDelete.length === 0) return []
 
   await sb.from(table).delete().eq('user_id', userId).in(idColumn, toDelete)
