@@ -63,6 +63,15 @@ entero. Aplicado a `tasks` (+subtasks, que heredan la frescura de la madre), `sp
 `projection_plans` y las tres tablas de ofertas. **`syncDeletes` sigue usando la lista COMPLETA,
 no la filtrada**: una fila que no se subió sigue existiendo local, y verla ausente la borraría.
 
+**No se borra una fila remota más nueva que el último pull de ESTA pestaña** (`reconcileDeletes`
+recibe `pulledAtMs`, sellado en memoria por `fetchTombstones` — que solo llaman los pulls). El
+baseline vive en localStorage (compartido); el store de cada pestaña es el suyo. Una pestaña con la
+copia vieja veía en `baseline − local` filas que **nunca tuvo** (las que crea el bridge del lado
+server) y las borraba de a pocas, bajo el umbral de la guarda anti-masivo. Pasó el 12/09 (7 tareas +
+127 subtareas) y el 14/09 (la serie de hábitos, 21 filas). Sin pull previo en la pestaña no se borra
+nada. `get_tombstones` (bridge, solo lectura) es cómo se ve esto: un lote con el mismo `deleted_at`
+es un evento de sync, no borrados del usuario.
+
 **Solo se tombstonea lo que se borró DE VERDAD** (`reconcileDeletes` devuelve los ids borrados y
 `syncDeletes` tombstonea eso, nada más): la guarda anti-borrado-masivo veta la propagación cuando el
 local está parcial, pero antes `writeTombstones` corría igual con la lista completa. Las filas

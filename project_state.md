@@ -47,6 +47,26 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Tres tareas del bridge "desaparecieron" — y la serie de hábitos también** (2026-09-16).
+  Con `get_tombstones` (tool nueva, solo lectura) la autopsia fue directa: **12/09 08:45:54, un
+  lote de 7 tareas** (plantilla DRM v2, STH Limpieza, Pilates a centros + 4 instancias viejas) y
+  **127 subtareas dos segundos antes**; **14/09 04:35, 21 filas** (la madre del repaso de hábitos +
+  20 instancias). Un lote con la misma hora es `syncDeletes`, no el usuario. Siete y 21 pasan la
+  guarda anti-masivo (≥4 **y** ≥40%: no llegan al 40%).
+  - **Mecanismo:** el baseline es localStorage (compartido); el store de cada pestaña es el suyo.
+    Una pestaña con la copia vieja ve en `baseline − local` filas que **nunca tuvo** — las que crea
+    el bridge del lado server — y las borra. Con 4 dispositivos (2 celulares, notebook, PC) es
+    cuestión de tiempo.
+  - **Fix:** `reconcileDeletes` no borra ninguna fila remota con `updated_at` posterior al último
+    pull de **esta pestaña** (sellado en memoria en `fetchTombstones`). Nunca estuvo acá, nadie la
+    borró; el próximo pull la trae. Sin pull previo, no borra nada. Test 12/12 con el lote real.
+  - **Recuperado:** plantilla v2 (69 pasos, con los dos prompts y los 3 patrones de búsqueda del
+    15/09), STH Limpieza (2/69), Pilates (0/7) y la serie diaria de hábitos 22:00. Todo con ids
+    nuevos: los viejos tienen lápida.
+  - ⚠️ **El fix es del cliente: los 4 dispositivos tienen que recargar** para tenerlo. Hasta
+    entonces, uno con el build viejo puede volver a borrar lo recreado.
+
+
 - [x] **"Quiero que me lleguen TODAS, en horario" — latido del dispatcher + un canal apagado**
   (2026-09-14). Auditoría con la base, canal por canal:
   - **Prefs reales del usuario:** `taskDueSoon`, `taskOverdue`, `spiNewSession`,
