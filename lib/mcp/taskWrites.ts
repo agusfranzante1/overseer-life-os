@@ -370,7 +370,7 @@ export async function createProject(
     id, user_id: userId, name: nombre, color,
     description: typeof input.descripcion === 'string' ? input.descripcion : null,
     statuses: DEFAULT_STATUSES_ES, archived: false,
-    is_system_project: false, created_at: ahora, updated_at: ahora,
+    is_system_project: false, created_at: ahora,
   })
   if (error) return { ok: false, error: 'db_error', detail: error.message }
   return { ok: true, projectId: id, nombre, color, estados: DEFAULT_STATUSES_ES.map((s) => s.label) }
