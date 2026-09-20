@@ -335,3 +335,43 @@ export async function addSubtasks(
     subtasks: rows.map((r) => ({ id: r.id, title: r.title })),
   }
 }
+
+// ─── CREAR PROYECTO ──────────────────────────────────────────────────────────
+//
+// Un proyecto es una fila en `projects` con columnas reales. El pull
+// recomputa `taskIds` desde `project_id`, así que un proyecto insertado del
+// lado server aparece solo en el sidebar de Tareas. Nace con los estados
+// en español (los que usa el usuario) para que `create_task` los resuelva.
+
+const COLORES_PROYECTO = ['#8b5cf6', '#06b6d4', '#f59e0b', '#10b981', '#ef4444', '#ec4899', '#3b82f6', '#84cc16']
+
+export async function createProject(
+  userId: string,
+  input: { nombre?: unknown; color?: unknown; descripcion?: unknown },
+): Promise<WriteResult> {
+  const nombre = String(input.nombre ?? '').trim()
+  if (!nombre) return { ok: false, error: 'bad_input', detail: 'Falta `nombre`.' }
+
+  const sb = getSupabaseAdmin()
+  const { data: existentes } = await sb.from('projects').select('id, name, archived').eq('user_id', userId)
+  const dupe = (existentes ?? []).find((p) => String(p.name).trim().toLowerCase() === nombre.toLowerCase())
+  if (dupe) {
+    return { ok: false, error: 'duplicado', detail: `Ya existe un proyecto "${dupe.name}" (id ${dupe.id}${dupe.archived ? ', archivado' : ''}). Usá ese.` }
+  }
+
+  const color = typeof input.color === 'string' && /^#[0-9a-f]{6}$/i.test(input.color)
+    ? input.color
+    : COLORES_PROYECTO[(existentes?.length ?? 0) % COLORES_PROYECTO.length]
+  const id = 'mcp' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4)
+  const ahora = new Date().toISOString()
+  const { DEFAULT_STATUSES_ES } = await import('@/lib/utils/constants')
+
+  const { error } = await sb.from('projects').insert({
+    id, user_id: userId, name: nombre, color,
+    description: typeof input.descripcion === 'string' ? input.descripcion : null,
+    statuses: DEFAULT_STATUSES_ES, archived: false,
+    is_system_project: false, created_at: ahora, updated_at: ahora,
+  })
+  if (error) return { ok: false, error: 'db_error', detail: error.message }
+  return { ok: true, projectId: id, nombre, color, estados: DEFAULT_STATUSES_ES.map((s) => s.label) }
+}

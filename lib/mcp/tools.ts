@@ -9,7 +9,7 @@ import {
   getAgenda, getTasks, getPlannerProfile, getPlanHistory, getProjects, getRecurringSeries, getGym, getWallet,
 } from './queries'
 import { saveDayPlan, scheduleTask, updatePlannerProfile, markReviewSeen } from './writes'
-import { createTask, setTaskRecurrence, addSubtasks } from './taskWrites'
+import { createTask, createProject, setTaskRecurrence, addSubtasks } from './taskWrites'
 import { deleteSubtasks } from './deleteSubtasks'
 import { deleteTasks } from './deleteTasks'
 import {
@@ -102,6 +102,20 @@ export const TOOLS: ToolDef[] = [
     description:
       'Revisar las tareas recurrentes: una entrada por serie con su regla, el proyecto, si está detenida, cuántas instancias hay hechas y pendientes, la próxima fecha y el detalle de las instancias. Usalo cuando el usuario pregunte qué recurrentes tiene o algo se vea raro/duplicado.',
     inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'create_project',
+    description:
+      'Crea un PROYECTO nuevo en Tareas (una columna del sidebar). Nace con los estados en espanol (Hacer, Haciendo, Esperando, Hecho, Pausado, Pospuesto) y aparece solo en la app. Falla si ya existe uno con ese nombre.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nombre: str('Nombre del proyecto.'),
+        color: str('Hex opcional, ej. #8b5cf6. Si no, se asigna uno.'),
+        descripcion: str('Opcional.'),
+      },
+      required: ['nombre'],
+    },
   },
   {
     name: 'create_task',
@@ -960,6 +974,9 @@ export async function callTool(
 
     case 'create_task':
       return createTask(userId, args)
+
+    case 'create_project':
+      return createProject(userId, args)
 
     case 'add_subtasks':
       return addSubtasks(userId, { taskId: args.taskId as string, subtasks: args.subtasks })
