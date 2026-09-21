@@ -47,6 +47,14 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **"Backtesting sesh duplicada, 2 por día" — el guard del 16/09 protegía filas que esta misma
+  pestaña había subido** (2026-09-21). El heal re-etiquetó las anidadas (bump), la pestaña las
+  pusheó, el dedupe las borró local; al reconciliar la nube las tenía "más nuevas que el pull" →
+  protegidas → volvían en cada pull. **Fix:** conocido hasta = max(pull, push); `tabPushedAt` se
+  sella al final de `syncDeletes`. Test 14/14. Los datos se limpian solos al abrir Tareas con el
+  build nuevo (el dedupe ya elige una por fecha; ahora el borrado sí llega a la nube).
+
+
 - [x] **Recurrentes: el heal anidaba la serie un nivel por cada madre borrada** (2026-09-16). Visto en
   las lápidas: "Backtesting Sesh #1" con ids `rec_rec_rec_rec_…`, partida en tres "series" de 1-3.
   - **Mecanismo:** el spawn copia `...mother` entero → toda instancia lleva `recurrence`. Sin fila de

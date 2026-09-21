@@ -69,8 +69,11 @@ baseline vive en localStorage (compartido); el store de cada pestaña es el suyo
 copia vieja veía en `baseline − local` filas que **nunca tuvo** (las que crea el bridge del lado
 server) y las borraba de a pocas, bajo el umbral de la guarda anti-masivo. Pasó el 12/09 (7 tareas +
 127 subtareas) y el 14/09 (la serie de hábitos, 21 filas). Sin pull previo en la pestaña no se borra
-nada. `get_tombstones` (bridge, solo lectura) es cómo se ve esto: un lote con el mismo `deleted_at`
-es un evento de sync, no borrados del usuario.
+nada. **"Conocido hasta" = max(último pull, último push)** de la pestaña: una fila que esta pestaña
+subió (heal, edición) y después borró (dedupe) tiene `updated_at` posterior al pull pero la pestaña la
+conoce — sin el push en la cuenta, el dedupe de recurrentes no podía propagar y las copias volvían
+en cada pull (21/09). `get_tombstones` (bridge, solo lectura) es cómo se ve esto: un lote con el mismo
+`deleted_at` es un evento de sync, no borrados del usuario.
 
 **Solo se tombstonea lo que se borró DE VERDAD** (`reconcileDeletes` devuelve los ids borrados y
 `syncDeletes` tombstonea eso, nada más): la guarda anti-borrado-masivo veta la propagación cuando el
