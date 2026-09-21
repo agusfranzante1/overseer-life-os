@@ -176,7 +176,7 @@ export function normalizeTaskInput(
     task.description = input.description.trim().slice(0, 5000)
   }
   if (typeof input.notes === 'string' && input.notes.trim()) {
-    task.notes = input.notes.trim().slice(0, 5000)
+    task.notes = input.notes.trim().slice(0, 20000)
   }
   if (typeof input.category === 'string' && input.category.trim()) {
     task.category = input.category.trim().slice(0, 100)

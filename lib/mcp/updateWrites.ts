@@ -73,7 +73,7 @@ export async function updateTask(
   }
   str('title', 500)
   str('description', 5000)
-  str('notes', 5000)
+  str('notes', 20000)
   str('category', 100)
 
   if (input.priority !== undefined) patch.priority = normalizePriority(input.priority)
@@ -170,7 +170,11 @@ export async function updateSubtask(
 
   const patch: Record<string, unknown> = {}
   if (typeof input.title === 'string' && input.title.trim()) patch.title = input.title.trim().slice(0, 500)
-  if (input.notes !== undefined) patch.notes = input.notes === null ? null : String(input.notes).slice(0, 5000)
+  // 20000 y no 5000: en las notas de las subtareas viven los PROMPTS de las
+  // plantillas de proceso, y el prompt padre de DRM mide ~9k. Con 5000 se
+  // guardaba cortado en silencio y "✓ guardado (8982 chars)" era mentira
+  // — recien se vio al releerlo, semanas despues.
+  if (input.notes !== undefined) patch.notes = input.notes === null ? null : String(input.notes).slice(0, 20000)
   if (input.priority !== undefined) patch.priority = normalizePriority(input.priority)
   if (typeof input.favorite === 'boolean') patch.favorite = input.favorite
 
