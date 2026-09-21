@@ -94,6 +94,25 @@ const run = async () => {
     const r = await reconcileDeletes(sb, 'tasks', 'u1', ['t1','t2','t3','t4'], base)
     t('sin pull previo en esta pestaña: no borra', borrados.length === 0 && r.length === 0)
   }
+  // 9 · EL CASO DE BACKTESTING (21/09): el heal bumpeó la fila y ESTA pestaña la
+  //     pusheó (updated_at posterior al pull); el dedupe la borra local. El que
+  //     llama pasa max(pull, push) como "conocido hasta": se borra.
+  {
+    const base = new Set(['keep', 'dupe'])
+    const PUSH = Date.parse('2026-09-21T10:00:00Z')
+    const { sb, borrados } = fakeSb({ keep: VIEJO, dupe: '2026-09-21T09:30:00Z' })   // subida después del pull, antes del push
+    const r = await reconcileDeletes(sb, 'tasks', 'u1', ['keep'], base, 'id', Math.max(PULL, PUSH))
+    t('fila que esta pestaña pusheó y después borró: SÍ se borra', borrados.join() === 'dupe' && r.join() === 'dupe')
+  }
+  // 10 · Pero una fila ajena posterior al último push sigue protegida.
+  {
+    const base = new Set(['keep', 'ajena'])
+    const PUSH = Date.parse('2026-09-21T10:00:00Z')
+    const { sb, borrados } = fakeSb({ keep: VIEJO, ajena: '2026-09-21T11:00:00Z' })
+    const r = await reconcileDeletes(sb, 'tasks', 'u1', ['keep'], base, 'id', Math.max(PULL, PUSH))
+    t('fila ajena posterior al push: protegida', borrados.length === 0 && r.length === 0)
+  }
+
   console.log(`\n${ok}/${ok + fail} OK`)
   if (fail) process.exit(1)
 }

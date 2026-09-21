@@ -382,6 +382,13 @@ type Tombstones = Map<string, Map<string, number>> // table_name → (row_id →
  *  cada una es el suyo, y ese desfase es justo lo que borraba filas ajenas. Se
  *  sella acá porque `fetchTombstones` lo llaman SOLO los pulls, antes del merge. */
 const tabPulledAt = new Map<string, number>()
+/** Cuándo ESTA pestaña pusheó cada tabla por última vez. Una fila que esta
+ *  pestaña subió la conoce aunque su `updated_at` sea posterior al pull: si
+ *  después la borra localmente (dedupe, heal, el usuario), tiene que poder
+ *  borrarla en la nube. Sin esto, las copias de Backtesting Sesh que el dedupe
+ *  sacaba del store volvían en cada pull: la nube las tenía "más nuevas que el
+ *  pull" porque las había subido esta misma pestaña. */
+const tabPushedAt = new Map<string, number>()
 
 async function fetchTombstones(
   sb: ReturnType<typeof getSupabaseBrowser>, userId: string, tableNames: string[],
@@ -487,9 +494,14 @@ async function syncDeletes(
   // nube pero con lápida, así que ningún cliente las volvía a ver. La guarda
   // salvaba los datos y los escondía igual — un fallo mudo (BASE nº6).
   // Le pasó a las carpetas de mapas el 08/09.
-  const borradas = await reconcileDeletes(sb, table, uid, localIds, base, idColumn, tabPulledAt.get(table))
+  const conocidoHasta = Math.max(tabPulledAt.get(table) ?? -Infinity, tabPushedAt.get(table) ?? -Infinity)
+  const borradas = await reconcileDeletes(sb, table, uid, localIds, base, idColumn, Number.isFinite(conocidoHasta) ? conocidoHasta : undefined)
   await writeTombstones(sb, uid, table, borradas)
   setBaseline(baselineKey, localIds)
+  // syncDeletes corre justo después del upsert de cada push: a partir de acá,
+  // todo lo que la nube tenga con updated_at <= ahora en esta tabla, esta
+  // pestaña lo subió o lo vio.
+  tabPushedAt.set(table, Date.now())
 }
 
 // ─── TASKS ────────────────────────────────────────────────────────────────────
