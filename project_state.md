@@ -47,6 +47,14 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **El bridge ya carga SUSCRIPCIONES en la billetera** (2026-09-21, `list_recurring_expenses` /
+  `upsert_recurring_expense`, `walletWrites.ts`). Pedido: *"Cloudflare Zero Trust, 0$ porque es gratis
+  pero para recordar"*. `wallet_recurring_expenses` es columnas reales sin `updated_at`; el pull la
+  mergea por id, así que insertar del lado server alcanza. El server escribe la regla y el cliente
+  genera la transacción del mes (`processRecurringExpenses`) — mismo reparto que las tareas
+  recurrentes. Se valida billetera+divisa porque el cliente pausa en silencio una regla cuya wallet no
+  tiene esa divisa. Verificado en producción: creada en Binance, USD 0, día 1.
+
 - [x] **"Backtesting sesh duplicada, 2 por día" — el guard del 16/09 protegía filas que esta misma
   pestaña había subido** (2026-09-21). El heal re-etiquetó las anidadas (bump), la pestaña las
   pusheó, el dedupe las borró local; al reconciliar la nube las tenía "más nuevas que el pull" →

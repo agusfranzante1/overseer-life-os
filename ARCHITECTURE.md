@@ -136,7 +136,7 @@ su cabecera QUÉ no hace y por qué.
 | `deleteSubtasks.ts` / `deleteTasks.ts` | borrar subtareas y tareas enteras — tombstone ANTES del delete, siempre |
 | `spiWrites.ts` | la semana del SPI, la biblioteca de KPIs y **las preguntas del formulario** (`get/update_spi_template`) |
 | `projectionWrites.ts` | metas de año / semestre / trimestre / mes |
-| `habitWrites.ts` · `gymWrites.ts` · `bookWrites.ts` | hábitos, sesiones de gimnasio, biblioteca |
+| `habitWrites.ts` · `gymWrites.ts` · `bookWrites.ts` · `walletWrites.ts` | hábitos, sesiones de gimnasio, biblioteca, suscripciones de la billetera (la regla; el cobro del mes lo genera el cliente) |
 | `offerWrites.ts` | pipeline de ofertas: leer, mover de etapa, escribir documentos |
 | `calendarWrites.ts` · `queries.listCalendars` | eventos de Google, y los calendarios con su color |
 | `progress.ts` · `huecos.ts` | medición ya calculada, y metas declaradas sin completar |
