@@ -34,6 +34,7 @@ import { getBooks, upsertBook } from './bookWrites'
 import { listCalendars, getTombstones } from './queries'
 import { getOffers, upsertOffer, setOfferDoc, listOfferTemplates, upsertOfferTemplate } from './offerWrites'
 import { logWorkout, getWorkoutSplit } from './gymWrites'
+import { listRecurringExpenses, upsertRecurringExpense } from './walletWrites'
 
 export interface ToolDef {
   name: string
@@ -856,6 +857,35 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'list_recurring_expenses',
+    description:
+      'Las SUSCRIPCIONES y gastos recurrentes de la billetera (Netflix, hosting, Cloudflare…) con monto, divisa, billetera, dia de cobro y si estan activas. Tambien devuelve las billeteras con su id y divisas, que es lo que hace falta para crear una. Una suscripcion de 0 es valida: esta anotada para acordarse de que existe.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'upsert_recurring_expense',
+    description:
+      'Crea o edita una suscripcion / gasto recurrente de la billetera. El server escribe la REGLA; la transaccion de cada mes la genera la app al abrir Billetera (no se cobra desde aca). La billetera se pasa por nombre (`billetera`) o por id, y tiene que manejar esa divisa: si no, se rechaza (el cliente pausaria la regla en silencio). No duplica: mismo label en la misma billetera falla y devuelve el id para editar.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        recurringId: str('Id existente para editar. Omitilo para crear.'),
+        label: str('Nombre: "Cloudflare Zero Trust", "Netflix".'),
+        monto: num('Monto por mes. 0 vale (gratis, pero anotada).'),
+        divisa: str('USD | ARS | EUR. Default USD.'),
+        billetera: str('Nombre de la billetera (ver list_recurring_expenses).'),
+        billeteraId: str('Id de la billetera, alternativa al nombre.'),
+        categoria: str('Default "Suscripción".'),
+        diaDelMes: num('Dia de cobro, 1 a 28. Default 1.'),
+        desde: str('YYYY-MM-DD. Default hoy (zona del usuario).'),
+        hasta: str('YYYY-MM-DD, opcional. null para sacarla.'),
+        activa: { type: 'boolean', description: 'false pausa el cobro sin borrarla.' },
+        esSuscripcion: { type: 'boolean', description: 'Default true. false = gasto recurrente comun (alquiler).' },
+        notas: str('Notas.'),
+      },
+    },
+  },
+  {
     name: 'list_calendars',
     description:
       'Los calendarios de Google que el usuario tiene TILDADOS, con su id, su nombre y su COLOR. Leelo antes de crear eventos: cada evento va al calendario de su area (Trading, DRM, NQN SURVEY, Personal, Conocimiento…) y no al primario, porque el color del bloque lo da el calendario. Meter todo en el primario hace que el dia entero salga del mismo color y no se distinga nada de un vistazo. El campo puedeEscribir dice si se puede crear ahi: un calendario de solo lectura falla al crear.',
@@ -1150,6 +1180,12 @@ export async function callTool(
 
     case 'upsert_book':
       return upsertBook(userId, args)
+
+    case 'list_recurring_expenses':
+      return listRecurringExpenses(userId)
+
+    case 'upsert_recurring_expense':
+      return upsertRecurringExpense(userId, args)
 
     case 'list_calendars':
       return listCalendars(userId, origin)
