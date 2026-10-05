@@ -389,7 +389,12 @@ export function CalendarPage() {
     })
   }
 
-  const selectedDayTasks = selectedDay ? getTasksForDay(selectedDay) : []
+  const selectedDayTasksAll = selectedDay ? getTasksForDay(selectedDay) : []
+  // Las que tienen hora YA aparecen arriba como bloque con su horario (son
+  // parte de `mergedEvents`). Repetirlas abajo era ver lo mismo dos veces —
+  // en el celu eso es toda la pantalla. Acá quedan solo las SIN horario, que
+  // son las que no tienen dónde más mostrarse.
+  const selectedDayTasks = selectedDayTasksAll.filter((t) => !t.dueTime)
   const selectedDayEvents = selectedDay
     ? (eventsByDay.get(format(selectedDay, 'yyyy-MM-dd')) ?? [])
     : []
@@ -606,8 +611,16 @@ export function CalendarPage() {
         )}
       </AnimatePresence>
 
-      <div className={`grid grid-cols-1 gap-6 flex-1 min-h-0 ${gcal.showSideRail ? 'xl:grid-cols-[1fr_300px]' : ''}`}>
+      {/* `flex-1 min-h-0` SOLO desde xl: ahí hay dos columnas y cada una tiene
+          su alto. En una sola columna (celu/tablet) fijarle el alto al grid
+          hacía que la fila del panel —765px de contenido— dejara la grilla del
+          calendario en CERO píxeles: entrabas a /calendar y veías una lista de
+          tareas, no un calendario. Ahora el calendario toma su alto propio
+          (78vh, con su scroll interno de horas) y el panel queda DEBAJO, que es
+          el orden que uno quiere en un teléfono. */}
+      <div className={`grid grid-cols-1 gap-6 xl:flex-1 xl:min-h-0 ${gcal.showSideRail ? 'xl:grid-cols-[1fr_300px]' : ''}`}>
         {/* Calendar grid (month OR week) */}
+        <div className="h-[78vh] xl:h-full min-h-0">
         {view === 'month' ? (
           <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl overflow-hidden h-full flex flex-col min-h-0">
             <div className="grid grid-cols-7 border-b border-white/[0.08]">
@@ -776,6 +789,7 @@ export function CalendarPage() {
             }}
           />
         )}
+        </div>
 
         {/* Sidebar */}
         {gcal.showSideRail && (
@@ -844,7 +858,7 @@ export function CalendarPage() {
                 + edición). X al pasar el mouse para borrar directo. */}
             {selectedDayTasks.length > 0 && (
               <div className="space-y-1.5">
-                <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Tareas</p>
+                <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">Sin horario</p>
                 {selectedDayTasks.map((task) => {
                   const proj = projects[task.projectId]
                   return (
@@ -1722,7 +1736,7 @@ interface WeekViewProps {
    *  franja all-day) es idéntico: la vista diaria es la semanal con un día. */
   mode?: 'week' | 'day'
   events: GEvent[]
-  tasks: { id: string; title: string; dueDate?: string; projectId: string; recurrence?: import('@/types').TaskRecurrence }[]
+  tasks: { id: string; title: string; dueDate?: string; dueTime?: string; projectId: string; recurrence?: import('@/types').TaskRecurrence }[]
   projects: Record<string, { color: string; name: string } | undefined> | Record<string, { color: string; name: string }>
   calendarById: Map<string, GCalendar>
   selectedDay: Date | null
@@ -1854,6 +1868,10 @@ function WeekView({ anchor, mode = 'week', events, tasks, projects, calendarById
     const rangeEndStr = format(rangeEnd, 'yyyy-MM-dd')
     for (const t of tasks) {
       if (!t.dueDate) continue
+      // Con hora ya se dibuja como BLOQUE en la grilla, en su horario. Meterla
+      // además en la franja all-day era repetirla: en el celu esa franja se
+      // comía un tercio de la pantalla mostrando lo mismo que había abajo.
+      if (t.dueTime) continue
       // Instancia base (la del store).
       if (!map.has(t.dueDate)) map.set(t.dueDate, [])
       map.get(t.dueDate)!.push(t)

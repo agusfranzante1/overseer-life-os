@@ -5,7 +5,7 @@
 > El método de trabajo está en [`instructions.md`](instructions.md); las reglas
 > técnicas no negociables en [`AGENTS.md`](AGENTS.md).
 
-**Última actualización:** 2026-09-14 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
+**Última actualización:** 2026-10-05 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
 
 ✅ **Bridge con Claude EN FUNCIONAMIENTO** (2026-08-29): migraciones corridas, deployado y
 verificado contra la cuenta real — token "pc franzix" resuelve, `list_projects` devuelve los 6
@@ -46,6 +46,31 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 ---
 
 ## ✅ Hecho recientemente
+
+- [x] **El calendario en el celu no era un calendario: era una lista** (2026-10-05, pedido del
+  usuario: *"necesito ver el calendario en formato calendario, qué tengo que hacer hoy y en qué
+  horario"*). Reproducido a 375px y medido en el DOM — dos bugs distintos sumándose:
+  - **(1) La grilla quedaba en CERO píxeles.** El contenedor es `grid-cols-1` con `flex-1 min-h-0`:
+    altura fija, dos filas (calendario + panel lateral) repartiéndosela. El panel mide **765px de
+    contenido**, así que se quedaba con todo y el calendario colapsaba a 0. Entrabas a /calendar y
+    veías la lista de tareas del día, nunca el calendario. Estaba anotado como "detalle
+    pre-existente" desde el 04/09 (afectaba mes, semana y día) — era esto, y era el síntoma central.
+    **Fix:** `flex-1 min-h-0` pasa a ser **solo `xl:`** (ahí hay dos columnas y cada una tiene su
+    alto); en una sola columna el calendario toma `h-[78vh]` propio y el panel queda **debajo**,
+    alcanzable scrolleando. Es el orden que uno espera en un teléfono.
+  - **(2) Todo aparecía DOS veces.** Una tarea con hora ya se dibuja como bloque en su horario
+    (entra en `mergedEvents`), pero además se listaba en la franja all-day **y** en el panel del día.
+    Con 3 tareas con hora + 3 sin, el celu mostraba 9 renglones para 6 cosas. **Fix:** las que
+    tienen `dueTime` salen solo como bloque; la franja all-day y el panel muestran únicamente las
+    **sin horario** (el título "Tareas" del panel pasó a **"Sin horario"**, que es lo que de verdad
+    lista). Medido: la franja bajó de ~190px a 75px.
+  - **Sin migración.**
+  - **Verificado corriendo la app, medido en el DOM.** Mobile 375px, vista Día: calendario de 633px
+    con la línea roja de "ahora" y los bloques en su horario (11:30–12:15, 18:00–19:30), franja
+    all-day con las 3 sin hora, scroll parado en la hora actual, sin scroll horizontal. Semana:
+    633px y 8 columnas. El panel queda debajo y se llega scrolleando (contenedor 749 visible /
+    1419 total). **Desktop sin cambios**: dos columnas `828px + 300px`, calendario 796px, panel al
+    lado, la página no scrollea. `tsc` + `next build` OK.
 
 - [x] **El bridge ya carga SUSCRIPCIONES en la billetera** (2026-09-21, `list_recurring_expenses` /
   `upsert_recurring_expense`, `walletWrites.ts`). Pedido: *"Cloudflare Zero Trust, 0$ porque es gratis
@@ -303,10 +328,8 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
     reparten 381px cada uno (el solape sigue andando en diaria). Prev/next avanza un día y el panel
     lateral lo sigue (4→5→6 sep). Elegir el 12 en el mes y tocar Día abre el 12. En mobile (375px):
     una columna de 287px, sin scroll horizontal. `tsc` + `next build` OK.
-  - **Detalle PRE-EXISTENTE, no lo introduce este cambio:** en mobile, con el panel lateral abierto
-    la grilla del calendario se aplasta a ~2px de alto **en las tres vistas** (mes, semana y día) —
-    el panel se come el alto. Ocultándolo con el botón de la barra queda perfecta (593px de alto).
-    Se puede arreglar aparte si querés.
+  - ~~**Detalle PRE-EXISTENTE:** en mobile la grilla se aplasta a ~2px de alto en las tres vistas~~
+    → **ARREGLADO el 2026-10-05** (ver la entrada de arriba: el `flex-1` pasó a ser solo `xl:`).
 
 - [x] **Número de versión visible + `/api/version`** (2026-09-02). Una pestaña abierta sigue
   corriendo el JS del momento en que se cargó: puede estar ejecutando un build sin los arreglos
