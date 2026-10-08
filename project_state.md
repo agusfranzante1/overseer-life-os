@@ -47,6 +47,48 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Vista PIPELINE en Tareas — las tareas por DÍA, para armar los proyectos en el tiempo**
+  (2026-10-08, pedido del usuario: *"ver cada tarea ubicada en su día, con su hora; el Calendario
+  las muestra pero solo las que tienen fecha y hora, y no sirve para organizar proyectos desde
+  Tareas"*). Tercer modo junto a Lista y Kanban (`CalendarRange`), persistido en
+  `overseer-tasks-view` como los otros dos.
+  - **Columnas:** `⚠ Atrasadas` (solo si hay) · `Sin fecha` · los 7 días de la semana (lunes a
+    domingo, igual que el Calendario), con ← → y "Esta semana".
+  - **Arrastrar escribe la fecha:** soltar en un día = `dueDate`; soltar en "Sin fecha" borra fecha
+    **y hora** (una hora sin día no significa nada, y es justo lo que mete la tarea al calendario).
+    **La hora no se toca nunca al arrastrar** — se sigue editando en el menú ⋯ de la tarjeta.
+    "Atrasadas" no es destino: ponerle una fecha pasada inventada por nosotros no tiene sentido.
+  - **La hora va como chip arriba de cada tarjeta** (o "sin hora"), no dentro de `TaskCard`: en este
+    tablero el día ya es la columna, lo único que falta saber es a qué hora.
+  - **Alta rápida por día** ("+ Tarea", Enter encadena): nace con esa fecha. En **Todos los
+    proyectos no se ofrece** — elegir el proyecto destino por el usuario es cómo una tarea termina
+    donde nadie la busca.
+  - **Dos decisiones que evitan que el tablero mienta:** "atrasada" se mide contra **HOY**, no
+    contra la ventana (mirando la semana que viene, lo de hoy NO está atrasado: se cuenta aparte
+    como "N antes"); y lo que cae después de la ventana se **cuenta** (`N más adelante`) en vez de
+    desaparecer, que es lo que haría sentir que una tarea se perdió.
+  - **Motor puro con test:** `lib/tasks/pipeline.ts` (30/30) — semana que arranca el lunes incluido
+    el borde del domingo, cruces de mes y de año, orden dentro del día (con hora cronológico → sin
+    hora → completadas al fondo, desempate por id para que sea estable multi-device), y el reparto
+    en columnas. Fechas **siempre en hora local** (`ymdLocal`), nunca `toISOString()`.
+  - **Dos bugs propios encontrados corriendo la app, no compilando:**
+    1. `Column` estaba declarada DENTRO de `PipelineBoard` → React la ve como un tipo nuevo en cada
+       render y **re-monta las columnas en cada `dragover`**: la tarjeta arrastrada desaparecía a
+       mitad del gesto y **el drop no llegaba nunca**. Medido: el `dueDate` no cambiaba. Sacada
+       afuera como `PipelineColumn`. (Además el id arrastrado va en un `ref`, para no depender de
+       que el re-render del `dragstart` haya llegado.)
+    2. El subtítulo usaba `capitalize`, que capitaliza CADA palabra: "Arrastralas A Un Día". Ahora
+       `first-letter:uppercase`.
+  - **Sin migración** (solo escribe `dueDate`/`dueTime`, que ya existían; `updateTask` bumpea
+    `updatedAt`, verificado).
+  - **Verificado corriendo la app:** arrastrar sin-fecha → Mon 5 escribe `2026-10-05` y bumpea
+    `updatedAt`; una con hora → "Sin fecha" borra las dos; una atrasada → Tue 6; soltar en
+    Atrasadas no hace nada; el alta rápida crea con la fecha de la columna, el estado del proyecto
+    y el proyecto correcto; semana siguiente 12–18 Oct y "Esta semana" vuelve a 5–11; mobile 375px
+    con el tablero scrolleando horizontal y **sin** scroll horizontal de página. `tsc` +
+    `next build` OK. Los 2 errores de consola son el mismo mismatch de hidratación del panel de
+    proyectos, pre-existente y ajeno a este cambio.
+
 - [x] **Achicar un evento recurrente con "toda la serie" no hacía nada y decía "Serie movida ✓"**
   (2026-10-08, reporte: *"arrastré el borde para hacerlo más chico, elegí toda la serie y vuelve al
   original"*). El modo serie de `PATCH /api/calendar/events/[id]` corría el maestro con UN delta medido

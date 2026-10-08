@@ -19,11 +19,14 @@ import type { BuiltOutline, ParsedOutlineSubtask } from '@/lib/tasks/parseOutlin
 import {
   Plus, FolderOpen, X, ChevronDown, ChevronRight, ChevronLeft, ChevronUp, Filter, Wand2, LayoutList, Columns3,
   Pencil, Trash2, MoreHorizontal, ArrowUpDown, RotateCcw, Check, Repeat, Eye, EyeOff, ClipboardPaste,
+  CalendarRange,
 } from 'lucide-react'
 import { PROJECT_COLORS } from '@/lib/utils/constants'
 import { effectivePriority } from '@/lib/utils/taskPriority'
 import { taskMatchesView, todayKeyLocal, describeView, type SavedTaskView, type SavedViewDue } from '@/lib/tasks/savedViews'
 import { splitPastedLines } from '@/lib/tasks/pasteLines'
+import { ymdLocal, startOfWeekMonday, buildDays, bucketByDay, timeLabel } from '@/lib/tasks/pipeline'
+import { format } from 'date-fns'
 import { ListFilter } from 'lucide-react'
 
 /** Drawer wrapper that closes when the user swipes left more than 60px.
@@ -809,11 +812,11 @@ export function TasksPage() {
   const [editingView, setEditingView] = useState<null | 'new' | string>(null)
   const [showBreakdown, setShowBreakdown] = useState<{ task?: Task | null } | null>(null)
   const [showImportOutline, setShowImportOutline] = useState(false)
-  const [viewMode, setViewMode] = useState<'list' | 'kanban'>(() => {
+  const [viewMode, setViewMode] = useState<'list' | 'kanban' | 'pipeline'>(() => {
     if (typeof window === 'undefined') return 'list'
-    return (localStorage.getItem('overseer-tasks-view') as 'list' | 'kanban') ?? 'list'
+    return (localStorage.getItem('overseer-tasks-view') as 'list' | 'kanban' | 'pipeline') ?? 'list'
   })
-  const changeView = (v: 'list' | 'kanban') => {
+  const changeView = (v: 'list' | 'kanban' | 'pipeline') => {
     setViewMode(v)
     if (typeof window !== 'undefined') localStorage.setItem('overseer-tasks-view', v)
   }
@@ -1617,6 +1620,13 @@ export function TasksPage() {
                 }`}>
                 <Columns3 className="w-3.5 h-3.5" /> Kanban
               </button>
+              <button onClick={() => changeView('pipeline')}
+                title="Vista Pipeline — las tareas por día, para ubicarlas en el tiempo"
+                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
+                  viewMode === 'pipeline' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-200'
+                }`}>
+                <CalendarRange className="w-3.5 h-3.5" /> Pipeline
+              </button>
             </div>
 
             {/* Ordenar — visible in BOTH views */}
@@ -1752,7 +1762,15 @@ export function TasksPage() {
 
         {/* Task list */}
         {activeProject ? (
-          viewMode === 'kanban' ? (
+          viewMode === 'pipeline' ? (
+            <PipelineBoard
+              tasks={getProjectTasks(activeProject.id).filter(passesFilters)}
+              projects={projects}
+              defaultProjectId={activeProject.id}
+              sortMode={sortMode}
+              onTaskClick={(tk) => setSelectedTask(tk)}
+            />
+          ) : viewMode === 'kanban' ? (
             <KanbanBoard
               project={activeProject}
               // Apply priority/category filters before passing to kanban.
@@ -1828,6 +1846,19 @@ export function TasksPage() {
               )}
             </div>
           )
+        ) : viewMode === 'pipeline' ? (
+          <PipelineBoard
+            tasks={Object.values(tasks).filter((t) =>
+              !t.archivedAt && !hiddenProjects[t.projectId]).filter(passesFilters)}
+            projects={projects}
+            // En Todos los proyectos no se ofrece alta rápida: elegir el
+            // proyecto destino por nosotros es cómo una tarea termina donde
+            // nadie la busca.
+            defaultProjectId={null}
+            sortMode={sortMode}
+            onTaskClick={(tk) => setSelectedTask(tk)}
+            showProjectBadge
+          />
         ) : viewMode === 'kanban' ? (
           <AllProjectsKanban
             projects={projectList.filter((p) => !hiddenProjects[p.id])}
@@ -2723,6 +2754,261 @@ function ArchiveView({
 /** Alta rápida al pie de una columna del kanban. El tablero es el lugar
  *  natural para capturar una tarea "en este estado" — antes había que ir al
  *  botón New Task de arriba, que además no aparecía en Todos los proyectos. */
+// ─── Pipeline — las tareas repartidas por DÍA ─────────────────────────────────
+//
+// El reparto (qué cae en qué columna, cómo se ordena) es puro y vive en
+// `lib/tasks/pipeline.ts`, con test. Acá solo está el tablero: columnas,
+// drag&drop y alta rápida.
+//
+// Soltar una tarjeta en un día escribe `dueDate` (y en "Sin fecha" lo borra,
+// junto con la hora: una hora sin día no significa nada). La HORA no se toca
+// nunca al arrastrar — se edita donde siempre, en el menú ⋯ de la tarjeta.
+
+function PipelineQuickAdd({ onAdd }: { onAdd: (title: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [value, setValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { if (open) inputRef.current?.focus() }, [open])
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)}
+        className="w-full mt-2 flex items-center justify-center gap-1 py-1.5 rounded-lg border border-dashed border-white/[0.10] text-[11px] text-zinc-600 hover:text-zinc-300 hover:border-zinc-600 transition-colors">
+        <Plus className="w-3 h-3" /> Tarea
+      </button>
+    )
+  }
+  const commit = () => {
+    const v = value.trim()
+    if (v) onAdd(v)
+    setValue('')
+  }
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        // Enter crea y deja el input abierto para encadenar varias (plantear
+        // un día entero es escribir cinco cosas seguidas, no una).
+        if (e.key === 'Enter') { e.preventDefault(); commit() }
+        if (e.key === 'Escape') { setValue(''); setOpen(false) }
+      }}
+      onBlur={() => { commit(); setOpen(false) }}
+      placeholder="Título y Enter…"
+      className="w-full mt-2 bg-white/[0.04] border border-white/[0.12] rounded-lg px-2 py-1.5 text-xs text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-indigo-500"
+    />
+  )
+}
+
+/** Una columna del tablero. Vive FUERA de `PipelineBoard` a propósito: un
+ *  componente declarado dentro de otro es un tipo nuevo en cada render, y React
+ *  re-monta su subárbol — con el drag en curso eso hace desaparecer la tarjeta
+ *  que estás arrastrando y el drop no llega nunca. */
+function PipelineColumn({ id, title, subtitle, color, isToday, items, isOver, onOver, onDropHere, renderCard, onAdd }: {
+  id: string
+  title: string
+  subtitle?: string
+  color?: string
+  isToday?: boolean
+  items: Task[]
+  isOver: boolean
+  onOver: (id: string | null) => void
+  onDropHere: (id: string) => void
+  renderCard: (t: Task) => React.ReactNode
+  onAdd?: (title: string) => void
+}) {
+  return (
+    <div
+      onDragOver={(e) => { e.preventDefault(); onOver(id) }}
+      onDragLeave={() => onOver(null)}
+      onDrop={(e) => { e.preventDefault(); onDropHere(id) }}
+      className={`w-[20rem] shrink-0 rounded-2xl p-3 border transition-colors ${
+        isOver ? 'bg-indigo-500/10 border-indigo-500/50' : 'bg-black/30 border-white/[0.08]'
+      } ${isToday ? 'ring-1 ring-amber-400/40' : ''}`}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <div className="min-w-0">
+          <h3 className="text-xs font-bold uppercase tracking-wider truncate"
+            style={{ color: color ?? (isToday ? '#fbbf24' : '#a1a1aa') }}>
+            {title}
+          </h3>
+          {/* `first-letter:uppercase` y NO `capitalize`: con capitalize el mes
+              quedaba bien pero "arrastralas a un día" salía "Arrastralas A Un Día". */}
+          {subtitle && <p className="text-[10px] text-zinc-600 first-letter:uppercase">{subtitle}</p>}
+        </div>
+        <span className="text-[10px] font-mono text-zinc-600 shrink-0">{items.length}</span>
+      </div>
+      <div className="space-y-2">
+        {items.length === 0
+          ? <p className="text-[10px] text-zinc-700 text-center py-4 italic">soltá una tarea acá</p>
+          : items.map(renderCard)}
+      </div>
+      {onAdd && <PipelineQuickAdd onAdd={onAdd} />}
+    </div>
+  )
+}
+
+function PipelineBoard({ tasks, projects, defaultProjectId, sortMode, onTaskClick, showProjectBadge }: {
+  tasks: Task[]
+  /** Para resolver el color/nombre del proyecto de cada tarjeta. */
+  projects: Record<string, Project>
+  /** Dónde cae lo que se crea con el "+ Tarea" de una columna. `null` en
+   *  Todos los proyectos: ahí el alta rápida no se ofrece, porque adivinar el
+   *  proyecto destino es justo lo que hace que después no encuentres la tarea. */
+  defaultProjectId: string | null
+  sortMode: KanbanSort
+  onTaskClick: (t: Task) => void
+  showProjectBadge?: boolean
+}) {
+  const { updateTask, addTask } = useTasksStore()
+  const { dfLocale } = useTranslation()
+  // `dragId` es solo para pintar la tarjeta a medio opacar; el que manda en el
+  // drop es el ref — el estado puede no haber re-renderizado todavía.
+  const [dragId, setDragId] = useState<string | null>(null)
+  const dragIdRef = useRef<string | null>(null)
+  const [overCol, setOverCol] = useState<string | null>(null)
+  // Lunes de la semana a la vista. `weekOffset` en semanas desde la actual.
+  const [weekOffset, setWeekOffset] = useState(0)
+
+  const today = new Date()
+  const todayYmd = ymdLocal(today)
+  const start = useMemo(() => {
+    const base = startOfWeekMonday(today)
+    base.setDate(base.getDate() + weekOffset * 7)
+    return base
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekOffset, todayYmd])
+  const days = useMemo(() => buildDays(start, 7), [start])
+  const buckets = useMemo(() => bucketByDay(tasks, days, todayYmd), [tasks, days, todayYmd])
+
+  const dropOn = (dueDate: string | undefined) => {
+    const dragId = dragIdRef.current
+    if (!dragId) return
+    // Sin fecha → se va también la hora (una hora suelta no significa nada y
+    // además es lo que mete la tarea en el calendario).
+    updateTask(dragId, dueDate ? { dueDate } : { dueDate: undefined, dueTime: undefined })
+    dragIdRef.current = null
+    setDragId(null)
+    setOverCol(null)
+  }
+
+  const renderCard = (task: Task) => {
+    const proj = projects[task.projectId]
+    if (!proj) return null
+    const hora = timeLabel(task)
+    return (
+      <div key={task.id}
+        draggable
+        onDragStart={() => { dragIdRef.current = task.id; setDragId(task.id) }}
+        onDragEnd={() => { dragIdRef.current = null; setDragId(null); setOverCol(null) }}
+        style={{ opacity: dragId === task.id ? 0.4 : 1, cursor: 'grab' }}>
+        {/* La hora va ACÁ y no en la TaskCard: en este tablero el día ya es la
+            columna, así que lo único que falta saber es a qué hora. */}
+        <div className="flex items-center gap-1.5 mb-0.5 pl-0.5">
+          {hora ? (
+            <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-indigo-500/15 border border-indigo-500/30 text-indigo-300">
+              {hora}
+            </span>
+          ) : (
+            <span className="text-[10px] font-mono text-zinc-700">sin hora</span>
+          )}
+        </div>
+        <TaskCard task={task} project={proj} onClick={() => onTaskClick(task)}
+          showProjectBadge={showProjectBadge} subtaskSortMode={sortMode} />
+      </div>
+    )
+  }
+
+  const onDropCol = (colId: string) => {
+    // "Atrasadas" no es un destino: soltar ahí significaría ponerle a la tarea
+    // una fecha pasada inventada por nosotros.
+    if (colId === 'overdue') return
+    dropOn(colId === 'undated' ? undefined : colId)
+  }
+
+  const quickAdd = (dueDate?: string) => defaultProjectId
+    ? (title: string) => {
+        const proj = projects[defaultProjectId]
+        addTask({
+          title, projectId: defaultProjectId,
+          status: proj?.statuses[0]?.label ?? '',
+          priority: 'low', importance: 'low', subtasks: [], dueDate,
+        })
+      }
+    : undefined
+
+  return (
+    <div className="space-y-2">
+      {/* Navegación de semana */}
+      <div className="flex items-center gap-2 flex-wrap pb-1">
+        <button onClick={() => setWeekOffset((w) => w - 1)}
+          className="p-1.5 rounded-lg bg-white/[0.03] border border-white/[0.08] text-zinc-400 hover:text-white transition-colors"
+          title="Semana anterior">
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+        <button onClick={() => setWeekOffset(0)}
+          className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+            weekOffset === 0
+              ? 'bg-amber-400/10 border-amber-400/40 text-amber-300'
+              : 'bg-white/[0.03] border-white/[0.08] text-zinc-400 hover:text-white'
+          }`}>
+          Esta semana
+        </button>
+        <button onClick={() => setWeekOffset((w) => w + 1)}
+          className="p-1.5 rounded-lg bg-white/[0.03] border border-white/[0.08] text-zinc-400 hover:text-white transition-colors"
+          title="Semana siguiente">
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+        <span className="text-[11px] text-zinc-500 font-mono">
+          {format(start, 'd MMM', { locale: dfLocale })} – {format(new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6), 'd MMM yyyy', { locale: dfLocale })}
+        </span>
+        {buckets.behindCount > 0 && (
+          <span className="text-[10px] text-zinc-600">· {buckets.behindCount} antes</span>
+        )}
+        {buckets.aheadCount > 0 && (
+          <span className="text-[10px] text-zinc-600">· {buckets.aheadCount} más adelante</span>
+        )}
+      </div>
+
+      <div className="overflow-x-auto pb-2">
+        <div className="flex gap-3 min-w-max items-start">
+          {/* Atrasadas primero: son las que hay que re-ubicar. Solo aparece
+              cuando hay algo, para no dejar una columna vacía de adorno. */}
+          {buckets.overdue.length > 0 && (
+            <PipelineColumn id="overdue" title="⚠ Atrasadas" subtitle="arrastralas a un día"
+              color="#f87171" items={buckets.overdue} isOver={overCol === 'overdue'}
+              onOver={setOverCol} onDropHere={onDropCol} renderCard={renderCard} />
+          )}
+          <PipelineColumn id="undated" title="Sin fecha" subtitle="el stock por ubicar"
+            items={buckets.undated} isOver={overCol === 'undated'}
+            onOver={setOverCol} onDropHere={onDropCol} renderCard={renderCard}
+            onAdd={quickAdd(undefined)} />
+          {days.map((ymd) => {
+            const [y, m, d] = ymd.split('-').map(Number)
+            const date = new Date(y, m - 1, d)
+            return (
+              <PipelineColumn
+                key={ymd}
+                id={ymd}
+                title={format(date, 'EEE d', { locale: dfLocale })}
+                subtitle={format(date, 'MMMM', { locale: dfLocale })}
+                isToday={ymd === todayYmd}
+                items={buckets.byDay.get(ymd) ?? []}
+                isOver={overCol === ymd}
+                onOver={setOverCol}
+                onDropHere={onDropCol}
+                renderCard={renderCard}
+                onAdd={quickAdd(ymd)}
+              />
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function KanbanQuickAdd({ statusLabel, onAdd }: { statusLabel: string; onAdd: (title: string, status: string) => void }) {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
