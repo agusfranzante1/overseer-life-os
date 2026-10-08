@@ -5,7 +5,7 @@
 > El método de trabajo está en [`instructions.md`](instructions.md); las reglas
 > técnicas no negociables en [`AGENTS.md`](AGENTS.md).
 
-**Última actualización:** 2026-10-05 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
+**Última actualización:** 2026-10-08 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
 
 ✅ **Bridge con Claude EN FUNCIONAMIENTO** (2026-08-29): migraciones corridas, deployado y
 verificado contra la cuenta real — token "pc franzix" resuelve, `list_projects` devuelve los 6
@@ -46,6 +46,17 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 ---
 
 ## ✅ Hecho recientemente
+
+- [x] **Achicar un evento recurrente con "toda la serie" no hacía nada y decía "Serie movida ✓"**
+  (2026-10-08, reporte: *"arrastré el borde para hacerlo más chico, elegí toda la serie y vuelve al
+  original"*). El modo serie de `PATCH /api/calendar/events/[id]` corría el maestro con UN delta medido
+  sobre el INICIO y lo aplicaba a inicio y fin: un resize solo cambia el fin → delta 0 → se le mandaba a
+  Google la serie igual, la app mostraba éxito y el bloque volvía. Mover sí andaba. **Fix:** inicio y fin
+  se corren por separado (`lib/calendar/seriesShift.ts`, puro, test 12/12); fin antes del inicio y serie
+  de día completo ahora fallan con mensaje en vez de "éxito" mudo (BASE nº6). **Verificado contra Google
+  real** con una serie descartable (creada y borrada): las 4 instancias quedaron 14:00–17:00. Antes se
+  descartaron: permisos (scope de escritura OK), la rutina diaria (solo lee) y el modo "solo este evento"
+  (Google lo acepta). Sin migración.
 
 - [x] **El calendario en el celu no era un calendario: era una lista** (2026-10-05, pedido del
   usuario: *"necesito ver el calendario en formato calendario, qué tengo que hacer hoy y en qué

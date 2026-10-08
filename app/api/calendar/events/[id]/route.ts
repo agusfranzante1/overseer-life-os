@@ -3,6 +3,7 @@ import { google } from 'googleapis'
 import { getSupabaseServer } from '@/lib/supabase/server'
 import { getAuthedClient } from '@/lib/google/oauthClient'
 import { googleErrMessage, googleErrDetail } from '@/lib/google/errors'
+import { shiftSeries } from '@/lib/calendar/seriesShift'
 
 async function getAuth(req: NextRequest) {
   const sb = await getSupabaseServer()
@@ -59,7 +60,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       const masterEv = await calendar.events.get({ calendarId, eventId: recurringEventId })
 
       const oldInstanceStart = instance.data.start?.dateTime
-      const newInstanceStart = start
+      const oldInstanceEnd = instance.data.end?.dateTime
       const masterStart = masterEv.data.start?.dateTime
       const masterEnd = masterEv.data.end?.dateTime
 
@@ -69,20 +70,29 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       if (location !== undefined) patch.location = location
       if (reminders !== undefined) patch.reminders = reminders
 
-      if (oldInstanceStart && newInstanceStart && masterStart && masterEnd) {
-        const deltaMs = new Date(newInstanceStart).getTime() - new Date(oldInstanceStart).getTime()
-        const newMasterStart = new Date(new Date(masterStart).getTime() + deltaMs).toISOString()
-        const newMasterEnd   = new Date(new Date(masterEnd).getTime()   + deltaMs).toISOString()
+      // Inicio y fin se corren POR SEPARADO (ver lib/calendar/seriesShift.ts):
+      // con un solo delta medido sobre el inicio, achicar el bloque desde el
+      // borde no cambiaba nada y la app igual decía "Serie movida".
+      if ((start || end) && oldInstanceStart && masterStart && masterEnd) {
+        const shifted = shiftSeries({
+          instanceStart: oldInstanceStart,
+          instanceEnd: oldInstanceEnd,
+          newStart: start,
+          newEnd: end,
+          masterStart,
+          masterEnd,
+        })
+        if (!shifted.ok) {
+          return NextResponse.json({ ok: false, error: `serie_${shifted.error}` }, { status: 400 })
+        }
         // Send WITH the existing timezone so Google preserves the wall-clock
         // shift across DST boundaries instead of recomputing to UTC.
-        patch.start = {
-          dateTime: newMasterStart,
-          timeZone: masterEv.data.start?.timeZone ?? undefined,
-        }
-        patch.end = {
-          dateTime: newMasterEnd,
-          timeZone: masterEv.data.end?.timeZone ?? undefined,
-        }
+        patch.start = { dateTime: shifted.start, timeZone: masterEv.data.start?.timeZone ?? undefined }
+        patch.end = { dateTime: shifted.end, timeZone: masterEv.data.end?.timeZone ?? undefined }
+      } else if (start || end) {
+        // Serie de día completo (o sin horario legible): antes se ignoraba en
+        // silencio y la app decía que la había movido. BASE nº6: se avisa.
+        return NextResponse.json({ ok: false, error: 'serie_sin_horario: cambiá solo este evento' }, { status: 400 })
       }
 
       sentPatch = patch
