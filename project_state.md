@@ -47,6 +47,45 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Vista LÍNEA DE TIEMPO (Gantt) en Tareas — barras que cruzan días**
+  (2026-10-08). El usuario aclaró que lo que quería no era el Pipeline sino *"una línea del tiempo,
+  no sé cómo se llama ese gráfico"*: un **Gantt**. Cuarto modo, junto a Lista · Kanban · Pipeline
+  (los cuatro conviven, decisión suya).
+  - **El nudo, que se le planteó antes de picar:** una tarea tenía `dueDate` + `dueTime` +
+    `durationMinutes`, pero **no fecha de inicio** — y sin inicio ninguna barra cruza días, con lo
+    que un Gantt queda siendo el Pipeline rotado 90°. Eligió **agregar la fecha de inicio**.
+  - **Campo nuevo `startDate`** (`types/index.ts`) + push + **sanitize del pull** (BASE nº2) +
+    **⚠️ migración `supabase/migration_tasks_start_date.sql`** (`tasks` usa columnas reales, no
+    jsonb). Aditiva: las tareas existentes quedan con `start_date NULL` = "sin inicio", que es
+    exactamente como se comportan hoy (BASE nº4). Hasta correrla el push NO se rompe
+    (`upsertTolerant` descarta la columna y sincroniza el resto), pero **la fecha de inicio no
+    viaja entre dispositivos**.
+  - **Se arrastra de tres formas**, que son las tres cosas que uno quiere hacer: el **cuerpo** de la
+    barra corre la tarea entera (las dos puntas), el **borde izquierdo** cambia cuándo empieza, el
+    **derecho** cuándo vence. Usa *pointer events*, no HTML5 drag: hace falta saber cuántos píxeles
+    se movió para traducirlo a días, y el drag nativo no da esa precisión en vivo.
+  - **Reglas para que ninguna tarea desaparezca del gráfico ni queden datos imposibles**
+    (`lib/tasks/timeline.ts`, puro, **45/45**): con los dos extremos → tramo; con uno solo → barra
+    de un día (no se inventa el otro); sin ninguno → no se dibuja, se lista aparte con un toque para
+    ponerla hoy; **invertida se dibuja igual y se marca** (esconderla sería tapar justo el dato a
+    arreglar); estirar más allá del otro extremo **topea en un día**, nunca invierte por arrastre; y
+    estirar el borde izquierdo de una tarea que solo tenía vencimiento **le crea el inicio**.
+  - Lo que cae fuera de la ventana se **cuenta** ("N fuera de esta ventana"), y las barras que
+    entran o salen por un borde se dibujan **sin esquina redondeada** de ese lado: se ve que siguen.
+  - Zoom 7 / 14 / 30 días (persistido) + navegación por semana + "Hoy". Fechas como texto
+    `YYYY-MM-DD` de punta a punta, nunca un `Date` que se corra de día por zona horaria.
+  - **Verificado corriendo la app** (todo medido en el store, no a ojo): mover la barra 2 columnas
+    corre inicio **y** fin exactos (10→12, 14→16) y bumpea `updatedAt`; estirar el fin 17→19 deja el
+    inicio quieto; estirar el inicio 15→12 deja el fin quieto; empujar el inicio 20 columnas lo topea
+    en el fin **sin invertir**; estirar el borde izquierdo de "Entrega final" (que solo tenía
+    vencimiento) le **creó** `startDate`; el chip de "sin fechas" la pone hoy→hoy. Mobile 375px: el
+    gráfico scrollea horizontal y la página **no**. `tsc` + `next build` OK; `timeline` 45/45,
+    `pipeline` 30/30, `recurringSeries` 31/31 y `promoteSubtask` 14/14 sin romperse.
+  - **Pendiente, no verificado:** el round-trip real de `startDate` contra Supabase — depende de la
+    migración, que no se pudo correr (la sesión del dashboard en Chrome volvió a expirar).
+  - **Siguiente paso natural (no hecho):** que el bridge pueda escribir `startDate` en
+    `update_task` / `create_task`, para armar los tramos desde el chat.
+
 - [x] **Vista PIPELINE en Tareas — las tareas por DÍA, para armar los proyectos en el tiempo**
   (2026-10-08, pedido del usuario: *"ver cada tarea ubicada en su día, con su hora; el Calendario
   las muestra pero solo las que tienen fecha y hora, y no sirve para organizar proyectos desde
@@ -1073,6 +1112,9 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
 
 ### ⚠️ Pendientes del usuario (Claude no puede hacerlos)
 
+- [ ] **Correr `supabase/migration_tasks_start_date.sql`** — sin esto la **fecha de inicio** de las
+      tareas (vista Línea de tiempo) no sincroniza entre dispositivos. El resto del push sigue
+      andando igual (se descarta esa columna sola).
 - [ ] **Correr las 2 migraciones del bridge** (sin esto no se puede generar el token ni
       guardar planes): `supabase/migration_mcp_tokens.sql` y `supabase/migration_day_plans.sql`.
 - [ ] **Generar el token** en Configuración → Conexión con Claude y conectar el MCP.

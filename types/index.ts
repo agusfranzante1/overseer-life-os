@@ -107,6 +107,15 @@ export interface Task {
   priority: Priority
   importance: Impact
   dueDate?: string
+  /** Día en que la tarea EMPIEZA (YYYY-MM-DD). Opcional: la mayoría de las
+   *  tareas son un punto en el tiempo (su `dueDate`), no una barra.
+   *
+   *  Existe para la vista LÍNEA DE TIEMPO: sin un inicio ninguna barra puede
+   *  cruzar días, y ahí el gráfico no sirve para repartir trabajo — es la
+   *  diferencia entre "esto vence el 14" y "esto me lleva del 10 al 14".
+   *  Invariante: si están los dos, `startDate <= dueDate` (lo garantiza quien
+   *  escribe; la vista además lo clampea al arrastrar). */
+  startDate?: string
   /** Hora opcional para la dueDate (HH:MM, 24h). Cuando está presente +
    *  hay dueDate, el calendario y las notificaciones lo tratan como un
    *  evento "con hora", no "all-day". */

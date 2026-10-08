@@ -551,6 +551,7 @@ async function pushTasks() {
     priority: t.priority,
     importance: t.importance,
     due_date: t.dueDate ?? null,
+    start_date: t.startDate ?? null,
     energy_estimate: t.energyEstimate ?? null,
     notes: t.notes ?? null,
     scheduled_for: t.scheduledFor ?? null,
@@ -827,6 +828,7 @@ async function pullTasks(): Promise<{ projects: number; tasks: number } | null> 
     priority: t.priority as 'low' | 'medium' | 'high' | 'urgent',
     importance: t.importance as 'low' | 'medium' | 'high' | 'critical',
     dueDate: (t.due_date as string) ?? undefined,
+    startDate: (t.start_date as string) ?? undefined,
     energyEstimate: (t.energy_estimate as number) ?? undefined,
     notes: (t.notes as string) ?? undefined,
     subtasks: (subtasksByTaskId.get(t.id as string) ?? []).map((s) => ({

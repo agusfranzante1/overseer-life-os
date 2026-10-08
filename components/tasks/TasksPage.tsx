@@ -19,13 +19,14 @@ import type { BuiltOutline, ParsedOutlineSubtask } from '@/lib/tasks/parseOutlin
 import {
   Plus, FolderOpen, X, ChevronDown, ChevronRight, ChevronLeft, ChevronUp, Filter, Wand2, LayoutList, Columns3,
   Pencil, Trash2, MoreHorizontal, ArrowUpDown, RotateCcw, Check, Repeat, Eye, EyeOff, ClipboardPaste,
-  CalendarRange,
+  CalendarRange, GanttChartSquare,
 } from 'lucide-react'
 import { PROJECT_COLORS } from '@/lib/utils/constants'
 import { effectivePriority } from '@/lib/utils/taskPriority'
 import { taskMatchesView, todayKeyLocal, describeView, type SavedTaskView, type SavedViewDue } from '@/lib/tasks/savedViews'
 import { splitPastedLines } from '@/lib/tasks/pasteLines'
 import { ymdLocal, startOfWeekMonday, buildDays, bucketByDay, timeLabel } from '@/lib/tasks/pipeline'
+import { addDaysYmd, placeInWindow, applyDrag, barLength, type DragKind } from '@/lib/tasks/timeline'
 import { format } from 'date-fns'
 import { ListFilter } from 'lucide-react'
 
@@ -812,11 +813,11 @@ export function TasksPage() {
   const [editingView, setEditingView] = useState<null | 'new' | string>(null)
   const [showBreakdown, setShowBreakdown] = useState<{ task?: Task | null } | null>(null)
   const [showImportOutline, setShowImportOutline] = useState(false)
-  const [viewMode, setViewMode] = useState<'list' | 'kanban' | 'pipeline'>(() => {
+  const [viewMode, setViewMode] = useState<'list' | 'kanban' | 'pipeline' | 'timeline'>(() => {
     if (typeof window === 'undefined') return 'list'
-    return (localStorage.getItem('overseer-tasks-view') as 'list' | 'kanban' | 'pipeline') ?? 'list'
+    return (localStorage.getItem('overseer-tasks-view') as 'list' | 'kanban' | 'pipeline' | 'timeline') ?? 'list'
   })
-  const changeView = (v: 'list' | 'kanban' | 'pipeline') => {
+  const changeView = (v: 'list' | 'kanban' | 'pipeline' | 'timeline') => {
     setViewMode(v)
     if (typeof window !== 'undefined') localStorage.setItem('overseer-tasks-view', v)
   }
@@ -1627,6 +1628,13 @@ export function TasksPage() {
                 }`}>
                 <CalendarRange className="w-3.5 h-3.5" /> Pipeline
               </button>
+              <button onClick={() => changeView('timeline')}
+                title="Línea de tiempo — cada tarea como barra, de cuándo empieza a cuándo vence"
+                className={`flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold transition-colors ${
+                  viewMode === 'timeline' ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-200'
+                }`}>
+                <GanttChartSquare className="w-3.5 h-3.5" /> Tiempo
+              </button>
             </div>
 
             {/* Ordenar — visible in BOTH views */}
@@ -1762,7 +1770,14 @@ export function TasksPage() {
 
         {/* Task list */}
         {activeProject ? (
-          viewMode === 'pipeline' ? (
+          viewMode === 'timeline' ? (
+            <TimelineBoard
+              tasks={getProjectTasks(activeProject.id).filter(passesFilters)}
+              projects={projects}
+              sortMode={sortMode}
+              onTaskClick={(tk) => setSelectedTask(tk)}
+            />
+          ) : viewMode === 'pipeline' ? (
             <PipelineBoard
               tasks={getProjectTasks(activeProject.id).filter(passesFilters)}
               projects={projects}
@@ -1846,6 +1861,14 @@ export function TasksPage() {
               )}
             </div>
           )
+        ) : viewMode === 'timeline' ? (
+          <TimelineBoard
+            tasks={Object.values(tasks).filter((t) =>
+              !t.archivedAt && !hiddenProjects[t.projectId]).filter(passesFilters)}
+            projects={projects}
+            sortMode={sortMode}
+            onTaskClick={(tk) => setSelectedTask(tk)}
+          />
         ) : viewMode === 'pipeline' ? (
           <PipelineBoard
             tasks={Object.values(tasks).filter((t) =>
@@ -2763,6 +2786,272 @@ function ArchiveView({
 // Soltar una tarjeta en un día escribe `dueDate` (y en "Sin fecha" lo borra,
 // junto con la hora: una hora sin día no significa nada). La HORA no se toca
 // nunca al arrastrar — se edita donde siempre, en el menú ⋯ de la tarjeta.
+
+// ─── Línea de tiempo (Gantt) — cada tarea es una BARRA sobre el eje de días ───
+//
+// El cálculo (dónde empieza y termina cada barra, qué pasa al arrastrarla) es
+// puro y vive en `lib/tasks/timeline.ts`, con test. Acá está el dibujo.
+//
+// Se arrastra de tres formas, que son las tres cosas que uno quiere hacer:
+//   · el cuerpo de la barra  → corre la tarea entera (inicio y fin juntos)
+//   · el borde izquierdo     → cambia cuándo EMPIEZA
+//   · el borde derecho       → cambia cuándo VENCE
+// El arrastre usa punteros (no HTML5 drag) porque acá hace falta saber cuántos
+// píxeles se movió para traducirlo a días, y el drag nativo no da esa precisión
+// en vivo.
+
+const TL_ROW_H = 34
+const TL_LABEL_W = 220
+
+function TimelineBoard({ tasks, projects, sortMode, onTaskClick }: {
+  tasks: Task[]
+  projects: Record<string, Project>
+  sortMode: KanbanSort
+  onTaskClick: (t: Task) => void
+}) {
+  const { updateTask } = useTasksStore()
+  const { dfLocale } = useTranslation()
+  const [dayCount, setDayCount] = useState<number>(() => {
+    if (typeof window === 'undefined') return 14
+    return Number(localStorage.getItem('overseer-tasks-timeline-days')) || 14
+  })
+  const setZoom = (n: number) => {
+    setDayCount(n)
+    if (typeof window !== 'undefined') localStorage.setItem('overseer-tasks-timeline-days', String(n))
+  }
+  const [offsetDays, setOffsetDays] = useState(0)
+  const gridRef = useRef<HTMLDivElement | null>(null)
+  // Arrastre en curso: qué tarea, de qué tipo y cuántos días lleva corrido.
+  const [drag, setDrag] = useState<{ id: string; kind: DragKind; days: number } | null>(null)
+  const dragRef = useRef<{ id: string; kind: DragKind; startX: number; colW: number } | null>(null)
+
+  const todayYmd = ymdLocal(new Date())
+  const windowStart = useMemo(() => {
+    const base = startOfWeekMonday(new Date())
+    base.setDate(base.getDate() + offsetDays)
+    return ymdLocal(base)
+  }, [offsetDays, todayYmd])   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const days = useMemo(
+    () => Array.from({ length: dayCount }, (_, i) => addDaysYmd(windowStart, i)),
+    [windowStart, dayCount],
+  )
+  const { placed, undated, hiddenCount } = useMemo(
+    () => placeInWindow(tasks, windowStart, dayCount),
+    [tasks, windowStart, dayCount],
+  )
+
+  /** Ancho de una columna-día, medido del DOM (el grid es fluido). */
+  const colWidth = () => {
+    const el = gridRef.current
+    if (!el) return 40
+    return Math.max(1, (el.clientWidth - TL_LABEL_W) / dayCount)
+  }
+
+  const onPointerDown = (e: React.PointerEvent, task: Task, kind: DragKind) => {
+    if (e.button !== 0) return
+    e.stopPropagation()
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    dragRef.current = { id: task.id, kind, startX: e.clientX, colW: colWidth() }
+    setDrag({ id: task.id, kind, days: 0 })
+  }
+  const onPointerMove = (e: React.PointerEvent) => {
+    const info = dragRef.current
+    if (!info) return
+    const days = Math.round((e.clientX - info.startX) / info.colW)
+    setDrag((d) => (d && d.days === days ? d : { id: info.id, kind: info.kind, days }))
+  }
+  const onPointerUp = (e: React.PointerEvent, task: Task) => {
+    const info = dragRef.current
+    dragRef.current = null
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch { /* noop */ }
+    const days = drag?.days ?? 0
+    setDrag(null)
+    if (!info || days === 0) return
+    const patch = applyDrag(task, info.kind, days)
+    if (patch) updateTask(task.id, patch)
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* Controles: ventana y zoom */}
+      <div className="flex items-center gap-2 flex-wrap pb-1">
+        <button onClick={() => setOffsetDays((o) => o - 7)}
+          className="p-1.5 rounded-lg bg-white/[0.03] border border-white/[0.08] text-zinc-400 hover:text-white transition-colors"
+          title="Semana anterior">
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+        <button onClick={() => setOffsetDays(0)}
+          className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+            offsetDays === 0
+              ? 'bg-amber-400/10 border-amber-400/40 text-amber-300'
+              : 'bg-white/[0.03] border-white/[0.08] text-zinc-400 hover:text-white'
+          }`}>
+          Hoy
+        </button>
+        <button onClick={() => setOffsetDays((o) => o + 7)}
+          className="p-1.5 rounded-lg bg-white/[0.03] border border-white/[0.08] text-zinc-400 hover:text-white transition-colors"
+          title="Semana siguiente">
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+        <div className="flex items-center bg-white/[0.03] border border-white/[0.08] rounded-lg p-0.5">
+          {[7, 14, 30].map((n) => (
+            <button key={n} onClick={() => setZoom(n)}
+              className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors ${
+                dayCount === n ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-200'
+              }`}>
+              {n}d
+            </button>
+          ))}
+        </div>
+        <span className="text-[11px] text-zinc-500 font-mono">
+          {format(parseYmd(windowStart), 'd MMM', { locale: dfLocale })} – {format(parseYmd(days[days.length - 1]), 'd MMM yyyy', { locale: dfLocale })}
+        </span>
+        {hiddenCount > 0 && (
+          <span className="text-[10px] text-zinc-600">· {hiddenCount} fuera de esta ventana</span>
+        )}
+      </div>
+
+      <div className="overflow-x-auto">
+        <div ref={gridRef} className="min-w-[46rem]">
+          {/* Encabezado de días */}
+          <div className="flex border-b border-white/[0.08] pb-1 mb-1 sticky top-0 z-10 bg-zinc-950/80 backdrop-blur">
+            <div style={{ width: TL_LABEL_W }} className="shrink-0 text-[10px] font-mono uppercase tracking-wider text-zinc-600 flex items-end pb-0.5">
+              Tarea
+            </div>
+            <div className="flex-1 flex">
+              {days.map((ymd) => {
+                const d = parseYmd(ymd)
+                const finde = d.getDay() === 0 || d.getDay() === 6
+                return (
+                  <div key={ymd} className="flex-1 text-center">
+                    <p className={`text-[9px] uppercase ${ymd === todayYmd ? 'text-amber-400 font-bold' : finde ? 'text-zinc-700' : 'text-zinc-500'}`}>
+                      {format(d, 'EEEEE', { locale: dfLocale })}
+                    </p>
+                    <p className={`text-[11px] font-semibold ${ymd === todayYmd ? 'text-amber-400' : finde ? 'text-zinc-600' : 'text-zinc-400'}`}>
+                      {d.getDate()}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Filas */}
+          {placed.length === 0 ? (
+            <p className="text-xs text-zinc-600 italic py-8 text-center">
+              Ninguna tarea cae en estos días. Las de abajo todavía no tienen fecha.
+            </p>
+          ) : placed.map(({ task, bar, offset, span, clippedLeft, clippedRight }) => {
+            const proj = projects[task.projectId]
+            const color = proj?.color ?? '#6366f1'
+            const isDragging = drag?.id === task.id
+            const shift = isDragging && drag.kind === 'move' ? drag.days : 0
+            const growLeft = isDragging && drag.kind === 'start' ? drag.days : 0
+            const growRight = isDragging && drag.kind === 'end' ? drag.days : 0
+            // Preview en vivo del arrastre, clampeada a 1 día de ancho mínimo.
+            const vOffset = Math.max(0, offset + shift + growLeft)
+            const vSpan = Math.max(1, span - growLeft + growRight)
+            const done = !!task.completedAt
+            return (
+              <div key={task.id} className="flex items-center" style={{ height: TL_ROW_H }}>
+                <button
+                  onClick={() => onTaskClick(task)}
+                  style={{ width: TL_LABEL_W }}
+                  className="shrink-0 pr-2 text-left min-w-0 group">
+                  <span className={`text-xs truncate block ${done ? 'text-zinc-600 line-through' : 'text-zinc-200 group-hover:text-white'}`}>
+                    {task.title}
+                  </span>
+                  <span className="text-[9px] text-zinc-600 truncate block">{proj?.name}</span>
+                </button>
+                <div className="flex-1 relative h-full">
+                  {/* Grilla de fondo + hoy */}
+                  <div className="absolute inset-0 flex pointer-events-none">
+                    {days.map((ymd) => (
+                      <div key={ymd}
+                        className={`flex-1 border-r border-white/[0.04] ${ymd === todayYmd ? 'bg-amber-400/[0.07]' : ''}`} />
+                    ))}
+                  </div>
+                  {/* La barra */}
+                  <div
+                    onPointerDown={(e) => onPointerDown(e, task, 'move')}
+                    onPointerMove={onPointerMove}
+                    onPointerUp={(e) => onPointerUp(e, task)}
+                    title={`${bar.from} → ${bar.to} · ${barLength(bar)} día${barLength(bar) > 1 ? 's' : ''}${bar.single ? ' (sin el otro extremo)' : ''}`}
+                    className={`absolute top-1.5 bottom-1.5 rounded-md flex items-center px-1.5 select-none touch-none ${
+                      isDragging ? 'opacity-70 ring-1 ring-white/40' : ''
+                    }`}
+                    style={{
+                      left: `${(vOffset / dayCount) * 100}%`,
+                      width: `${(vSpan / dayCount) * 100}%`,
+                      background: done ? '#3f3f46' : `${color}cc`,
+                      border: bar.inverted ? '1px solid #f87171' : `1px solid ${color}`,
+                      borderTopLeftRadius: clippedLeft ? 0 : undefined,
+                      borderBottomLeftRadius: clippedLeft ? 0 : undefined,
+                      borderTopRightRadius: clippedRight ? 0 : undefined,
+                      borderBottomRightRadius: clippedRight ? 0 : undefined,
+                      cursor: 'grab',
+                    }}
+                  >
+                    {/* Manijas de los extremos. Solo se agarran ellas: el resto
+                        de la barra mueve la tarea entera. */}
+                    <span
+                      onPointerDown={(e) => onPointerDown(e, task, 'start')}
+                      onPointerMove={onPointerMove}
+                      onPointerUp={(e) => onPointerUp(e, task)}
+                      className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-l-md hover:bg-white/30 touch-none"
+                      title="Arrastrar: cuándo empieza"
+                    />
+                    <span className="text-[10px] font-medium text-white/95 truncate pointer-events-none">
+                      {bar.inverted ? '⚠ ' : ''}{task.dueTime ? `${task.dueTime} ` : ''}{task.title}
+                    </span>
+                    <span
+                      onPointerDown={(e) => onPointerDown(e, task, 'end')}
+                      onPointerMove={onPointerMove}
+                      onPointerUp={(e) => onPointerUp(e, task)}
+                      className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize rounded-r-md hover:bg-white/30 touch-none"
+                      title="Arrastrar: cuándo vence"
+                    />
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Las que todavía no están en el tiempo. Un clic les pone hoy→hoy y ahí
+          ya se pueden estirar; es el puente desde "idea" a "planificada". */}
+      {undated.length > 0 && (
+        <div className="pt-3 border-t border-white/[0.08]">
+          <p className="text-[10px] font-mono uppercase tracking-wider text-zinc-600 mb-2">
+            Sin fechas ({undated.length}) — tocá una para ponerla hoy y estirarla
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {undated.map((task) => {
+              const proj = projects[task.projectId]
+              return (
+                <button key={task.id}
+                  onClick={() => updateTask(task.id, { startDate: todayYmd, dueDate: todayYmd })}
+                  title="Ponerla en el día de hoy"
+                  className="px-2 py-1 rounded-lg text-[11px] border border-white/[0.10] bg-white/[0.03] text-zinc-300 hover:border-zinc-500 hover:text-white transition-colors flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: proj?.color ?? '#6366f1' }} />
+                  {task.title}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** `YYYY-MM-DD` → Date en hora local (sin pasar por UTC). */
+function parseYmd(ymd: string): Date {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
 
 function PipelineQuickAdd({ onAdd }: { onAdd: (title: string) => void }) {
   const [open, setOpen] = useState(false)
