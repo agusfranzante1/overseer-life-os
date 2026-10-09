@@ -37,6 +37,11 @@ export interface ComprobanteArca extends ComprobanteFiscal {
   descripcion: string
   /** Nuestro: a quién. ARCA no devuelve el nombre, solo el documento. */
   receptorNombre: string
+  /** Nuestros, y OBLIGATORIOS en el comprobante impreso. ARCA no los recibe
+   *  ni los guarda, pero la factura que ve el cliente los tiene que llevar.
+   *  Opcionales en el tipo porque los importados no los traen. */
+  receptorDomicilio?: string
+  condicionVenta?: string
   /** 'A' aprobado · 'P' parcial. Los 'R' no se guardan (ver cabecera). */
   resultado: 'A' | 'P'
   /** Observaciones que devolvió ARCA (una factura puede salir aprobada CON
@@ -57,7 +62,10 @@ interface State {
   /** Varios de una (importación). Misma regla de merge. */
   upsertMuchos: (cs: ComprobanteArca[]) => void
   /** Editar lo NUESTRO. Los campos fiscales no se tocan: son de ARCA. */
-  anotarComprobante: (id: string, patch: { descripcion?: string; receptorNombre?: string }) => void
+  anotarComprobante: (id: string, patch: {
+    descripcion?: string; receptorNombre?: string
+    receptorDomicilio?: string; condicionVenta?: string
+  }) => void
 }
 
 function mergeUno(previo: ComprobanteArca | undefined, nuevo: ComprobanteArca): ComprobanteArca {
@@ -68,6 +76,8 @@ function mergeUno(previo: ComprobanteArca | undefined, nuevo: ComprobanteArca): 
     // Lo nuestro solo se sobreescribe si el nuevo trae algo.
     descripcion: nuevo.descripcion || previo.descripcion,
     receptorNombre: nuevo.receptorNombre || previo.receptorNombre,
+    receptorDomicilio: nuevo.receptorDomicilio || previo.receptorDomicilio,
+    condicionVenta: nuevo.condicionVenta || previo.condicionVenta,
     createdAt: previo.createdAt,
     updatedAt: nowISO(),
   }

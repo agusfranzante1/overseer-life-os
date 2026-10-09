@@ -1,7 +1,8 @@
 'use client'
 import { useState, useMemo } from 'react'
-import { Loader2, DownloadCloud, Repeat2, Pencil, Check, X } from 'lucide-react'
+import { Loader2, DownloadCloud, Repeat2, Pencil, Check, X, Printer } from 'lucide-react'
 import { useAppStore } from '@/lib/store/appStore'
+import { imprimirFactura } from '@/lib/arca/imprimir'
 import {
   useArcaStore, comprobantesDe, numerosConocidos, type ComprobanteArca,
 } from '@/lib/store/arcaStore'
@@ -44,11 +45,14 @@ function hoyLocal(timezone: string): string {
 interface Props {
   entorno: EntornoArca
   puntosDeVenta: { nro: number; bloqueado: boolean }[]
+  /** Sale del certificado, no se tipea. Hace falta para el QR y la cabecera. */
+  cuitEmisor?: string
   onRepetir: (b: BorradorRepetido) => void
 }
 
-export function ComprobantesList({ entorno, puntosDeVenta, onRepetir }: Props) {
+export function ComprobantesList({ entorno, puntosDeVenta, cuitEmisor, onRepetir }: Props) {
   const timezone = useAppStore((s) => s.timezone)
+  const emisor = useAppStore((s) => s.arcaEmisor)
   const todos = useArcaStore((s) => s.comprobantes)
   const upsertMuchos = useArcaStore((s) => s.upsertMuchos)
   const anotar = useArcaStore((s) => s.anotarComprobante)
@@ -56,6 +60,7 @@ export function ComprobantesList({ entorno, puntosDeVenta, onRepetir }: Props) {
   const [trayendo, setTrayendo] = useState(false)
   const [resultado, setResultado] = useState<string | null>(null)
   const [editando, setEditando] = useState<string | null>(null)
+  const [errorImpresion, setErrorImpresion] = useState<string | null>(null)
   const [borradorNota, setBorradorNota] = useState({ descripcion: '', receptorNombre: '' })
 
   // El punto de venta a importar se ELIGE, no se adivina. ARCA obliga a tener
@@ -154,6 +159,12 @@ export function ComprobantesList({ entorno, puntosDeVenta, onRepetir }: Props) {
         </div>
       </div>
 
+      {errorImpresion && (
+        <p className="text-xs bg-amber-500/10 border border-amber-500/30 text-amber-200 rounded-lg px-3 py-2.5 leading-relaxed">
+          {errorImpresion}
+        </p>
+      )}
+
       {resultado && (
         <p className="text-xs text-zinc-400 bg-white/[0.02] border border-white/[0.06] rounded-lg px-3 py-2.5 leading-relaxed">
           {resultado}
@@ -207,6 +218,15 @@ export function ComprobantesList({ entorno, puntosDeVenta, onRepetir }: Props) {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="text-sm font-mono text-zinc-200">{peso(c.importe)}</span>
+                      <button title="Imprimir / guardar PDF"
+                        onClick={async () => {
+                          setErrorImpresion(null)
+                          const r = await imprimirFactura({ comprobante: c, emisor, cuitEmisor: cuitEmisor ?? '' })
+                          if (!r.ok) setErrorImpresion(r.error)
+                        }}
+                        className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-white/[0.06] transition-colors">
+                        <Printer className="w-4 h-4" />
+                      </button>
                       <button title="Repetir esta factura"
                         onClick={() => onRepetir(repetirBorrador(c, hoyLocal(timezone)))}
                         className="p-1.5 rounded-lg text-zinc-500 hover:text-white hover:bg-white/[0.06] transition-colors">

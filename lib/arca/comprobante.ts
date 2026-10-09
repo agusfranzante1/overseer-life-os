@@ -213,6 +213,8 @@ export interface BorradorRepetido {
    *  que no factures. */
   descripcion?: string
   receptorNombre?: string
+  receptorDomicilio?: string
+  condicionVenta?: string
 }
 
 /**
@@ -235,7 +237,10 @@ export interface BorradorRepetido {
  * el formulario y confirma.
  */
 export function repetirBorrador(
-  c: ComprobanteFiscal & { descripcion?: string; receptorNombre?: string },
+  c: ComprobanteFiscal & {
+    descripcion?: string; receptorNombre?: string
+    receptorDomicilio?: string; condicionVenta?: string
+  },
   hoy: string,
 ): BorradorRepetido {
   const base: BorradorRepetido = {
@@ -249,6 +254,8 @@ export function repetirBorrador(
     fecha: hoy,
     descripcion: c.descripcion,
     receptorNombre: c.receptorNombre,
+    receptorDomicilio: c.receptorDomicilio,
+    condicionVenta: c.condicionVenta,
   }
   if (!c.servicioDesde || !c.servicioHasta) return base
 

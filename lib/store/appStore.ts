@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware'
 import { Language, DayType, DayTypeConfig, MetricEntry, PlannerProfile } from '@/types'
 import { detectTimezone } from '@/lib/utils/dateInTz'
 import { syncUserSettingsToSupabase } from '@/lib/supabase/userSettingsSync'
+import { EMISOR_VACIO, type DatosEmisor } from '@/lib/arca/emisor'
 
 // Debounce el sync a Supabase — el usuario puede togglear varios switches
 // seguidos; queremos un solo upsert al final, no uno por click.
@@ -257,6 +258,12 @@ export interface AppState {
    *  preferencias (mergeado por campo) y se puede editar a mano. */
   plannerProfile: PlannerProfile
   setPlannerProfile: (p: PlannerProfile) => void
+  /** Tus datos como EMISOR de facturas: lo que el comprobante impreso tiene
+   *  que mostrar de vos. No viaja a ARCA (ya sabe quien sos por el CUIT del
+   *  certificado): existe porque facturando por webservice el PDF lo emitimos
+   *  nosotros. Viaja en el blob de preferencias como el resto de la config. */
+  arcaEmisor: DatosEmisor
+  setArcaEmisor: (e: DatosEmisor) => void
 
   // AI provider settings (persisted)
   aiProvider: 'off' | 'ollama' | 'anthropic'
@@ -492,6 +499,8 @@ export const useAppStore = create<AppState>()(
 
       plannerProfile: {},
       setPlannerProfile: (p) => set({ plannerProfile: p }),
+      arcaEmisor: EMISOR_VACIO,
+      setArcaEmisor: (e) => set({ arcaEmisor: e }),
 
       aiProvider: 'off',
       anthropicApiKey: '',

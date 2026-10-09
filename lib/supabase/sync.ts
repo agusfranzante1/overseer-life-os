@@ -2611,6 +2611,8 @@ async function pullArca(): Promise<boolean> {
       vencimientoPago: p.vencimientoPago ?? undefined,
       descripcion: p.descripcion ?? '',
       receptorNombre: p.receptorNombre ?? '',
+      receptorDomicilio: p.receptorDomicilio ?? undefined,
+      condicionVenta: p.condicionVenta ?? undefined,
       resultado: p.resultado === 'P' ? 'P' : 'A',
       observaciones: Array.isArray(p.observaciones) ? p.observaciones : [],
       origen: p.origen === 'importado' ? 'importado' : 'overseer',
@@ -3397,6 +3399,9 @@ function appPrefsFields(): Record<string, unknown> {
     // sube nunca: el fingerprint de onAppPrefsChange se arma justamente
     // sobre las claves de esta función (BASE nº1).
     plannerProfile: s.plannerProfile,
+    // Datos del emisor para el PDF de la factura (ARCA no genera el
+    // comprobante cuando se factura por webservice). Config chica → blob.
+    arcaEmisor: s.arcaEmisor,
     // Revisiones ya reconocidas (SPI semanal, plan mensual/trimestral/semestral).
     // Antes era LOCAL a cada dispositivo a proposito: "dejá de titilar en ESTE
     // device porque ya lo miré". Se hizo sincronizado el 06/09 porque el badge

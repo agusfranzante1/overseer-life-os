@@ -68,6 +68,9 @@ export function FacturarForm({ entorno, puntosDeVenta, condicionesIva, repetir, 
   const [docNro, setDocNro] = useState('')
   const [condIva, setCondIva] = useState<number>(condicionIvaPorDefecto(DOC.cuit))
   const [receptorNombre, setReceptorNombre] = useState('')
+  // Solo para el PDF: ARCA no los recibe, pero el comprobante impreso los exige.
+  const [receptorDomicilio, setReceptorDomicilio] = useState('')
+  const [condicionVenta, setCondicionVenta] = useState('Contado')
   const [descripcion, setDescripcion] = useState('')
   const [importe, setImporte] = useState('')
   const [fecha, setFecha] = useState(hoy)
@@ -102,6 +105,8 @@ export function FacturarForm({ entorno, puntosDeVenta, condicionesIva, repetir, 
     setFecha(repetir.fecha)
     if (repetir.descripcion) setDescripcion(repetir.descripcion)
     if (repetir.receptorNombre) setReceptorNombre(repetir.receptorNombre)
+    if (repetir.receptorDomicilio) setReceptorDomicilio(repetir.receptorDomicilio)
+    if (repetir.condicionVenta) setCondicionVenta(repetir.condicionVenta)
     if (repetir.servicioDesde) setServicioDesde(repetir.servicioDesde)
     if (repetir.servicioHasta) setServicioHasta(repetir.servicioHasta)
     if (repetir.vencimientoPago) setVencimientoPago(repetir.vencimientoPago)
@@ -149,7 +154,10 @@ export function FacturarForm({ entorno, puntosDeVenta, condicionesIva, repetir, 
       const r = await fetch('/api/arca/facturar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...borrador, descripcion, receptorNombre, timezone }),
+        body: JSON.stringify({
+          ...borrador, descripcion, receptorNombre,
+          receptorDomicilio, condicionVenta, timezone,
+        }),
       })
       const j = await r.json() as {
         ok: boolean; error?: string; aviso?: string
@@ -278,8 +286,25 @@ export function FacturarForm({ entorno, puntosDeVenta, condicionesIva, repetir, 
           para el detalle de lo que vendés — solo recibe importes totales. Por
           la web de ARCA ese texto tampoco se registraba: se imprimía en el PDF
           que ARCA te generaba. Por webservice ese PDF lo emitimos nosotros. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className={label}>Domicilio del cliente</label>
+          <input className={campo} placeholder="Av. Argentina 1200 - Neuquén"
+            value={receptorDomicilio} onChange={(e) => setReceptorDomicilio(e.target.value)} />
+        </div>
+        <div>
+          <label className={label}>Condición de venta</label>
+          <input className={campo} list="arca-condiciones-venta" placeholder="Contado"
+            value={condicionVenta} onChange={(e) => setCondicionVenta(e.target.value)} />
+          <datalist id="arca-condiciones-venta">
+            <option value="Contado" /><option value="Cuenta corriente" />
+            <option value="Transferencia bancaria" /><option value="Tarjeta de crédito" />
+          </datalist>
+        </div>
+      </div>
+
       <p className="text-[11px] text-zinc-600 -mt-2 leading-relaxed">
-        El concepto y el nombre del cliente <strong className="text-zinc-500">no se le mandan a ARCA</strong>:
+        Estos cuatro datos <strong className="text-zinc-500">no se le mandan a ARCA</strong>:
         el webservice solo recibe importes, nunca el detalle de lo que vendés (por la web de ARCA
         tampoco se registraba — se imprimía en el PDF). Van a la factura que recibe tu cliente.
       </p>

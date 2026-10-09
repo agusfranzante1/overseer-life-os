@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { Receipt, Loader2, CheckCircle2, XCircle, AlertTriangle, RefreshCw, ExternalLink } from 'lucide-react'
 import { FacturarForm } from './FacturarForm'
 import { ComprobantesList } from './ComprobantesList'
+import { MisDatosForm } from './MisDatosForm'
 import type { BorradorRepetido, EntornoArca } from '@/lib/arca/comprobante'
 
 /** ARCA — facturación electrónica propia (monotributo, factura C).
@@ -48,7 +49,7 @@ const ETAPAS = [
   { id: 'puntos-de-venta', label: 'Puntos de venta habilitados' },
 ] as const
 
-type Pestania = 'emitir' | 'comprobantes' | 'conexion'
+type Pestania = 'emitir' | 'comprobantes' | 'misdatos' | 'conexion'
 
 export function ArcaPage() {
   const [estado, setEstado] = useState<Estado | null>(null)
@@ -98,6 +99,7 @@ export function ArcaPage() {
   const TABS: { id: Pestania; label: string }[] = [
     { id: 'emitir', label: 'Emitir' },
     { id: 'comprobantes', label: 'Comprobantes' },
+    { id: 'misdatos', label: 'Mis datos' },
     { id: 'conexion', label: 'Conexión' },
   ]
 
@@ -179,9 +181,12 @@ export function ArcaPage() {
         <ComprobantesList
           entorno={entorno}
           puntosDeVenta={pdv}
+          cuitEmisor={estado?.cuit}
           onRepetir={(b) => { setRepetir(b); setPestania('emitir') }}
         />
       )}
+
+      {pestania === 'misdatos' && <MisDatosForm cuit={estado?.cuit} />}
 
       {pestania === 'conexion' && (
         <div className="space-y-6">

@@ -47,6 +47,51 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **EL PDF DE LA FACTURA — lo que faltaba para que esto sirva** (2026-10-09, pedido:
+  *"necesito que salga en el PDF y tener para imprimirlo, el mismo que me genera ARCA, si no no
+  me sirve"*). Facturando por webservice ARCA **no genera el comprobante**: devuelve el CAE y
+  listo. Hasta hoy el resultado era una factura válida ante ARCA y nada que mandarle al cliente.
+  - **El usuario mandó una factura real suya** (`20414370161_011_00001_00000135`) y el formato se
+    copió de ahí campo por campo, no de memoria. De paso confirmó dos cosas: su punto de venta de
+    "Comprobantes en línea" es el **00001** y va por el comprobante 135 (el de webservice será
+    otro), y su `Fecha de Inicio de Actividades` figura como 01/01/1900.
+  - **`lib/arca/facturaHtml.ts`** (puro, entra data y sale un documento HTML autocontenido) +
+    **`imprimir.ts`**, que lo abre en una **ventana aparte**. No es un modal a propósito: adentro
+    de la app el CSS del shell (alturas fijas, `overflow:hidden`, tema oscuro) se mete en la
+    impresión y lo que sale por la impresora no es lo que se ve. Así, lo que se ve ES lo que sale.
+    Tres copias ORIGINAL / DUPLICADO / TRIPLICADO, A4, una por hoja.
+  - **El QR de la RG 4892** (`lib/arca/qr.ts`): URL fija de ARCA + el JSON del comprobante en
+    base64. `cuit` y `codAut` van como **número**, no como texto — entre comillas el visor de ARCA
+    no lo reconoce. Con consumidor final sin identificar, las claves del receptor **no se mandan**
+    (un `nroDocRec: 0` es declarar un documento que no existe). Si el QR no se pudiera dibujar, la
+    hoja lo dice en rojo en vez de salir disimulando que cumple (BASE nº6).
+  - **Pestaña nueva "Mis datos"**: razón social, domicilio comercial, condición de IVA, ingresos
+    brutos e inicio de actividades. Se cargan UNA vez. Viven en el blob `app_preferences`
+    (`appStore.arcaEmisor`) → sincronizan entre dispositivos. **No viajan a ARCA** (ya sabe quién
+    sos por el certificado): existen porque el papel los exige. Sin ellos el botón de imprimir
+    frena y **dice cuáles faltan**, en vez de sacar una factura inválida.
+  - **Tres campos nuevos por comprobante**, también solo para el papel: domicilio del cliente,
+    condición de venta y la condición de IVA del receptor (que ya se guardaba). Viajan en push,
+    **sanitize del pull** (BASE nº2) y los copia "repetir esta factura".
+  - **Dependencia nueva: `qrcode`** (1.5.4). Un QR no se hace a mano (Reed-Solomon); las alertas
+    de `npm audit` son de paquetes preexistentes, no de este.
+  - **Sin migración** (todo va en el `payload jsonb` y en el blob).
+  - **Verificado comparando contra su factura real**, renderizada en el navegador: cabecera con la
+    letra C y COD. 011 montada sobre la división, emisor a la izquierda, FACTURA + punto de venta
+    + CUIT + ingresos brutos + inicio de actividades a la derecha, período facturado, bloque del
+    receptor, tabla de 8 columnas, caja de totales y pie con QR + "Comprobante Autorizado" + CAE y
+    su vencimiento. **Un bug encontrado mirándolo, no compilando:** el recuadro de la "C" tapaba
+    la F y se leía "ACTURA". Flujo completo en la app: sin datos de emisor frena con la lista de
+    faltantes; con datos, genera 50 KB de HTML con el QR dibujado de verdad (PNG, no el hueco),
+    el CAE, las tres copias y la condición de IVA del receptor resuelta desde su código.
+  - Tests: `facturaHtml` **68/68** (incluye el comprobante real del usuario campo por campo, el
+    escapado de HTML y el payload del QR decodificado), `facturaC` 69/69, `comprobante` 67/67,
+    `arcaStore` 19/19. `tsc` + `next build` OK.
+  - **NO verificado:** que el QR escanee contra el visor real de ARCA (el payload está testeado y
+    el dibujo lo hace una librería madura, pero no lo pasé por el lector de ARCA), y la impresión
+    en papel.
+
+
 - [x] **"Concepto": dos campos que se llamaban igual, y el mes que no se corría al repetir**
   (2026-10-09, preguntó: *"en concepto desde ARCA yo tenía que escribir un concepto y nosotros no
   lo tenemos"* y después *"dice qué facturás pero entre paréntesis SOLO ACÁ, eso me confunde,
@@ -1308,9 +1353,7 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
 
 ### 💤 Abierto / a decidir
 
-- **El PDF de la factura (con QR de la RG 4892).** Por webservice ARCA ya no genera el
-  comprobante: da el CAE y listo. Sin PDF hay factura válida pero nada que mandarle al
-  cliente. Decidido con el usuario cuándo encararlo (antes o después de pasar a producción).
+- (vacío por ahora — agregar acá lo que vaya surgiendo)
 
 ---
 

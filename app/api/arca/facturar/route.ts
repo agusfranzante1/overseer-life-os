@@ -66,6 +66,10 @@ export async function POST(req: Request) {
   }
   const descripcion = String(body.descripcion ?? '').slice(0, 500)
   const receptorNombre = String(body.receptorNombre ?? '').slice(0, 200)
+  // Van solo al PDF (ARCA no los recibe), pero el comprobante impreso los
+  // exige, asi que se guardan con la factura y no se vuelven a pedir.
+  const receptorDomicilio = String(body.receptorDomicilio ?? '').slice(0, 300)
+  const condicionVenta = String(body.condicionVenta ?? '').slice(0, 60)
 
   // "Hoy" se mide en la zona del USUARIO, no en UTC: después de las 21 en
   // Argentina ya es el día siguiente en UTC, y eso le correría la ventana de
@@ -134,6 +138,8 @@ export async function POST(req: Request) {
     id: idComprobante(config.entorno, fiscal.puntoVenta, fiscal.tipo, fiscal.numero),
     descripcion,
     receptorNombre,
+    receptorDomicilio,
+    condicionVenta,
     resultado: res.resultado as 'A' | 'P',
     observaciones: res.observaciones,
     origen: 'overseer' as const,

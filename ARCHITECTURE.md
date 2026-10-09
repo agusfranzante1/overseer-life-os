@@ -248,6 +248,26 @@ pide el número, pide el CAE, **guarda la fila** y recién ahí contesta; el cli
 agrega a su store con el mismo id determinista para verla al instante. Si el CAE
 sale y el guardado falla, la respuesta lo dice con el número (BASE nº6).
 
+**ARCA NO genera el PDF cuando facturas por webservice** — te da el CAE y nada
+mas. El comprobante que recibe el cliente lo emite `lib/arca/facturaHtml.ts`
+(puro: entra data, sale un documento HTML autocontenido) y se abre en una
+**ventana aparte** via `imprimir.ts`, no en un modal: adentro de la app el CSS
+del shell se mete en la impresion y lo que sale por la impresora no es lo que
+se ve. De ahi sale "Imprimir" o "Guardar como PDF". Tres copias
+(ORIGINAL/DUPLICADO/TRIPLICADO), formato copiado del comprobante real de ARCA.
+
+**El QR es obligatorio** (RG 4892) y lo arma `lib/arca/qr.ts`: URL fija +
+el JSON del comprobante en base64, con `cuit` y `codAut` como NUMERO (entre
+comillas el visor de ARCA no lo reconoce). Unica dependencia nueva: `qrcode`.
+
+**El webservice NO transporta el detalle de lo que vendes** — solo importes.
+Por eso el concepto, el nombre y el domicilio del cliente y la condicion de
+venta viven solo del lado nuestro: no son un capricho, son lo que el papel
+necesita y ARCA no guarda. Los datos del EMISOR (razon social, domicilio,
+ingresos brutos, inicio de actividades) van en el blob `app_preferences`
+(`appStore.arcaEmisor`), porque ARCA ya sabe quien sos por el certificado pero
+el comprobante impreso los tiene que mostrar.
+
 **RG 5616 — `CondicionIVAReceptorId` es OBLIGATORIO** (error 10246 si falta).
 La condicion de IVA del RECEPTOR viaja en cada comprobante; la lista valida sale
 de `FEParamGetCondicionIvaReceptor` (filtrada por `Cmp_Clase`) con una tabla de
