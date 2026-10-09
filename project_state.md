@@ -47,6 +47,24 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Producción no conectaba desde Vercel: `fetch failed` = `dh key too small`** (2026-10-09). Al
+  pasar a producción el diagnóstico cortó en "ARCA responde". Desde la PC del usuario el servidor
+  contestaba bien, así que no era ARCA ni la config: `openssl s_client` mostró que
+  **`servicios1.afip.gov.ar` (facturación en producción) negocia DHE con clave de 1024 bits**, que
+  OpenSSL en nivel de seguridad 2 —el de Vercel— rechaza. Homologación y el WSAA de producción usan
+  ECDHE y no tienen el problema; por eso nunca apareció en pruebas.
+  - **Fix:** `lib/arca/http.ts` (`postXml`, sobre `node:https`, sin dependencias) reemplaza a `fetch`
+    en `cliente.ts`. Baja el nivel a 1 **solo** para los hosts de `HOSTS_DH_DEBIL` (hoy únicamente
+    `servicios1`); WSAA —donde viaja el certificado firmado— y homologación siguen estrictos. De paso:
+    `keepAlive` (traer el historial son decenas de consultas al mismo servidor) y timeout de 25 s, y
+    los errores de red salen con su código en vez de "fetch failed" (BASE nº6).
+  - **Verificado contra ARCA producción real**, forzando Node al nivel 2 como Vercel: `fetch` falla con
+    `dh key too small` (el error reproducido) y `postXml` contesta **HTTP 200, AppServer OK**. El WSAA de
+    producción negocia con el agente estricto. `tsc` + `next build` OK.
+  - **NO verificado todavía:** el diagnóstico completo en producción desde Vercel (autenticar con el
+    certificado `overseer` y leer los puntos de venta). Se ve apenas el usuario toque "Probar".
+
+
 - [x] **EL PDF DE LA FACTURA — lo que faltaba para que esto sirva** (2026-10-09, pedido:
   *"necesito que salga en el PDF y tener para imprimirlo, el mismo que me genera ARCA, si no no
   me sirve"*). Facturando por webservice ARCA **no genera el comprobante**: devuelve el CAE y

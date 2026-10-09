@@ -268,6 +268,13 @@ ingresos brutos, inicio de actividades) van en el blob `app_preferences`
 (`appStore.arcaEmisor`), porque ARCA ya sabe quien sos por el certificado pero
 el comprobante impreso los tiene que mostrar.
 
+**A ARCA no se le habla con `fetch`, se le habla con `lib/arca/http.ts`.** El servidor de
+facturacion de PRODUCCION (`servicios1.afip.gov.ar`) cifra con DHE y clave de **1024 bits**: OpenSSL
+en nivel de seguridad 2 (el de Vercel) la rechaza con `dh key too small`, y `fetch` lo reporta como
+un `fetch failed` pelado. Homologacion usa ECDHE y nunca falla, asi que el problema aparece recien
+al pasar a produccion. `postXml` baja el nivel SOLO para los hosts de `HOSTS_DH_DEBIL`; WSAA y
+homologacion siguen estrictos. Se reproduce local con `NODE_OPTIONS=--tls-cipher-list=DEFAULT@SECLEVEL=2`.
+
 **RG 5616 — `CondicionIVAReceptorId` es OBLIGATORIO** (error 10246 si falta).
 La condicion de IVA del RECEPTOR viaja en cada comprobante; la lista valida sale
 de `FEParamGetCondicionIvaReceptor` (filtrada por `Cmp_Clase`) con una tabla de

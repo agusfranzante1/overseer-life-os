@@ -2,6 +2,7 @@ import 'server-only'
 import forge from 'node-forge'
 import { buildTRA, parseLoginTicketResponse, type TicketAcceso } from './tra'
 import type { DetalleArca, ResultadoCae } from './facturaC'
+import { postXml } from './http'
 
 /** Cliente de ARCA: WSAA (autenticación) + WSFEv1 (facturación electrónica).
  *
@@ -147,12 +148,9 @@ export async function obtenerTicket(cfg: ConfigArca, almacen?: AlmacenTicket): P
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wsaa="http://wsaa.view.sua.dvadac.desein.afip.gov">
 <soapenv:Header/><soapenv:Body><wsaa:loginCms><wsaa:in0>${cms}</wsaa:in0></wsaa:loginCms></soapenv:Body></soapenv:Envelope>`
 
-  const res = await fetch(ENDPOINTS[cfg.entorno].wsaa, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: '' },
-    body: sobre,
-  })
-  const xml = await res.text()
+  // `postXml` y no `fetch`: ver ./http.ts (el TLS de ARCA producción).
+  const { text: xml } = await postXml(ENDPOINTS[cfg.entorno].wsaa, sobre,
+    { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: '' })
   // El cuerpo viene escapado dentro de <loginCmsReturn>.
   const inner = /<loginCmsReturn>([\s\S]*?)<\/loginCmsReturn>/.exec(xml)?.[1]
   const ticket = parseLoginTicketResponse(inner ? desescapar(inner) : xml)
@@ -183,12 +181,10 @@ async function llamarWsfe(cfg: ConfigArca, accion: string, cuerpo: string): Prom
   const sobre = `<?xml version="1.0" encoding="UTF-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ar="http://ar.gov.afip.dif.FEV1/">
 <soap:Body>${cuerpo}</soap:Body></soap:Envelope>`
-  const res = await fetch(ENDPOINTS[cfg.entorno].wsfe, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: `http://ar.gov.afip.dif.FEV1/${accion}` },
-    body: sobre,
-  })
-  const xml = await res.text()
+  // `postXml` y no `fetch`: el servidor de facturación de PRODUCCIÓN cifra con
+  // una clave DH de 1024 bits que `fetch` rechaza en silencio. Ver ./http.ts.
+  const { text: xml } = await postXml(ENDPOINTS[cfg.entorno].wsfe, sobre,
+    { 'Content-Type': 'text/xml; charset=utf-8', SOAPAction: `http://ar.gov.afip.dif.FEV1/${accion}` })
   const fault = /<faultstring>([\s\S]*?)<\/faultstring>/.exec(xml)?.[1]
   if (fault) throw new Error(`ARCA (${accion}): ${fault}`)
   return xml
