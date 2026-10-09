@@ -16,6 +16,7 @@ import { useHealthStore } from '@/lib/store/healthStore'
 import { useJournalStore } from '@/lib/store/journalStore'
 import { useDecisionsStore } from '@/lib/store/decisionsStore'
 import { useToolsStore } from '@/lib/store/toolsStore'
+import { useArcaStore } from '@/lib/store/arcaStore'
 import { useKpisStore } from '@/lib/store/kpisStore'
 import { useLabStore } from '@/lib/store/labStore'
 import { useMeditationsStore } from '@/lib/store/meditationsStore'
@@ -72,6 +73,7 @@ export function initMultitabSync(): void {
   wireCrossTabSync(useJournalStore, 'overseer-journal')
   wireCrossTabSync(useDecisionsStore, 'overseer-decisions')
   wireCrossTabSync(useToolsStore, 'overseer-tools')
+  wireCrossTabSync(useArcaStore, 'overseer-arca')
   wireCrossTabSync(useKpisStore, 'overseer-kpis')
   wireCrossTabSync(useLabStore, 'overseer-lab')
   wireCrossTabSync(useMeditationsStore, 'overseer-meditations')

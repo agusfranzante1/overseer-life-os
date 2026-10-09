@@ -47,6 +47,55 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **ARCA etapa 2 — EMITIR factura C, el historial, y "repetir esta factura"** (2026-10-09).
+  La etapa 1 solo diagnosticaba la conexión; ahora se factura desde acá. Tres pestañas:
+  **Emitir · Comprobantes · Conexión** (si la conexión no está verde se abre sola en Conexión —
+  un formulario de facturar contra algo que no autentica es perder tiempo).
+  - **Se corrigió algo que yo había dicho mal:** le había dicho que *"ARCA no tiene API para listar
+    tus facturas, la única vía es el CSV"*. **Falso.** Verificado en el manual oficial de WSFEv1
+    (v4.7, p. 190): `FECompConsultar` devuelve un comprobante ya emitido con todo —importes, fechas,
+    documento, **`CodAutorizacion`** (el CAE) y `EmisionTipo`. Lo que NO existe es un método que
+    **liste**: se consulta de a un número. Así que el historial se reconstruye recorriendo de 1 hasta
+    `FECompUltimoAutorizado`, que para un monotributista son decenas de llamadas. Eso es el botón
+    **"Traer de ARCA"**: arranca por los más nuevos, **saltea los que ya están** (la segunda corrida
+    casi no pide nada) y dice cuántos quedan atrás.
+  - **La emisión la escribe el SERVIDOR, no el navegador.** El CAE es irreversible: una factura que
+    existe en ARCA y no en Overseer es una factura perdida. `/api/arca/facturar` valida → pide
+    `FECompUltimoAutorizado`+1 (la numeración no se elige, un salto se rechaza) → pide el CAE →
+    **guarda la fila** → y recién ahí contesta. Si el CAE sale y el guardado falla, lo dice con el
+    número en la mano (BASE nº6).
+  - **El id es FISCAL, no `genId()`:** `arca_<entorno>_<pv>_<tipo>_<numero>`. Es lo que hace que la
+    escritura server-side y la importación no puedan duplicar nada, y que el cliente pueda mostrar la
+    factura al instante sin esperar el pull. **El entorno entra en el id** porque homologación y
+    producción numeran los dos desde 1: sin eso, la factura de prueba nº 1 pisa la real nº 1.
+  - **No hay borrado en este dominio** (una factura se anula con nota de crédito, no se borra): sin
+    `syncDeletes`, sin tombstones y con baseline vacío, así una lista local parcial no puede hacer
+    desaparecer un comprobante. **Los rechazos tampoco se guardan**: sin CAE no hay comprobante.
+  - **"Repetir esta factura"**: copia importe, cliente, detalle y receptor, y **mueve las fechas**.
+    El período de servicio se corre los mismos MESES que pasaron (un abono de septiembre repetido en
+    octubre dice octubre: facturar dos veces el mismo período es un problema fiscal, no un detalle de
+    interfaz), respetando el fin de mes (30/9 → 31/10, y 31/1 → 28/2, no el 3/3).
+  - **La descripción y el cliente son NUESTROS** (la factura C no los manda a ARCA). Por eso el store
+    y el importador **mergean sin pisar con vacío**: una reimportación que los borrara dejaría una
+    lista de importes sin saber de qué son. Las importadas se anotan con el lápiz.
+  - **⚠️ Migración `supabase/migration_arca_comprobantes.sql` — HAY QUE CORRERLA.** Sin ella se puede
+    facturar igual (ARCA no se entera), pero el comprobante **no se guarda ni sincroniza**.
+  - **Verificado corriendo la app** (medido en el store y el DOM, no a ojo): con las respuestas de
+    ARCA simuladas en el navegador —porque el round-trip real necesita login y las env vars del
+    deploy— el formulario manda el payload completo con la zona del usuario; el comprobante queda en
+    el store con su id determinista y CAE; **importar dos veces los mismos deja 3 filas, no 5**;
+    re-importar **NO borró** la anotación "Diseño web / Panadería López" de una traída de ARCA;
+    agrupado por mes con totales ($150.000,50 + $50.000 + $42.000 = $242.000,50); "Repetir" vuelve a
+    Emitir con todo cargado; el punto de venta bloqueado no se ofrece. Mobile 375px sin scroll
+    horizontal. Tests puros: `comprobante` **51/51**, `arcaStore` **19/19**, `facturaC` 51/51 sin
+    romperse. `tsc` + `next build` OK (las 3 rutas compilan).
+  - **NO verificado (BASE nº7):** la emisión real contra ARCA. Falta correr la migración y probar
+    contra homologación con el usuario logueado. **Y las facturas reales no van a aparecer hasta
+    producción**: homologación es un entorno vacío y separado.
+  - **Dos cosas encontradas corriendo la app, no compilando:** el formulario recién abierto se
+    quejaba del CUIT con el campo vacío (ruido), y "Repetir" no copiaba el cliente ni el detalle —
+    justo lo que uno no quiere volver a escribir cuando factura siempre lo mismo.
+
 - [x] **Sección ARCA — facturación propia (monotributo, factura C). Etapa 1: el protocolo**
   (2026-10-09). Pedido: *"un HUB de dinero / CRM de facturación mío, separado de NQN Survey, para
   facturar más rápido, traer las últimas facturas y repetir las que siempre hago"*.
@@ -1171,6 +1220,8 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
       `wsfe`, habilitar un punto de venta webservice y cargar `ARCA_CUIT` / `ARCA_CERT` /
       `ARCA_KEY` / `ARCA_ENTORNO=homologacion` en Vercel. La pestaña /arca tiene los pasos y
       el botón "Probar conexión" dice exactamente en qué tramo se corta.
+- [ ] **Correr `supabase/migration_arca_comprobantes.sql`** — sin esto se puede facturar, pero el
+      comprobante no se guarda en Overseer ni sincroniza entre dispositivos.
 - [ ] **Correr `supabase/migration_tasks_start_date.sql`** — sin esto la **fecha de inicio** de las
       tareas (vista Línea de tiempo) no sincroniza entre dispositivos. El resto del push sigue
       andando igual (se descarta esa columna sola).

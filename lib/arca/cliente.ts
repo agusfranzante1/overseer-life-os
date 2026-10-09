@@ -281,3 +281,75 @@ export async function solicitarCae(
     observaciones,
   }
 }
+
+/** Lo que ARCA sabe de un comprobante ya emitido. */
+export interface ComprobanteConsultado {
+  numero: number
+  fecha: string
+  concepto: number
+  docTipo: number
+  docNro: string
+  importe: number
+  cae?: string
+  vencimientoCae?: string
+  servicioDesde?: string
+  servicioHasta?: string
+  vencimientoPago?: string
+  observaciones: string[]
+}
+
+/** `YYYYMMDD` → `YYYY-MM-DD`. Vacío si no viene o no parsea. */
+function deFechaArca(v: string | undefined): string | undefined {
+  if (!v || !/^\d{8}$/.test(v)) return undefined
+  return `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6, 8)}`
+}
+
+/**
+ * Trae UN comprobante ya emitido (`FECompConsultar`).
+ *
+ * **No existe un método que liste todo.** El webservice consulta de a un
+ * número, así que el historial se reconstruye recorriendo de 1 hasta
+ * `FECompUltimoAutorizado` (ver `numerosAImportar` en `./comprobante.ts`).
+ *
+ * Devuelve `null` cuando el comprobante NO existe, en vez de tirar: durante
+ * una importación eso es un dato normal (un número anulado, o un hueco), y
+ * convertirlo en excepción cortaría la importación entera por el camino.
+ * Cualquier OTRO error sí se propaga — un token vencido o un punto de venta
+ * inexistente no es "no hay datos", y tragarlo dejaría una importación vacía
+ * pasando por exitosa (BASE nº6).
+ */
+export async function consultarComprobante(
+  cfg: ConfigArca, puntoVenta: number, tipo: number, numero: number, almacen?: AlmacenTicket,
+): Promise<ComprobanteConsultado | null> {
+  const t = await obtenerTicket(cfg, almacen)
+  const xml = await llamarWsfe(cfg, 'FECompConsultar',
+    `<ar:FECompConsultar>${auth(cfg, t)}<ar:FeCompConsReq>`
+    + `<ar:CbteTipo>${tipo}</ar:CbteTipo><ar:CbteNro>${numero}</ar:CbteNro><ar:PtoVta>${puntoVenta}</ar:PtoVta>`
+    + `</ar:FeCompConsReq></ar:FECompConsultar>`)
+
+  const errs = leerErrores(xml)
+  if (errs.length > 0) {
+    // 602: "No existen datos en nuestra base de datos" — el comprobante no está.
+    if (errs.some((e) => /^602\b/.test(e) || /no existen datos/i.test(e))) return null
+    throw new Error(errs.join(' · '))
+  }
+
+  const cuerpo = /<ResultGet>([\s\S]*?)<\/ResultGet>/.exec(xml)?.[1]
+  if (!cuerpo) return null
+
+  return {
+    numero: Number(tag(cuerpo, 'CbteDesde') ?? numero),
+    fecha: deFechaArca(tag(cuerpo, 'CbteFch')) ?? '',
+    concepto: Number(tag(cuerpo, 'Concepto') ?? 1),
+    docTipo: Number(tag(cuerpo, 'DocTipo') ?? 99),
+    docNro: String(tag(cuerpo, 'DocNro') ?? '0'),
+    importe: Number(tag(cuerpo, 'ImpTotal') ?? 0),
+    cae: tag(cuerpo, 'CodAutorizacion') || undefined,
+    vencimientoCae: deFechaArca(tag(cuerpo, 'FchVto')),
+    servicioDesde: deFechaArca(tag(cuerpo, 'FchServDesde')),
+    servicioHasta: deFechaArca(tag(cuerpo, 'FchServHasta')),
+    vencimientoPago: deFechaArca(tag(cuerpo, 'FchVtoPago')),
+    observaciones: [...cuerpo.matchAll(/<Obs>([\s\S]*?)<\/Obs>/g)]
+      .map((m) => `${tag(m[1], 'Code') ?? '?'}: ${tag(m[1], 'Msg') ?? ''}`.trim()),
+  }
+}

@@ -221,12 +221,43 @@ son compromisos reales, no decoración).
 | Priority Gate | `lib/dashboard/priorityGate.ts` (`usePriorityGate`) | `components/common/PriorityGate.tsx` | única fuente de verdad; usado en Panel/Tasks/Calendar |
 | **Plan del día / Bridge con Claude** | `dayPlanStore` | `components/dashboard/DayPlanPanel.tsx`, `components/settings/ClaudeBridgeSection.tsx` | per-fila `day_plans` (columnas reales, id determinista `plan_<fecha>`). El plan lo escribe Claude DESDE AFUERA vía el bridge — ver abajo |
 | Libros | `booksStore` | `components/books/BooksPage.tsx` | per-fila `books` |
-| **ARCA** (facturación propia) | — (etapa 1: sin store) | `components/arca/ArcaPage.tsx` | `lib/arca/`: `tra.ts` (TRA del WSAA) y `facturaC.ts` (armado+validación del CAE) son **puros con test**; `cliente.ts` es **server-only** (firma CMS con la clave privada, cache del ticket 12 h, SOAP a WSFEv1 a mano). Monotributo → factura C: `ImpTotal=ImpNeto`, IVA en 0 y **sin array `Iva`**. Credenciales SOLO por env (`ARCA_*`). `GET /api/arca/estado` diagnostica en 4 tramos. **ARCA no tiene API para listar comprobantes**: o los emitís por webservice, o importás el CSV de Mis Comprobantes (hay un lector maduro en el proyecto `cuenca`) |
+| **ARCA** (facturación propia) | `arcaStore` | `components/arca/*` (`ArcaPage` = Emitir · Comprobantes · Conexión) | per-fila `arca_comprobantes`, con **id DETERMINISTA** `arca_<entorno>_<pv>_<tipo>_<numero>` (identidad fiscal, no `genId()`): por eso la emisión server-side y la importación son idempotentes y **no hay borrado** en este dominio (una factura se anula con nota de crédito) → sin `syncDeletes` ni tombstones, baseline vacío. `lib/arca/`: `tra.ts`, `facturaC.ts` y `comprobante.ts` **puros con test**; `cliente.ts` es **server-only** (firma CMS con la clave privada, SOAP a WSFEv1 a mano). Monotributo → factura C: `ImpTotal=ImpNeto`, IVA en 0 y **sin array `Iva`**. Credenciales SOLO por env (`ARCA_*`). Ver el bloque de abajo |
 | Herramientas | `toolsStore` | `components/herramientas/HerramientasPage.tsx` | per-fila `tools` (payload jsonb); catálogo de "con qué se hace" (link + categoría libre + notas + ⭐). Categorías sin lista fija: las arma el usuario. Helpers puros con test |
 | Decisiones | `decisionsStore` | `components/decisiones/DecisionesPage.tsx` | per-fila `decisions`; veredicto pendiente/correcta/incorrecta (arranca pendiente: el resultado se sabe después), ⭐ importante y `projectId` de Tareas. Helpers puros (orden, filtros, `decisionStats`) en el store, con test |
 | Panel/Dashboard | (varios) | `components/dashboard/*` (`DashboardPage` = widgets reordenables) | orden en localStorage |
 | SPI / Proyección | `spiStore`, `projectionStore` | `components/spi/*`, `components/projection/*` | per-fila |
 | Billetera / Hábitos / Salud / Gym / Comida / Trading / Journal / Meditaciones / YouTube / KPIs / Lab | `walletStore` / `habitsStore` / … | `components/<seccion>/*` | per-fila |
+
+## ARCA — facturar desde Overseer (lo que cuesta redescubrir)
+
+**Dos entornos SEPARADOS**, con certificado propio y numeración propia desde 1:
+`homologacion` (pruebas, sin valor fiscal) y `produccion`. Nada cruza. Por eso el
+entorno entra en el id del comprobante — si no, la factura nº 1 de prueba pisa la
+nº 1 real y el total facturado miente. Se cambia con `ARCA_ENTORNO` + redeploy.
+
+**ARCA SÍ deja traer el historial, pero NO hay un método que liste.**
+`FECompConsultar` devuelve UN comprobante por (punto de venta, tipo, número), así
+que el historial se reconstruye recorriendo de 1 hasta `FECompUltimoAutorizado`
+(`numerosAImportar`, que arranca por los más nuevos y saltea lo que ya está). El
+CSV de Mis Comprobantes (lector maduro en el proyecto `cuenca`) queda como puente,
+no como única vía.
+
+**La emisión la escribe el SERVIDOR, no el store.** El CAE es irreversible: una
+factura que existe en ARCA y no en Overseer es una factura perdida. `/api/arca/facturar`
+pide el número, pide el CAE, **guarda la fila** y recién ahí contesta; el cliente la
+agrega a su store con el mismo id determinista para verla al instante. Si el CAE
+sale y el guardado falla, la respuesta lo dice con el número (BASE nº6).
+
+**No se guardan los rechazos:** sin CAE no hay comprobante y no consume número.
+Guardarlos sería inventar un historial.
+
+**El ticket del WSAA se PERSISTE** (`arca_tickets`, solo-service-role): ARCA no
+entrega otro mientras el anterior viva ("El CEE ya posee un TA valido") y en
+serverless el cache en memoria se pierde entre invocaciones.
+
+**La descripción y el cliente son NUESTROS** — la factura C no los manda a ARCA.
+Por eso tanto el store como el importador **mergean sin pisar con vacío**: una
+reimportación que los borrara dejaría una lista de importes sin saber de qué son.
 
 ## Verificar (BASE nº5)
 `NEXT_PUBLIC_SUPABASE_URL= NEXT_PUBLIC_SUPABASE_ANON_KEY= npx next dev -p 3099`

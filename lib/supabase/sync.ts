@@ -24,6 +24,7 @@ import { type DayPlan, type DayPlanBlock, type DayPlanBlockKind, useDayPlanStore
 import { useJournalStore } from '@/lib/store/journalStore'
 import { useDecisionsStore } from '@/lib/store/decisionsStore'
 import { useToolsStore } from '@/lib/store/toolsStore'
+import { useArcaStore, type ComprobanteArca } from '@/lib/store/arcaStore'
 import { useMeditationsStore } from '@/lib/store/meditationsStore'
 import { useYoutubeStore } from '@/lib/store/youtubeStore'
 import { useOffersStore } from '@/lib/store/offersStore'
@@ -70,6 +71,7 @@ interface SyncState {
   journalInit: boolean
   decisionsInit: boolean
   toolsInit: boolean
+  arcaInit: boolean
   meditationsInit: boolean
   youtubeInit: boolean
   offersInit: boolean
@@ -102,6 +104,7 @@ const state: SyncState = {
   journalInit: false,
   decisionsInit: false,
   toolsInit: false,
+  arcaInit: false,
   meditationsInit: false,
   youtubeInit: false,
   offersInit: false,
@@ -133,6 +136,7 @@ let dayPlansPushTimer: ReturnType<typeof setTimeout> | null = null
 let journalPushTimer: ReturnType<typeof setTimeout> | null = null
 let decisionsPushTimer: ReturnType<typeof setTimeout> | null = null
 let toolsPushTimer: ReturnType<typeof setTimeout> | null = null
+let arcaPushTimer: ReturnType<typeof setTimeout> | null = null
 let meditationsPushTimer: ReturnType<typeof setTimeout> | null = null
 let youtubePushTimer: ReturnType<typeof setTimeout> | null = null
 let offersPushTimer: ReturnType<typeof setTimeout> | null = null
@@ -2529,6 +2533,108 @@ async function pullTools(): Promise<boolean> {
   }
 }
 
+
+// ─── ARCA (comprobantes de facturacion) ────────────────────────
+// Una fila por comprobante, con id DETERMINISTA (entorno + punto de venta +
+// tipo + numero). Eso es lo que hace que la emision del lado del servidor y la
+// importacion desde ARCA no puedan duplicar nada. Ver migration_arca_comprobantes.sql.
+//
+// NO hay borrado en este dominio: una factura emitida no se borra, se anula con
+// una nota de credito. Por eso no se llama a syncDeletes ni se usan tombstones
+// — inferir borrados por ausencia es como este proyecto perdio 12 ofertas, y
+// aca el dato es fiscal.
+
+async function pushArca() {
+  if (!state.userId) return
+  const syncedAt = new Date().toISOString()
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { comprobantes } = useArcaStore.getState()
+
+  const rows = comprobantes.map((c) => ({
+    id: c.id,
+    user_id: uid,
+    created_at: c.createdAt,
+    updated_at: c.updatedAt,
+    payload: c,
+  }))
+
+  if (rows.length > 0) {
+    const r = await sb.from('arca_comprobantes').upsert(rows)
+    if (r.error) {
+      reportSyncError(`arca_comprobantes upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_arca_comprobantes.sql.`)
+      throw r.error
+    }
+  }
+  markSynced('arca', syncedAt)
+}
+
+async function pullArca(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('arca')
+  try {
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('arca_comprobantes').select('*').eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+  if (res.error) {
+    console.error('ARCA pull failed (run migration_arca_comprobantes.sql?):', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) { markSynced('arca'); return false }
+
+  type ArcaRow = { payload: unknown }
+  // OJO (BASE nº2): el sanitize reconstruye el comprobante campo por campo — un
+  // campo que no este aca SE BORRA al sincronizar, aunque el push lo mande.
+  // Aca duele doble: los campos son FISCALES (el CAE, su vencimiento, el
+  // periodo de servicio). Perder el CAE de una factura emitida es perder la
+  // prueba de que existe.
+  const sanitize = (raw: unknown): ComprobanteArca => {
+    const p = (raw ?? {}) as Partial<ComprobanteArca>
+    return {
+      id: p.id ?? '',
+      entorno: p.entorno === 'produccion' ? 'produccion' : 'homologacion',
+      puntoVenta: Number(p.puntoVenta ?? 0),
+      tipo: Number(p.tipo ?? 11),
+      numero: Number(p.numero ?? 0),
+      fecha: p.fecha ?? '',
+      concepto: Number(p.concepto ?? 1),
+      docTipo: Number(p.docTipo ?? 99),
+      docNro: String(p.docNro ?? '0'),
+      importe: Number(p.importe ?? 0),
+      cae: p.cae ?? undefined,
+      vencimientoCae: p.vencimientoCae ?? undefined,
+      servicioDesde: p.servicioDesde ?? undefined,
+      servicioHasta: p.servicioHasta ?? undefined,
+      vencimientoPago: p.vencimientoPago ?? undefined,
+      descripcion: p.descripcion ?? '',
+      receptorNombre: p.receptorNombre ?? '',
+      resultado: p.resultado === 'P' ? 'P' : 'A',
+      observaciones: Array.isArray(p.observaciones) ? p.observaciones : [],
+      origen: p.origen === 'importado' ? 'importado' : 'overseer',
+      createdAt: p.createdAt ?? new Date().toISOString(),
+      updatedAt: p.updatedAt ?? new Date().toISOString(),
+    }
+  }
+  const remotos: ComprobanteArca[] = (res.data ?? []).map((r: ArcaRow) => sanitize(r.payload))
+  // Baseline vacio y sin tombstones a proposito: no existe el borrado en este
+  // dominio, asi que una lista local parcial no puede hacer desaparecer nada.
+  const merged = mergeById<ComprobanteArca>({
+    local: useArcaStore.getState().comprobantes,
+    remote: remotos,
+    baseline: new Set<string>(),
+    getId: (x) => x.id,
+    getUpdatedAt: (x) => x.updatedAt,
+  })
+  useArcaStore.setState({ comprobantes: merged })
+  markSynced('arca')
+  return true
+  } finally {
+    endPulling('arca')
+  }
+}
+
 // ─── MEDITACIONES (biblioteca de meditaciones / respiración) ─────────────────
 // Una fila por meditación. Merge: LWW por updatedAt + tombstones.
 // Ver migration_meditations.sql.
@@ -4493,6 +4599,7 @@ function scheduleDayPlans()   { schedule(dayPlansPushTimer,   pushDayPlans,   (t
 function scheduleJournal()     { schedule(journalPushTimer,    pushJournal,    (t) => { journalPushTimer = t }) }
 function scheduleDecisions()   { schedule(decisionsPushTimer,  pushDecisions,  (t) => { decisionsPushTimer = t }) }
 function scheduleTools()       { schedule(toolsPushTimer,      pushTools,      (t) => { toolsPushTimer = t }) }
+function scheduleArca()        { schedule(arcaPushTimer,       pushArca,       (t) => { arcaPushTimer = t }) }
 function scheduleMeditations() { schedule(meditationsPushTimer, pushMeditations, (t) => { meditationsPushTimer = t }) }
 function scheduleYoutube()     { schedule(youtubePushTimer,     pushYoutube,     (t) => { youtubePushTimer = t }) }
 function scheduleOffers()      { schedule(offersPushTimer,      pushOffers,      (t) => { offersPushTimer = t }) }
@@ -4752,6 +4859,16 @@ async function initAllDomains() {
     if (hasLocal) await pushTools().catch((e) => console.error('Tools post-pull push failed', e))
   }
 
+  // ─── ARCA (comprobantes emitidos) ────────────────────────────
+  // Pull-first. No hay borrados en este dominio (una factura no se borra).
+  if (!state.arcaInit) {
+    state.arcaInit = true
+    const { comprobantes } = useArcaStore.getState()
+    const hasLocal = comprobantes.length > 0
+    await pullArca()
+    if (hasLocal) await pushArca().catch((e) => console.error('ARCA post-pull push failed', e))
+  }
+
   // ─── Meditaciones ─────────────────────────────────────────────────────
   // Pull-first: LWW por updatedAt + tombstones (mismo patrón que journal).
   if (!state.meditationsInit) {
@@ -4925,6 +5042,7 @@ export function useSupabaseSync() {
       useJournalStore.subscribe(() => { markModifiedIfNotPulling('journal'); if (state.userId) scheduleJournal() })
       useDecisionsStore.subscribe(() => { markModifiedIfNotPulling('decisions'); if (state.userId) scheduleDecisions() })
       useToolsStore.subscribe(() => { markModifiedIfNotPulling('tools'); if (state.userId) scheduleTools() })
+      useArcaStore.subscribe(() => { markModifiedIfNotPulling('arca'); if (state.userId) scheduleArca() })
       useMeditationsStore.subscribe(() => { markModifiedIfNotPulling('meditations'); if (state.userId) scheduleMeditations() })
       useYoutubeStore.subscribe(() => { markModifiedIfNotPulling('youtube'); if (state.userId) scheduleYoutube() })
       useOffersStore.subscribe(() => { markModifiedIfNotPulling('offers'); if (state.userId) scheduleOffers() })
@@ -4963,6 +5081,7 @@ export function useSupabaseSync() {
       state.journalInit = false
       state.decisionsInit = false
       state.toolsInit = false
+      state.arcaInit = false
       state.meditationsInit = false
       state.youtubeInit = false
       state.offersInit = false
@@ -5023,6 +5142,7 @@ export function useSupabaseSync() {
       state.journalInit = false
       state.decisionsInit = false
       state.toolsInit = false
+      state.arcaInit = false
       state.meditationsInit = false
       state.youtubeInit = false
       state.offersInit = false
@@ -5110,6 +5230,7 @@ export async function forceSyncAll(): Promise<void> {
   state.journalInit = false
   state.decisionsInit = false
   state.toolsInit = false
+  state.arcaInit = false
   state.meditationsInit = false
   state.youtubeInit = false
   state.offersInit = false
@@ -5185,6 +5306,7 @@ export async function forcePullJournal()   { return pullJournal() }
 export async function forceSyncDecisions() { await pushDecisions() }
 export async function forcePullDecisions() { return pullDecisions() }
 export async function forcePullTools() { return pullTools() }
+export async function forcePullArca() { return pullArca() }
 export async function forceSyncMeditations() { await pushMeditations() }
 export async function forcePullMeditations() { return pullMeditations() }
 export async function forceSyncFavorites()  { await pushFavorites() }

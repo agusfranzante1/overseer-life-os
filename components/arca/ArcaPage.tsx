@@ -2,20 +2,23 @@
 import { useState, useEffect, useSyncExternalStore } from 'react'
 import { motion } from 'framer-motion'
 import { Receipt, Loader2, CheckCircle2, XCircle, AlertTriangle, RefreshCw, ExternalLink } from 'lucide-react'
+import { FacturarForm } from './FacturarForm'
+import { ComprobantesList } from './ComprobantesList'
+import type { BorradorRepetido, EntornoArca } from '@/lib/arca/comprobante'
 
 /** ARCA — facturación electrónica propia (monotributo, factura C).
  *
- *  Esta primera etapa es el DIAGNÓSTICO: antes de poder emitir hay que probar
- *  que la cadena completa funciona, y los tres tramos fallan distinto aunque
- *  desde afuera se vean igual ("no puedo facturar"):
+ *  Tres pestañas, en el orden en que se usan: **Emitir** (lo de todos los
+ *  días), **Comprobantes** (el historial, y traer de ARCA lo ya emitido) y
+ *  **Conexión** (el diagnóstico, que solo se mira cuando algo no anda).
+ *
+ *  El diagnóstico prueba la cadena en cuatro tramos porque los cuatro fallan
+ *  distinto y desde afuera se ven igual ("no puedo facturar"):
  *
  *    config → servidores de ARCA → certificado → puntos de venta
  *
  *  Separarlos es lo que convierte "no anda" en "falta asociar el servicio
  *  wsfe al certificado", que sí se puede arreglar.
- *
- *  El formulario de emisión viene cuando esto dé verde: escribir una pantalla
- *  de facturar contra algo que todavía no autentica es inventar.
  */
 
 const noop = () => () => {}
@@ -44,9 +47,13 @@ const ETAPAS = [
   { id: 'puntos-de-venta', label: 'Puntos de venta habilitados' },
 ] as const
 
+type Pestania = 'emitir' | 'comprobantes' | 'conexion'
+
 export function ArcaPage() {
   const [estado, setEstado] = useState<Estado | null>(null)
   const [cargando, setCargando] = useState(false)
+  const [pestania, setPestania] = useState<Pestania>('emitir')
+  const [repetir, setRepetir] = useState<BorradorRepetido | null>(null)
   const montado = useHydrated()
 
   const probar = async () => {
@@ -63,8 +70,12 @@ export function ArcaPage() {
           : `El servidor respondió ${r.status} sin explicar por qué.`
       }
       setEstado(j)
+      // Si la conexión no está, la pestaña útil es la del diagnóstico: abrir
+      // el formulario de emitir contra algo que no autentica es perder tiempo.
+      if (!j.ok) setPestania('conexion')
     } catch (e) {
       setEstado({ ok: false, mensaje: `No se pudo consultar el estado: ${e instanceof Error ? e.message : 'error de red'}` })
+      setPestania('conexion')
     } finally {
       setCargando(false)
     }
@@ -79,6 +90,15 @@ export function ArcaPage() {
   const idxCorte = estado?.etapa === 'listo'
     ? ETAPAS.length
     : ETAPAS.findIndex((e) => e.id === estado?.etapa)
+
+  const entorno: EntornoArca = estado?.entorno === 'produccion' ? 'produccion' : 'homologacion'
+  const pdv = estado?.puntosDeVenta ?? []
+
+  const TABS: { id: Pestania; label: string }[] = [
+    { id: 'emitir', label: 'Emitir' },
+    { id: 'comprobantes', label: 'Comprobantes' },
+    { id: 'conexion', label: 'Conexión' },
+  ]
 
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
@@ -100,134 +120,191 @@ export function ArcaPage() {
             Tu facturación, acá adentro. Monotributo · factura C.
           </p>
         </div>
-        <button onClick={probar} disabled={cargando}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border bg-white/[0.03] border-white/[0.08] text-zinc-300 hover:border-zinc-600 hover:text-white transition-colors disabled:opacity-50">
-          {cargando ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          Probar conexión
-        </button>
       </div>
 
       {/* Entorno — que no haya dudas de si lo que se emite vale o no */}
       {estado?.entorno && (
         <div className={`rounded-xl px-4 py-3 border text-sm ${
-          estado.entorno === 'produccion'
+          entorno === 'produccion'
             ? 'bg-red-500/10 border-red-500/30 text-red-200'
             : 'bg-amber-500/10 border-amber-500/30 text-amber-200'
         }`}>
-          {estado.entorno === 'produccion'
+          {entorno === 'produccion'
             ? <><strong>PRODUCCIÓN</strong> — lo que se emita acá son comprobantes fiscales de verdad.</>
             : <><strong>HOMOLOGACIÓN</strong> (pruebas) — los comprobantes que se emitan NO tienen valor fiscal.</>}
           {estado.cuit && <span className="text-zinc-400"> · CUIT {estado.cuit}</span>}
         </div>
       )}
 
-      {/* La cadena, tramo por tramo */}
-      <section className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 space-y-3">
-        <h2 className="text-sm font-bold text-white">Diagnóstico</h2>
-        <div className="space-y-2">
-          {ETAPAS.map((etapa, i) => {
-            const paso = idxCorte < 0 ? -1 : idxCorte
-            const ok = paso > i || estado?.etapa === 'listo'
-            const fallo = paso === i && !!estado && estado.etapa !== 'listo'
-            return (
-              <div key={etapa.id} className="flex items-center gap-2.5 text-sm">
-                {cargando ? <Loader2 className="w-4 h-4 text-zinc-600 animate-spin shrink-0" />
-                  : ok ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  : fallo ? <XCircle className="w-4 h-4 text-red-400 shrink-0" />
-                  : <span className="w-4 h-4 rounded-full border border-zinc-700 shrink-0" />}
-                <span className={ok ? 'text-zinc-300' : fallo ? 'text-red-300' : 'text-zinc-600'}>
-                  {etapa.label}
-                </span>
+      {/* Pestañas */}
+      <div className="flex items-center gap-1 border-b border-white/[0.08]">
+        {TABS.map((t) => (
+          <button key={t.id} onClick={() => setPestania(t.id)}
+            className={`px-3.5 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              pestania === t.id
+                ? 'border-current text-white'
+                : 'border-transparent text-zinc-500 hover:text-zinc-300'
+            }`}
+            style={pestania === t.id ? { color: 'var(--app-accent)', borderColor: 'var(--app-accent)' } : undefined}>
+            {t.label}
+            {t.id === 'conexion' && estado && !estado.ok && (
+              <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-red-400 align-middle" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {pestania === 'emitir' && (
+        estado?.ok ? (
+          <FacturarForm
+            entorno={entorno}
+            puntosDeVenta={pdv}
+            repetir={repetir}
+            onRepetirConsumido={() => setRepetir(null)}
+            onEmitido={() => setPestania('comprobantes')}
+          />
+        ) : (
+          <div className="text-xs text-zinc-500 leading-relaxed border border-dashed border-white/[0.08] rounded-xl p-5">
+            {cargando
+              ? 'Probando la conexión con ARCA…'
+              : <>Todavía no se puede emitir: la conexión con ARCA no está lista. Mirá la
+                pestaña <strong className="text-zinc-300">Conexión</strong> para ver qué falta.</>}
+          </div>
+        )
+      )}
+
+      {pestania === 'comprobantes' && (
+        <ComprobantesList
+          entorno={entorno}
+          puntosDeVenta={pdv}
+          onRepetir={(b) => { setRepetir(b); setPestania('emitir') }}
+        />
+      )}
+
+      {pestania === 'conexion' && (
+        <div className="space-y-6">
+          <section className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-bold text-white">Diagnóstico</h2>
+              <button onClick={probar} disabled={cargando}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border bg-white/[0.03] border-white/[0.08] text-zinc-300 hover:border-zinc-600 hover:text-white transition-colors disabled:opacity-50">
+                {cargando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                Probar
+              </button>
+            </div>
+            <div className="space-y-2">
+              {ETAPAS.map((etapa, i) => {
+                const paso = idxCorte < 0 ? -1 : idxCorte
+                const ok = paso > i || estado?.etapa === 'listo'
+                const fallo = paso === i && !!estado && estado.etapa !== 'listo'
+                return (
+                  <div key={etapa.id} className="flex items-center gap-2.5 text-sm">
+                    {cargando ? <Loader2 className="w-4 h-4 text-zinc-600 animate-spin shrink-0" />
+                      : ok ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      : fallo ? <XCircle className="w-4 h-4 text-red-400 shrink-0" />
+                      : <span className="w-4 h-4 rounded-full border border-zinc-700 shrink-0" />}
+                    <span className={ok ? 'text-zinc-300' : fallo ? 'text-red-300' : 'text-zinc-600'}>
+                      {etapa.label}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+
+            {estado?.mensaje && (
+              <div className={`text-xs rounded-lg px-3 py-2.5 leading-relaxed ${
+                estado.ok ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-200'
+                          : 'bg-red-500/10 border border-red-500/30 text-red-200'
+              }`}>
+                {estado.mensaje}
+                {estado.pista && <p className="mt-1.5 text-zinc-400">{estado.pista}</p>}
               </div>
-            )
-          })}
-        </div>
+            )}
 
-        {estado?.mensaje && (
-          <div className={`text-xs rounded-lg px-3 py-2.5 leading-relaxed ${
-            estado.ok ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-200'
-                      : 'bg-red-500/10 border border-red-500/30 text-red-200'
-          }`}>
-            {estado.mensaje}
-            {estado.pista && <p className="mt-1.5 text-zinc-400">{estado.pista}</p>}
-          </div>
-        )}
+            {estado?.servidores && (
+              <p className="text-[11px] font-mono text-zinc-600">
+                servidores de ARCA · app {estado.servidores.app} · base {estado.servidores.db} · auth {estado.servidores.auth}
+              </p>
+            )}
+            {pdv.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {pdv.map((p) => (
+                  <span key={p.nro}
+                    className={`text-[11px] px-2 py-0.5 rounded-md border ${
+                      p.bloqueado ? 'border-red-500/40 text-red-300' : 'border-emerald-500/30 text-emerald-300'
+                    }`}>
+                    PV {String(p.nro).padStart(5, '0')} · {p.tipo}{p.bloqueado ? ' · bloqueado' : ''}
+                  </span>
+                ))}
+              </div>
+            )}
+          </section>
 
-        {estado?.servidores && (
-          <p className="text-[11px] font-mono text-zinc-600">
-            servidores de ARCA · app {estado.servidores.app} · base {estado.servidores.db} · auth {estado.servidores.auth}
-          </p>
-        )}
-        {estado?.puntosDeVenta && estado.puntosDeVenta.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {estado.puntosDeVenta.map((p) => (
-              <span key={p.nro}
-                className={`text-[11px] px-2 py-0.5 rounded-md border ${
-                  p.bloqueado ? 'border-red-500/40 text-red-300' : 'border-emerald-500/30 text-emerald-300'
-                }`}>
-                PV {String(p.nro).padStart(5, '0')} · {p.tipo}{p.bloqueado ? ' · bloqueado' : ''}
-              </span>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Qué falta hacer del lado del usuario. Se muestra cuando la cadena se
-          corta antes de autenticar: es información accionable, no relleno. */}
-      {estado && !estado.ok && estado.etapa && (
-        <section className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 space-y-3">
-          <h2 className="text-sm font-bold text-white">Para que esto funcione</h2>
-          <ol className="list-decimal list-inside space-y-3 text-xs text-zinc-400 leading-relaxed">
-            <li>
-              <strong className="text-zinc-200">Generar la clave privada y el pedido de certificado</strong> en
-              tu máquina. El DN tiene el formato que exige ARCA (el CUIT va en <code className="text-zinc-300">serialNumber</code>):
-              <code className="block mt-1 text-[11px] text-zinc-300 bg-black/40 rounded px-2 py-1.5 whitespace-pre-wrap break-all">
+          {/* Qué falta hacer del lado del usuario. Se muestra cuando la cadena
+              se corta: es información accionable, no relleno. */}
+          {estado && !estado.ok && estado.etapa && (
+            <section className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 space-y-3">
+              <h2 className="text-sm font-bold text-white">Para que esto funcione</h2>
+              <ol className="list-decimal list-inside space-y-3 text-xs text-zinc-400 leading-relaxed">
+                <li>
+                  <strong className="text-zinc-200">Generar la clave privada y el pedido de certificado</strong> en
+                  tu máquina. El DN tiene el formato que exige ARCA (el CUIT va en <code className="text-zinc-300">serialNumber</code>):
+                  <code className="block mt-1 text-[11px] text-zinc-300 bg-black/40 rounded px-2 py-1.5 whitespace-pre-wrap break-all">
 {`openssl genrsa -out arca-homo.key 2048
 openssl req -new -key arca-homo.key -out arca-homo.csr \\
   -subj "/C=AR/O=TU NOMBRE/CN=overseer/serialNumber=CUIT 20XXXXXXXXX"`}
-              </code>
-              <span className="block mt-1 text-zinc-500">
-                El <code className="text-zinc-400">.key</code> no se comparte con nadie, ni con ARCA: solo se sube el <code className="text-zinc-400">.csr</code>.
-              </span>
-            </li>
-            <li>
-              En <strong className="text-zinc-200">WSASS</strong> (autogestión de HOMOLOGACIÓN, distinta de
-              producción; el servicio se adhiere una vez desde el Administrador de Relaciones), dos pasos
-              con esos nombres exactos: <strong className="text-zinc-200">&quot;Nuevo Certificado&quot;</strong> —
-              pegar el <code className="text-zinc-300">.csr</code>, poner un alias y bajar el <code className="text-zinc-300">.crt</code> —
-              y después <strong className="text-zinc-200">&quot;Crear autorización a servicio&quot;</strong>, eligiendo
-              el alias y el servicio <code className="text-zinc-300">wsfe</code>. Sin ese segundo paso el
-              certificado autentica pero no puede facturar, y es el error que más cuesta encontrar.
-              <a href="https://wsass-homo.afip.gob.ar/wsass/portal/main.aspx" target="_blank" rel="noreferrer"
-                className="inline-flex items-center gap-1 ml-1 text-indigo-400 hover:text-indigo-300">
-                Abrir WSASS <ExternalLink className="w-3 h-3" />
-              </a>
-            </li>
-            <li>Habilitar al menos un <strong className="text-zinc-200">punto de venta</strong> de tipo webservice.</li>
-            <li>
-              Cargar en el servidor (Vercel → Settings → Environment Variables) y <strong className="text-zinc-200">redeployar</strong>,
-              que si no las variables nuevas no se toman:
-              <code className="block mt-1 text-[11px] text-zinc-300 bg-black/40 rounded px-2 py-1.5">
-                ARCA_CUIT · ARCA_CERT · ARCA_KEY · ARCA_ENTORNO=homologacion
-              </code>
-            </li>
-          </ol>
-          <p className="text-[11px] text-amber-300/80 flex items-start gap-1.5">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-            La clave privada no se pega nunca en un chat ni se sube al repositorio: va solo como
-            variable de entorno.
-          </p>
-        </section>
-      )}
+                  </code>
+                  <span className="block mt-1 text-zinc-500">
+                    El <code className="text-zinc-400">.key</code> no se comparte con nadie, ni con ARCA: solo se sube el <code className="text-zinc-400">.csr</code>.
+                  </span>
+                </li>
+                <li>
+                  En <strong className="text-zinc-200">WSASS</strong> (autogestión de HOMOLOGACIÓN, distinta de
+                  producción; el servicio se adhiere una vez desde el Administrador de Relaciones), dos pasos
+                  con esos nombres exactos: <strong className="text-zinc-200">&quot;Nuevo Certificado&quot;</strong> —
+                  pegar el <code className="text-zinc-300">.csr</code>, poner un alias y bajar el <code className="text-zinc-300">.crt</code> —
+                  y después <strong className="text-zinc-200">&quot;Crear autorización a servicio&quot;</strong>, eligiendo
+                  el alias y el servicio <code className="text-zinc-300">wsfe</code>. Sin ese segundo paso el
+                  certificado autentica pero no puede facturar, y es el error que más cuesta encontrar.
+                  <a href="https://wsass-homo.afip.gob.ar/wsass/portal/main.aspx" target="_blank" rel="noreferrer"
+                    className="inline-flex items-center gap-1 ml-1 text-indigo-400 hover:text-indigo-300">
+                    Abrir WSASS <ExternalLink className="w-3 h-3" />
+                  </a>
+                </li>
+                <li>Habilitar al menos un <strong className="text-zinc-200">punto de venta</strong> de tipo webservice.</li>
+                <li>
+                  Cargar en el servidor (Vercel → Settings → Environment Variables) y <strong className="text-zinc-200">redeployar</strong>,
+                  que si no las variables nuevas no se toman:
+                  <code className="block mt-1 text-[11px] text-zinc-300 bg-black/40 rounded px-2 py-1.5">
+                    ARCA_CUIT · ARCA_CERT · ARCA_KEY · ARCA_ENTORNO=homologacion
+                  </code>
+                </li>
+              </ol>
+              <p className="text-[11px] text-amber-300/80 flex items-start gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                La clave privada no se pega nunca en un chat ni se sube al repositorio: va solo como
+                variable de entorno.
+              </p>
+            </section>
+          )}
 
-      {estado?.ok && (
-        <section className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5">
-          <h2 className="text-sm font-bold text-white mb-1">Lo que sigue</h2>
-          <p className="text-xs text-zinc-400 leading-relaxed">
-            La conexión está probada. El próximo paso es el formulario para emitir la factura C y
-            el listado de comprobantes con &quot;repetir esta factura&quot;.
-          </p>
-        </section>
+          {/* El paso a producción. Está acá y no en un .md porque es la
+              pregunta que vuelve: "¿y cuándo empiezo a facturar de verdad?" */}
+          {estado?.ok && entorno === 'homologacion' && (
+            <section className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 space-y-2">
+              <h2 className="text-sm font-bold text-white">Pasar a producción</h2>
+              <p className="text-xs text-zinc-400 leading-relaxed">
+                Homologación y producción son dos entornos <strong className="text-zinc-200">separados</strong>, con
+                certificados distintos y numeración propia: nada de lo que emitas acá aparece allá, y tus
+                facturas reales de antes no aparecen acá. Para pasar: sacar el certificado de producción
+                (con clave fiscal, no por WSASS), asociarle el servicio <code className="text-zinc-300">wsfe</code>,
+                reemplazar <code className="text-zinc-300">ARCA_CERT</code> y <code className="text-zinc-300">ARCA_KEY</code>,
+                poner <code className="text-zinc-300">ARCA_ENTORNO=produccion</code>{' '}y redeployar. Después,
+                &quot;Traer de ARCA&quot; importa el historial real.
+              </p>
+            </section>
+          )}
+        </div>
       )}
     </motion.div>
   )
