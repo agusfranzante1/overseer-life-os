@@ -88,6 +88,26 @@ export async function GET() {
     })
   }
 
+  // ¿La tabla de comprobantes existe y la puede leer ESTE usuario?
+  //
+  // Se consulta con el cliente de la SESIÓN, no con el service role, a
+  // propósito: así se prueba lo mismo que va a hacer el navegador, RLS
+  // incluido. Es solo un `select ... limit 1`, no escribe nada.
+  //
+  // Importa tenerlo acá: sin la tabla se puede emitir igual (ARCA no se
+  // entera) y la factura queda con CAE y sin guardar. Mejor saberlo ANTES de
+  // emitir que descubrirlo después con el comprobante ya hecho.
+  const comp = await sb!.from('arca_comprobantes').select('id').limit(1)
+  if (comp.error) {
+    salida.comprobantes = { ok: false, error: comp.error.message }
+    return NextResponse.json({
+      ...salida, ok: false, etapa: 'comprobantes',
+      mensaje: 'Todo lo de ARCA funciona, pero los comprobantes no se pueden guardar: ' + comp.error.message,
+      pista: 'Falta correr supabase/migration_arca_comprobantes.sql en el SQL Editor de Supabase. Hasta entonces podés emitir, pero la factura no queda guardada ni sincroniza.',
+    })
+  }
+  salida.comprobantes = { ok: true }
+
   // Catálogo de condiciones de IVA del receptor (RG 5616). Que falle NO corta
   // el diagnóstico: el formulario tiene una tabla de respaldo, y quedarse sin
   // facturar porque no se pudo leer un catálogo sería peor que el problema.

@@ -47,6 +47,7 @@ const ETAPAS = [
   { id: 'servidores', label: 'ARCA responde' },
   { id: 'credencial', label: 'El certificado autentica' },
   { id: 'puntos-de-venta', label: 'Puntos de venta habilitados' },
+  { id: 'comprobantes', label: 'Los comprobantes se guardan' },
 ] as const
 
 type Pestania = 'emitir' | 'comprobantes' | 'misdatos' | 'conexion'
