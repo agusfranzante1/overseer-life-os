@@ -177,19 +177,36 @@ export function ArcaPage() {
       {estado && !estado.ok && estado.etapa && (
         <section className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5 space-y-3">
           <h2 className="text-sm font-bold text-white">Para que esto funcione</h2>
-          <ol className="list-decimal list-inside space-y-2 text-xs text-zinc-400 leading-relaxed">
+          <ol className="list-decimal list-inside space-y-3 text-xs text-zinc-400 leading-relaxed">
             <li>
-              Sacar el <strong className="text-zinc-200">certificado de HOMOLOGACIÓN</strong>, que es
-              distinto del de producción y se genera por autogestión en WSASS. Ahí mismo se asocia
-              el servicio <code className="text-zinc-300">wsfe</code> (Facturación Electrónica) al certificado.
-              <a href="https://www.afip.gob.ar/ws/WSASS/WSASShomo.aspx" target="_blank" rel="noreferrer"
+              <strong className="text-zinc-200">Generar la clave privada y el pedido de certificado</strong> en
+              tu máquina. El DN tiene el formato que exige ARCA (el CUIT va en <code className="text-zinc-300">serialNumber</code>):
+              <code className="block mt-1 text-[11px] text-zinc-300 bg-black/40 rounded px-2 py-1.5 whitespace-pre-wrap break-all">
+{`openssl genrsa -out arca-homo.key 2048
+openssl req -new -key arca-homo.key -out arca-homo.csr \\
+  -subj "/C=AR/O=TU NOMBRE/CN=overseer/serialNumber=CUIT 20XXXXXXXXX"`}
+              </code>
+              <span className="block mt-1 text-zinc-500">
+                El <code className="text-zinc-400">.key</code> no se comparte con nadie, ni con ARCA: solo se sube el <code className="text-zinc-400">.csr</code>.
+              </span>
+            </li>
+            <li>
+              En <strong className="text-zinc-200">WSASS</strong> (autogestión de HOMOLOGACIÓN, distinta de
+              producción; el servicio se adhiere una vez desde el Administrador de Relaciones), dos pasos
+              con esos nombres exactos: <strong className="text-zinc-200">&quot;Nuevo Certificado&quot;</strong> —
+              pegar el <code className="text-zinc-300">.csr</code>, poner un alias y bajar el <code className="text-zinc-300">.crt</code> —
+              y después <strong className="text-zinc-200">&quot;Crear autorización a servicio&quot;</strong>, eligiendo
+              el alias y el servicio <code className="text-zinc-300">wsfe</code>. Sin ese segundo paso el
+              certificado autentica pero no puede facturar, y es el error que más cuesta encontrar.
+              <a href="https://wsass-homo.afip.gob.ar/wsass/portal/main.aspx" target="_blank" rel="noreferrer"
                 className="inline-flex items-center gap-1 ml-1 text-indigo-400 hover:text-indigo-300">
-                WSASS <ExternalLink className="w-3 h-3" />
+                Abrir WSASS <ExternalLink className="w-3 h-3" />
               </a>
             </li>
             <li>Habilitar al menos un <strong className="text-zinc-200">punto de venta</strong> de tipo webservice.</li>
             <li>
-              Cargar en el servidor (Vercel → Settings → Environment Variables):
+              Cargar en el servidor (Vercel → Settings → Environment Variables) y <strong className="text-zinc-200">redeployar</strong>,
+              que si no las variables nuevas no se toman:
               <code className="block mt-1 text-[11px] text-zinc-300 bg-black/40 rounded px-2 py-1.5">
                 ARCA_CUIT · ARCA_CERT · ARCA_KEY · ARCA_ENTORNO=homologacion
               </code>
