@@ -1338,8 +1338,14 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
       `FECompUltimoAutorizado` → `FECAESolicitar` con `CondicionIVAReceptorId` → CAE → guardado →
       PDF. Se sabe que hubo CAE porque `imprimirFactura` no abre la ventana sin uno. **El punto de
       venta 1 funciona en homologación** aunque `FEParamGetPtosVenta` vuelva vacío.
-- [ ] **ARCA: escanear el QR** de esa factura con la cámara del celu: tiene que abrir el visor de ARCA
-      con los datos del comprobante. Es lo único del PDF que no se probó contra ARCA real.
+- [x] ~~ARCA: escanear el QR~~ — **HECHO el 2026-10-09**: el QR de la factura 00001-00000005 llevó a
+      **"Constatación de comprobantes con CAE"** de ARCA, que es el destino que define la RG 4892.
+      ARCA decodificó el payload (si `cuit`/`codAut` fueran texto daría error en vez de rutear). Que la
+      constatación diga "no existe" es ESPERADO: consulta producción y la factura es de homologación.
+- [x] **PDF comparado contra el comprobante real de ARCA** y corregido (`df3b0e3`): sin el encabezado
+      del navegador ("about:blank", fecha, "1/3" — verificado con Chrome headless contra un control con
+      el margen viejo), llenando el A4 con totales y pie abajo, CAE en un renglón, anchos de columna de
+      ARCA.
 - [ ] **ARCA: pasar a PRODUCCIÓN.** Certificado de producción (clave fiscal + Administrador de
       Relaciones, NO por WSASS), asociarle `wsfe`, cambiar `ARCA_CERT` / `ARCA_KEY` /
       `ARCA_ENTORNO=produccion`, redeploy. Después "Traer de ARCA" con el punto de venta **00001**
