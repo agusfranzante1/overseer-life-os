@@ -8,6 +8,11 @@ import { idComprobante, numerosAImportar, type ComprobanteFiscal } from '@/lib/a
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+// Cada comprobante es una llamada SOAP a ARCA, una atras de otra. Sin esto
+// la funcion corre con el limite por defecto de Vercel, y si la cortan a mitad
+// de una vuelta se pierde TODO lo de esa vuelta (se guarda al final). Las
+// vueltas son chicas (ver `max`) para que nunca se acerquen a este techo.
+export const maxDuration = 60
 
 /** POST /api/arca/importar — trae de ARCA los comprobantes ya emitidos.
  *
@@ -50,7 +55,9 @@ export async function POST(req: Request) {
 
   const puntoVenta = Number(body.puntoVenta ?? 0)
   const tipo = Number(body.tipo ?? CBTE.facturaC)
-  const max = Math.min(Math.max(1, Number(body.max ?? 40)), 100)
+  // 20 por vuelta: holgado contra el maxDuration aunque ARCA ande lento. Traer
+  // "todas" lo resuelve el cliente pidiendo vueltas hasta que no quede nada.
+  const max = Math.min(Math.max(1, Number(body.max ?? 20)), 50)
   const yaTengo = new Set<number>(
     Array.isArray(body.yaTengo) ? (body.yaTengo as unknown[]).map(Number).filter(Number.isFinite) : [],
   )
@@ -94,10 +101,16 @@ export async function POST(req: Request) {
   const ahora = new Date().toISOString()
   const comprobantes: Record<string, unknown>[] = []
   const fallos: string[] = []
+  // Los numeros que de verdad se le preguntaron a ARCA (existieran o no). El
+  // cliente los usa para no volver a pedirlos en la vuelta siguiente: sin esto
+  // un numero que no existe (anulado, hueco) se pediria en CADA vuelta y "traer
+  // todas" no terminaria nunca.
+  const consultados: number[] = []
 
   for (const n of pedir) {
     try {
       const c = await consultarComprobante(config, puntoVenta, tipo, n, almacen)
+      consultados.push(n)
       if (!c) continue                              // el número no existe: hueco o anulado
       const fiscal: ComprobanteFiscal = {
         entorno: config.entorno,
@@ -144,6 +157,7 @@ export async function POST(req: Request) {
     entorno: config.entorno,
     ultimo,
     pedidos: pedir.length,
+    consultados,
     traidos: comprobantes.length,
     restan: Math.max(0, ultimo - yaTengo.size - comprobantes.length),
     guardados,

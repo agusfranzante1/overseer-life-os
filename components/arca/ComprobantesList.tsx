@@ -87,43 +87,84 @@ export function ComprobantesList({ entorno, puntosDeVenta, cuitEmisor, onRepetir
     return [...mapa.entries()]
   }, [lista])
 
+  /**
+   * Trae TODO el historial de un punto de venta, en vueltas.
+   *
+   * Cada vuelta es un pedido chico al servidor (20 comprobantes), porque cada
+   * comprobante es una consulta a ARCA y una vuelta grande puede pasarse del
+   * tiempo que Vercel deja correr una función. Lo de "traer todas" lo resuelve
+   * este loop: se piden vueltas hasta que ARCA no tenga nada nuevo.
+   *
+   * Lo que termina el loop es que el servidor no tenga NADA que consultar —no
+   * el contador de "restan", que nunca llega a 0 si hay un número anulado o
+   * un hueco en la numeración. Los números ya preguntados (existieran o no)
+   * se acumulan en `vistos` y no se vuelven a pedir.
+   *
+   * Lo traído se guarda vuelta por vuelta: si la tercera falla, las dos
+   * primeras ya quedaron.
+   */
   const traer = async () => {
     setTrayendo(true)
     setResultado(null)
     const pv = pvImport
+    const donde = `${nombreTipo(tipoImport)} · punto de venta ${String(pv).padStart(5, '0')}`
+    const vistos = new Set<number>(numerosConocidos(todos, entorno, pv, tipoImport))
+    let traidosTotal = 0
+    let ultimo = 0
     try {
-      const r = await fetch('/api/arca/importar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          puntoVenta: pv,
-          tipo: tipoImport,
-          yaTengo: [...numerosConocidos(todos, entorno, pv, tipoImport)],
-        }),
-      })
-      const j = await r.json() as {
-        ok: boolean; error?: string; mensaje?: string
-        traidos?: number; restan?: number; ultimo?: number
-        comprobantes?: ComprobanteArca[]
+      // Tope de vueltas: 60 × 20 = 1200 comprobantes. Es un seguro contra un
+      // loop infinito, no un límite real de uso.
+      for (let vuelta = 0; vuelta < 60; vuelta++) {
+        const r = await fetch('/api/arca/importar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ puntoVenta: pv, tipo: tipoImport, yaTengo: [...vistos] }),
+        })
+        // Si Vercel corta la función devuelve HTML, no JSON: decirlo en
+        // castellano en vez de "Unexpected token <".
+        let j: {
+          ok: boolean; error?: string; mensaje?: string; fallos?: string[]
+          traidos?: number; ultimo?: number; consultados?: number[]
+          comprobantes?: ComprobanteArca[]
+        }
+        try { j = await r.json() }
+        catch {
+          throw new Error(`el servidor respondió ${r.status} sin datos (¿se cortó por tiempo?). Lo traído hasta acá quedó guardado: tocá de nuevo para seguir`)
+        }
+        if (!j.ok) {
+          setResultado((traidosTotal > 0 ? `Se trajeron ${traidosTotal} y después falló: ` : '')
+            + (j.error ?? `El servidor respondió ${r.status} sin explicar por qué.`))
+          return
+        }
+        ultimo = j.ultimo ?? ultimo
+        if (j.comprobantes && j.comprobantes.length > 0) {
+          upsertMuchos(j.comprobantes)
+          for (const c of j.comprobantes) vistos.add(c.numero)
+        }
+        for (const n of j.consultados ?? []) vistos.add(n)
+        traidosTotal += j.traidos ?? 0
+
+        if (j.fallos && j.fallos.length > 0) {
+          setResultado(`Se trajeron ${traidosTotal} de ${donde}, pero algunos fallaron: ${j.fallos.join(' · ')}`)
+          return
+        }
+        // Mensaje propio del servidor (p. ej. "no hay ningún comprobante").
+        if ((j.consultados ?? []).length === 0) {
+          if (j.mensaje && traidosTotal === 0) { setResultado(j.mensaje); return }
+          break
+        }
+        setResultado(`Trayendo de ${donde}… ${traidosTotal} hasta ahora (el último de ARCA es el nº ${ultimo}).`)
       }
-      if (!j.ok) {
-        setResultado(j.error ?? `El servidor respondió ${r.status} sin explicar por qué.`)
-        return
-      }
-      if (j.comprobantes && j.comprobantes.length > 0) upsertMuchos(j.comprobantes)
-      // Decir SIEMPRE en qué punto de venta se buscó. Un "no hay nada" sin esa
-      // referencia parece un bug, cuando casi siempre es que las facturas
-      // viejas están en otro punto de venta (el de "Comprobantes en línea").
-      const donde = `${nombreTipo(tipoImport)} · punto de venta ${String(pv).padStart(5, '0')}`
-      setResultado(j.mensaje ?? (
-        (j.traidos ?? 0) === 0
-          ? (j.ultimo ?? 0) === 0
+
+      setResultado(
+        traidosTotal === 0
+          ? ultimo === 0
             ? `No hay ningún comprobante en ${donde}. Si tus facturas viejas las hacías por la web de ARCA, están en OTRO punto de venta: probá con otro número.`
-            : `No había nada nuevo en ${donde} (el último de ARCA es el nº ${j.ultimo}).`
-          : `Se trajeron ${j.traidos} comprobantes de ${donde}.${(j.restan ?? 0) > 0 ? ` Quedan ${j.restan} más atrás: tocá de nuevo.` : ''}`
-      ))
+            : `No había nada nuevo en ${donde} (el último de ARCA es el nº ${ultimo}).`
+          : `Listo: se trajeron ${traidosTotal} comprobantes de ${donde}.`,
+      )
     } catch (e) {
-      setResultado(`No se pudo traer: ${e instanceof Error ? e.message : 'error de red'}`)
+      setResultado(`No se pudo terminar de traer: ${e instanceof Error ? e.message : 'error de red'}`)
     } finally {
       setTrayendo(false)
     }
