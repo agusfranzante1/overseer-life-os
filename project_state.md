@@ -1331,8 +1331,12 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
       `wsfe`, habilitar un punto de venta webservice y cargar `ARCA_CUIT` / `ARCA_CERT` /
       `ARCA_KEY` / `ARCA_ENTORNO=homologacion` en Vercel. La pestaña /arca tiene los pasos y
       el botón "Probar conexión" dice exactamente en qué tramo se corta.
-- [ ] **Correr `supabase/migration_arca_comprobantes.sql`** — sin esto se puede facturar, pero el
-      comprobante no se guarda en Overseer ni sincroniza entre dispositivos.
+- [x] ~~Correr `migration_arca_comprobantes.sql`~~ — **CORRIDA, confirmada el 2026-10-09** por el
+      quinto tramo del diagnóstico ("Los comprobantes se guardan" en verde, con la sesión del usuario).
+- [ ] **ARCA: emitir la primera factura C de prueba en homologación.** El diagnóstico da todo verde,
+      pero `FEParamGetPtosVenta` devolvió la lista **VACÍA**: probar con el punto de venta **1**. Si
+      ARCA lo rechaza, dar de alta un punto de venta webservice. Es lo único de ARCA que no se vio
+      funcionar todavía (pedir número → CAE → guardar → imprimir).
 - [ ] **Correr `supabase/migration_tasks_start_date.sql`** — sin esto la **fecha de inicio** de las
       tareas (vista Línea de tiempo) no sincroniza entre dispositivos. El resto del push sigue
       andando igual (se descarta esa columna sola).
