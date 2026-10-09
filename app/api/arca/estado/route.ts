@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseServer } from '@/lib/supabase/server'
-import { leerConfig, estadoServidores, obtenerTicket, puntosDeVenta } from '@/lib/arca/cliente'
+import { leerConfig, estadoServidores, obtenerTicket, puntosDeVenta, esTicketVigente } from '@/lib/arca/cliente'
+import { almacenSupabase } from '@/lib/arca/almacenTicket'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -51,10 +52,21 @@ export async function GET() {
     })
   }
 
+  const almacen = almacenSupabase(user.id, config.entorno)
   try {
-    const t = await obtenerTicket(config)
+    const t = await obtenerTicket(config, almacen)
     salida.ticketVenceEn = new Date(t.expiraEn).toISOString()
   } catch (e) {
+    // "Ya posee un TA valido" NO es un rechazo: el certificado anduvo y ARCA
+    // se niega a dar OTRO ticket porque el anterior sigue vivo. Decir
+    // "no aceptó el certificado" acá manda a rehacer un trámite que está bien.
+    if (esTicketVigente(e)) {
+      return NextResponse.json({
+        ...salida, etapa: 'credencial',
+        mensaje: 'Tu certificado funciona: ARCA dice que ya hay un ticket de acceso vigente y no entrega otro hasta que venza.',
+        pista: 'Si la tabla arca_tickets todavía no existe, el ticket no se puede guardar entre pedidos y hay que esperar a que el anterior caduque. Corré supabase/migration_arca_tickets.sql y probá de nuevo.',
+      })
+    }
     return NextResponse.json({
       ...salida, etapa: 'credencial',
       mensaje: `ARCA no aceptó el certificado: ${msg(e)}`,
@@ -63,7 +75,7 @@ export async function GET() {
   }
 
   try {
-    salida.puntosDeVenta = await puntosDeVenta(config)
+    salida.puntosDeVenta = await puntosDeVenta(config, almacen)
   } catch (e) {
     // El ticket salió: la credencial sirve. Esto suele ser que todavía no hay
     // puntos de venta habilitados para webservice, que es otra cosa.

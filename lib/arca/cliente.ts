@@ -99,19 +99,49 @@ export function firmarCms(tra: string, cert: string, key: string): string {
   return forge.util.encode64(der)
 }
 
-/** Ticket cacheado en memoria del proceso. Dura 12 h del lado de ARCA y pedir
- *  otro antes de tiempo da el error "El CEE ya posee un TA valido": no es un
- *  lujo, es parte del protocolo. */
+/** Dónde se guarda el ticket entre invocaciones. Se inyecta (en vez de que
+ *  este módulo conozca Supabase) para que el cliente siga siendo una pieza de
+ *  protocolo y no arrastre la base de datos. */
+export interface AlmacenTicket {
+  leer: () => Promise<TicketAcceso | null>
+  guardar: (t: TicketAcceso) => Promise<void>
+}
+
+/** Cache en memoria del proceso. Sirve DENTRO de una invocación; entre
+ *  invocaciones serverless no existe, y por eso hace falta el almacén. */
 const ticketCache = new Map<string, TicketAcceso>()
 
-export async function obtenerTicket(cfg: ConfigArca): Promise<TicketAcceso> {
-  const clave = `${cfg.entorno}:${cfg.cuit}`
-  const cacheado = ticketCache.get(clave)
-  // Margen de 5 min: un ticket que vence mientras viaja el pedido es un error
-  // críptico del otro lado.
-  if (cacheado && cacheado.expiraEn - Date.now() > 5 * 60_000) return cacheado
+/** Margen: un ticket que vence mientras viaja el pedido da un error críptico
+ *  del otro lado. */
+const MARGEN_MS = 5 * 60_000
 
-  const tra = buildTRA('wsfe', { now: new Date() })
+const vigente = (t: TicketAcceso | null | undefined): t is TicketAcceso =>
+  !!t && t.expiraEn - Date.now() > MARGEN_MS
+
+/**
+ * Devuelve un ticket válido, pidiendo uno nuevo solo si hace falta.
+ *
+ * El orden importa y es la lección del primer intento real contra ARCA: el
+ * WSAA **se niega a dar un ticket nuevo mientras el anterior siga vivo**
+ * ("El CEE ya posee un TA valido"). Sin un lugar donde guardarlo entre
+ * invocaciones, cada request pide otro y ARCA los rechaza todos — con el
+ * certificado funcionando perfecto.
+ */
+export async function obtenerTicket(cfg: ConfigArca, almacen?: AlmacenTicket): Promise<TicketAcceso> {
+  const clave = `${cfg.entorno}:${cfg.cuit}`
+  const enMemoria = ticketCache.get(clave)
+  if (vigente(enMemoria)) return enMemoria
+
+  if (almacen) {
+    const guardado = await almacen.leer().catch(() => null)
+    if (vigente(guardado)) {
+      ticketCache.set(clave, guardado)
+      return guardado
+    }
+  }
+
+  // 12 h es el máximo útil: con el ticket persistido, uno por medio día.
+  const tra = buildTRA('wsfe', { now: new Date(), ttlMin: 12 * 60 })
   const cms = firmarCms(tra, cfg.cert, cfg.key)
   const sobre = `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:wsaa="http://wsaa.view.sua.dvadac.desein.afip.gov">
@@ -127,7 +157,19 @@ export async function obtenerTicket(cfg: ConfigArca): Promise<TicketAcceso> {
   const inner = /<loginCmsReturn>([\s\S]*?)<\/loginCmsReturn>/.exec(xml)?.[1]
   const ticket = parseLoginTicketResponse(inner ? desescapar(inner) : xml)
   ticketCache.set(clave, ticket)
+  if (almacen) await almacen.guardar(ticket).catch(() => { /* el ticket sirve igual en esta invocación */ })
   return ticket
+}
+
+/** `true` si el error del WSAA es "ya tenés un ticket vigente".
+ *
+ *  Importa distinguirlo: significa que el certificado **anduvo** y que lo que
+ *  falta es poder reusar el ticket, no arreglar la credencial. Decirle a
+ *  alguien "ARCA no aceptó tu certificado" cuando sí lo aceptó lo manda a
+ *  rehacer un trámite que ya estaba bien. */
+export function esTicketVigente(e: unknown): boolean {
+  const m = e instanceof Error ? e.message : String(e)
+  return /ya posee un TA valido|ya posee un ticket/i.test(m)
 }
 
 function desescapar(s: string): string {
@@ -173,8 +215,8 @@ export async function estadoServidores(cfg: ConfigArca): Promise<{ app: string; 
 
 /** Último número autorizado para un punto de venta y tipo. El que sigue es
  *  este + 1: la numeración es consecutiva y ARCA rechaza cualquier salto. */
-export async function ultimoAutorizado(cfg: ConfigArca, puntoVenta: number, tipo: number): Promise<number> {
-  const t = await obtenerTicket(cfg)
+export async function ultimoAutorizado(cfg: ConfigArca, puntoVenta: number, tipo: number, almacen?: AlmacenTicket): Promise<number> {
+  const t = await obtenerTicket(cfg, almacen)
   const xml = await llamarWsfe(cfg, 'FECompUltimoAutorizado',
     `<ar:FECompUltimoAutorizado>${auth(cfg, t)}<ar:PtoVta>${puntoVenta}</ar:PtoVta><ar:CbteTipo>${tipo}</ar:CbteTipo></ar:FECompUltimoAutorizado>`)
   const errs = leerErrores(xml)
@@ -184,8 +226,8 @@ export async function ultimoAutorizado(cfg: ConfigArca, puntoVenta: number, tipo
 
 /** Los puntos de venta habilitados del CUIT. Sirve para no hacerle escribir un
  *  número que después ARCA rechaza. */
-export async function puntosDeVenta(cfg: ConfigArca): Promise<{ nro: number; tipo: string; bloqueado: boolean }[]> {
-  const t = await obtenerTicket(cfg)
+export async function puntosDeVenta(cfg: ConfigArca, almacen?: AlmacenTicket): Promise<{ nro: number; tipo: string; bloqueado: boolean }[]> {
+  const t = await obtenerTicket(cfg, almacen)
   const xml = await llamarWsfe(cfg, 'FEParamGetPtosVenta',
     `<ar:FEParamGetPtosVenta>${auth(cfg, t)}</ar:FEParamGetPtosVenta>`)
   const out: { nro: number; tipo: string; bloqueado: boolean }[] = []
@@ -211,9 +253,9 @@ function leerErrores(xml: string): string[] {
 /** Pide el CAE de un comprobante. **Esto EMITE** — una factura con CAE existe
  *  para ARCA y solo se deshace con una nota de crédito. */
 export async function solicitarCae(
-  cfg: ConfigArca, puntoVenta: number, tipo: number, det: DetalleArca,
+  cfg: ConfigArca, puntoVenta: number, tipo: number, det: DetalleArca, almacen?: AlmacenTicket,
 ): Promise<ResultadoCae> {
-  const t = await obtenerTicket(cfg)
+  const t = await obtenerTicket(cfg, almacen)
   const campos = Object.entries(det)
     .filter(([, v]) => v !== undefined)
     .map(([k, v]) => `<ar:${k}>${v}</ar:${k}>`)
