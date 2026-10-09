@@ -58,6 +58,16 @@ export function ComprobantesList({ entorno, puntosDeVenta, onRepetir }: Props) {
   const [editando, setEditando] = useState<string | null>(null)
   const [borradorNota, setBorradorNota] = useState({ descripcion: '', receptorNombre: '' })
 
+  // El punto de venta a importar se ELIGE, no se adivina. ARCA obliga a tener
+  // un punto de venta distinto para "Comprobantes en línea" (la web) y otro
+  // para webservice, y `FEParamGetPtosVenta` **solo lista los de webservice**:
+  // el punto de venta donde viven las facturas viejas no aparece en ninguna
+  // lista, así que hay que poder escribirlo. Sin esto, "traer el historial"
+  // buscaba siempre en el lugar equivocado y devolvía cero sin explicar nada.
+  const [pvImport, setPvImport] = useState<number>(
+    puntosDeVenta.filter((p) => !p.bloqueado)[0]?.nro ?? 1)
+  const [tipoImport, setTipoImport] = useState<number>(CBTE.facturaC)
+
   const lista = useMemo(() => comprobantesDe(todos, entorno), [todos, entorno])
 
   // Agrupados por mes, con su total. Un monotributista mira el mes, no el día.
@@ -75,15 +85,15 @@ export function ComprobantesList({ entorno, puntosDeVenta, onRepetir }: Props) {
   const traer = async () => {
     setTrayendo(true)
     setResultado(null)
-    const pv = puntosDeVenta.filter((p) => !p.bloqueado)[0]?.nro ?? lista[0]?.puntoVenta ?? 1
+    const pv = pvImport
     try {
       const r = await fetch('/api/arca/importar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           puntoVenta: pv,
-          tipo: CBTE.facturaC,
-          yaTengo: [...numerosConocidos(todos, entorno, pv, CBTE.facturaC)],
+          tipo: tipoImport,
+          yaTengo: [...numerosConocidos(todos, entorno, pv, tipoImport)],
         }),
       })
       const j = await r.json() as {
@@ -96,10 +106,16 @@ export function ComprobantesList({ entorno, puntosDeVenta, onRepetir }: Props) {
         return
       }
       if (j.comprobantes && j.comprobantes.length > 0) upsertMuchos(j.comprobantes)
+      // Decir SIEMPRE en qué punto de venta se buscó. Un "no hay nada" sin esa
+      // referencia parece un bug, cuando casi siempre es que las facturas
+      // viejas están en otro punto de venta (el de "Comprobantes en línea").
+      const donde = `${nombreTipo(tipoImport)} · punto de venta ${String(pv).padStart(5, '0')}`
       setResultado(j.mensaje ?? (
         (j.traidos ?? 0) === 0
-          ? `No había nada nuevo (el último de ARCA es el nº ${j.ultimo ?? 0}).`
-          : `Se trajeron ${j.traidos} comprobantes.${(j.restan ?? 0) > 0 ? ` Quedan ${j.restan} más atrás: tocá de nuevo.` : ''}`
+          ? (j.ultimo ?? 0) === 0
+            ? `No hay ningún comprobante en ${donde}. Si tus facturas viejas las hacías por la web de ARCA, están en OTRO punto de venta: probá con otro número.`
+            : `No había nada nuevo en ${donde} (el último de ARCA es el nº ${j.ultimo}).`
+          : `Se trajeron ${j.traidos} comprobantes de ${donde}.${(j.restan ?? 0) > 0 ? ` Quedan ${j.restan} más atrás: tocá de nuevo.` : ''}`
       ))
     } catch (e) {
       setResultado(`No se pudo traer: ${e instanceof Error ? e.message : 'error de red'}`)
@@ -115,11 +131,27 @@ export function ComprobantesList({ entorno, puntosDeVenta, onRepetir }: Props) {
           {lista.length === 0 ? 'Todavía no hay comprobantes.'
             : `${lista.length} comprobante${lista.length === 1 ? '' : 's'} · ${peso(lista.reduce((a, c) => a + c.importe, 0))} en total`}
         </p>
-        <button onClick={traer} disabled={trayendo}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium border bg-white/[0.03] border-white/[0.08] text-zinc-300 hover:border-zinc-600 hover:text-white transition-colors disabled:opacity-50">
-          {trayendo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <DownloadCloud className="w-3.5 h-3.5" />}
-          Traer de ARCA
-        </button>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <select value={tipoImport} onChange={(e) => setTipoImport(Number(e.target.value))}
+            title="Qué tipo de comprobante traer"
+            className="bg-black/30 border border-white/[0.08] rounded-lg px-2 py-2 text-xs text-zinc-300 focus:border-indigo-500/60 focus:outline-none">
+            <option value={CBTE.facturaC}>{nombreTipo(CBTE.facturaC)}</option>
+            <option value={CBTE.notaDebitoC}>{nombreTipo(CBTE.notaDebitoC)}</option>
+            <option value={CBTE.notaCreditoC}>{nombreTipo(CBTE.notaCreditoC)}</option>
+          </select>
+          <label className="flex items-center gap-1 text-[11px] text-zinc-600">
+            PV
+            <input type="number" min={1} value={pvImport} inputMode="numeric"
+              title="Punto de venta. Las facturas hechas por la web de ARCA usan uno DISTINTO del de webservice."
+              onChange={(e) => setPvImport(Math.max(1, Number(e.target.value) || 1))}
+              className="w-16 bg-black/30 border border-white/[0.08] rounded-lg px-2 py-2 text-xs text-zinc-300 focus:border-indigo-500/60 focus:outline-none" />
+          </label>
+          <button onClick={traer} disabled={trayendo}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium border bg-white/[0.03] border-white/[0.08] text-zinc-300 hover:border-zinc-600 hover:text-white transition-colors disabled:opacity-50">
+            {trayendo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <DownloadCloud className="w-3.5 h-3.5" />}
+            Traer de ARCA
+          </button>
+        </div>
       </div>
 
       {resultado && (
@@ -150,8 +182,13 @@ export function ComprobantesList({ entorno, puntosDeVenta, onRepetir }: Props) {
                 <li key={c.id} className="bg-white/[0.03] border border-white/[0.07] rounded-xl p-3">
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm text-white font-medium truncate">
-                        {c.descripcion || c.receptorNombre || nombreTipo(c.tipo)}
+                      {/* Una importada todavía sin anotar no tiene de qué fue
+                          (ARCA no lo guarda): se lo dice y se invita a escribirlo,
+                          en vez de repetir el tipo que ya está abajo. */}
+                      <p className={`text-sm font-medium truncate ${
+                        c.descripcion || c.receptorNombre ? 'text-white' : 'text-zinc-600 italic'
+                      }`}>
+                        {c.descripcion || c.receptorNombre || 'Sin detalle — tocá el lápiz para anotarlo'}
                       </p>
                       <p className="text-[11px] text-zinc-500 mt-0.5">
                         {nombreTipo(c.tipo)} {numeroVisible(c.puntoVenta, c.numero)} · {c.fecha}

@@ -92,6 +92,17 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
   - **NO verificado (BASE nº7):** la emisión real contra ARCA. Falta correr la migración y probar
     contra homologación con el usuario logueado. **Y las facturas reales no van a aparecer hasta
     producción**: homologación es un entorno vacío y separado.
+  - **Hueco encontrado al explicarle el feature al usuario (y arreglado):** el importador pegaba
+    siempre contra el PRIMER punto de venta de webservice. Pero ARCA obliga a tener un punto de
+    venta **distinto** para "Comprobantes en línea" (la web) y otro para webservice, y
+    `FEParamGetPtosVenta` **solo lista los de webservice** — o sea que el punto de venta donde
+    viven las facturas viejas no aparece en ninguna lista y el botón nunca las iba a encontrar,
+    devolviendo cero sin explicar nada. Ahora el **punto de venta se escribe a mano** y el tipo se
+    elige (Factura C / NC / ND), el mensaje dice SIEMPRE dónde buscó, y con cero resultados avisa
+    que probablemente estén en otro punto de venta. Si ARCA rechaza el punto de venta, la ruta lo
+    traduce en vez de pasar el código crudo. **Ojo:** por webservice solo se consultan los puntos
+    de venta habilitados para webservice; para los de la web puede seguir haciendo falta el CSV —
+    eso se confirma recién contra producción.
   - **Dos cosas encontradas corriendo la app, no compilando:** el formulario recién abierto se
     quejaba del CUIT con el campo vacío (ruido), y "Repetir" no copiaba el cliente ni el detalle —
     justo lo que uno no quiere volver a escribir cuando factura siempre lo mismo.

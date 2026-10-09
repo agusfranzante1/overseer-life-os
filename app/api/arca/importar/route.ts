@@ -64,9 +64,19 @@ export async function POST(req: Request) {
   try {
     ultimo = await ultimoAutorizado(config, puntoVenta, tipo, almacen)
   } catch (e) {
+    // El motivo más probable, y el que más desorienta: ARCA obliga a tener un
+    // punto de venta DISTINTO para "Comprobantes en línea" (la web) y para
+    // webservice, y por webservice solo se puede consultar el segundo. El
+    // error crudo de ARCA no dice nada de eso.
+    const crudo = msg(e)
+    const esPuntoDeVenta = /punto de venta|1502|602/i.test(crudo)
     return NextResponse.json({
       ok: false, etapa: 'numeracion',
-      error: `No se pudo leer el último comprobante autorizado: ${msg(e)}`,
+      error: esPuntoDeVenta
+        ? `ARCA no reconoce el punto de venta ${String(puntoVenta).padStart(5, '0')} para webservice: ${crudo}. `
+          + 'Los comprobantes hechos por la web de ARCA viven en otro punto de venta, y por webservice solo se consultan los habilitados para webservice. '
+          + 'Para esos queda el CSV de Mis Comprobantes.'
+        : `No se pudo leer el último comprobante autorizado: ${crudo}`,
     }, { status: 502 })
   }
 
