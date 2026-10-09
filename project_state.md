@@ -5,7 +5,7 @@
 > El método de trabajo está en [`instructions.md`](instructions.md); las reglas
 > técnicas no negociables en [`AGENTS.md`](AGENTS.md).
 
-**Última actualización:** 2026-10-08 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
+**Última actualización:** 2026-10-09 · **Roadmap:** 7 etapas. **Etapas 1–6 COMPLETAS.** **Etapa 7 (Dashboard) DESCARTADA por decisión del usuario** (no quiso cambios). Roadmap cerrado. Extra post-roadmap: **Tareas favoritas** (⭐).
 
 ✅ **Bridge con Claude EN FUNCIONAMIENTO** (2026-08-29): migraciones corridas, deployado y
 verificado contra la cuenta real — token "pc franzix" resuelve, `list_projects` devuelve los 6
@@ -46,6 +46,61 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 ---
 
 ## ✅ Hecho recientemente
+
+- [x] **Sección ARCA — facturación propia (monotributo, factura C). Etapa 1: el protocolo**
+  (2026-10-09). Pedido: *"un HUB de dinero / CRM de facturación mío, separado de NQN Survey, para
+  facturar más rápido, traer las últimas facturas y repetir las que siempre hago"*.
+  - **Barrido de los 30+ proyectos primero (lo pidió):** NO existe ningún generador de facturas.
+    Lo que sí hay es **`cuenca/src/lib/arca.ts`** — un lector maduro del CSV de *Mis Comprobantes*,
+    con sinónimos de columnas (ARCA cambió el formato varias veces) y suma de IVA por alícuota:
+    reutilizable casi tal cual cuando toque importar. Y cuenca tiene escrita la decisión contraria:
+    *"No se emiten facturas contra ARCA. Se registran; el CAE se carga a mano"* — vale la pena
+    saberlo antes de romperla, acá se rompe a propósito y para el CUIT personal, no el de la S.R.L.
+  - **Dato duro que cambia expectativas:** ARCA **no tiene API para listar "mis últimas facturas"**.
+    Los webservices solo devuelven lo que vos mismo emitiste **por webservice**
+    (`FECompConsultar`/`FECompUltimoAutorizado`). Si se sigue emitiendo por la web de ARCA, la única
+    vía estable es exportar el CSV e importarlo. No hay tercera.
+  - **Decisiones del usuario:** monotributo (factura C) · arrancar **directo en homologación** ·
+    sobre el certificado dijo *"creo que sí"* → sin verificar, y para homologación hace falta uno
+    **distinto** del de producción (autogestión WSASS).
+  - **Lo construido (etapa 1 — el protocolo, que es lo que no se improvisa):**
+    - `lib/arca/tra.ts` — el Ticket de Requerimiento de Acceso del WSAA. Las tres trampas que
+      cuestan una tarde: `generationTime` **hacia atrás** (reloj desincronizado), ventana ≤ 24 h, y
+      fechas ISO **con offset explícito**, nunca `Z`. Más el parseo de la respuesta, que ante un
+      fault devuelve el texto de ARCA en vez de fallar mudo (BASE nº6).
+    - `lib/arca/facturaC.ts` — armado y **validación previa** del pedido de CAE. Lo propio de la C:
+      `ImpTotal = ImpNeto`, IVA y demás conceptos en 0, y **no se manda el array `Iva`** (rechazo
+      clásico). Valida antes de gastar un número de comprobante: CUIT con **dígito verificador**,
+      dos decimales, fechas de servicio obligatorias si el concepto las incluye, y la ventana de
+      ±5 días (productos) / ±10 (servicios).
+    - `lib/arca/cliente.ts` (**server-only**, toca la clave privada): firma CMS/PKCS#7 con
+      `node-forge`, login contra WSAA con **cache del ticket** (dura 12 h; pedir otro antes da "El
+      CEE ya posee un TA valido"), y WSFEv1 a mano — `FEDummy`, `FECompUltimoAutorizado`,
+      `FEParamGetPtosVenta`, `FECAESolicitar`. SOAP a mano por el mismo criterio que el servidor MCP.
+    - `GET /api/arca/estado` + pestaña `/arca`: diagnóstico en **cuatro tramos separados**
+      (config → ARCA responde → el certificado autentica → puntos de venta). Importa separarlos:
+      los cuatro se ven igual desde afuera ("no puedo facturar") y solo el tercero significa que el
+      certificado está mal. `FEDummy` no pide auth, así que distingue "ARCA caído" de "mi
+      certificado no sirve". **No emite nada: es solo lectura.**
+  - **Credenciales:** `ARCA_CUIT` / `ARCA_CERT` / `ARCA_KEY` / `ARCA_ENTORNO` como env vars (acepta
+    PEM o PEM en base64). **La clave privada nunca en el repo ni en el chat.** El banner de la
+    pantalla dice en rojo cuando el entorno es producción: lo que se emite ahí vale fiscalmente.
+  - **Dependencia nueva: `node-forge`** (firma CMS). Su aviso de seguridad conocido es sobre la
+    *verificación* de firmas PKCS#1 v1.5 — acá solo se firma con la clave propia y no se verifica
+    nada de terceros, así que no aplica. Anotado en el código.
+  - **Sin migración** (todavía no se guardan comprobantes: eso es la etapa 2).
+  - **Verificado:** `lib/arca/facturaC.test.ts` **51/51** — el validador encontró que los CUIT de
+    prueba que yo había inventado no cerraban el verificador (el código tenía razón, los datos no).
+    Corriendo la app: la pestaña aparece **debajo de Billetera** simulando una cuenta existente con
+    `hiddenNavKeys` viejo (BASE nº4), el diagnóstico renderiza los 4 tramos, y con sesión vencida
+    dice *"Tu sesión venció o no estás logueado"* en vez de quedar en gris sin explicar — eso
+    faltaba y se arregló al verlo. `tsc` + `next build` OK (`/arca` y la ruta compiladas).
+  - **NO verificado, y depende del usuario:** nada contra ARCA de verdad. Hace falta el certificado
+    de homologación + el servicio `wsfe` asociado + un punto de venta webservice. La pantalla lista
+    esos pasos con el link a WSASS.
+  - **Etapa 2 (lo que sigue):** formulario de emisión de factura C, guardado de los comprobantes
+    (dominio sincronizado + migración), "repetir esta factura" e importación del CSV de Mis
+    Comprobantes reusando el lector de cuenca.
 
 - [x] **Vista LÍNEA DE TIEMPO (Gantt) en Tareas — barras que cruzan días**
   (2026-10-08). El usuario aclaró que lo que quería no era el Pipeline sino *"una línea del tiempo,
@@ -1112,6 +1167,10 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
 
 ### ⚠️ Pendientes del usuario (Claude no puede hacerlos)
 
+- [ ] **ARCA — sacar el certificado de HOMOLOGACIóN** (autogestión WSASS), asociarle el servicio
+      `wsfe`, habilitar un punto de venta webservice y cargar `ARCA_CUIT` / `ARCA_CERT` /
+      `ARCA_KEY` / `ARCA_ENTORNO=homologacion` en Vercel. La pestaña /arca tiene los pasos y
+      el botón "Probar conexión" dice exactamente en qué tramo se corta.
 - [ ] **Correr `supabase/migration_tasks_start_date.sql`** — sin esto la **fecha de inicio** de las
       tareas (vista Línea de tiempo) no sincroniza entre dispositivos. El resto del push sigue
       andando igual (se descarta esa columna sola).

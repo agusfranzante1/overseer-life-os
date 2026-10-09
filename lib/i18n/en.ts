@@ -16,6 +16,7 @@ export const en: Record<string, any> = {
     calendar: 'Calendar',
     tasks: 'Task Tracker',
     money: 'Wallet',
+    arca: 'ARCA',
     trading: 'Trading',
     health: 'Health',
     habits: 'Habits',

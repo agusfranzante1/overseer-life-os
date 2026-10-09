@@ -17,6 +17,7 @@ export const es: Translations = {
     calendar: 'Calendario',
     tasks: 'Tareas',
     money: 'Billetera',
+    arca: 'ARCA',
     trading: 'Trading',
     health: 'Salud',
     habits: 'Hábitos',
