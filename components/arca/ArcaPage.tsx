@@ -219,10 +219,14 @@ export function ArcaPage() {
               })}
             </div>
 
+            {/* Una pista SOBRE una corrida exitosa significa "funciona, pero
+                hay algo que mirar". En verde se lee como que está todo bien
+                y nadie la lee: va en ámbar. */}
             {estado?.mensaje && (
               <div className={`text-xs rounded-lg px-3 py-2.5 leading-relaxed ${
-                estado.ok ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-200'
-                          : 'bg-red-500/10 border border-red-500/30 text-red-200'
+                !estado.ok ? 'bg-red-500/10 border border-red-500/30 text-red-200'
+                  : estado.pista ? 'bg-amber-500/10 border border-amber-500/30 text-amber-200'
+                  : 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-200'
               }`}>
                 {estado.mensaje}
                 {estado.pista && <p className="mt-1.5 text-zinc-400">{estado.pista}</p>}
@@ -232,6 +236,11 @@ export function ArcaPage() {
             {estado?.servidores && (
               <p className="text-[11px] font-mono text-zinc-600">
                 servidores de ARCA · app {estado.servidores.app} · base {estado.servidores.db} · auth {estado.servidores.auth}
+              </p>
+            )}
+            {estado?.ok && pdv.length === 0 && (
+              <p className="text-[11px] text-amber-400/80 pt-1">
+                ARCA no devolvió ningún punto de venta habilitado para webservice.
               </p>
             )}
             {pdv.length > 0 && (

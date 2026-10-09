@@ -115,6 +115,20 @@ export async function GET() {
     salida.condicionesIva = await condicionesIvaReceptor(config, 'C', almacen)
   } catch { /* la pantalla usa CONDICIONES_IVA_C */ }
 
+  // Una lista VACÍA de puntos de venta no es un error de ARCA, pero decir
+  // "todo listo" cuando no hay ninguno es mentir (BASE nº6): el push del
+  // número de comprobante va a fallar y el usuario no va a saber por qué.
+  // No se marca en rojo porque en homologación se suele poder emitir igual
+  // con el punto de venta 1 — se avisa y que lo pruebe.
+  const sinPuntos = Array.isArray(salida.puntosDeVenta) && salida.puntosDeVenta.length === 0
+  if (sinPuntos) {
+    return NextResponse.json({
+      ...salida, ok: true, etapa: 'listo',
+      mensaje: 'Autenticó bien y los comprobantes se pueden guardar, pero ARCA no devolvió NINGÚN punto de venta habilitado para webservice.',
+      pista: 'En homologación se suele poder emitir igual usando el punto de venta 1: probá emitir y fijate si ARCA lo acepta. Si lo rechaza, hay que dar de alta un punto de venta de tipo webservice en el portal de ARCA.',
+    })
+  }
+
   return NextResponse.json({ ...salida, ok: true, etapa: 'listo', mensaje: 'Todo listo para facturar.' })
 }
 
