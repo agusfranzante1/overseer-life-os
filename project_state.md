@@ -1346,11 +1346,16 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
       del navegador ("about:blank", fecha, "1/3" — verificado con Chrome headless contra un control con
       el margen viejo), llenando el A4 con totales y pie abajo, CAE en un renglón, anchos de columna de
       ARCA.
-- [ ] **ARCA: pasar a PRODUCCIÓN.** Certificado de producción (clave fiscal + Administrador de
-      Relaciones, NO por WSASS), asociarle `wsfe`, cambiar `ARCA_CERT` / `ARCA_KEY` /
-      `ARCA_ENTORNO=produccion`, redeploy. Después "Traer de ARCA" con el punto de venta **00001**
-      (el de "Comprobantes en línea", va por el nº 135) para ver si responde por webservice o si
-      esas facturas viejas van por el CSV de Mis Comprobantes.
+- [x] **ARCA en PRODUCCIÓN — configurado el 2026-10-09.** Certificado nuevo alias **`overseer`**
+      (emisor "Computadores" de AFIP, **vence 08/10/2028**; clave y .crt en `C:\Users\agusf\arca-certs\`,
+      fuera del repo). Relación con Facturación Electrónica hecha (comprobante `BL8752335747122`).
+      **Punto de venta 2** = Web Services, es el de Overseer. Variables de Vercel cambiadas + redeploy.
+      Ojo: ya existía otro certificado (**`facturacionweb`**) y otro PV de webservice (**10**), de algún
+      sistema anterior — **no se tocaron**; sin su clave privada ese certificado no se puede usar.
+- [ ] **ARCA: traer el historial real.** "Traer de ARCA" (ahora trae todo en un click, en vueltas de
+      20) con el PV **1** ("Factura en Línea", va por el nº 135) y después el **10**. Lo que no se sabe:
+      si el PV 1 responde por webservice o si esas facturas van por el CSV de Mis Comprobantes.
+      **Primera emisión real en producción todavía NO hecha** (el usuario no quiso emitir todavía).
 - [ ] **Correr `supabase/migration_tasks_start_date.sql`** — sin esto la **fecha de inicio** de las
       tareas (vista Línea de tiempo) no sincroniza entre dispositivos. El resto del push sigue
       andando igual (se descarta esa columna sola).
