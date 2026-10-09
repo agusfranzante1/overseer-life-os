@@ -1333,10 +1333,18 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
       el botón "Probar conexión" dice exactamente en qué tramo se corta.
 - [x] ~~Correr `migration_arca_comprobantes.sql`~~ — **CORRIDA, confirmada el 2026-10-09** por el
       quinto tramo del diagnóstico ("Los comprobantes se guardan" en verde, con la sesión del usuario).
-- [ ] **ARCA: emitir la primera factura C de prueba en homologación.** El diagnóstico da todo verde,
-      pero `FEParamGetPtosVenta` devolvió la lista **VACÍA**: probar con el punto de venta **1**. Si
-      ARCA lo rechaza, dar de alta un punto de venta webservice. Es lo único de ARCA que no se vio
-      funcionar todavía (pedir número → CAE → guardar → imprimir).
+- [x] ~~ARCA: emitir la primera factura C de prueba en homologación~~ — **HECHO el 2026-10-09** (lo
+      reportó el usuario: emitió y la imprimió). La cadena entera anduvo contra ARCA real: WSAA →
+      `FECompUltimoAutorizado` → `FECAESolicitar` con `CondicionIVAReceptorId` → CAE → guardado →
+      PDF. Se sabe que hubo CAE porque `imprimirFactura` no abre la ventana sin uno. **El punto de
+      venta 1 funciona en homologación** aunque `FEParamGetPtosVenta` vuelva vacío.
+- [ ] **ARCA: escanear el QR** de esa factura con la cámara del celu: tiene que abrir el visor de ARCA
+      con los datos del comprobante. Es lo único del PDF que no se probó contra ARCA real.
+- [ ] **ARCA: pasar a PRODUCCIÓN.** Certificado de producción (clave fiscal + Administrador de
+      Relaciones, NO por WSASS), asociarle `wsfe`, cambiar `ARCA_CERT` / `ARCA_KEY` /
+      `ARCA_ENTORNO=produccion`, redeploy. Después "Traer de ARCA" con el punto de venta **00001**
+      (el de "Comprobantes en línea", va por el nº 135) para ver si responde por webservice o si
+      esas facturas viejas van por el CSV de Mis Comprobantes.
 - [ ] **Correr `supabase/migration_tasks_start_date.sql`** — sin esto la **fecha de inicio** de las
       tareas (vista Línea de tiempo) no sincroniza entre dispositivos. El resto del push sigue
       andando igual (se descarta esa columna sola).
