@@ -133,6 +133,56 @@ export function mesesEntre(a: string, b: string): number {
   return (by * 12 + bm) - (ay * 12 + am)
 }
 
+const MESES = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+]
+/** "setiembre" sin la P es válido y se usa mucho acá. */
+const ALIAS_MES: Record<string, number> = { setiembre: 8 }
+
+const INDICE_MES: Record<string, number> = {
+  ...Object.fromEntries(MESES.map((m, i) => [m, i])),
+  ...ALIAS_MES,
+}
+
+/** Escribe un mes con la MISMA capitalización que tenía el original, para no
+ *  romper el estilo del texto del usuario ("Septiembre" → "Octubre"). */
+function conMismoEstilo(original: string, nuevo: string): string {
+  if (original === original.toUpperCase()) return nuevo.toUpperCase()
+  if (original[0] === original[0].toUpperCase()) return nuevo[0].toUpperCase() + nuevo.slice(1)
+  return nuevo
+}
+
+/**
+ * Corre los meses que aparezcan ESCRITOS en un texto.
+ *
+ * Existe por un caso muy concreto: el concepto de una factura de abono suele
+ * decir "Servicio de asesoramiento prestado en el mes de Septiembre de 2026".
+ * Al repetir la factura en octubre, el período de servicio se corre solo (ver
+ * `repetirBorrador`) pero el TEXTO no — y ese texto es el que lee el cliente.
+ * Mandar una factura de octubre que dice septiembre no es un detalle de
+ * interfaz: es el comprobante equivocado.
+ *
+ * Si el mes viene seguido de un año ("Diciembre de 2026"), el año se corre
+ * también cuando corresponde. Un texto sin ningún mes vuelve intacto.
+ */
+export function correrMesEnTexto(texto: string, meses: number): string {
+  if (!texto || meses === 0) return texto
+  const nombres = [...MESES, ...Object.keys(ALIAS_MES)].join('|')
+  const re = new RegExp(`\\b(${nombres})\\b(\\s+(?:de\\s+|del\\s+)?(\\d{4})\\b)?`, 'gi')
+  return texto.replace(re, (_todo, mes: string, colaAnio: string | undefined, anio: string | undefined) => {
+    const idx = INDICE_MES[mes.toLowerCase()]
+    if (idx === undefined) return _todo
+    const total = idx + meses
+    const nuevoIdx = ((total % 12) + 12) % 12
+    const saltoDeAnio = Math.floor(total / 12)
+    const mesNuevo = conMismoEstilo(mes, MESES[nuevoIdx])
+    if (!colaAnio || !anio) return mesNuevo
+    const anioNuevo = Number(anio) + saltoDeAnio
+    return mesNuevo + colaAnio.replace(anio, String(anioNuevo))
+  })
+}
+
 function sumarDias(ymd: string, dias: number): string {
   const [y, m, d] = partes(ymd)
   const t = new Date(y, m - 1, d + dias)
@@ -208,6 +258,10 @@ export function repetirBorrador(
   const offsetVto = c.vencimientoPago ? diasEntre(c.servicioHasta, c.vencimientoPago) : 0
   return {
     ...base,
+    // El concepto suele nombrar el mes ("…prestado en el mes de Septiembre de
+    // 2026"). Si el período se corre y el texto no, el cliente recibe una
+    // factura de octubre que dice septiembre.
+    descripcion: c.descripcion ? correrMesEnTexto(c.descripcion, meses) : undefined,
     servicioDesde: desde,
     servicioHasta: hasta,
     vencimientoPago: c.vencimientoPago ? sumarDias(hasta, offsetVto) : undefined,

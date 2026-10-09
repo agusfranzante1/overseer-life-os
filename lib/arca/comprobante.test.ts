@@ -1,6 +1,6 @@
 /** npx tsx lib/arca/comprobante.test.ts */
 import {
-  idComprobante, nombreTipo, numeroVisible, proximoNumero, numerosAImportar,
+  idComprobante, nombreTipo, numeroVisible, proximoNumero, numerosAImportar, correrMesEnTexto,
   correrMeses, mesesEntre, repetirBorrador, type ComprobanteFiscal,
 } from './comprobante'
 
@@ -106,6 +106,49 @@ console.log('\n6) Repetir una factura')
   // Sin vencimiento de pago original no se inventa uno.
   const r = repetirBorrador(fiscal({ vencimientoPago: undefined }), '2026-10-09')
   check('sin vencimiento original, sigue sin vencimiento', r.vencimientoPago === undefined)
+}
+
+console.log('\n6b) El mes ESCRITO en el concepto se corre con el período')
+check('el caso real: septiembre → octubre',
+  correrMesEnTexto('Servicio de asesoramiento prestado en el mes de Septiembre de 2026', 1)
+    === 'Servicio de asesoramiento prestado en el mes de Octubre de 2026')
+check('respeta la minúscula', correrMesEnTexto('abono de septiembre', 1) === 'abono de octubre')
+check('respeta las MAYÚSCULAS', correrMesEnTexto('ABONO DE SEPTIEMBRE', 1) === 'ABONO DE OCTUBRE')
+check('"setiembre" sin P también se reconoce',
+  correrMesEnTexto('mes de setiembre', 1) === 'mes de octubre')
+check('diciembre → enero y el año sube',
+  correrMesEnTexto('Servicios de Diciembre de 2026', 1) === 'Servicios de Enero de 2027')
+check('diciembre sin año no inventa un año',
+  correrMesEnTexto('Servicios de Diciembre', 1) === 'Servicios de Enero')
+check('tres meses de salto', correrMesEnTexto('mes de julio de 2026', 3) === 'mes de octubre de 2026')
+check('un texto SIN mes vuelve igual',
+  correrMesEnTexto('Diseño de identidad visual', 1) === 'Diseño de identidad visual')
+check('correr 0 meses no toca nada',
+  correrMesEnTexto('mes de Septiembre de 2026', 0) === 'mes de Septiembre de 2026')
+check('un rango con dos meses se corre entero',
+  correrMesEnTexto('Servicios de enero a marzo', 1) === 'Servicios de febrero a abril')
+check('no se come una palabra que CONTIENE un mes',
+  correrMesEnTexto('Enerodinamica SRL', 1) === 'Enerodinamica SRL')
+check('texto vacío no rompe', correrMesEnTexto('', 1) === '')
+check('hacia atrás también', correrMesEnTexto('mes de Marzo de 2026', -3) === 'mes de Diciembre de 2025')
+{
+  // El caso completo, por el camino real: repetir en octubre una factura de
+  // septiembre tiene que mover el texto Y el período juntos.
+  const r = repetirBorrador({
+    ...fiscal(), descripcion: 'Servicio de asesoramiento prestado en el mes de Septiembre de 2026',
+  }, '2026-10-09')
+  check('el concepto repetido dice octubre',
+    r.descripcion === 'Servicio de asesoramiento prestado en el mes de Octubre de 2026')
+  check('y el período lo acompaña', r.servicioDesde === '2026-10-01' && r.servicioHasta === '2026-10-31')
+}
+{
+  // Repetir dentro del MISMO mes no toca el texto (si no, septiembre pasaría
+  // a octubre estando en septiembre).
+  const r = repetirBorrador({
+    ...fiscal(), fecha: '2026-10-01', servicioDesde: '2026-10-01', servicioHasta: '2026-10-31',
+    descripcion: 'Abono de Octubre de 2026',
+  }, '2026-10-09')
+  check('mismo mes → el texto queda igual', r.descripcion === 'Abono de Octubre de 2026')
 }
 
 console.log('\n7) Repetir también repite lo NUESTRO')

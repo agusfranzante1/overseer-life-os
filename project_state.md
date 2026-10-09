@@ -47,6 +47,34 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **"Concepto": dos campos que se llamaban igual, y el mes que no se corría al repetir**
+  (2026-10-09, preguntó: *"en concepto desde ARCA yo tenía que escribir un concepto y nosotros no
+  lo tenemos"* y después *"dice qué facturás pero entre paréntesis SOLO ACÁ, eso me confunde,
+  ¿no se envía ese campo?"*).
+  - **Eran dos cosas distintas con el mismo nombre.** El select Productos/Servicios/Ambos es el
+    campo FISCAL (decide si hacen falta las fechas de servicio); el texto que él escribe
+    ("Servicio de asesoramiento prestado en el mes de X de 2026") es otra cosa. Ahora se llaman
+    como en la web de ARCA para no chocar: **"Conceptos a incluir"** el fiscal, **"Concepto (qué
+    estás facturando)"** el texto.
+  - **Respuesta a "¿no se envía?": NO, y no es decisión nuestra.** El WSFEv1 no tiene ningún campo
+    para el detalle de lo que vendés — solo recibe importes totales. Por la web de ARCA ese texto
+    tampoco se registraba: se imprimía en el PDF que ARCA generaba. El "(solo acá)" sonaba a
+    capricho nuestro; ahora la aclaración dice el porqué.
+  - **El mes escrito en el concepto ahora se corre al repetir** (`correrMesEnTexto`, puro). Era un
+    error real esperando: el período de servicio se corría solo pero el texto no, así que repetir
+    en octubre la factura de septiembre le mandaba al cliente una factura de octubre que **decía
+    septiembre**. Respeta mayúsculas, entiende "setiembre", sube el año en diciembre→enero, no
+    toca un texto sin meses y no se come palabras que contienen un mes ("Enerodinamica").
+  - **Sin migración.** Tests: `comprobante` **67/67** (16 nuevos), `facturaC` 69/69, `arcaStore`
+    19/19. Verificado corriendo la app con una factura de septiembre sembrada: repetirla en
+    octubre deja el concepto en "…mes de Octubre de 2026", período 01→31/10 y el vencimiento
+    conservando sus 10 días.
+  - **⚠️ HUECO ABIERTO, y es el que importa: no generamos el PDF.** Facturando por la web, ARCA te
+    daba el PDF para mandarle al cliente. Por webservice obtenés el CAE y nada más: el comprobante
+    que recibe el cliente —con el concepto, el CAE, su vencimiento y el **QR obligatorio de la
+    RG 4892**— lo tenemos que emitir nosotros. Hoy el CAE queda guardado y no hay qué enviar.
+
+
 - [x] **ARCA rechazaba con 10246: faltaba la condición de IVA del receptor (RG 5616)** (2026-10-09,
   error real al intentar emitir la primera factura de prueba). Desde 2025 ARCA exige declarar la
   **condición frente al IVA de QUIEN RECIBE** la factura; sin ese campo rechaza el comprobante
@@ -1280,7 +1308,9 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
 
 ### 💤 Abierto / a decidir
 
-- (vacío por ahora — agregar acá lo que vaya surgiendo)
+- **El PDF de la factura (con QR de la RG 4892).** Por webservice ARCA ya no genera el
+  comprobante: da el CAE y listo. Sin PDF hay factura válida pero nada que mandarle al
+  cliente. Decidido con el usuario cuándo encararlo (antes o después de pasar a producción).
 
 ---
 

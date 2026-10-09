@@ -259,22 +259,29 @@ export function FacturarForm({ entorno, puntosDeVenta, condicionesIva, repetir, 
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label className={label}>Nombre del cliente <span className="text-zinc-700">(solo acá)</span></label>
+          <label className={label}>Nombre del cliente</label>
           <input className={campo} placeholder="Estudio Pérez" value={receptorNombre}
             onChange={(e) => setReceptorNombre(e.target.value)} />
         </div>
         <div>
-          <label className={label}>Qué facturás <span className="text-zinc-700">(solo acá)</span></label>
-          <input className={campo} list="arca-descripciones" placeholder="Servicios de marketing"
+          <label className={label}>Concepto <span className="text-zinc-700">(qué estás facturando)</span></label>
+          <input className={campo} list="arca-descripciones"
+            placeholder="Servicio de asesoramiento prestado en el mes de…"
             value={descripcion} onChange={(e) => setDescripcion(e.target.value)} />
           <datalist id="arca-descripciones">
             {sugerencias.map((d) => <option key={d} value={d} />)}
           </datalist>
         </div>
       </div>
-      <p className="text-[11px] text-zinc-600 -mt-2">
-        El nombre y el detalle no viajan a ARCA (la factura C no los lleva): quedan acá para que
-        después puedas reconocer la factura entre una lista de importes.
+      {/* Esto confundía: "(solo acá)" sonaba a que nos lo guardábamos por
+          capricho. La verdad es que el webservice de ARCA NO tiene ningún campo
+          para el detalle de lo que vendés — solo recibe importes totales. Por
+          la web de ARCA ese texto tampoco se registraba: se imprimía en el PDF
+          que ARCA te generaba. Por webservice ese PDF lo emitimos nosotros. */}
+      <p className="text-[11px] text-zinc-600 -mt-2 leading-relaxed">
+        El concepto y el nombre del cliente <strong className="text-zinc-500">no se le mandan a ARCA</strong>:
+        el webservice solo recibe importes, nunca el detalle de lo que vendés (por la web de ARCA
+        tampoco se registraba — se imprimía en el PDF). Van a la factura que recibe tu cliente.
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -291,7 +298,10 @@ export function FacturarForm({ entorno, puntosDeVenta, condicionesIva, repetir, 
           <input type="date" className={campo} value={fecha} onChange={(e) => setFecha(e.target.value)} />
         </div>
         <div>
-          <label className={label}>Concepto</label>
+          {/* Se llama como en la web de ARCA justamente para NO confundirlo
+              con el concepto de arriba (el texto que lee el cliente). Este es
+              el campo fiscal: decide si hacen falta las fechas de servicio. */}
+          <label className={label}>Conceptos a incluir</label>
           <select className={campo} value={concepto} onChange={(e) => setConcepto(Number(e.target.value))}>
             <option value={CONCEPTO.productos}>Productos</option>
             <option value={CONCEPTO.servicios}>Servicios</option>
