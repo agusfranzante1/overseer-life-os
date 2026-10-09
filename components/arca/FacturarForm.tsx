@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Loader2, Send, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { useAppStore } from '@/lib/store/appStore'
-import { useArcaStore, descripcionesUsadas, type ComprobanteArca } from '@/lib/store/arcaStore'
+import { useArcaStore, descripcionesUsadas, puntoVentaSugerido, type ComprobanteArca } from '@/lib/store/arcaStore'
 import {
   CBTE, CONCEPTO, DOC, CONDICIONES_IVA_C, condicionIvaPorDefecto, cuitValido, validarFacturaC,
   type BorradorFacturaC,
@@ -59,9 +59,12 @@ export function FacturarForm({ entorno, puntosDeVenta, condicionesIva, repetir, 
 
   const hoy = hoyLocal(timezone)
   const mes = mesDe(hoy)
-  const habilitados = puntosDeVenta.filter((p) => !p.bloqueado)
+  // Ordenados por número: ARCA no garantiza el orden, y el desplegable no puede
+  // cambiar de un día para el otro.
+  const habilitados = puntosDeVenta.filter((p) => !p.bloqueado).sort((a, b) => a.nro - b.nro)
+  const sugerido = puntoVentaSugerido(comprobantes, entorno, habilitados.map((p) => p.nro))
 
-  const [puntoVenta, setPuntoVenta] = useState<number>(habilitados[0]?.nro ?? 1)
+  const [puntoVenta, setPuntoVenta] = useState<number>(sugerido ?? 1)
   const [tipo, setTipo] = useState<number>(CBTE.facturaC)
   const [concepto, setConcepto] = useState<number>(CONCEPTO.servicios)
   const [docTipo, setDocTipo] = useState<number>(DOC.cuit)
@@ -86,8 +89,8 @@ export function FacturarForm({ entorno, puntosDeVenta, condicionesIva, repetir, 
   // Cuando llega un punto de venta real del diagnóstico, adoptarlo: hacerle
   // escribir un número que ARCA va a rechazar no tiene sentido.
   useEffect(() => {
-    if (habilitados.length > 0 && !habilitados.some((p) => p.nro === puntoVenta)) {
-      setPuntoVenta(habilitados[0].nro)
+    if (sugerido !== undefined && !habilitados.some((p) => p.nro === puntoVenta)) {
+      setPuntoVenta(sugerido)
     }
   }, [habilitados.map((p) => p.nro).join(','), puntoVenta]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -97,7 +100,12 @@ export function FacturarForm({ entorno, puntosDeVenta, condicionesIva, repetir, 
     if (!repetir) return
     setPuntoVenta(repetir.puntoVenta)
     setTipo(repetir.tipo)
-    setConcepto(repetir.concepto)
+    // Las importadas del CSV de Mis Comprobantes no traen el concepto (va en 0
+    // = "no se sabe"). Pisar el formulario con 0 mandaría un concepto inválido
+    // a ARCA: se deja el que ya estaba elegido.
+    if ([CONCEPTO.productos, CONCEPTO.servicios, CONCEPTO.ambos].includes(repetir.concepto as 1 | 2 | 3)) {
+      setConcepto(repetir.concepto)
+    }
     setDocTipo(repetir.docTipo)
     setDocNro(repetir.docNro === '0' ? '' : repetir.docNro)
     if (repetir.condicionIvaReceptor) setCondIva(repetir.condicionIvaReceptor)

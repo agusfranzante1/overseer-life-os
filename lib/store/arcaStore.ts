@@ -164,3 +164,26 @@ export function descripcionesUsadas(cs: ComprobanteArca[], entorno: EntornoArca)
   }
   return out
 }
+
+/**
+ * El punto de venta que el formulario propone para emitir.
+ *
+ * Una cuenta puede tener varios de webservice (el usuario tiene el 2, el de
+ * Overseer, y el 10, de un sistema anterior). Emitir por el equivocado no lo
+ * rechaza ARCA —cada punto de venta numera por su cuenta— pero le corre la
+ * numeración al otro sistema. Así que no se propone "el primero que devolvió
+ * ARCA", cuyo orden nadie garantiza:
+ *   1. el del último comprobante EMITIDO DESDE ACÁ en este entorno, si sigue
+ *      habilitado (lo que usaste es lo que vas a volver a usar);
+ *   2. si no hay historial, el de número más bajo.
+ * Los importados no cuentan: un PV de "Factura en Línea" no sirve para emitir.
+ */
+export function puntoVentaSugerido(
+  cs: ComprobanteArca[], entorno: EntornoArca, habilitados: number[],
+): number | undefined {
+  if (habilitados.length === 0) return undefined
+  const ultimo = cs
+    .filter((c) => c.entorno === entorno && c.origen === 'overseer' && habilitados.includes(c.puntoVenta))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
+  return ultimo?.puntoVenta ?? Math.min(...habilitados)
+}

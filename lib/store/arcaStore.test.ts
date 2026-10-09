@@ -1,6 +1,6 @@
 /** Helpers puros de ARCA. Correr: npx tsx lib/store/arcaStore.test.ts */
 import {
-  comprobantesDe, totalFacturado, numerosConocidos, descripcionesUsadas,
+  comprobantesDe, totalFacturado, numerosConocidos, descripcionesUsadas, puntoVentaSugerido,
   type ComprobanteArca,
 } from './arcaStore'
 import { idComprobante, type EntornoArca } from '@/lib/arca/comprobante'
@@ -90,6 +90,30 @@ console.log('\n5) Descripciones ya usadas (para ofrecerlas al facturar)')
     descripcionesUsadas([
       mk({ numero: 1, descripcion: 'Marketing' }), mk({ numero: 2, descripcion: 'marketing' }),
     ], 'produccion').length === 1)
+}
+
+console.log('\n6) Qué punto de venta propone el formulario')
+{
+  // El caso real: PV 2 (el de Overseer) y PV 10 (de un sistema anterior).
+  t('sin historial, el de número más bajo (no "el primero que mandó ARCA")',
+    puntoVentaSugerido([], 'produccion', [10, 2]) === 2)
+  const usado10 = [mk({ numero: 1, puntoVenta: 10, createdAt: '2026-10-01T10:00:00Z' })]
+  t('si el último emitido fue por el 10, propone el 10',
+    puntoVentaSugerido(usado10, 'produccion', [2, 10]) === 10)
+  const ambos = [
+    mk({ numero: 1, puntoVenta: 10, createdAt: '2026-10-01T10:00:00Z' }),
+    mk({ numero: 5, puntoVenta: 2, createdAt: '2026-10-09T10:00:00Z' }),
+  ]
+  t('gana el MÁS RECIENTE', puntoVentaSugerido(ambos, 'produccion', [2, 10]) === 2)
+  t('un PV que ya no está habilitado no se propone',
+    puntoVentaSugerido(usado10, 'produccion', [2]) === 2)
+  const importados = [mk({ numero: 135, puntoVenta: 1, origen: 'importado', createdAt: '2026-10-09T12:00:00Z' })]
+  t('los importados no cuentan (el PV 1 de "Factura en Línea" no sirve para emitir)',
+    puntoVentaSugerido(importados, 'produccion', [2, 10]) === 2)
+  const enHomo = [mk({ numero: 5, puntoVenta: 10, entorno: 'homologacion', createdAt: '2026-10-09T12:00:00Z' })]
+  t('lo emitido en homologación no decide producción',
+    puntoVentaSugerido(enHomo, 'produccion', [2, 10]) === 2)
+  t('sin ninguno habilitado, nada', puntoVentaSugerido(ambos, 'produccion', []) === undefined)
 }
 
 console.log(`\n${fail === 0 ? 'TODO OK' : 'HAY FALLAS'} — ${ok} ok, ${fail} fail\n`)

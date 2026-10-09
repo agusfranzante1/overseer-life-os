@@ -1,8 +1,9 @@
 'use client'
-import { useState, useMemo } from 'react'
-import { Loader2, DownloadCloud, Repeat2, Pencil, Check, X, Printer } from 'lucide-react'
+import { useState, useMemo, useRef } from 'react'
+import { Loader2, DownloadCloud, Repeat2, Pencil, Check, X, Printer, FileUp } from 'lucide-react'
 import { useAppStore } from '@/lib/store/appStore'
 import { imprimirFactura } from '@/lib/arca/imprimir'
+import { decodificar, interpretarMisComprobantes } from '@/lib/arca/misComprobantes'
 import {
   useArcaStore, comprobantesDe, numerosConocidos, type ComprobanteArca,
 } from '@/lib/store/arcaStore'
@@ -86,6 +87,50 @@ export function ComprobantesList({ entorno, puntosDeVenta, cuitEmisor, onRepetir
     }
     return [...mapa.entries()]
   }, [lista])
+
+  const inputCsv = useRef<HTMLInputElement>(null)
+
+  /**
+   * Importa el CSV de "Mis Comprobantes → Emitidos".
+   *
+   * Es el único camino para lo facturado por la web de ARCA: el webservice no
+   * deja consultar los puntos de venta de "Factura en Línea" (error 11002).
+   * Se lee en el navegador, sin tocar ARCA. Los ids son fiscales, así que
+   * subir el mismo archivo dos veces no duplica nada, y el merge del store no
+   * pisa con vacío lo que ya hubieras anotado.
+   */
+  const subirCsv = async (archivo: File | undefined) => {
+    if (!archivo) return
+    setResultado(null)
+    try {
+      const lectura = interpretarMisComprobantes(decodificar(await archivo.arrayBuffer()))
+      if ('error' in lectura) { setResultado(lectura.error); return }
+      const previos = new Set(todos.map((c) => c.id))
+      const nuevos = lectura.comprobantes.filter((c) => !previos.has(c.id)).length
+      if (lectura.comprobantes.length > 0) upsertMuchos(lectura.comprobantes)
+      const partes = [
+        lectura.comprobantes.length === 0
+          ? 'El archivo no tenía comprobantes.'
+          : `Se leyeron ${lectura.comprobantes.length} comprobantes: ${nuevos} nuevos`
+            + (lectura.comprobantes.length - nuevos > 0 ? ` y ${lectura.comprobantes.length - nuevos} que ya estaban (se completaron, sin pisar lo que habías anotado).` : '.'),
+      ]
+      if (lectura.descartadas.length > 0) {
+        partes.push(`${lectura.descartadas.length} filas no se pudieron leer: `
+          + lectura.descartadas.slice(0, 5).map((d) => `fila ${d.fila} (${d.motivo})`).join(', ')
+          + (lectura.descartadas.length > 5 ? '…' : '.'))
+      }
+      // Mis Comprobantes es producción. Estando en homologación, se guardan
+      // pero no aparecen en esta lista: decirlo, si no parece que no anduvo.
+      if (entorno !== 'produccion' && lectura.comprobantes.length > 0) {
+        partes.push('Son facturas de PRODUCCIÓN: no se ven en esta lista mientras estés en homologación.')
+      }
+      setResultado(partes.join(' '))
+    } catch (e) {
+      setResultado(`No se pudo leer el archivo: ${e instanceof Error ? e.message : 'error desconocido'}`)
+    } finally {
+      if (inputCsv.current) inputCsv.current.value = ''
+    }
+  }
 
   /**
    * Trae TODO el historial de un punto de venta, en vueltas.
@@ -196,6 +241,16 @@ export function ComprobantesList({ entorno, puntosDeVenta, cuitEmisor, onRepetir
             className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium border bg-white/[0.03] border-white/[0.08] text-zinc-300 hover:border-zinc-600 hover:text-white transition-colors disabled:opacity-50">
             {trayendo ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <DownloadCloud className="w-3.5 h-3.5" />}
             Traer de ARCA
+          </button>
+          {/* Lo facturado por la web de ARCA no se puede traer por webservice
+              (error 11002): para eso está el export de Mis Comprobantes. */}
+          <input ref={inputCsv} type="file" accept=".csv,text/csv,text/plain" className="hidden"
+            onChange={(e) => subirCsv(e.target.files?.[0])} />
+          <button onClick={() => inputCsv.current?.click()} disabled={trayendo}
+            title="Subir el CSV de Mis Comprobantes → Emitidos (lo facturado por la web de ARCA)"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium border bg-white/[0.03] border-white/[0.08] text-zinc-300 hover:border-zinc-600 hover:text-white transition-colors disabled:opacity-50">
+            <FileUp className="w-3.5 h-3.5" />
+            Subir CSV
           </button>
         </div>
       </div>

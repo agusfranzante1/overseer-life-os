@@ -235,6 +235,12 @@ son compromisos reales, no decoración).
 entorno entra en el id del comprobante — si no, la factura nº 1 de prueba pisa la
 nº 1 real y el total facturado miente. Se cambia con `ARCA_ENTORNO` + redeploy.
 
+**Los puntos de venta de "Factura en Línea" NO se consultan por webservice** (error 11002,
+confirmado en producción con el PV 1 del usuario). Todo lo facturado por la web de ARCA entra por el
+CSV de Mis Comprobantes → Emitidos: `lib/arca/misComprobantes.ts`, portado de `cuenca` (columnas por
+sinónimos, separador y codificación detectados), se lee en el navegador y trae el NOMBRE del cliente.
+El concepto no viene en el archivo: va en 0 = "no se sabe", y el formulario no lo pisa al repetir.
+
 **ARCA SÍ deja traer el historial, pero NO hay un método que liste.**
 `FECompConsultar` devuelve UN comprobante por (punto de venta, tipo, número), así
 que el historial se reconstruye recorriendo de 1 hasta `FECompUltimoAutorizado`

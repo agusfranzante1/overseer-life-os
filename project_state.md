@@ -1370,10 +1370,21 @@ push de tareas/subtareas FALLA por columna desconocida y el sync de tareas se co
       **Punto de venta 2** = Web Services, es el de Overseer. Variables de Vercel cambiadas + redeploy.
       Ojo: ya existía otro certificado (**`facturacionweb`**) y otro PV de webservice (**10**), de algún
       sistema anterior — **no se tocaron**; sin su clave privada ese certificado no se puede usar.
-- [ ] **ARCA: traer el historial real.** "Traer de ARCA" (ahora trae todo en un click, en vueltas de
-      20) con el PV **1** ("Factura en Línea", va por el nº 135) y después el **10**. Lo que no se sabe:
-      si el PV 1 responde por webservice o si esas facturas van por el CSV de Mis Comprobantes.
-      **Primera emisión real en producción todavía NO hecha** (el usuario no quiso emitir todavía).
+- [x] **Producción AUTENTICA:** el certificado `overseer` pasa el WSAA y la relación con WSFE anda (lo
+      prueba que ARCA contestó un error de NEGOCIO, el 11002, y no uno de conexión). Confirmado 2026-10-09.
+- [x] **Duda cerrada: el PV 1 ("Factura en Línea") NO se puede consultar por webservice** — ARCA
+      contesta `11002: El punto de venta no se encuentra habilitado a usar en el presente WS`. Para esas
+      facturas se hizo **"Subir CSV"** (Mis Comprobantes → Emitidos), portado de `cuenca`: trae también
+      el nombre del cliente, es idempotente (ids fiscales) y rechaza el export de RECIBIDOS. Tests 45/45;
+      verificado en la app con un CSV en Windows-1252 como lo baja ARCA, subido dos veces sin duplicar.
+- [x] **El formulario propone el PV 2**, no "el primero que mandó ARCA" (cuyo orden no está
+      garantizado y podía proponer el 10, de otro sistema): el del último comprobante emitido desde
+      acá o, sin historial, el de número más bajo (`puntoVentaSugerido`, test). Repetir una importada
+      del PV 1 se corrige solo al 2 y no pisa el concepto con "no se sabe".
+- [ ] **ARCA: el usuario sube el CSV de Mis Comprobantes** (sus 135 facturas del PV 1) y prueba
+      "Traer de ARCA" con el PV **10**, por si quedaron facturas del sistema viejo.
+- [ ] **Primera emisión real en producción todavía NO hecha** (el usuario no quiso emitir todavía).
+      Va por el **PV 2**.
 - [ ] **Correr `supabase/migration_tasks_start_date.sql`** — sin esto la **fecha de inicio** de las
       tareas (vista Línea de tiempo) no sincroniza entre dispositivos. El resto del push sigue
       andando igual (se descarta esa columna sola).
