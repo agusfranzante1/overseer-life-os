@@ -3,7 +3,10 @@ import { useState, useEffect, useMemo } from 'react'
 import { Loader2, Send, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { useAppStore } from '@/lib/store/appStore'
 import { useArcaStore, descripcionesUsadas, type ComprobanteArca } from '@/lib/store/arcaStore'
-import { CBTE, CONCEPTO, DOC, cuitValido, validarFacturaC, type BorradorFacturaC } from '@/lib/arca/facturaC'
+import {
+  CBTE, CONCEPTO, DOC, CONDICIONES_IVA_C, condicionIvaPorDefecto, cuitValido, validarFacturaC,
+  type BorradorFacturaC,
+} from '@/lib/arca/facturaC'
 import { numeroVisible, nombreTipo, type BorradorRepetido, type EntornoArca } from '@/lib/arca/comprobante'
 
 /** El formulario de emisión.
@@ -40,13 +43,16 @@ function mesDe(ymd: string): { desde: string; hasta: string } {
 interface Props {
   entorno: EntornoArca
   puntosDeVenta: { nro: number; bloqueado: boolean }[]
+  /** Las condiciones de IVA que ARCA dijo que acepta. Vacio = usar la tabla
+   *  de respaldo: no poder leer el catalogo no puede impedir facturar. */
+  condicionesIva?: { id: number; desc: string }[]
   /** Un comprobante para repetir: llena el formulario y se limpia al emitir. */
   repetir?: BorradorRepetido | null
   onRepetirConsumido?: () => void
   onEmitido?: (c: ComprobanteArca) => void
 }
 
-export function FacturarForm({ entorno, puntosDeVenta, repetir, onRepetirConsumido, onEmitido }: Props) {
+export function FacturarForm({ entorno, puntosDeVenta, condicionesIva, repetir, onRepetirConsumido, onEmitido }: Props) {
   const timezone = useAppStore((s) => s.timezone)
   const comprobantes = useArcaStore((s) => s.comprobantes)
   const upsertComprobante = useArcaStore((s) => s.upsertComprobante)
@@ -60,6 +66,7 @@ export function FacturarForm({ entorno, puntosDeVenta, repetir, onRepetirConsumi
   const [concepto, setConcepto] = useState<number>(CONCEPTO.servicios)
   const [docTipo, setDocTipo] = useState<number>(DOC.cuit)
   const [docNro, setDocNro] = useState('')
+  const [condIva, setCondIva] = useState<number>(condicionIvaPorDefecto(DOC.cuit))
   const [receptorNombre, setReceptorNombre] = useState('')
   const [descripcion, setDescripcion] = useState('')
   const [importe, setImporte] = useState('')
@@ -90,6 +97,7 @@ export function FacturarForm({ entorno, puntosDeVenta, repetir, onRepetirConsumi
     setConcepto(repetir.concepto)
     setDocTipo(repetir.docTipo)
     setDocNro(repetir.docNro === '0' ? '' : repetir.docNro)
+    if (repetir.condicionIvaReceptor) setCondIva(repetir.condicionIvaReceptor)
     setImporte(String(repetir.importe))
     setFecha(repetir.fecha)
     if (repetir.descripcion) setDescripcion(repetir.descripcion)
@@ -111,12 +119,13 @@ export function FacturarForm({ entorno, puntosDeVenta, repetir, onRepetirConsumi
     concepto: concepto as BorradorFacturaC['concepto'],
     docTipo: docTipo as BorradorFacturaC['docTipo'],
     docNro: docTipo === DOC.consumidorFinal ? '0' : docNro,
+    condicionIvaReceptor: condIva,
     importe: Number.isFinite(importeNum) ? importeNum : 0,
     fecha,
     servicioDesde: hayServicios ? servicioDesde : undefined,
     servicioHasta: hayServicios ? servicioHasta : undefined,
     vencimientoPago: hayServicios ? vencimientoPago : undefined,
-  }), [puntoVenta, tipo, concepto, docTipo, docNro, importeNum, fecha, hayServicios, servicioDesde, servicioHasta, vencimientoPago])
+  }), [puntoVenta, tipo, concepto, docTipo, docNro, condIva, importeNum, fecha, hayServicios, servicioDesde, servicioHasta, vencimientoPago])
 
   // Los problemas de lo que YA se llenó. Un formulario recién abierto que te
   // grita "falta el importe" y "el CUIT no cierra" es ruido: todavía no
@@ -200,7 +209,15 @@ export function FacturarForm({ entorno, puntosDeVenta, repetir, onRepetirConsumi
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className={label}>A quién le facturás</label>
-          <select className={campo} value={docTipo} onChange={(e) => setDocTipo(Number(e.target.value))}>
+          <select className={campo} value={docTipo}
+            onChange={(e) => {
+              const d = Number(e.target.value)
+              setDocTipo(d)
+              // La condición de IVA sigue al tipo de documento, porque es la
+              // que acierta casi siempre y porque con "consumidor final" ARCA
+              // no acepta otra. Se puede cambiar después.
+              setCondIva(condicionIvaPorDefecto(d))
+            }}>
             <option value={DOC.cuit}>CUIT</option>
             <option value={DOC.cuil}>CUIL</option>
             <option value={DOC.dni}>DNI</option>
@@ -221,6 +238,23 @@ export function FacturarForm({ entorno, puntosDeVenta, repetir, onRepetirConsumi
             </p>
           )}
         </div>
+      </div>
+
+      {/* RG 5616: obligatorio desde 2025. Sin esto ARCA rechaza entero con el
+          error 10246. La lista sale de ARCA cuando se pudo leer; si no, de la
+          tabla de respaldo. */}
+      <div>
+        <label className={label}>Condición del receptor frente al IVA</label>
+        <select className={campo} value={condIva} onChange={(e) => setCondIva(Number(e.target.value))}
+          disabled={docTipo === DOC.consumidorFinal}>
+          {(condicionesIva && condicionesIva.length > 0 ? condicionesIva : CONDICIONES_IVA_C)
+            .map((c) => <option key={c.id} value={c.id}>{c.desc}</option>)}
+        </select>
+        {docTipo === DOC.consumidorFinal && (
+          <p className="text-[11px] text-zinc-600 mt-1">
+            Sin identificar al receptor, ARCA solo acepta &quot;Consumidor Final&quot;.
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

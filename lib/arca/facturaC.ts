@@ -35,6 +35,57 @@ export type Concepto = typeof CONCEPTO[keyof typeof CONCEPTO]
 export const DOC = { cuit: 80, cuil: 86, dni: 96, consumidorFinal: 99 } as const
 export type TipoDoc = typeof DOC[keyof typeof DOC]
 
+/**
+ * Condición frente al IVA del RECEPTOR (RG 5616, obligatoria desde 2025).
+ *
+ * Sin este campo ARCA rechaza con **10246**. La fuente de verdad es el método
+ * `FEParamGetCondicionIvaReceptor` del propio webservice, y la pantalla usa esa
+ * lista cuando la puede traer; esto es el respaldo para que el formulario
+ * funcione igual si esa llamada falla. Son los códigos de la tabla oficial.
+ */
+export const CONDICION_IVA = {
+  responsableInscripto: 1,
+  exento: 4,
+  consumidorFinal: 5,
+  monotributo: 6,
+  noCategorizado: 7,
+  proveedorDelExterior: 8,
+  clienteDelExterior: 9,
+  liberadoLey19640: 10,
+  monotributistaSocial: 13,
+  noAlcanzado: 15,
+  monotributoIndependientePromovido: 16,
+} as const
+
+/** Las que acepta un comprobante clase C, con su nombre tal como lo lista ARCA. */
+export const CONDICIONES_IVA_C: { id: number; desc: string }[] = [
+  { id: CONDICION_IVA.responsableInscripto, desc: 'IVA Responsable Inscripto' },
+  { id: CONDICION_IVA.exento, desc: 'IVA Sujeto Exento' },
+  { id: CONDICION_IVA.consumidorFinal, desc: 'Consumidor Final' },
+  { id: CONDICION_IVA.monotributo, desc: 'Responsable Monotributo' },
+  { id: CONDICION_IVA.noCategorizado, desc: 'Sujeto No Categorizado' },
+  { id: CONDICION_IVA.proveedorDelExterior, desc: 'Proveedor del Exterior' },
+  { id: CONDICION_IVA.clienteDelExterior, desc: 'Cliente del Exterior' },
+  { id: CONDICION_IVA.liberadoLey19640, desc: 'IVA Liberado – Ley 19.640' },
+  { id: CONDICION_IVA.monotributistaSocial, desc: 'Monotributista Social' },
+  { id: CONDICION_IVA.noAlcanzado, desc: 'IVA No Alcanzado' },
+  { id: CONDICION_IVA.monotributoIndependientePromovido, desc: 'Monotributo Trabajador Independiente Promovido' },
+]
+
+/**
+ * La condición que corresponde por default según a quién le facturás.
+ *
+ * Es un ATAJO, no una regla: con "consumidor final" la condición no puede ser
+ * otra (y ARCA lo valida), pero con un CUIT es lo más común y el usuario lo
+ * puede cambiar. Un DNI casi siempre es una persona comprando como consumidor
+ * final, así que arrancar en "Responsable Inscripto" ahí sería pedir un
+ * rechazo.
+ */
+export function condicionIvaPorDefecto(docTipo: number): number {
+  if (docTipo === DOC.consumidorFinal || docTipo === DOC.dni) return CONDICION_IVA.consumidorFinal
+  return CONDICION_IVA.responsableInscripto
+}
+
 export interface BorradorFacturaC {
   puntoVenta: number
   tipo: TipoComprobante
@@ -44,6 +95,8 @@ export interface BorradorFacturaC {
   docNro: string
   /** Importe total en pesos. En la C no se desglosa nada. */
   importe: number
+  /** RG 5616: condición del receptor frente al IVA. Ver `CONDICION_IVA`. */
+  condicionIvaReceptor: number
   /** Fecha del comprobante, `YYYY-MM-DD`. */
   fecha: string
   /** Obligatorias si el concepto incluye servicios (`YYYY-MM-DD`). */
@@ -110,6 +163,17 @@ export function validarFacturaC(b: BorradorFacturaC, hoy: string): string[] {
     errores.push('El DNI tiene que tener 7 u 8 dígitos.')
   }
 
+  // Condición frente al IVA del receptor (RG 5616). Sin esto ARCA devuelve el
+  // 10246, que es un rechazo entero por un campo que el formulario conoce.
+  if (!CONDICIONES_IVA_C.some((c) => c.id === b.condicionIvaReceptor)) {
+    errores.push('Falta la condición del receptor frente al IVA.')
+  } else if (b.docTipo === DOC.consumidorFinal
+    && b.condicionIvaReceptor !== CONDICION_IVA.consumidorFinal) {
+    // Coherencia que ARCA valida igual: sin documento, el receptor es
+    // consumidor final por definición.
+    errores.push('Si no identificás al receptor, su condición de IVA tiene que ser "Consumidor Final".')
+  }
+
   // Fechas de servicio: obligatorias y coherentes cuando hay servicios.
   const hayServicios = b.concepto === CONCEPTO.servicios || b.concepto === CONCEPTO.ambos
   if (hayServicios) {
@@ -135,6 +199,14 @@ export function validarFacturaC(b: BorradorFacturaC, hoy: string): string[] {
 }
 
 /** El cuerpo de `FEDetRequest` que viaja a ARCA. Snake/Pascal como lo pide el WS. */
+/**
+ * El cuerpo de `FECAEDetRequest`. Snake/Pascal como lo pide el WS.
+ *
+ * **El ORDEN de los campos importa.** El XML se arma recorriendo este objeto y
+ * el esquema de ARCA es una *sequence*: los elementos tienen que ir en el orden
+ * del WSDL. Esta interfaz está escrita en ese orden a propósito — agregar un
+ * campo al final "porque es nuevo" es cómo se rompe un request que andaba.
+ */
 export interface DetalleArca {
   Concepto: number
   DocTipo: number
@@ -146,13 +218,16 @@ export interface DetalleArca {
   ImpTotConc: number
   ImpNeto: number
   ImpOpEx: number
-  ImpIVA: number
   ImpTrib: number
-  MonId: string
-  MonCotiz: number
+  ImpIVA: number
   FchServDesde?: string
   FchServHasta?: string
   FchVtoPago?: string
+  MonId: string
+  MonCotiz: number
+  /** RG 5616: la condición frente al IVA de QUIEN RECIBE la factura.
+   *  Obligatorio desde 2025 — sin esto ARCA rechaza con el error 10246. */
+  CondicionIVAReceptorId: number
 }
 
 /**
@@ -182,15 +257,16 @@ export function armarDetalleC(b: BorradorFacturaC, numero: number, hoy: string):
     ImpTotConc: 0,
     ImpNeto: importe,
     ImpOpEx: 0,
-    ImpIVA: 0,
     ImpTrib: 0,
+    ImpIVA: 0,
+    // Las fechas de servicio van ACÁ en la sequence del WSDL (antes de MonId),
+    // aunque solo existan cuando el concepto incluye servicios.
+    FchServDesde: hayServicios ? aFechaArca(b.servicioDesde!) : undefined,
+    FchServHasta: hayServicios ? aFechaArca(b.servicioHasta!) : undefined,
+    FchVtoPago: hayServicios ? aFechaArca(b.vencimientoPago!) : undefined,
     MonId: 'PES',
     MonCotiz: 1,
-  }
-  if (hayServicios) {
-    det.FchServDesde = aFechaArca(b.servicioDesde!)
-    det.FchServHasta = aFechaArca(b.servicioHasta!)
-    det.FchVtoPago = aFechaArca(b.vencimientoPago!)
+    CondicionIVAReceptorId: b.condicionIvaReceptor,
   }
   return det
 }

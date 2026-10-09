@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseServer } from '@/lib/supabase/server'
-import { leerConfig, estadoServidores, obtenerTicket, puntosDeVenta, esTicketVigente } from '@/lib/arca/cliente'
+import {
+  leerConfig, estadoServidores, obtenerTicket, puntosDeVenta, esTicketVigente,
+  condicionesIvaReceptor,
+} from '@/lib/arca/cliente'
 import { almacenSupabase } from '@/lib/arca/almacenTicket'
 
 export const runtime = 'nodejs'
@@ -84,6 +87,13 @@ export async function GET() {
       mensaje: `Autenticó bien, pero no se pudieron listar los puntos de venta: ${msg(e)}`,
     })
   }
+
+  // Catálogo de condiciones de IVA del receptor (RG 5616). Que falle NO corta
+  // el diagnóstico: el formulario tiene una tabla de respaldo, y quedarse sin
+  // facturar porque no se pudo leer un catálogo sería peor que el problema.
+  try {
+    salida.condicionesIva = await condicionesIvaReceptor(config, 'C', almacen)
+  } catch { /* la pantalla usa CONDICIONES_IVA_C */ }
 
   return NextResponse.json({ ...salida, ok: true, etapa: 'listo', mensaje: 'Todo listo para facturar.' })
 }

@@ -1,6 +1,7 @@
 /** npx tsx lib/arca/facturaC.test.ts */
 import {
-  CBTE, CONCEPTO, DOC, cuitValido, validarFacturaC, armarDetalleC, aFechaArca,
+  CBTE, CONCEPTO, DOC, CONDICION_IVA, CONDICIONES_IVA_C, condicionIvaPorDefecto,
+  cuitValido, validarFacturaC, armarDetalleC, aFechaArca,
   type BorradorFacturaC,
 } from './facturaC'
 import { buildTRA, isoConOffset, parseLoginTicketResponse } from './tra'
@@ -14,6 +15,7 @@ const HOY = '2026-10-09'
 const base = (p: Partial<BorradorFacturaC> = {}): BorradorFacturaC => ({
   puntoVenta: 1, tipo: CBTE.facturaC, concepto: CONCEPTO.servicios,
   docTipo: DOC.cuit, docNro: '30710265522', importe: 150000,
+  condicionIvaReceptor: CONDICION_IVA.responsableInscripto,
   fecha: HOY, servicioDesde: '2026-10-01', servicioHasta: '2026-10-31',
   vencimientoPago: '2026-11-10', ...p,
 })
@@ -39,7 +41,9 @@ check('dos decimales SÍ pasan', !err({ importe: 100.55 }).includes('decimales')
 check('punto de venta 0', err({ puntoVenta: 0 }).includes('punto de venta'))
 check('CUIT inválido', err({ docNro: '30710265521' }).includes('dígito verificador'))
 check('consumidor final con número cargado', err({ docTipo: DOC.consumidorFinal, docNro: '30710265522' }).includes('va en 0'))
-check('consumidor final con 0 está bien', validarFacturaC(base({ docTipo: DOC.consumidorFinal, docNro: '0' }), HOY).length === 0)
+// Consumidor final arrastra su condición de IVA: ARCA no acepta otra (ver §8).
+check('consumidor final con 0 está bien', validarFacturaC(
+  base({ docTipo: DOC.consumidorFinal, docNro: '0', condicionIvaReceptor: CONDICION_IVA.consumidorFinal }), HOY).length === 0)
 check('DNI de 5 dígitos', err({ docTipo: DOC.dni, docNro: '12345' }).includes('7 u 8'))
 check('DNI de 8 pasa', !err({ docTipo: DOC.dni, docNro: '40937899' }).includes('DNI'))
 
@@ -77,8 +81,10 @@ console.log('\n6) El detalle que viaja a ARCA')
   check('CUIT como número', d.DocNro === 30710265522)
 }
 {
-  const d = armarDetalleC(base({ docTipo: DOC.consumidorFinal, docNro: '0' }), 1, HOY)
+  const d = armarDetalleC(
+    base({ docTipo: DOC.consumidorFinal, docNro: '0', condicionIvaReceptor: CONDICION_IVA.consumidorFinal }), 1, HOY)
   check('consumidor final → DocNro 0', d.DocNro === 0 && d.DocTipo === 99)
+  check('consumidor final → condición 5', d.CondicionIVAReceptorId === CONDICION_IVA.consumidorFinal)
 }
 {
   const b: BorradorFacturaC = { ...base(), concepto: CONCEPTO.productos, servicioDesde: undefined, servicioHasta: undefined, vencimientoPago: undefined }
@@ -127,6 +133,55 @@ check('una respuesta ilegible tampoco pasa callada', (() => {
   try { parseLoginTicketResponse('<html>502 Bad Gateway</html>'); return false }
   catch (e) { return (e as Error).message.includes('no se entiende') }
 })())
+
+console.log('\n8) Condición de IVA del receptor (RG 5616 — el rechazo 10246)')
+check('un borrador SIN condición no pasa',
+  validarFacturaC(base({ condicionIvaReceptor: 0 }), HOY).some((e) => e.includes('condición')))
+check('una condición inventada tampoco',
+  validarFacturaC(base({ condicionIvaReceptor: 99 }), HOY).some((e) => e.includes('condición')))
+check('responsable inscripto con CUIT pasa',
+  validarFacturaC(base({ condicionIvaReceptor: CONDICION_IVA.responsableInscripto }), HOY).length === 0)
+check('monotributo con CUIT pasa',
+  validarFacturaC(base({ condicionIvaReceptor: CONDICION_IVA.monotributo }), HOY).length === 0)
+check('consumidor final sin documento pasa',
+  validarFacturaC(base({ docTipo: DOC.consumidorFinal, docNro: '0', condicionIvaReceptor: CONDICION_IVA.consumidorFinal }), HOY).length === 0)
+check('consumidor final NO puede ser responsable inscripto',
+  validarFacturaC(base({ docTipo: DOC.consumidorFinal, docNro: '0', condicionIvaReceptor: CONDICION_IVA.responsableInscripto }), HOY)
+    .some((e) => e.includes('Consumidor Final')))
+check('el default de un CUIT es responsable inscripto',
+  condicionIvaPorDefecto(DOC.cuit) === CONDICION_IVA.responsableInscripto)
+check('el default de un DNI es consumidor final (no pedir un rechazo)',
+  condicionIvaPorDefecto(DOC.dni) === CONDICION_IVA.consumidorFinal)
+check('el default sin documento es consumidor final',
+  condicionIvaPorDefecto(DOC.consumidorFinal) === CONDICION_IVA.consumidorFinal)
+check('todos los defaults son condiciones que la factura C admite',
+  [DOC.cuit, DOC.cuil, DOC.dni, DOC.consumidorFinal]
+    .every((d) => CONDICIONES_IVA_C.some((c) => c.id === condicionIvaPorDefecto(d))))
+
+console.log('\n9) El ORDEN de los campos que viajan a ARCA')
+{
+  const det = armarDetalleC(base(), 7, HOY)
+  check('lleva la condición del receptor', det.CondicionIVAReceptorId === CONDICION_IVA.responsableInscripto)
+  // El esquema de ARCA es una SEQUENCE y el XML se arma recorriendo el objeto:
+  // el orden de las claves ES el orden de los elementos. Agregar un campo "al
+  // final porque es nuevo" rompe un request que andaba.
+  const orden = Object.keys(det)
+  const esperado = ['Concepto', 'DocTipo', 'DocNro', 'CbteDesde', 'CbteHasta', 'CbteFch',
+    'ImpTotal', 'ImpTotConc', 'ImpNeto', 'ImpOpEx', 'ImpTrib', 'ImpIVA',
+    'FchServDesde', 'FchServHasta', 'FchVtoPago', 'MonId', 'MonCotiz', 'CondicionIVAReceptorId']
+  check('el orden es el del WSDL', JSON.stringify(orden) === JSON.stringify(esperado), JSON.stringify(orden))
+  check('ImpTrib va antes que ImpIVA', orden.indexOf('ImpTrib') < orden.indexOf('ImpIVA'))
+  check('las fechas de servicio van antes de MonId', orden.indexOf('FchServDesde') < orden.indexOf('MonId'))
+  check('la condición va después de MonCotiz',
+    orden.indexOf('CondicionIVAReceptorId') > orden.indexOf('MonCotiz'))
+}
+{
+  const det = armarDetalleC(base({ concepto: CONCEPTO.productos }), 7, HOY)
+  check('productos: no se mandan fechas de servicio',
+    det.FchServDesde === undefined && det.FchServHasta === undefined && det.FchVtoPago === undefined)
+  check('productos: igual lleva la condición de IVA',
+    det.CondicionIVAReceptorId === CONDICION_IVA.responsableInscripto)
+}
 
 console.log(`\n${fail === 0 ? 'TODO OK' : 'HAY FALLAS'} — ${pass} ok, ${fail} fail\n`)
 process.exit(fail === 0 ? 0 : 1)

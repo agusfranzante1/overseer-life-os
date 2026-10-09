@@ -37,6 +37,9 @@ export interface ComprobanteFiscal {
   /** Sin guiones. "0" con consumidor final. */
   docNro: string
   importe: number
+  /** RG 5616: condicion del receptor frente al IVA. Es FISCAL: viaja a ARCA
+   *  y vuelve en la consulta, asi que se guarda con el comprobante. */
+  condicionIvaReceptor?: number
   cae?: string
   /** `YYYY-MM-DD`. */
   vencimientoCae?: string
@@ -150,6 +153,7 @@ export interface BorradorRepetido {
   docTipo: number
   docNro: string
   importe: number
+  condicionIvaReceptor?: number
   fecha: string
   servicioDesde?: string
   servicioHasta?: string
@@ -191,6 +195,7 @@ export function repetirBorrador(
     docTipo: c.docTipo,
     docNro: c.docNro,
     importe: c.importe,
+    condicionIvaReceptor: c.condicionIvaReceptor,
     fecha: hoy,
     descripcion: c.descripcion,
     receptorNombre: c.receptorNombre,

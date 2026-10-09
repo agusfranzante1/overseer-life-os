@@ -2603,6 +2603,7 @@ async function pullArca(): Promise<boolean> {
       docTipo: Number(p.docTipo ?? 99),
       docNro: String(p.docNro ?? '0'),
       importe: Number(p.importe ?? 0),
+      condicionIvaReceptor: p.condicionIvaReceptor ?? undefined,
       cae: p.cae ?? undefined,
       vencimientoCae: p.vencimientoCae ?? undefined,
       servicioDesde: p.servicioDesde ?? undefined,

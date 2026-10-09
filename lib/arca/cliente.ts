@@ -242,6 +242,42 @@ export async function puntosDeVenta(cfg: ConfigArca, almacen?: AlmacenTicket): P
   return out
 }
 
+/**
+ * Las condiciones frente al IVA que ARCA acepta para el receptor (RG 5616).
+ *
+ * El error 10246 ("Campo Condicion Frente al IVA del receptor es obligatorio")
+ * apunta justo a este método. Se pide SIN filtro de clase y se filtra acá por
+ * `Cmp_Clase`: adivinar el nombre del parámetro del filtro costaría una llamada
+ * fallida, y la lista completa es chica.
+ *
+ * Si falla, el formulario usa la tabla de respaldo de `facturaC.ts` — una lista
+ * de códigos reglamentarios no cambia seguido, y quedarse sin poder facturar
+ * porque no se pudo leer un catálogo sería peor.
+ */
+export async function condicionesIvaReceptor(
+  cfg: ConfigArca, clase = 'C', almacen?: AlmacenTicket,
+): Promise<{ id: number; desc: string }[]> {
+  const t = await obtenerTicket(cfg, almacen)
+  const xml = await llamarWsfe(cfg, 'FEParamGetCondicionIvaReceptor',
+    `<ar:FEParamGetCondicionIvaReceptor>${auth(cfg, t)}</ar:FEParamGetCondicionIvaReceptor>`)
+  const errs = leerErrores(xml)
+  if (errs.length > 0) throw new Error(errs.join(' · '))
+
+  const out: { id: number; desc: string }[] = []
+  for (const m of xml.matchAll(/<CondicionIvaReceptor>([\s\S]*?)<\/CondicionIvaReceptor>/g)) {
+    const b = m[1]
+    const id = Number(tag(b, 'Id') ?? 0)
+    const desc = tag(b, 'Desc') ?? ''
+    // `Cmp_Clase` dice para qué clases de comprobante vale ("A", "B", "C",
+    // "A,B,C"…). Ofrecer una que la factura C no admite es un rechazo seguro.
+    const clases = tag(b, 'Cmp_Clase') ?? ''
+    if (id > 0 && (clases === '' || clases.toUpperCase().includes(clase.toUpperCase()))) {
+      out.push({ id, desc })
+    }
+  }
+  return out
+}
+
 function leerErrores(xml: string): string[] {
   const out: string[] = []
   for (const m of xml.matchAll(/<Err>([\s\S]*?)<\/Err>/g)) {
@@ -290,6 +326,7 @@ export interface ComprobanteConsultado {
   docTipo: number
   docNro: string
   importe: number
+  condicionIvaReceptor?: number
   cae?: string
   vencimientoCae?: string
   servicioDesde?: string
@@ -344,6 +381,7 @@ export async function consultarComprobante(
     docTipo: Number(tag(cuerpo, 'DocTipo') ?? 99),
     docNro: String(tag(cuerpo, 'DocNro') ?? '0'),
     importe: Number(tag(cuerpo, 'ImpTotal') ?? 0),
+    condicionIvaReceptor: Number(tag(cuerpo, 'CondicionIVAReceptorId') ?? 0) || undefined,
     cae: tag(cuerpo, 'CodAutorizacion') || undefined,
     vencimientoCae: deFechaArca(tag(cuerpo, 'FchVto')),
     servicioDesde: deFechaArca(tag(cuerpo, 'FchServDesde')),

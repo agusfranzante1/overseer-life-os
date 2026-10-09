@@ -248,6 +248,17 @@ pide el número, pide el CAE, **guarda la fila** y recién ahí contesta; el cli
 agrega a su store con el mismo id determinista para verla al instante. Si el CAE
 sale y el guardado falla, la respuesta lo dice con el número (BASE nº6).
 
+**RG 5616 — `CondicionIVAReceptorId` es OBLIGATORIO** (error 10246 si falta).
+La condicion de IVA del RECEPTOR viaja en cada comprobante; la lista valida sale
+de `FEParamGetCondicionIvaReceptor` (filtrada por `Cmp_Clase`) con una tabla de
+respaldo en `facturaC.ts` por si esa llamada falla. Sin documento, la unica
+condicion que ARCA acepta es Consumidor Final (5).
+
+**El ORDEN de los campos de `DetalleArca` es el del WSDL**, no decorativo: el XML
+se arma recorriendo el objeto y el esquema es una *sequence*. Agregar un campo
+nuevo al final del objeto "porque es nuevo" rompe un request que andaba. Hay test
+que fija el orden.
+
 **No se guardan los rechazos:** sin CAE no hay comprobante y no consume número.
 Guardarlos sería inventar un historial.
 

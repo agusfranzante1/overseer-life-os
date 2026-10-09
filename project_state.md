@@ -47,6 +47,33 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **ARCA rechazaba con 10246: faltaba la condición de IVA del receptor (RG 5616)** (2026-10-09,
+  error real al intentar emitir la primera factura de prueba). Desde 2025 ARCA exige declarar la
+  **condición frente al IVA de QUIEN RECIBE** la factura; sin ese campo rechaza el comprobante
+  entero. No lo teníamos.
+  - **Campo `CondicionIVAReceptorId`** en el detalle, con su selector en el formulario. La lista
+    sale de **`FEParamGetCondicionIvaReceptor`** (el propio mensaje de error apunta ahí), filtrada
+    por `Cmp_Clase` para no ofrecer una que la factura C no admite; si esa llamada falla hay una
+    **tabla de respaldo** en `facturaC.ts` — no poder leer un catálogo no puede dejarte sin facturar.
+  - **La condición sigue al tipo de documento:** CUIT → Responsable Inscripto, DNI y sin documento
+    → Consumidor Final. Con "consumidor final" el selector se **bloquea** en 5, porque ARCA no
+    acepta otra y dejarlo elegir sería ofrecer un rechazo.
+  - **Se arregló de paso el ORDEN de los campos.** El esquema de ARCA es una *sequence* y el XML se
+    arma recorriendo el objeto, así que el orden de las claves ES el orden de los elementos. Dos
+    estaban mal desde el principio (`ImpIVA` antes que `ImpTrib`, y las fechas de servicio después
+    de `MonCotiz`): ARCA lo venía tolerando, pero agregar un campo nuevo encima era pedirla. Ahora
+    coincide con el WSDL y **hay test que fija el orden**.
+  - **El campo es FISCAL, así que viaja entero:** push, **sanitize del pull** (BASE nº2), el
+    importador lo lee de `FECompConsultar`, y "repetir esta factura" lo copia.
+  - **Sin migración** (va en el `payload jsonb` del comprobante).
+  - **Verificado corriendo la app:** el selector se llena con lo que mandó ARCA (4 opciones, no las
+    11 del respaldo); pasar a "consumidor final" lo salta a 5 y lo bloquea con el motivo a la vista;
+    volver a CUIT lo devuelve a 1; elegir Monotributo viaja en el payload y queda guardado en el
+    comprobante. Tests: `facturaC` **69/69** (10 nuevos de la condición + 6 del orden de campos),
+    `comprobante` 51/51, `arcaStore` 19/19. `tsc` + `next build` OK.
+  - **NO verificado:** que ARCA lo acepte. Eso se sabe en el próximo intento real de emisión.
+
+
 - [x] **ARCA etapa 2 — EMITIR factura C, el historial, y "repetir esta factura"** (2026-10-09).
   La etapa 1 solo diagnosticaba la conexión; ahora se factura desde acá. Tres pestañas:
   **Emitir · Comprobantes · Conexión** (si la conexión no está verde se abre sola en Conexión —

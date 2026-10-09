@@ -37,6 +37,7 @@ interface Estado {
   servidores?: { app: string; db: string; auth: string }
   ticketVenceEn?: string
   puntosDeVenta?: { nro: number; tipo: string; bloqueado: boolean }[]
+  condicionesIva?: { id: number; desc: string }[]
   error?: string
 }
 
@@ -159,6 +160,7 @@ export function ArcaPage() {
           <FacturarForm
             entorno={entorno}
             puntosDeVenta={pdv}
+            condicionesIva={estado.condicionesIva}
             repetir={repetir}
             onRepetirConsumido={() => setRepetir(null)}
             onEmitido={() => setPestania('comprobantes')}

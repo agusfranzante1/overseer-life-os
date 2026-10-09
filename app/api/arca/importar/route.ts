@@ -108,6 +108,7 @@ export async function POST(req: Request) {
         docTipo: c.docTipo,
         docNro: c.docNro,
         importe: c.importe,
+        condicionIvaReceptor: c.condicionIvaReceptor,
         cae: c.cae,
         vencimientoCae: c.vencimientoCae,
         servicioDesde: c.servicioDesde,
