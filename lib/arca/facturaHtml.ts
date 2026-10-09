@@ -112,6 +112,7 @@ function hoja(o: OpcionesFactura, copia: string): string {
 
   return `
 <section class="hoja">
+  <div class="marco">
   <div class="copia">${esc(copia)}</div>
 
   <div class="cabecera">
@@ -156,11 +157,19 @@ function hoja(o: OpcionesFactura, copia: string): string {
       <span><b>Condición de venta:</b> ${esc(c.condicionVenta)}</span>
     </div>
   </div>
+  </div>
 
   <table class="detalle">
+    <!-- Anchos medidos sobre el comprobante de ARCA. Sin esto el concepto se
+         lleva todo el ancho y las columnas numericas quedan en dos renglones. -->
+    <colgroup>
+      <col style="width:7%" /><col style="width:25%" /><col style="width:11%" />
+      <col style="width:8%" /><col style="width:14%" /><col style="width:7%" />
+      <col style="width:12%" /><col style="width:16%" />
+    </colgroup>
     <thead>
       <tr>
-        <th class="c">Código</th><th>Producto / Servicio</th><th class="r">Cantidad</th>
+        <th class="c">Código</th><th class="l">Producto / Servicio</th><th class="r">Cantidad</th>
         <th class="c">U. Medida</th><th class="r">Precio Unit.</th><th class="r">% Bonif</th>
         <th class="r">Imp. Bonif.</th><th class="r">Subtotal</th>
       </tr>
@@ -216,11 +225,21 @@ export function facturaHtml(o: OpcionesFactura): string {
 <html lang="es"><head><meta charset="utf-8" />
 <title>${esc(titulo)}</title>
 <style>
-  @page { size: A4; margin: 10mm; }
+  /* MARGEN 0 A PROPOSITO: el navegador dibuja su encabezado y su pie (fecha,
+     titulo, "about:blank", "1/3") en el margen de la pagina. Sin margen no
+     tiene donde dibujarlos y no salen — que es lo que tiene que pasar en una
+     factura que va a un cliente. El margen real lo pone .hoja por dentro. */
+  @page { size: A4; margin: 0; }
   * { box-sizing: border-box; }
   body { margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 9pt; color: #000; background: #fff; }
-  .hoja { border: 1px solid #000; padding: 0; page-break-after: always; }
+
+  /* Una hoja = un A4 exacto. Columna flex para poder empujar los totales y
+     el pie hacia abajo, como en el comprobante de ARCA: si no, todo se
+     amontona arriba y queda media hoja en blanco. */
+  .hoja { width: 210mm; height: 297mm; padding: 9mm 7mm 34mm; overflow: hidden;
+          display: flex; flex-direction: column; page-break-after: always; }
   .hoja:last-child { page-break-after: auto; }
+  .marco { border: 1px solid #000; }
   .copia { text-align: center; font-size: 13pt; font-weight: bold; padding: 6px 0; border-bottom: 1px solid #000; }
 
   .cabecera { display: flex; position: relative; border-bottom: 1px solid #000; min-height: 115px; }
@@ -247,20 +266,22 @@ export function facturaHtml(o: OpcionesFactura): string {
   .receptor .fila { display: flex; gap: 18px; margin: 4px 0; }
   .receptor .fila span { flex: 1; }
 
-  .detalle { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  .detalle th { background: #d9d9d9; border: 1px solid #000; padding: 4px 5px; font-size: 8pt; }
+  .detalle { width: 100%; border-collapse: collapse; margin-top: 5px; table-layout: fixed; }
+  .detalle th { background: #d9d9d9; border: 1px solid #000; padding: 4px 5px; font-size: 8pt; white-space: nowrap; }
+  .detalle .l { text-align: left; }
   .detalle td { padding: 5px; font-size: 8.5pt; vertical-align: top; }
   .detalle .r { text-align: right; }
   .detalle .c { text-align: center; }
   .detalle .chico { font-size: 7pt; }
 
-  .totales { margin: 150px 10px 0; border: 1px solid #000; padding: 10px; }
+  /* margin-top:auto = ocupa todo el alto libre y queda pegado abajo. */
+  .totales { margin-top: auto; border: 1px solid #000; padding: 14px 12px; }
   .totales div { display: flex; justify-content: flex-end; gap: 14px; margin: 5px 0; font-size: 10pt; }
   .totales span { font-weight: bold; }
   .totales b { min-width: 110px; text-align: right; }
 
   .pie { display: flex; align-items: flex-start; gap: 14px; padding: 14px 10px 10px; }
-  .qr { width: 56%; }
+  .qr { width: 50%; }
   .qr img { width: 115px; height: 115px; float: left; margin-right: 10px; }
   .qr-falta { width: 115px; height: 115px; float: left; margin-right: 10px; border: 1px dashed #c00;
               color: #c00; font-size: 7.5pt; display: flex; align-items: center;
@@ -269,12 +290,14 @@ export function facturaHtml(o: OpcionesFactura): string {
   .autorizado { font-style: italic; font-weight: bold; font-size: 9pt; margin-top: 16px; }
   .legal { font-size: 6pt; font-weight: bold; margin-top: 3px; }
   .pagina { width: 14%; text-align: center; font-weight: bold; font-size: 10pt; padding-top: 8px; }
-  .cae { width: 30%; text-align: right; font-size: 10pt; padding-top: 8px; }
+  /* nowrap: "Fecha de Vto. de CAE:" se partia en dos renglones con la
+     fecha abajo. En el de ARCA va en una sola linea. */
+  .cae { width: 36%; text-align: right; font-size: 10pt; padding-top: 8px; white-space: nowrap; }
   .cae div { margin: 3px 0; }
 
   @media screen {
     body { background: #525659; padding: 16px; }
-    .hoja { background: #fff; max-width: 210mm; margin: 0 auto 16px; }
+    .hoja { background: #fff; margin: 0 auto 16px; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
   }
 </style></head>
 <body>${COPIAS.map((copia) => hoja(o, copia)).join('')}
