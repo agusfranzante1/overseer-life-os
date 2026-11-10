@@ -180,8 +180,12 @@ function TransactionModal({ walletId, type, currencyCode, onClose }: {
   walletId: string; type: 'income' | 'expense'; currencyCode: string; onClose: () => void
 }) {
   const { addTransaction, wallets, currencies } = useWalletStore()
-  const wallet   = wallets.find(w => w.id === walletId)!
-  const currency = currencies.find(c => c.code === currencyCode)!
+  // Billetera y divisa arrancan en las que vienen, pero se pueden cambiar: el
+  // botón de arriba de la página abre este mismo modal sin una billetera elegida.
+  const [wId, setWId]     = useState(walletId)
+  const [code, setCode]   = useState(currencyCode)
+  const wallet   = wallets.find(w => w.id === wId)
+  const currency = currencies.find(c => c.code === code)
   const [label, setLabel]       = useState('')
   const [amount, setAmount]     = useState('')
   const [category, setCategory] = useState(type === 'income' ? 'Trabajo' : 'Gastos')
@@ -193,21 +197,36 @@ function TransactionModal({ walletId, type, currencyCode, onClose }: {
 
   const submit = () => {
     const amt = parseFloat(amount)
-    if (!label.trim() || isNaN(amt) || amt <= 0) return
-    addTransaction({ type, walletId, currencyCode, amount: amt, label: label.trim(), category, date })
+    if (!wallet || !currency || !label.trim() || isNaN(amt) || amt <= 0) return
+    addTransaction({ type, walletId: wallet.id, currencyCode: currency.code, amount: amt, label: label.trim(), category, date })
     onClose()
   }
+  const pickWallet = (id: string) => {
+    setWId(id)
+    const w = wallets.find(x => x.id === id)
+    if (w && !w.currencyCodes.includes(code)) setCode(w.currencyCodes[0] ?? '')
+  }
+  const walletCurrencies = currencies.filter(c => wallet?.currencyCodes.includes(c.code))
 
   return (
     <Modal title={type === 'income' ? `💰 Registrar ingreso` : `💸 Registrar egreso`} onClose={onClose}>
-      <div className="text-xs text-zinc-500 mb-4">
-        {wallet.icon} {wallet.name} · <span style={{ color: currency.color }}>{currency.symbol} {currency.code}</span>
-      </div>
       <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Billetera">
+            <select value={wId} onChange={e => pickWallet(e.target.value)} className={SELECT}>
+              {wallets.map(w => <option key={w.id} value={w.id}>{w.icon} {w.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Divisa">
+            <select value={code} onChange={e => setCode(e.target.value)} className={SELECT}>
+              {walletCurrencies.map(c => <option key={c.code} value={c.code}>{c.symbol} {c.code}</option>)}
+            </select>
+          </Field>
+        </div>
         <Field label="Descripción">
-          <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Ej: Sueldo mayo" className={INPUT} />
+          <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Ej: Sueldo mayo" autoFocus className={INPUT} />
         </Field>
-        <Field label={`Monto (${currency.symbol})`}>
+        <Field label={`Monto (${currency?.symbol ?? ''})`}>
           <input value={amount} onChange={e => setAmount(e.target.value)} type="number" min="0" step="0.01" placeholder="0.00" className={INPUT} />
         </Field>
         <Field label="Categoría">
@@ -1547,6 +1566,13 @@ export function MoneyPage() {
   const { t } = useTranslation()
   const { wallets, currencies, removeWallet, restoreWallet, processRecurringExpenses } = useWalletStore()
   const [selectedWalletId, setSelectedWalletId] = useState(wallets[0]?.id ?? '')
+  // El store rehidrata DESPUÉS del primer render: sin esto la página arrancaba
+  // sin billetera elegida y el detalle (con Ingreso/Egreso/Saldo) no aparecía.
+  useEffect(() => {
+    if (wallets.length > 0 && !wallets.some(w => w.id === selectedWalletId)) {
+      setSelectedWalletId(wallets[0].id)
+    }
+  }, [wallets, selectedWalletId])
 
   // Apply any pending recurring charges on every MoneyPage mount + once an hour
   // as a safety net (in case the user keeps the tab open across midnight or
@@ -1589,11 +1615,14 @@ export function MoneyPage() {
 
   // Summary totals across all wallets per currency
   const { transactions } = useWalletStore()
+  // El saldo es la suma de las billeteras (ajustes y transferencias entre
+  // divisas incluidos); ingresos y egresos son solo esos dos tipos.
   const summary = currencies.map(cur => {
     const income  = transactions.filter(t => t.type === 'income'  && t.currencyCode === cur.code).reduce((s, t) => s + t.amount, 0)
     const expense = transactions.filter(t => t.type === 'expense' && t.currencyCode === cur.code).reduce((s, t) => s + t.amount, 0)
-    return { cur, income, expense, balance: income - expense }
-  }).filter(s => s.income > 0 || s.expense > 0)
+    const balance = wallets.reduce((s, w) => s + getWalletBalance(w.id, cur.code, transactions), 0)
+    return { cur, income, expense, balance }
+  }).filter(s => s.income > 0 || s.expense > 0 || Math.abs(s.balance) > 0.005)
 
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="p-6 space-y-6">
@@ -1608,7 +1637,25 @@ export function MoneyPage() {
           </h1>
           <p className="text-[13px] text-zinc-500">{t('wallet.subtitle')}</p>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Ingreso / Egreso — a mano siempre, sin tener que bajar al detalle
+              de una billetera. Abren el modal con la billetera elegida (o la
+              primera) y ahí se puede cambiar. */}
+          {wallets.length > 0 && (['income', 'expense'] as const).map(txType => {
+            const w = wallets.find(x => x.id === selectedWalletId) ?? wallets[0]
+            return (
+              <motion.button key={txType} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                onClick={() => setModal({ type: 'transaction', txType, walletId: w.id, currency: w.currencyCodes[0] ?? '' })}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all ${
+                  txType === 'income'
+                    ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                    : 'bg-red-500/10 hover:bg-red-500/20 border-red-500/40 text-red-300'
+                }`}>
+                {txType === 'income' ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                {txType === 'income' ? 'Ingreso' : 'Gasto'}
+              </motion.button>
+            )
+          })}
           {/* Transferir — glass pill con outline violeta sutil */}
           <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
             onClick={() => setModal({ type: 'transfer' })}
