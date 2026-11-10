@@ -24,7 +24,10 @@ export interface Wallet {
 
 export interface Transaction {
   id: string
-  type: 'income' | 'expense' | 'transfer'
+  /** `adjustment` = corrección de saldo ("tenía 500, ahora tengo 300"). Mueve el
+   *  saldo pero NO es ingreso ni egreso: no entra en los totales, el flujo de
+   *  caja ni la distribución. Su `amount` es la DIFERENCIA con signo (−200). */
+  type: 'income' | 'expense' | 'transfer' | 'adjustment'
   walletId: string
   currencyCode: string
   amount: number
@@ -141,6 +144,9 @@ interface WalletState {
 
   addTransaction: (t: Omit<Transaction, 'id' | 'timestamp'>) => void
   removeTransaction: (id: string) => void
+  /** Deja el saldo de (billetera, divisa) en `target` registrando un ajuste por
+   *  la diferencia. No hace nada si ya está en ese saldo. */
+  adjustBalance: (walletId: string, currencyCode: string, target: number, date: string) => void
 
   updateDistribution: (id: string, percentage: number) => void
 
@@ -254,6 +260,16 @@ export const useWalletStore = create<WalletState>()(
       removeTransaction: (id) => set(s => ({
         transactions: s.transactions.filter(t => t.id !== id),
       })),
+      adjustBalance: (walletId, currencyCode, target, date) => set(s => {
+        const current = getWalletBalance(walletId, currencyCode, s.transactions)
+        const delta = Math.round((target - current) * 100) / 100
+        if (Math.abs(delta) < 0.005) return s
+        const adj: Transaction = {
+          id: genId(), type: 'adjustment', walletId, currencyCode, amount: delta,
+          label: 'Ajuste de saldo', category: 'Ajuste', date, timestamp: Date.now(),
+        }
+        return { transactions: [adj, ...s.transactions] }
+      }),
 
       updateDistribution: (id, percentage) => set(s => ({
         distribution: s.distribution.map(d => d.id === id ? { ...d, percentage } : d),
@@ -369,7 +385,8 @@ export function getWalletBalance(
 ): number {
   const outgoing = transactions
     .filter(t => t.walletId === walletId && t.currencyCode === currencyCode)
-    .reduce((sum, t) => t.type === 'income' ? sum + t.amount : sum - t.amount, 0)
+    .reduce((sum, t) =>
+      t.type === 'income' || t.type === 'adjustment' ? sum + t.amount : sum - t.amount, 0)
   const incoming = transactions
     .filter(t => t.toWalletId === walletId && t.toCurrencyCode === currencyCode)
     .reduce((sum, t) => sum + (t.toAmount ?? 0), 0)

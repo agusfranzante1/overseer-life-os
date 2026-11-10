@@ -630,6 +630,8 @@ export async function getWallet(userId: string, meses = 3): Promise<WalletInfo> 
 
     if (type === 'income') bump(wid, cur, amount)
     else if (type === 'expense') bump(wid, cur, -amount)
+    // Ajuste de saldo: amount ya viene con signo, y no es ingreso ni egreso.
+    else if (type === 'adjustment') bump(wid, cur, amount)
     else if (type === 'transfer') {
       bump(wid, cur, -amount)
       const toW = (t.to_wallet_id as string) || wid
@@ -639,8 +641,9 @@ export async function getWallet(userId: string, meses = 3): Promise<WalletInfo> 
 
     const mes = String(t.date ?? '').slice(0, 7)
     // Las transferencias NO son ingreso ni egreso: mueven plata de un bolsillo
-    // a otro. Contarlas infla los dos lados y el neto miente.
-    if (mes >= desdeKey && type !== 'transfer') {
+    // a otro. Contarlas infla los dos lados y el neto miente. Los ajustes de
+    // saldo tampoco: son una corrección, no plata que entró o salió.
+    if (mes >= desdeKey && (type === 'income' || type === 'expense')) {
       const k = `${mes}||${cur}`
       const m = mensual.get(k) ?? { ingresos: 0, egresos: 0 }
       if (type === 'income') m.ingresos += amount

@@ -119,6 +119,62 @@ function AddWalletModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+// ─── Adjust Balance Modal ─────────────────────────────────────────────────────
+// "Dice 500 pero tengo 300": deja el saldo en lo que escribís. La diferencia se
+// guarda como un AJUSTE, no como ingreso/egreso — así no ensucia los totales con
+// un movimiento sin detalle que nadie sabe qué fue.
+function AdjustBalanceModal({ walletId, currencyCode, onClose }: {
+  walletId: string; currencyCode: string; onClose: () => void
+}) {
+  const { adjustBalance, wallets, currencies, transactions } = useWalletStore()
+  const wallet   = wallets.find(w => w.id === walletId)!
+  const currency = currencies.find(c => c.code === currencyCode)!
+  const current  = getWalletBalance(walletId, currencyCode, transactions)
+  const [amount, setAmount] = useState('')
+  const target = parseFloat(amount.replace(',', '.'))
+  const valid  = amount.trim() !== '' && !isNaN(target)
+  const delta  = valid ? Math.round((target - current) * 100) / 100 : 0
+
+  const submit = () => {
+    if (!valid) return
+    const d = new Date()
+    const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    adjustBalance(walletId, currencyCode, target, local)
+    onClose()
+  }
+
+  return (
+    <Modal title="Actualizar saldo" onClose={onClose}>
+      <div className="text-xs text-zinc-500 mb-4">
+        {wallet.icon} {wallet.name} · <span style={{ color: currency.color }}>{currency.symbol} {currency.code}</span>
+      </div>
+      <div className="space-y-4">
+        <div className="text-sm text-zinc-400">
+          Saldo actual: <span className="font-bold text-white tabular-nums">{currency.symbol} {fmt(current)}</span>
+        </div>
+        <Field label={`Saldo real ahora (${currency.symbol})`}>
+          <input value={amount} onChange={e => setAmount(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') submit() }}
+            type="number" step="0.01" placeholder={fmt(current)} autoFocus className={INPUT} />
+        </Field>
+        {valid && Math.abs(delta) >= 0.005 && (
+          <p className="text-xs text-zinc-500">
+            Se registra un ajuste de{' '}
+            <span className={`font-bold tabular-nums ${delta > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {delta > 0 ? '+' : '−'}{currency.symbol}{fmt(Math.abs(delta))}
+            </span>
+            . No cuenta como ingreso ni egreso.
+          </p>
+        )}
+        <button onClick={submit} disabled={!valid}
+          className="w-full rounded-2xl py-2.5 text-sm font-bold transition-colors text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed">
+          Actualizar saldo
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
 // ─── Transaction Modal (income / expense) ─────────────────────────────────────
 function TransactionModal({ walletId, type, currencyCode, onClose }: {
   walletId: string; type: 'income' | 'expense'; currencyCode: string; onClose: () => void
@@ -496,6 +552,7 @@ function WalletDetail({ walletId, onTransaction }: {
   const { wallets, currencies, transactions, addCurrencyToWallet, removeCurrencyFromWallet } = useWalletStore()
   const wallet = wallets.find(w => w.id === walletId)
   const [showEdit, setShowEdit] = useState(false)
+  const [adjusting, setAdjusting] = useState<string | null>(null)
   if (!wallet) return null
 
   return (
@@ -524,6 +581,7 @@ function WalletDetail({ walletId, onTransaction }: {
 
       <AnimatePresence>
         {showEdit && <EditWalletModal wallet={wallet} onClose={() => setShowEdit(false)} />}
+        {adjusting && <AdjustBalanceModal walletId={walletId} currencyCode={adjusting} onClose={() => setAdjusting(null)} />}
       </AnimatePresence>
 
       {wallet.currencyCodes.map(code => {
@@ -535,7 +593,7 @@ function WalletDetail({ walletId, onTransaction }: {
         const expense = walletTxns.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
 
         return (
-          <div key={code} className="flex items-center gap-4 px-5 py-4 border-b border-white/[0.05] last:border-0">
+          <div key={code} className="flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4 border-b border-white/[0.05] last:border-0">
             <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: cur.color }} />
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-2">
@@ -557,6 +615,10 @@ function WalletDetail({ walletId, onTransaction }: {
               <button onClick={() => onTransaction('expense', code)}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 rounded-lg text-xs font-semibold transition-all">
                 <TrendingDown className="w-3 h-3" /> Egreso
+              </button>
+              <button onClick={() => setAdjusting(code)} title="Actualizar saldo"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-lg text-xs font-semibold transition-all">
+                <Pencil className="w-3 h-3" /> Saldo
               </button>
               <button onClick={() => removeCurrencyFromWallet(walletId, code)}
                 className="text-zinc-600 hover:text-red-400 transition-colors p-1">
@@ -1205,12 +1267,13 @@ function TransactionHistory() {
   const visible = filtered.slice(0, showCount)
 
   const typeColor = (type: string) =>
-    type === 'income' ? '#10b981' : type === 'expense' ? '#ef4444' : '#6366f1'
+    type === 'income' ? '#10b981' : type === 'expense' ? '#ef4444' : type === 'adjustment' ? '#a1a1aa' : '#6366f1'
   const typeLabel = (t: typeof transactions[0]) => {
     if (t.type === 'transfer') {
       const to = wallets.find(w => w.id === t.toWalletId)
       return `→ ${to?.name ?? '?'}`
     }
+    if (t.type === 'adjustment') return 'Ajuste'
     return t.type === 'income' ? 'Ingreso' : 'Egreso'
   }
 
@@ -1233,6 +1296,7 @@ function TransactionHistory() {
             <option value="income">Ingresos</option>
             <option value="expense">Egresos</option>
             <option value="transfer">Transferencias</option>
+            <option value="adjustment">Ajustes de saldo</option>
           </select>
         </div>
       </div>
@@ -1263,8 +1327,8 @@ function TransactionHistory() {
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-bold tabular-nums" style={{ color: typeColor(t.type) }}>
-                      {t.type === 'income' ? '+' : t.type === 'expense' ? '−' : '→'}
-                      {cur?.symbol}{fmt(t.amount)}
+                      {t.type === 'income' ? '+' : t.type === 'expense' ? '−' : t.type === 'adjustment' ? (t.amount >= 0 ? '+' : '−') : '→'}
+                      {cur?.symbol}{fmt(t.type === 'adjustment' ? Math.abs(t.amount) : t.amount)}
                     </p>
                     {t.type === 'transfer' && t.toAmount && (
                       <p className="text-[10px] text-zinc-500">

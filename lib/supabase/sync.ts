@@ -1097,7 +1097,7 @@ async function pullWallet(): Promise<boolean> {
   } as any))
   const remoteTx: Tx[] = (txRes.data ?? []).map((t: Row) => ({
     id: t.id as string,
-    type: t.type as 'income' | 'expense' | 'transfer',
+    type: t.type as 'income' | 'expense' | 'transfer' | 'adjustment',
     walletId: t.wallet_id as string,
     currencyCode: t.currency_code as string,
     amount: t.amount as number,

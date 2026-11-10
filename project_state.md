@@ -47,6 +47,18 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Billetera: botón "Saldo" para actualizar el saldo a mano** (2026-11-10, pedido: *"dice 500
+  pero tengo 300, poner 300 y listo, sin que la diferencia vaya a ingresos/egresos"*). Tipo nuevo
+  de transacción **`adjustment`** con `amount` = la diferencia CON SIGNO (−200). Suma al saldo
+  (`getWalletBalance` y `get_wallet` del bridge) pero **no es ingreso ni egreso**: no entra en
+  los totales, el flujo de caja, la distribución ni el snapshot de Proyección. Queda en el
+  historial como "Ajuste" (filtro "Ajustes de saldo") y se puede borrar como cualquier registro.
+  **Sin migración** (`wallet_transactions.type` es text, `amount` numeric acepta negativos).
+  Verificado corriendo la app: 500 → 300 crea `adjustment:-200` y la tarjeta muestra 300 con
+  ↑700/↓200 intactos; 300 → 450 crea `+150`; a 375px la fila ya no se sale (los botones bajan).
+  ⚠️ Un dispositivo con el build viejo ve mal el saldo de una billetera ajustada (resta el ajuste
+  en vez de sumarlo) hasta que recargue — no rompe datos, solo lo muestra mal.
+
 - [x] **Producción no conectaba desde Vercel: `fetch failed` = `dh key too small`** (2026-10-09). Al
   pasar a producción el diagnóstico cortó en "ARCA responde". Desde la PC del usuario el servidor
   contestaba bien, así que no era ARCA ni la config: `openssl s_client` mostró que
