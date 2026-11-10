@@ -365,10 +365,8 @@ function WalletCard({ wallet, selected, onClick, onRequestDelete }: { wallet: Wa
     if (v && v !== wallet.name) updateWallet(wallet.id, { name: v })
   }
 
-  // Per-currency balances — first one is the headline (big), rest are
-  // listed below as secondary lines. Previously we showed only the first
-  // balance plus a "+N divisas" hint, which forced the user to click into
-  // the wallet to see the rest. Now everything's visible at a glance.
+  // Una línea por divisa, todas con el mismo tamaño: una billetera con USD y
+  // ARS tiene dos saldos igual de importantes, no uno principal y otro de nota.
   const balances = wallet.currencyCodes
     .map(code => ({
       cur: currencies.find(c => c.code === code),
@@ -376,7 +374,6 @@ function WalletCard({ wallet, selected, onClick, onRequestDelete }: { wallet: Wa
       code,
     }))
     .filter(b => b.cur)
-  const [headline, ...rest] = balances
 
   return (
     <motion.div
@@ -444,36 +441,12 @@ function WalletCard({ wallet, selected, onClick, onRequestDelete }: { wallet: Wa
           {wallet.name}
         </p>
       )}
-      {/* Headline balance — grande y blanco como en el mockup */}
-      {headline && (
-        <p className="text-xl font-bold tabular-nums mt-1 text-white">
-          {headline.cur!.symbol}{fmt(headline.balance)}
-          <span className="text-[11px] font-mono ml-1.5 text-zinc-500">{headline.code}</span>
+      {balances.map(({ cur, balance, code }) => (
+        <p key={code} className="flex flex-wrap items-baseline gap-x-1.5 mt-1 text-white">
+          <span className="text-base font-bold tabular-nums">{cur!.symbol}{fmt(balance)}</span>
+          <span className="text-[10px] font-mono text-zinc-500 shrink-0">{code}</span>
         </p>
-      )}
-      {/* Additional currencies — vertical list, each with its own color.
-          Tinted background pill on each line so they read as distinct
-          "buckets" without taking too much space. */}
-      {rest.length > 0 && (
-        <div className="mt-1.5 space-y-1">
-          {rest.map(({ cur, balance, code }) => (
-            <div key={code}
-              className={`flex items-center justify-between gap-2 text-xs tabular-nums px-1.5 py-0.5 rounded ${
-                selected ? 'bg-white/10' : ''
-              }`}
-              style={!selected ? { background: `${cur!.color}15` } : undefined}
-            >
-              <span className={`font-semibold ${selected ? 'text-white/80' : ''}`}
-                style={!selected ? { color: cur!.color } : undefined}>
-                {cur!.symbol}{fmt(balance)}
-              </span>
-              <span className={`text-[9px] font-mono ${selected ? 'text-white/60' : 'text-zinc-500'}`}>
-                {code}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+      ))}
       <button
         onClick={e => { e.stopPropagation(); onRequestDelete(wallet) }}
         title="Eliminar billetera"
