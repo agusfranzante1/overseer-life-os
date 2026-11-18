@@ -8,6 +8,7 @@ export const es: Translations = {
     lab: 'Laboratorio',
     journal: 'My Journal',
     decisiones: 'Decisiones',
+    mensajes: 'Mensajes para Claude',
     meditaciones: 'Meditaciones',
     youtube: 'YouTube',
     herramientas: 'Herramientas',

@@ -651,11 +651,11 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'list_records',
     description:
-      'LEE cualquiera de los dominios personales que antes no tenian acceso: `journal` (entradas del diario), `meditaciones` (guiones), `youtube` (backlog de videos), `laboratorio` (sesiones de trabajo interno), `mapas` (mapas mentales, con sus nodos), `carpetas` (las carpetas donde viven los mapas) `herramientas` (el catalogo de herramientas: edicion, IA, voces — nombre, url, categoria, notas) y `decisiones` (el registro de decisiones tomadas: title, body, outcome, verdict pendiente|correcta|incorrecta, important, projectId, date). Devuelve los registros completos con su id — los ids SOLO salen de aca, asi que sin esto no se puede editar ni borrar nada. Para las CREENCIAS del laboratorio usar list_beliefs, que es otra tabla.',
+      'LEE cualquiera de los dominios personales que antes no tenian acceso: `journal` (entradas del diario), `meditaciones` (guiones), `youtube` (backlog de videos), `laboratorio` (sesiones de trabajo interno), `mapas` (mapas mentales, con sus nodos), `carpetas` (las carpetas donde viven los mapas) `herramientas` (el catalogo de herramientas: edicion, IA, voces — nombre, url, categoria, notas) `decisiones` (el registro de decisiones tomadas: title, body, outcome, verdict pendiente|correcta|incorrecta, important, projectId, date) y `mensajes` (MENSAJES PARA CLAUDE: lo que el usuario dicta para otro chat — para, texto, fecha, origen, estado pendiente|entregado, entregadoEn; NO se guardan como decisiones). Devuelve los registros completos con su id — los ids SOLO salen de aca, asi que sin esto no se puede editar ni borrar nada. Para las CREENCIAS del laboratorio usar list_beliefs, que es otra tabla.',
     inputSchema: {
       type: 'object',
       properties: {
-        dominio: str('journal | meditaciones | youtube | laboratorio | mapas | carpetas | herramientas | decisiones'),
+        dominio: str('journal | meditaciones | youtube | laboratorio | mapas | carpetas | herramientas | decisiones | mensajes'),
         id: str('Traer uno solo, por id.'),
         buscar: str('Filtrar por texto libre en cualquier campo del registro.'),
         limit: num('Maximo de registros. Default 100, tope 500.'),
@@ -670,12 +670,12 @@ export const TOOLS: ToolDef[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        dominio: str('journal | meditaciones | youtube | laboratorio | mapas | carpetas | herramientas | decisiones'),
+        dominio: str('journal | meditaciones | youtube | laboratorio | mapas | carpetas | herramientas | decisiones | mensajes'),
         id: str('Id existente para editar. Omitilo para crear.'),
         datos: {
           type: 'object',
           description:
-            'Campos del registro. journal: date (YYYY-MM-DD), title, body. meditaciones: title, script, category, favorite, audioUrl. youtube: title, url, videoId, status (backlog|watching|done), category, notes, favorite. laboratorio: title, exerciseKey, categoryKey, status (open|closed|archived), values, outcome, linkedBeliefId.',
+            'Campos del registro. journal: date (YYYY-MM-DD), title, body. meditaciones: title, script, category, favorite, audioUrl. youtube: title, url, videoId, status (backlog|watching|done), category, notes, favorite. laboratorio: title, exerciseKey, categoryKey, status (open|closed|archived), values, outcome, linkedBeliefId. mensajes: para (nombre del chat destino, obligatorio), texto (obligatorio), fecha (YYYY-MM-DD, default hoy en la zona del usuario), origen (default voz), estado (pendiente|entregado, default pendiente), entregadoEn (ISO) — para marcar uno entregado: id + {estado: entregado, entregadoEn}.',
         },
       },
       required: ['dominio', 'datos'],
@@ -688,7 +688,7 @@ export const TOOLS: ToolDef[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        dominio: str('journal | meditaciones | youtube | laboratorio | mapas | carpetas | herramientas | decisiones'),
+        dominio: str('journal | meditaciones | youtube | laboratorio | mapas | carpetas | herramientas | decisiones | mensajes'),
         ids: { type: 'array', items: { type: 'string' }, description: 'Ids a borrar.' },
       },
       required: ['dominio', 'ids'],

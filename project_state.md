@@ -47,6 +47,25 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Sección nueva: MENSAJES PARA CLAUDE** (2026-11-18, pedido de Agus pasado por el chat "Karla
+  Final"). Lo que dicta por voz para OTRO chat ("mandale a Karla que…") se guardaba como una Decisión
+  con una línea "Para <chat>: …" y se le mezclaba con las decisiones de verdad. Ahora es su propio
+  dominio: el chat de claude.ai lo escribe con `upsert_record` (dominio `mensajes`), el cartero (tarea
+  programada "Buzón del auto") lo lee con `list_records` y lo marca `{estado: 'entregado'}` por el
+  mismo camino — la hora de entrega la pone el server si no viene. `fecha` por default en la zona
+  del usuario, no en UTC.
+  - Playbook completo: store `overseer-claude-messages`, push/pull con sanitize campo por campo
+    (BASE nº2), tombstones + baseline, flag en los 3 resets, multitab. Nav: `mensajes` en
+    `OPTIONAL_NAV_KEYS` sin tocar el `migrate` → la cuenta existente la ve debajo de Decisiones.
+  - **⚠️ Migración `supabase/migration_claude_messages.sql` — HAY QUE CORRERLA.** Sin ella el bridge
+    contesta `db_error` y los mensajes de la app no sincronizan.
+  - Verificado corriendo la app: dejar un mensaje a mano, verlo junto a uno "dictado por voz",
+    marcarlo entregado (guarda `entregadoEn` y bumpea `updatedAt`), filtros pendientes/entregados y
+    por chat; en una cuenta existente con el menú ya ordenado aparece justo debajo de Decisiones;
+    mobile 375px sin scroll horizontal. Tests 12/12, `navOrder` 14/14, `tsc` + `next build` OK.
+  - **NO verificado:** el bridge escribiendo y leyendo de verdad (necesita la migración corrida y el
+    deploy). El Buzón sigue leyendo Decisiones hasta que "Karla Final" actualice el cartero.
+
 - [x] **Mapas mentales ~7× más rápidos** (2026-11-18, reporte: *"me anda muy lento"*). Medido, no
   supuesto, con un mapa de 250 nodos / 249 flechas + 14 mapas más: el guardado no era el problema
   (32 ms en total); lo caro era que **cada movimiento del mouse redibujaba los 250 nodos y las 249

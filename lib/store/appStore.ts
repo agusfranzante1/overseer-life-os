@@ -32,7 +32,7 @@ export const CORE_NAV_KEYS = [
  *  estas (sidebar mínimo) y el usuario va agregando las que le sirven.
  *  Mantener en sync con NAV_ITEMS del Sidebar. */
 export const OPTIONAL_NAV_KEYS = [
-  'lab', 'journal', 'decisiones', 'meditaciones', 'youtube', 'herramientas', 'books', 'mindmaps',
+  'lab', 'journal', 'decisiones', 'mensajes', 'meditaciones', 'youtube', 'herramientas', 'books', 'mindmaps',
   'trading', 'health', 'estudio', 'contenido', 'ofertas', 'gym', 'food', 'arca',
 ] as const
 

@@ -10,7 +10,7 @@ import {
   TrendingUp, GripVertical, Check, RotateCcw, Settings2, Cog, LogOut,
   Clock, Search, X as XIcon, Infinity as InfinityIcon, FlaskConical,
   Network, ChevronUp, ChevronDown, ChevronRight, Target, GraduationCap, Sparkles,
-  Sun, Moon, NotebookPen, Wind, Pencil, SquarePlay, Rocket, FolderPlus, Scale, Wrench, Receipt,
+  Sun, Moon, NotebookPen, Wind, Pencil, SquarePlay, Rocket, FolderPlus, Scale, Wrench, Receipt, MessagesSquare,
 } from 'lucide-react'
 import { SidebarLinks } from './SidebarLinks'
 import { mergeNavOrder } from '@/lib/utils/navOrder'
@@ -35,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/laboratorio', icon: FlaskConical,    key: 'lab' },
   { href: '/journal',     icon: NotebookPen,     key: 'journal' },
   { href: '/decisiones',  icon: Scale,           key: 'decisiones' },
+  { href: '/mensajes',    icon: MessagesSquare,  key: 'mensajes' },
   { href: '/meditaciones', icon: Wind,           key: 'meditaciones' },
   { href: '/youtube',    icon: SquarePlay,       key: 'youtube' },
   { href: '/herramientas', icon: Wrench,          key: 'herramientas' },

@@ -1,6 +1,6 @@
 /** ABM genérico de los dominios "per-fila con payload jsonb".
  *
- *  Journal, Meditaciones, YouTube, Laboratorio, Herramientas y Decisiones guardan cada entidad como una
+ *  Journal, Meditaciones, YouTube, Laboratorio, Herramientas, Decisiones y Mensajes guardan cada entidad como una
  *  fila `{ id, user_id, created_at, updated_at, payload jsonb }`. Escribir cada
  *  uno a mano sería el mismo archivo cuatro veces, así que acá va el motor y
  *  abajo el registro de dominios.
@@ -35,6 +35,7 @@
 
 import { getSupabaseAdmin } from '@/lib/supabase/admin'
 import type { WriteResult } from './writes'
+import { getUserPrefs } from './queries'
 
 interface Dominio {
   /** Cómo lo nombra el usuario. */
@@ -56,6 +57,22 @@ interface Dominio {
   guardBorrado?: (ctx: GuardBorradoCtx) => Promise<string | null>
   /** Cascadas que el store hace en el cliente y el server tiene que espejar. */
   trasBorrar?: (ctx: GuardBorradoCtx) => Promise<void>
+  /** Completa el payload antes de validar (p. ej. una fecha que depende de la
+   *  zona del usuario y no se puede fijar como default estático). */
+  completar?: (ctx: GuardCtx) => Promise<void>
+}
+
+/** El día de HOY en la zona del usuario, NO en UTC: después de las 21 en
+ *  Argentina ya es mañana en UTC (BASE de toda tool nueva, ver ARCHITECTURE). */
+async function hoyLocal(userId: string): Promise<string> {
+  const { timezone } = await getUserPrefs(userId)
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date())
+  } catch {
+    return new Date().toISOString().slice(0, 10)
+  }
 }
 
 type SB = ReturnType<typeof getSupabaseAdmin>
@@ -133,6 +150,34 @@ const DOMINIOS: Record<string, Dominio> = {
         return `verdict inválido: "${String(v)}". Los válidos son pendiente, correcta, incorrecta.`
       }
       if (p.date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(p.date))) return '`date` tiene que ser YYYY-MM-DD.'
+      return null
+    },
+  },
+  mensajes: {
+    etiqueta: 'Mensajes para Claude',
+    tabla: 'claude_messages',
+    // Exactamente lo que preserva el `sanitize` de pullMessages (BASE nº2).
+    campos: ['id', 'para', 'texto', 'fecha', 'origen', 'estado', 'entregadoEn', 'createdAt', 'updatedAt'],
+    requeridos: ['para', 'texto'],
+    defaults: { origen: 'voz', estado: 'pendiente' },
+    completar: async ({ userId, previo, payload }) => {
+      if (!previo && !payload.fecha) payload.fecha = await hoyLocal(userId)
+      // El cartero puede mandar solo {estado: 'entregado'}: la hora la ponemos acá.
+      // Y un mensaje que vuelve a pendiente no conserva una entrega que no vale.
+      if (payload.estado === 'entregado' && !payload.entregadoEn) payload.entregadoEn = new Date().toISOString()
+      if (payload.estado === 'pendiente') delete payload.entregadoEn
+    },
+    validar: (p) => {
+      const e = p.estado
+      if (e !== undefined && e !== 'pendiente' && e !== 'entregado') {
+        // El pull degrada cualquier otro valor a 'pendiente' en silencio.
+        return `estado inválido: "${String(e)}". Los válidos son pendiente, entregado.`
+      }
+      if (p.fecha !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(p.fecha))) return '`fecha` tiene que ser YYYY-MM-DD.'
+      if (p.entregadoEn !== undefined && p.entregadoEn !== null && Number.isNaN(Date.parse(String(p.entregadoEn)))) {
+        return '`entregadoEn` tiene que ser una fecha ISO (p. ej. 2026-11-18T15:04:00-03:00).'
+      }
+      if (typeof p.para === 'string' && !p.para.trim()) return '`para` no puede estar vacío: es el chat al que va el mensaje.'
       return null
     },
   },
@@ -378,6 +423,8 @@ export async function upsertRecord(
       return { ok: false, error: 'bad_input', detail: `Para crear en ${dom.etiqueta} falta: ${faltan.join(', ')}.` }
     }
   }
+
+  await dom.completar?.({ sb, userId, id, previo, payload })
 
   const problema = dom.validar?.(payload)
   if (problema) return { ok: false, error: 'bad_input', detail: problema }

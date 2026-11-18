@@ -24,6 +24,7 @@ import { type DayPlan, type DayPlanBlock, type DayPlanBlockKind, useDayPlanStore
 import { useJournalStore } from '@/lib/store/journalStore'
 import { useDecisionsStore } from '@/lib/store/decisionsStore'
 import { useToolsStore } from '@/lib/store/toolsStore'
+import { useMessagesStore } from '@/lib/store/messagesStore'
 import { useArcaStore, type ComprobanteArca } from '@/lib/store/arcaStore'
 import { useMeditationsStore } from '@/lib/store/meditationsStore'
 import { useYoutubeStore } from '@/lib/store/youtubeStore'
@@ -71,6 +72,7 @@ interface SyncState {
   journalInit: boolean
   decisionsInit: boolean
   toolsInit: boolean
+  messagesInit: boolean
   arcaInit: boolean
   meditationsInit: boolean
   youtubeInit: boolean
@@ -104,6 +106,7 @@ const state: SyncState = {
   journalInit: false,
   decisionsInit: false,
   toolsInit: false,
+  messagesInit: false,
   arcaInit: false,
   meditationsInit: false,
   youtubeInit: false,
@@ -136,6 +139,7 @@ let dayPlansPushTimer: ReturnType<typeof setTimeout> | null = null
 let journalPushTimer: ReturnType<typeof setTimeout> | null = null
 let decisionsPushTimer: ReturnType<typeof setTimeout> | null = null
 let toolsPushTimer: ReturnType<typeof setTimeout> | null = null
+let messagesPushTimer: ReturnType<typeof setTimeout> | null = null
 let arcaPushTimer: ReturnType<typeof setTimeout> | null = null
 let meditationsPushTimer: ReturnType<typeof setTimeout> | null = null
 let youtubePushTimer: ReturnType<typeof setTimeout> | null = null
@@ -2451,6 +2455,90 @@ async function pullDecisions(): Promise<boolean> {
   }
 }
 
+// ─── MENSAJES PARA CLAUDE (buzón de lo dictado para otro chat) ──────────────
+// Una fila por mensaje. Merge: LWW por updatedAt + tombstones.
+// Ver migration_claude_messages.sql. El bridge lo escribe (dominio `mensajes`).
+
+async function pushMessages() {
+  if (!state.userId) return
+  const syncedAt = new Date().toISOString()
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { mensajes } = useMessagesStore.getState()
+
+  const rows = mensajes.map((m) => ({
+    id: m.id,
+    user_id: uid,
+    created_at: m.createdAt,
+    updated_at: m.updatedAt,
+    payload: m,
+  }))
+
+  if (rows.length > 0) {
+    const r = await sb.from('claude_messages').upsert(rows)
+    if (r.error) {
+      reportSyncError(`claude_messages upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_claude_messages.sql.`)
+      throw r.error
+    }
+  }
+  await syncDeletes(sb, uid, 'claude_messages', rows.map((r) => r.id), 'claude_messages:items')
+  markSynced('messages', syncedAt)
+}
+
+async function pullMessages(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('messages')
+  try {
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('claude_messages').select('*').eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+  if (res.error) {
+    console.error('Messages pull failed (run migration_claude_messages.sql?):', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) { markSynced('messages'); return false }
+
+  type MsgRow = { payload: unknown }
+  // OJO (BASE nº2): el sanitize reconstruye el mensaje campo por campo — un
+  // campo que no esté acá SE BORRA al sincronizar, aunque el push lo mande.
+  // Si sumás uno nuevo al store, sumalo también acá Y en `campos` de
+  // lib/mcp/dataWrites.ts (dominio `mensajes`).
+  const sanitize = (raw: unknown): import('@/lib/store/messagesStore').MensajeClaude => {
+    const p = (raw ?? {}) as Partial<import('@/lib/store/messagesStore').MensajeClaude>
+    return {
+      id: p.id ?? '',
+      para: p.para ?? '',
+      texto: p.texto ?? '',
+      fecha: p.fecha ?? (p.createdAt ?? new Date().toISOString()).slice(0, 10),
+      origen: p.origen ?? '',
+      estado: p.estado === 'entregado' ? 'entregado' : 'pendiente',
+      entregadoEn: typeof p.entregadoEn === 'string' ? p.entregadoEn : undefined,
+      createdAt: p.createdAt ?? new Date().toISOString(),
+      updatedAt: p.updatedAt ?? new Date().toISOString(),
+    }
+  }
+  const remote: import('@/lib/store/messagesStore').MensajeClaude[] =
+    (res.data ?? []).map((r: MsgRow) => sanitize(r.payload))
+  const tombs = await fetchTombstones(sb, uid, ['claude_messages'])
+  const merged = mergeById<import('@/lib/store/messagesStore').MensajeClaude>({
+    local: useMessagesStore.getState().mensajes,
+    remote,
+    baseline: getBaseline('claude_messages:items'),
+    getId: (x) => x.id,
+    getUpdatedAt: (x) => x.updatedAt,
+    tombstones: tombs.get('claude_messages'),
+  })
+  useMessagesStore.setState({ mensajes: merged })
+  setBaseline('claude_messages:items', remote.map((x) => x.id))
+  markSynced('messages')
+  return true
+  } finally {
+    endPulling('messages')
+  }
+}
+
 // ─── HERRAMIENTAS (catálogo de herramientas: edición, IA, voces…) ───────────
 // Una fila por herramienta. Merge: LWW por updatedAt + tombstones.
 // Ver migration_tools.sql.
@@ -4605,6 +4693,7 @@ function scheduleDayPlans()   { schedule(dayPlansPushTimer,   pushDayPlans,   (t
 function scheduleJournal()     { schedule(journalPushTimer,    pushJournal,    (t) => { journalPushTimer = t }) }
 function scheduleDecisions()   { schedule(decisionsPushTimer,  pushDecisions,  (t) => { decisionsPushTimer = t }) }
 function scheduleTools()       { schedule(toolsPushTimer,      pushTools,      (t) => { toolsPushTimer = t }) }
+function scheduleMessages()    { schedule(messagesPushTimer,   pushMessages,   (t) => { messagesPushTimer = t }) }
 function scheduleArca()        { schedule(arcaPushTimer,       pushArca,       (t) => { arcaPushTimer = t }) }
 function scheduleMeditations() { schedule(meditationsPushTimer, pushMeditations, (t) => { meditationsPushTimer = t }) }
 function scheduleYoutube()     { schedule(youtubePushTimer,     pushYoutube,     (t) => { youtubePushTimer = t }) }
@@ -4865,6 +4954,16 @@ async function initAllDomains() {
     if (hasLocal) await pushTools().catch((e) => console.error('Tools post-pull push failed', e))
   }
 
+  // ─── Mensajes para Claude ─────────────────────────────────────────────
+  // Pull-first: LWW por updatedAt + tombstones (mismo patrón que herramientas).
+  if (!state.messagesInit) {
+    state.messagesInit = true
+    const { mensajes } = useMessagesStore.getState()
+    const hasLocal = mensajes.length > 0
+    await pullMessages()
+    if (hasLocal) await pushMessages().catch((e) => console.error('Messages post-pull push failed', e))
+  }
+
   // ─── ARCA (comprobantes emitidos) ────────────────────────────
   // Pull-first. No hay borrados en este dominio (una factura no se borra).
   if (!state.arcaInit) {
@@ -5048,6 +5147,7 @@ export function useSupabaseSync() {
       useJournalStore.subscribe(() => { markModifiedIfNotPulling('journal'); if (state.userId) scheduleJournal() })
       useDecisionsStore.subscribe(() => { markModifiedIfNotPulling('decisions'); if (state.userId) scheduleDecisions() })
       useToolsStore.subscribe(() => { markModifiedIfNotPulling('tools'); if (state.userId) scheduleTools() })
+      useMessagesStore.subscribe(() => { markModifiedIfNotPulling('messages'); if (state.userId) scheduleMessages() })
       useArcaStore.subscribe(() => { markModifiedIfNotPulling('arca'); if (state.userId) scheduleArca() })
       useMeditationsStore.subscribe(() => { markModifiedIfNotPulling('meditations'); if (state.userId) scheduleMeditations() })
       useYoutubeStore.subscribe(() => { markModifiedIfNotPulling('youtube'); if (state.userId) scheduleYoutube() })
@@ -5087,6 +5187,7 @@ export function useSupabaseSync() {
       state.journalInit = false
       state.decisionsInit = false
       state.toolsInit = false
+      state.messagesInit = false
       state.arcaInit = false
       state.meditationsInit = false
       state.youtubeInit = false
@@ -5148,6 +5249,7 @@ export function useSupabaseSync() {
       state.journalInit = false
       state.decisionsInit = false
       state.toolsInit = false
+      state.messagesInit = false
       state.arcaInit = false
       state.meditationsInit = false
       state.youtubeInit = false
@@ -5236,6 +5338,7 @@ export async function forceSyncAll(): Promise<void> {
   state.journalInit = false
   state.decisionsInit = false
   state.toolsInit = false
+  state.messagesInit = false
   state.arcaInit = false
   state.meditationsInit = false
   state.youtubeInit = false
@@ -5312,6 +5415,7 @@ export async function forcePullJournal()   { return pullJournal() }
 export async function forceSyncDecisions() { await pushDecisions() }
 export async function forcePullDecisions() { return pullDecisions() }
 export async function forcePullTools() { return pullTools() }
+export async function forcePullMessages() { return pullMessages() }
 export async function forcePullArca() { return pullArca() }
 export async function forceSyncMeditations() { await pushMeditations() }
 export async function forcePullMeditations() { return pullMeditations() }
