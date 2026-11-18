@@ -47,6 +47,37 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **CUADERNO — el anotador siempre a mano** (2026-11-18, pedido: *"un notepad siempre al
+  frente, al costado de la pantalla, super HD y fancy; sticky notes, renglones o puntos, journal;
+  una pestañita para ocultarlo y que lo pueda arrastrar cuando lo agrando"*). No es una sección del
+  menú: vive en el AppShell, arriba de cualquier página.
+  - **Cuatro formas de verlo:** pestañita en el borde derecho (cerrado) · panel **lateral** de alto
+    completo (el borde izquierdo cambia el ancho, 300–760) · ventana **flotante** que se arrastra
+    desde la tapa y se agranda desde la esquina · **Picture-in-Picture** (Chrome/Edge): una
+    ventanita que queda arriba de TODAS las apps de la compu. En el celu, pantalla completa.
+    **Alt+N** lo abre y lo esconde.
+  - **Hojas:** el **diario** (una por día, id `nb_dia_<fecha>` → dos dispositivos convergen en una
+    hoja; una hoja recién se crea al escribir, mirar un día no la crea) + **notas sueltas** con
+    título. Índice con las dos. Papel **renglones** (con margen rojo) / **puntos** / **cuadrícula** /
+    **liso** por hoja (lo último elegido queda de default), tono crema / blanco / noche, letra a
+    mano (Kalam) o clásica (Lora). **Sticky notes** de 5 colores, arrastrables, con cinta; la x se
+    guarda como fracción del ancho (el cuaderno cambia de ancho). Todo con gradientes CSS: nítido en
+    pantallas HiDPI.
+  - Sync: dominio por-fila `notebook_pages` (playbook completo, sanitize en `sanitizeHoja` con
+    test). El estado de la ventana (abierto, modo, tamaño, posición) es **por dispositivo, solo
+    localStorage** a propósito (`notebookUiStore`).
+  - **⚠️ Migración `supabase/migration_notebook.sql` — HAY QUE CORRERLA.** Sin ella el cuaderno
+    anda y se guarda en ese dispositivo, pero no viaja a los otros (y sale el toast de sync).
+  - **Verificado corriendo la app** (sin auth): escribir y pegar sticky guardan en el store; cambiar
+    papel/tono; ir al día siguiente no crea hoja; nueva nota con título; índice; flotante arrastrado
+    (−100,+50) y agrandado se guarda; arrastrar una sticky guarda x exacto; Alt+N cierra y vuelve al
+    último modo. Capturas en Chrome headless a 2× (lateral, flotante noche, cuadrícula + clásica,
+    celu abierto y cerrado). Tests `notebookStore` 31/31, `tsc` + `next build` OK.
+  - **NO verificado:** el Picture-in-Picture (necesita un clic real en una ventana visible) y el
+    round-trip multi-dispositivo (necesita la migración).
+  - **Siguiente natural:** sumar `cuaderno` al bridge (`dataWrites.ts`) para que Claude lea/escriba la
+    hoja del día.
+
 - [x] **Sección nueva: MENSAJES PARA CLAUDE** (2026-11-18, pedido de Agus pasado por el chat "Karla
   Final"). Lo que dicta por voz para OTRO chat ("mandale a Karla que…") se guardaba como una Decisión
   con una línea "Para <chat>: …" y se le mezclaba con las decisiones de verdad. Ahora es su propio

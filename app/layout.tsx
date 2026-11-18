@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { Caveat, Inter, JetBrains_Mono, Kalam, Lora, Space_Grotesk } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { AppShell } from "@/components/layout/AppShell";
@@ -29,6 +29,13 @@ const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
   display: "swap",
 });
+
+// Las tres letras del Cuaderno (components/notebook): Kalam para escribir
+// "a mano" sin que canse leerlo, Caveat para los títulos y las sticky notes,
+// y Lora para quien prefiera letra de libro.
+const kalam = Kalam({ variable: "--font-hand", subsets: ["latin"], display: "swap", weight: ["300", "400", "700"] });
+const caveat = Caveat({ variable: "--font-script", subsets: ["latin"], display: "swap" });
+const lora = Lora({ variable: "--font-book", subsets: ["latin"], display: "swap" });
 
 export const metadata: Metadata = {
   // Default title — shown on the initial paint and on routes that
@@ -76,7 +83,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jbMono.variable} ${spaceGrotesk.variable} dark`}
+      className={`${inter.variable} ${jbMono.variable} ${spaceGrotesk.variable} ${kalam.variable} ${caveat.variable} ${lora.variable} dark`}
       suppressHydrationWarning
     >
       <head>

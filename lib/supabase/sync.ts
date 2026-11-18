@@ -25,6 +25,7 @@ import { useJournalStore } from '@/lib/store/journalStore'
 import { useDecisionsStore } from '@/lib/store/decisionsStore'
 import { useToolsStore } from '@/lib/store/toolsStore'
 import { useMessagesStore } from '@/lib/store/messagesStore'
+import { useNotebookStore, sanitizeHoja, type HojaCuaderno } from '@/lib/store/notebookStore'
 import { useArcaStore, type ComprobanteArca } from '@/lib/store/arcaStore'
 import { useMeditationsStore } from '@/lib/store/meditationsStore'
 import { useYoutubeStore } from '@/lib/store/youtubeStore'
@@ -73,6 +74,7 @@ interface SyncState {
   decisionsInit: boolean
   toolsInit: boolean
   messagesInit: boolean
+  notebookInit: boolean
   arcaInit: boolean
   meditationsInit: boolean
   youtubeInit: boolean
@@ -107,6 +109,7 @@ const state: SyncState = {
   decisionsInit: false,
   toolsInit: false,
   messagesInit: false,
+  notebookInit: false,
   arcaInit: false,
   meditationsInit: false,
   youtubeInit: false,
@@ -140,6 +143,7 @@ let journalPushTimer: ReturnType<typeof setTimeout> | null = null
 let decisionsPushTimer: ReturnType<typeof setTimeout> | null = null
 let toolsPushTimer: ReturnType<typeof setTimeout> | null = null
 let messagesPushTimer: ReturnType<typeof setTimeout> | null = null
+let notebookPushTimer: ReturnType<typeof setTimeout> | null = null
 let arcaPushTimer: ReturnType<typeof setTimeout> | null = null
 let meditationsPushTimer: ReturnType<typeof setTimeout> | null = null
 let youtubePushTimer: ReturnType<typeof setTimeout> | null = null
@@ -2539,6 +2543,76 @@ async function pullMessages(): Promise<boolean> {
   }
 }
 
+// ─── CUADERNO (el anotador flotante: diario por día + notas + stickies) ────
+// Una fila por hoja. Merge: LWW por updatedAt + tombstones.
+// Las hojas del diario tienen id determinista `nb_dia_<fecha>`: dos
+// dispositivos que escriben el mismo día convergen en una hoja.
+// Ver migration_notebook.sql.
+
+async function pushNotebook() {
+  if (!state.userId) return
+  const syncedAt = new Date().toISOString()
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+  const { hojas } = useNotebookStore.getState()
+
+  const rows = hojas.map((h) => ({
+    id: h.id,
+    user_id: uid,
+    created_at: h.createdAt,
+    updated_at: h.updatedAt,
+    payload: h,
+  }))
+
+  if (rows.length > 0) {
+    const r = await sb.from('notebook_pages').upsert(rows)
+    if (r.error) {
+      reportSyncError(`notebook_pages upsert failed: ${r.error.message}. Likely missing migration — run supabase/migration_notebook.sql.`)
+      throw r.error
+    }
+  }
+  await syncDeletes(sb, uid, 'notebook_pages', rows.map((r) => r.id), 'notebook_pages:items')
+  markSynced('notebook', syncedAt)
+}
+
+async function pullNotebook(): Promise<boolean> {
+  if (!state.userId) return false
+  startPulling('notebook')
+  try {
+  const sb = getSupabaseBrowser()
+  const uid = state.userId!
+
+  const res = await sb.from('notebook_pages').select('*').eq('user_id', uid)
+    .order('updated_at', { ascending: false })
+  if (res.error) {
+    console.error('Notebook pull failed (run migration_notebook.sql?):', res.error)
+    return false
+  }
+  if ((res.data?.length ?? 0) === 0) { markSynced('notebook'); return false }
+
+  // El sanitize campo por campo vive junto al store (`sanitizeHoja`, con
+  // test): un campo nuevo de la hoja se suma AHÍ o se borra al sincronizar.
+  const remote: HojaCuaderno[] = (res.data ?? [])
+    .map((r: { payload: unknown }) => sanitizeHoja(r.payload))
+    .filter((h: HojaCuaderno) => h.id)
+  const tombs = await fetchTombstones(sb, uid, ['notebook_pages'])
+  const merged = mergeById<HojaCuaderno>({
+    local: useNotebookStore.getState().hojas,
+    remote,
+    baseline: getBaseline('notebook_pages:items'),
+    getId: (x) => x.id,
+    getUpdatedAt: (x) => x.updatedAt,
+    tombstones: tombs.get('notebook_pages'),
+  })
+  useNotebookStore.setState({ hojas: merged })
+  setBaseline('notebook_pages:items', remote.map((x) => x.id))
+  markSynced('notebook')
+  return true
+  } finally {
+    endPulling('notebook')
+  }
+}
+
 // ─── HERRAMIENTAS (catálogo de herramientas: edición, IA, voces…) ───────────
 // Una fila por herramienta. Merge: LWW por updatedAt + tombstones.
 // Ver migration_tools.sql.
@@ -4694,6 +4768,7 @@ function scheduleJournal()     { schedule(journalPushTimer,    pushJournal,    (
 function scheduleDecisions()   { schedule(decisionsPushTimer,  pushDecisions,  (t) => { decisionsPushTimer = t }) }
 function scheduleTools()       { schedule(toolsPushTimer,      pushTools,      (t) => { toolsPushTimer = t }) }
 function scheduleMessages()    { schedule(messagesPushTimer,   pushMessages,   (t) => { messagesPushTimer = t }) }
+function scheduleNotebook()    { schedule(notebookPushTimer,   pushNotebook,   (t) => { notebookPushTimer = t }) }
 function scheduleArca()        { schedule(arcaPushTimer,       pushArca,       (t) => { arcaPushTimer = t }) }
 function scheduleMeditations() { schedule(meditationsPushTimer, pushMeditations, (t) => { meditationsPushTimer = t }) }
 function scheduleYoutube()     { schedule(youtubePushTimer,     pushYoutube,     (t) => { youtubePushTimer = t }) }
@@ -4964,6 +5039,16 @@ async function initAllDomains() {
     if (hasLocal) await pushMessages().catch((e) => console.error('Messages post-pull push failed', e))
   }
 
+  // ─── Cuaderno ─────────────────────────────────────────────────────────
+  // Pull-first: LWW por updatedAt + tombstones (mismo patrón que mensajes).
+  if (!state.notebookInit) {
+    state.notebookInit = true
+    const { hojas } = useNotebookStore.getState()
+    const hasLocal = hojas.length > 0
+    await pullNotebook()
+    if (hasLocal) await pushNotebook().catch((e) => console.error('Notebook post-pull push failed', e))
+  }
+
   // ─── ARCA (comprobantes emitidos) ────────────────────────────
   // Pull-first. No hay borrados en este dominio (una factura no se borra).
   if (!state.arcaInit) {
@@ -5148,6 +5233,7 @@ export function useSupabaseSync() {
       useDecisionsStore.subscribe(() => { markModifiedIfNotPulling('decisions'); if (state.userId) scheduleDecisions() })
       useToolsStore.subscribe(() => { markModifiedIfNotPulling('tools'); if (state.userId) scheduleTools() })
       useMessagesStore.subscribe(() => { markModifiedIfNotPulling('messages'); if (state.userId) scheduleMessages() })
+      useNotebookStore.subscribe(() => { markModifiedIfNotPulling('notebook'); if (state.userId) scheduleNotebook() })
       useArcaStore.subscribe(() => { markModifiedIfNotPulling('arca'); if (state.userId) scheduleArca() })
       useMeditationsStore.subscribe(() => { markModifiedIfNotPulling('meditations'); if (state.userId) scheduleMeditations() })
       useYoutubeStore.subscribe(() => { markModifiedIfNotPulling('youtube'); if (state.userId) scheduleYoutube() })
@@ -5188,6 +5274,7 @@ export function useSupabaseSync() {
       state.decisionsInit = false
       state.toolsInit = false
       state.messagesInit = false
+      state.notebookInit = false
       state.arcaInit = false
       state.meditationsInit = false
       state.youtubeInit = false
@@ -5250,6 +5337,7 @@ export function useSupabaseSync() {
       state.decisionsInit = false
       state.toolsInit = false
       state.messagesInit = false
+      state.notebookInit = false
       state.arcaInit = false
       state.meditationsInit = false
       state.youtubeInit = false
@@ -5339,6 +5427,7 @@ export async function forceSyncAll(): Promise<void> {
   state.decisionsInit = false
   state.toolsInit = false
   state.messagesInit = false
+  state.notebookInit = false
   state.arcaInit = false
   state.meditationsInit = false
   state.youtubeInit = false

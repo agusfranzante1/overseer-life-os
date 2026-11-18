@@ -12,6 +12,7 @@ import { reconcileContentTasks } from '@/lib/content/contentTasks'
 import { useStudyStore } from '@/lib/store/studyStore'
 import { materiaUsesConceptMap, reconcileStudyConceptMap } from '@/lib/store/conceptStore'
 import { Sidebar } from './Sidebar'
+import { NotebookDock } from '@/components/notebook/NotebookDock'
 import { OnboardingTour } from '@/components/onboarding/OnboardingTour'
 import { TitleUpdater } from './TitleUpdater'
 import { ThemeStyleInjector } from './ThemeStyleInjector'
@@ -403,6 +404,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           (dentro del shell autenticado) para que pueda navegar entre
           secciones y verse el sidebar detrás del cartel. */}
       <OnboardingTour />
+
+      {/* Cuaderno: pestañita al borde derecho → panel lateral, ventana
+          flotante o Picture-in-Picture. En todas las secciones. */}
+      <NotebookDock />
 
       {/* Mobile backdrop — only when drawer is open, dismisses on tap. */}
       <AnimatePresence>
