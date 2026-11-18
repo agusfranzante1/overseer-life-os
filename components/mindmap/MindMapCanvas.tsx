@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, memo } from 'react'
 import {
   Trash2, Palette, Plus, X, Hand, MousePointer2, Minus, Spline, CornerDownRight, ZoomIn, ZoomOut, Square, Circle, Type, Copy, Link2, Image as ImageIcon, Loader2,
   Brackets, Braces, Parentheses, RotateCw, Undo2,
@@ -55,6 +55,25 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
   const map = useMindMapStore((s) => s.maps.find((m) => m.id === mapId)) ?? null
   // Lista de mapas para el picker del `@` (vincular un nodo a otro mapa).
   const allMaps = useMindMapStore((s) => s.maps)
+  // Solo id + título, con identidad ESTABLE mientras no cambien: `allMaps` es un
+  // array nuevo en cada edición (mover un nodo incluido), y pasárselo tal cual
+  // a cada nodo lo obligaba a redibujarse aunque no le hubiera pasado nada.
+  const mapOptionsKey = allMaps.map((m) => m.id + '\u0001' + m.title).join('\u0002')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const mapOptions = useMemo(() => allMaps.map((m) => ({ id: m.id, title: m.title })), [mapOptionsKey])
+  // Callbacks de los nodos con identidad estable (ver `nodeCallbacks` abajo).
+  const nodeHandlersRef = useRef<NodeHandlers | null>(null)
+  const nodeCbCache = useRef(new Map<string, NodeCallbacks>())
+  // Igual para las flechas: un solo objeto estable que delega en lo último.
+  const edgeHandlersRef = useRef<EdgeHandlers | null>(null)
+  const edgeHandlers = useMemo<EdgeHandlers>(() => ({
+    isPinchInteractionActive: () => edgeHandlersRef.current!.isPinchInteractionActive(),
+    selectEdge: (id) => edgeHandlersRef.current!.selectEdge(id),
+    startEdgeAnchorDrag: (e, id, which) => edgeHandlersRef.current!.startEdgeAnchorDrag(e, id, which),
+    resetAnchor: (id, which) => edgeHandlersRef.current!.resetAnchor(id, which),
+    startBendDrag: (e, id) => edgeHandlersRef.current!.startBendDrag(e, id),
+    resetBend: (id) => edgeHandlersRef.current!.resetBend(id),
+  }), [])
   const createMap = useMindMapStore((s) => s.createMap)
   const addNode = useMindMapStore((s) => s.addNode)
   const updateNode = useMindMapStore((s) => s.updateNode)
@@ -1177,6 +1196,77 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
     ? map.nodes.find((n) => n.id === selectedNodeIds[0]) ?? null
     : null
 
+  // Lo que cada nodo necesita para reaccionar, refrescado en CADA render. Los
+  // nodos reciben funciones estables que leen de acá: así `NodeBox` (memo) solo
+  // se redibuja cuando cambian SUS datos — al arrastrar uno, los demás no se
+  // tocan — y aun así ningún handler queda con una selección o un mapa viejo.
+  nodeHandlersRef.current = {
+    nodeById: new Map(map.nodes.map((n) => [n.id, n])),
+    startNodeDrag, startNodeResize, handleNodeClick, startDrawingFrom,
+    handleConnectorMove, handleConnectorDrop,
+    autoGrow: (node, height) => {
+      // Para nodos CIRCLE mantenemos width === height — si updateáramos solo
+      // height, `rounded-full` lo rendería como pill. Usamos max(width, height)
+      // para que el texto siga entrando aunque haya quedado más ancho que alto.
+      if (node.shape === 'circle') {
+        const size = Math.max(node.width, height)
+        updateNode(mapId, node.id, { width: size, height: size })
+      } else {
+        updateNode(mapId, node.id, { height })
+      }
+    },
+    duplicate: (id) => {
+      const newId = duplicateNode(mapId, id)
+      if (newId) selectOnlyNode(newId)
+    },
+    doubleClick: (node) => {
+      // Imágenes y brackets no tienen texto editable — doble-click solo
+      // selecciona. "Solo texto" sí abre edición aunque conserve una imagen vieja.
+      if ((node.imageUrl && node.shape !== 'text') || node.shape === 'bracket') { selectOnlyNode(node.id); return }
+      setEditingNodeId(node.id)
+      selectOnlyNode(node.id)
+    },
+    patchNode: (id, patch) => updateNode(mapId, id, patch),
+    endEdit: () => setEditingNodeId(null),
+    createMap: (title) => createMap(title),
+    openMap: (id) => onOpenMap?.(id),
+    hover: (id, hover) => setHoveredNodeId(hover ? id : (h) => (h === id ? null : h) as null),
+  }
+  const nodeById = nodeHandlersRef.current.nodeById
+  edgeHandlersRef.current = {
+    isPinchInteractionActive,
+    selectEdge: (edgeId) => setSelection({ kind: 'edge', id: edgeId }),
+    startEdgeAnchorDrag,
+    resetAnchor: (edgeId, which) => setEdgeAnchor(mapId, edgeId, which, undefined),
+    startBendDrag,
+    resetBend: (edgeId) => setEdgeBend(mapId, edgeId, undefined),
+  }
+  const nodeCallbacks = (id: string): NodeCallbacks => {
+    const cached = nodeCbCache.current.get(id)
+    if (cached) return cached
+    const h = () => nodeHandlersRef.current!
+    const withNode = (fn: (n: MindMapNode) => void) => { const n = h().nodeById.get(id); if (n) fn(n) }
+    const cb: NodeCallbacks = {
+      onPointerDown: (e) => withNode((n) => h().startNodeDrag(e, n)),
+      onResizeStart: (e) => withNode((n) => h().startNodeResize(e, n)),
+      onAutoGrowHeight: (height) => withNode((n) => h().autoGrow(n, height)),
+      onDuplicate: () => h().duplicate(id),
+      onClick: (multi) => h().handleNodeClick(id, { multi }),
+      onDoubleClick: () => withNode((n) => h().doubleClick(n)),
+      onTextChange: (text) => h().patchNode(id, { text }),
+      onEndEdit: () => h().endEdit(),
+      onLinkMap: (linkedMapId) => h().patchNode(id, { linkedMapId }),
+      onCreateMap: (title) => h().createMap(title),
+      onOpenMap: (mid) => h().openMap(mid),
+      onHover: (hover) => h().hover(id, hover),
+      onStartConnect: () => withNode((n) => h().startDrawingFrom(n)),
+      onConnectorMove: (cx, cy) => h().handleConnectorMove(cx, cy),
+      onConnectorDrop: (cx, cy) => h().handleConnectorDrop(id, cx, cy),
+    }
+    nodeCbCache.current.set(id, cb)
+    return cb
+  }
+
   return (
     <div className="relative h-full bg-zinc-950 flex flex-col">
       {/* Toolbar */}
@@ -1387,107 +1477,18 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
               handler can keep writing screen pixels directly. */}
           <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
             {map.edges.map((edge) => {
-              const fromNode = map.nodes.find((n) => n.id === edge.fromNodeId)
-              const toNode = map.nodes.find((n) => n.id === edge.toNodeId)
+              const fromNode = nodeById.get(edge.fromNodeId)
+              const toNode = nodeById.get(edge.toNodeId)
               if (!fromNode || !toNode) return null
-              const isSelected = selection?.kind === 'edge' && selection.id === edge.id
-              const shape = edge.shape ?? 'straight'
-              // Si la edge tiene bend custom, lo usamos para todo: el
-              // anclaje de los endpoints (apuntan hacia el bend), el
-              // path, y la posición del círculo-handle.
-              const { start, end } = computeEdgeEndpoints(fromNode, toNode, edge.bend, edge.fromAnchor, edge.toAnchor)
-              const path = buildEdgePath(start, end, shape, edge.bend)
-              const breakpoints = isSelected ? computeEdgeBreakpoints(start, end, shape, edge.bend) : []
-              // Solo el primer breakpoint es draggable como "bend" en
-              // straight/curved. Para orthogonal mostramos los corners
-              // como visual-only (drag tendría que recalcular corners).
-              const supportsBend = shape === 'straight' || shape === 'curved'
               return (
-                <g key={edge.id}>
-                  {/* Wide invisible hit area for easy clicking */}
-                  <path
-                    d={path}
-                    stroke="transparent" strokeWidth={16}
-                    fill="none"
-                    className="pointer-events-auto cursor-pointer"
-                    onPointerDown={(e) => {
-                      e.stopPropagation()
-                      if (isPinchInteractionActive()) return
-                      setSelection({ kind: 'edge', id: edge.id })
-                    }}
-                  />
-                  {/* Visible stroke */}
-                  <path
-                    d={path}
-                    stroke={isSelected ? '#a78bfa' : '#71717a'}
-                    strokeWidth={isSelected ? 2.5 : 1.75}
-                    fill="none"
-                    markerEnd={isSelected ? 'url(#mm-arrowhead-active)' : 'url(#mm-arrowhead)'}
-                    className="pointer-events-none"
-                  />
-                  {/* Endpoint handles — solo cuando la edge está seleccionada.
-                      Arrastrar mueve el punto de conexión en el nodo a un
-                      lugar específico (anchor custom). Doble-click resetea
-                      al auto-cálculo. */}
-                  {isSelected && (
-                    <>
-                      <circle
-                        cx={start.x} cy={start.y}
-                        r={5}
-                        fill="#34d399" stroke="#0a0a0b" strokeWidth={1.5}
-                        className="pointer-events-auto cursor-move"
-                        style={{ touchAction: 'none' }}
-                        onPointerDown={(e) => startEdgeAnchorDrag(e, edge.id, 'from')}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation()
-                          setEdgeAnchor(mapId, edge.id, 'from', undefined)
-                        }}
-                      >
-                        <title>Arrastrá para mover el punto de salida · doble-click para auto</title>
-                      </circle>
-                      <circle
-                        cx={end.x} cy={end.y}
-                        r={5}
-                        fill="#34d399" stroke="#0a0a0b" strokeWidth={1.5}
-                        className="pointer-events-auto cursor-move"
-                        style={{ touchAction: 'none' }}
-                        onPointerDown={(e) => startEdgeAnchorDrag(e, edge.id, 'to')}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation()
-                          setEdgeAnchor(mapId, edge.id, 'to', undefined)
-                        }}
-                      >
-                        <title>Arrastrá para mover el punto de llegada · doble-click para auto</title>
-                      </circle>
-                    </>
-                  )}
-                  {/* Break-point markers — el primero es draggable cuando
-                      el shape soporta bend. Cursor "move" + radio mayor
-                      como affordance visual. Doble-click resetea el bend
-                      al midpoint calculado (limpia el waypoint custom). */}
-                  {breakpoints.map((p, i) => {
-                    const isDraggable = isSelected && supportsBend && i === 0
-                    return (
-                      <circle
-                        key={i}
-                        cx={p.x} cy={p.y}
-                        r={isDraggable ? 6 : 4}
-                        fill="#a78bfa" stroke="#0a0a0b" strokeWidth={1.5}
-                        className={isDraggable ? 'pointer-events-auto cursor-move' : 'pointer-events-none'}
-                        style={isDraggable ? { touchAction: 'none' } : undefined}
-                        onPointerDown={isDraggable ? (e) => startBendDrag(e, edge.id) : undefined}
-                        onDoubleClick={isDraggable ? (e) => {
-                          e.stopPropagation()
-                          setEdgeBend(mapId, edge.id, undefined)
-                        } : undefined}
-                      >
-                        {isDraggable && (
-                          <title>Arrastrá para doblar la flecha · doble-click para resetear</title>
-                        )}
-                      </circle>
-                    )
-                  })}
-                </g>
+                <MemoEdgeItem
+                  key={edge.id}
+                  edge={edge}
+                  fromNode={fromNode}
+                  toNode={toNode}
+                  isSelected={selection?.kind === 'edge' && selection.id === edge.id}
+                  handlers={edgeHandlers}
+                />
               )
             })}
 
@@ -1536,58 +1537,22 @@ export function MindMapCanvas({ mapId, onOpenMap }: { mapId: string; onOpenMap?:
             const showPlus = (isHovered || isSelected)
               && editingNodeId !== node.id
               && drawingFromId !== node.id
+            const cb = nodeCallbacks(node.id)
             return (
-              <NodeBox
+              <MemoNodeBox
                 key={node.id}
                 node={node}
                 // pan = 0 because the wrapper above already applies the
                 // visual pan/zoom transform — NodeBox can stay zoom-unaware.
-                pan={{ x: 0, y: 0 }}
+                pan={ZERO_PAN}
                 selected={isSelected}
                 drawingMode={drawingFromId !== null}
                 editing={editingNodeId === node.id}
                 showPlus={showPlus}
-                onPointerDown={(e) => startNodeDrag(e, node)}
-                onResizeStart={(e) => startNodeResize(e, node)}
-                onAutoGrowHeight={(height) => {
-                  // Para nodos CIRCLE mantenemos width === height — si
-                  // updateáramos solo height, el bounding box quedaría
-                  // no-cuadrado y `rounded-full` lo rendería como pill
-                  // (lo que el usuario percibe como "se volvió rectángulo").
-                  // En ese caso usamos `max(width, height)` para que el
-                  // texto siga entrando incluso si quedó más ancho que
-                  // alto antes del auto-grow.
-                  if (node.shape === 'circle') {
-                    const size = Math.max(node.width, height)
-                    updateNode(mapId, node.id, { width: size, height: size })
-                  } else {
-                    updateNode(mapId, node.id, { height })
-                  }
-                }}
-                onDuplicate={() => {
-                  const newId = duplicateNode(mapId, node.id)
-                  if (newId) selectOnlyNode(newId)
-                }}
-                onClick={(modifierKey) => handleNodeClick(node.id, { multi: modifierKey })}
-                onDoubleClick={() => {
-                  // Imágenes y brackets no tienen texto editable — doble-click
-                  // solo selecciona (no abre textarea). "Solo texto" sí abre
-                  // edición aunque el nodo conserve una imagen vieja.
-                  if ((node.imageUrl && node.shape !== 'text') || node.shape === 'bracket') { selectOnlyNode(node.id); return }
-                  setEditingNodeId(node.id)
-                  selectOnlyNode(node.id)
-                }}
-                onTextChange={(text) => updateNode(mapId, node.id, { text })}
-                onEndEdit={() => setEditingNodeId(null)}
-                allMaps={allMaps}
+                {...cb}
+                onOpenMap={onOpenMap ? cb.onOpenMap : undefined}
+                allMaps={mapOptions}
                 currentMapId={mapId}
-                onLinkMap={(linkedMapId) => updateNode(mapId, node.id, { linkedMapId })}
-                onCreateMap={(title) => createMap(title)}
-                onOpenMap={onOpenMap}
-                onHover={(hover) => setHoveredNodeId(hover ? node.id : (h) => (h === node.id ? null : h) as null)}
-                onStartConnect={() => startDrawingFrom(node)}
-                onConnectorMove={handleConnectorMove}
-                onConnectorDrop={(cx, cy) => handleConnectorDrop(node.id, cx, cy)}
               />
             )
           })}
@@ -2239,6 +2204,154 @@ function EdgeShapePicker({
 
 // ─── Node ────────────────────────────────────────────────────────────────────
 
+interface EdgeHandlers {
+  isPinchInteractionActive: () => boolean
+  selectEdge: (edgeId: string) => void
+  startEdgeAnchorDrag: (e: React.PointerEvent, edgeId: string, which: 'from' | 'to') => void
+  resetAnchor: (edgeId: string, which: 'from' | 'to') => void
+  startBendDrag: (e: React.PointerEvent, edgeId: string) => void
+  resetBend: (edgeId: string) => void
+}
+
+/** Una flecha. Memo: al arrastrar un nodo solo se redibujan las flechas que lo
+ *  tocan (sus `fromNode`/`toNode` cambian de identidad); las demás se saltean.
+ *  Con 249 flechas, redibujarlas todas era el grueso del tiempo de cada frame. */
+function EdgeItem({ edge, fromNode, toNode, isSelected, handlers }: {
+  edge: MindMapEdge
+  fromNode: MindMapNode
+  toNode: MindMapNode
+  isSelected: boolean
+  handlers: EdgeHandlers
+}) {
+  const shape = edge.shape ?? 'straight'
+  // Si la edge tiene bend custom, lo usamos para todo: el
+  // anclaje de los endpoints (apuntan hacia el bend), el
+  // path, y la posición del círculo-handle.
+  const { start, end } = computeEdgeEndpoints(fromNode, toNode, edge.bend, edge.fromAnchor, edge.toAnchor)
+  const path = buildEdgePath(start, end, shape, edge.bend)
+  const breakpoints = isSelected ? computeEdgeBreakpoints(start, end, shape, edge.bend) : []
+  // Solo el primer breakpoint es draggable como "bend" en
+  // straight/curved. Para orthogonal mostramos los corners
+  // como visual-only (drag tendría que recalcular corners).
+  const supportsBend = shape === 'straight' || shape === 'curved'
+  return (
+    <g>
+      {/* Wide invisible hit area for easy clicking */}
+      <path
+        d={path}
+        stroke="transparent" strokeWidth={16}
+        fill="none"
+        className="pointer-events-auto cursor-pointer"
+        onPointerDown={(e) => {
+          e.stopPropagation()
+          if (handlers.isPinchInteractionActive()) return
+          handlers.selectEdge(edge.id)
+        }}
+      />
+      {/* Visible stroke */}
+      <path
+        d={path}
+        stroke={isSelected ? '#a78bfa' : '#71717a'}
+        strokeWidth={isSelected ? 2.5 : 1.75}
+        fill="none"
+        markerEnd={isSelected ? 'url(#mm-arrowhead-active)' : 'url(#mm-arrowhead)'}
+        className="pointer-events-none"
+      />
+      {/* Endpoint handles — solo cuando la edge está seleccionada.
+          Arrastrar mueve el punto de conexión en el nodo a un
+          lugar específico (anchor custom). Doble-click resetea
+          al auto-cálculo. */}
+      {isSelected && (
+        <>
+          <circle
+            cx={start.x} cy={start.y}
+            r={5}
+            fill="#34d399" stroke="#0a0a0b" strokeWidth={1.5}
+            className="pointer-events-auto cursor-move"
+            style={{ touchAction: 'none' }}
+            onPointerDown={(e) => handlers.startEdgeAnchorDrag(e, edge.id, 'from')}
+            onDoubleClick={(e) => {
+              e.stopPropagation()
+              handlers.resetAnchor(edge.id, 'from')
+            }}
+          >
+            <title>Arrastrá para mover el punto de salida · doble-click para auto</title>
+          </circle>
+          <circle
+            cx={end.x} cy={end.y}
+            r={5}
+            fill="#34d399" stroke="#0a0a0b" strokeWidth={1.5}
+            className="pointer-events-auto cursor-move"
+            style={{ touchAction: 'none' }}
+            onPointerDown={(e) => handlers.startEdgeAnchorDrag(e, edge.id, 'to')}
+            onDoubleClick={(e) => {
+              e.stopPropagation()
+              handlers.resetAnchor(edge.id, 'to')
+            }}
+          >
+            <title>Arrastrá para mover el punto de llegada · doble-click para auto</title>
+          </circle>
+        </>
+      )}
+      {/* Break-point markers — el primero es draggable cuando
+          el shape soporta bend. Cursor "move" + radio mayor
+          como affordance visual. Doble-click resetea el bend
+          al midpoint calculado (limpia el waypoint custom). */}
+      {breakpoints.map((p, i) => {
+        const isDraggable = isSelected && supportsBend && i === 0
+        return (
+          <circle
+            key={i}
+            cx={p.x} cy={p.y}
+            r={isDraggable ? 6 : 4}
+            fill="#a78bfa" stroke="#0a0a0b" strokeWidth={1.5}
+            className={isDraggable ? 'pointer-events-auto cursor-move' : 'pointer-events-none'}
+            style={isDraggable ? { touchAction: 'none' } : undefined}
+            onPointerDown={isDraggable ? (e) => handlers.startBendDrag(e, edge.id) : undefined}
+            onDoubleClick={isDraggable ? (e) => {
+              e.stopPropagation()
+              handlers.resetBend(edge.id)
+            } : undefined}
+          >
+            {isDraggable && (
+              <title>Arrastrá para doblar la flecha · doble-click para resetear</title>
+            )}
+          </circle>
+        )
+      })}
+    </g>
+  )
+}
+
+const MemoEdgeItem = memo(EdgeItem)
+
+const ZERO_PAN = { x: 0, y: 0 }
+
+type NodeBoxProps = Parameters<typeof NodeBox>[0]
+
+type NodeCallbacks = Pick<NodeBoxProps,
+  'onPointerDown' | 'onResizeStart' | 'onAutoGrowHeight' | 'onDuplicate' | 'onClick' | 'onDoubleClick'
+  | 'onTextChange' | 'onEndEdit' | 'onLinkMap' | 'onCreateMap' | 'onHover' | 'onStartConnect'
+  | 'onConnectorMove' | 'onConnectorDrop'> & { onOpenMap: (mapId: string) => void }
+
+interface NodeHandlers {
+  nodeById: Map<string, MindMapNode>
+  startNodeDrag: (e: React.PointerEvent, node: MindMapNode) => void
+  startNodeResize: (e: React.PointerEvent, node: MindMapNode) => void
+  handleNodeClick: (nodeId: string, modifiers?: { multi?: boolean }) => void
+  startDrawingFrom: (node: MindMapNode) => void
+  handleConnectorMove: (clientX: number, clientY: number) => void
+  handleConnectorDrop: (sourceNodeId: string, clientX: number, clientY: number) => void
+  autoGrow: (node: MindMapNode, height: number) => void
+  duplicate: (nodeId: string) => void
+  doubleClick: (node: MindMapNode) => void
+  patchNode: (nodeId: string, patch: Partial<Omit<MindMapNode, 'id'>>) => void
+  endEdit: () => void
+  createMap: (title: string) => string
+  openMap: (mapId: string) => void
+  hover: (nodeId: string, hover: boolean) => void
+}
+
 function NodeBox({
   node, pan, selected, drawingMode, editing, showPlus,
   onPointerDown, onResizeStart, onAutoGrowHeight, onDuplicate, onClick, onDoubleClick, onTextChange, onEndEdit,
@@ -2729,3 +2842,7 @@ function NodeBox({
     </>
   )
 }
+
+// Un nodo solo se redibuja si cambian SUS props: con 250 nodos, mover uno
+// redibujaba los 250 en cada movimiento del mouse.
+const MemoNodeBox = memo(NodeBox)

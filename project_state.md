@@ -47,6 +47,18 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **Mapas mentales ~7× más rápidos** (2026-11-18, reporte: *"me anda muy lento"*). Medido, no
+  supuesto, con un mapa de 250 nodos / 249 flechas + 14 mapas más: el guardado no era el problema
+  (32 ms en total); lo caro era que **cada movimiento del mouse redibujaba los 250 nodos y las 249
+  flechas** aunque se moviera uno solo. Fix: `NodeBox` y un `EdgeItem` nuevo con `memo`, callbacks
+  estables que leen de un ref, y la lista de mapas del `@` con identidad estable. **En producción:
+  arrastrar un nodo 48 ms → 7 ms por movimiento (p90 90 → 9), zoom con rueda 39 → 8 ms.**
+  Verificado corriendo la app: mover uno redibuja solo sus 3 flechas, multi-selección mueve los dos
+  con el mismo delta, editar texto + Enter guarda, duplicar, seleccionar flecha con sus handles.
+  **NO verificado:** conectar con el "+" (arrastrando o con clic): la simulación sintética no lo
+  dispara **ni en la versión vieja**, así que no es una regresión medible acá; probarlo a mano.
+  Sin migración.
+
 - [x] **Billetera: botón "Saldo" para actualizar el saldo a mano** (2026-11-10, pedido: *"dice 500
   pero tengo 300, poner 300 y listo, sin que la diferencia vaya a ingresos/egresos"*). Tipo nuevo
   de transacción **`adjustment`** con `amount` = la diferencia CON SIGNO (−200). Suma al saldo
