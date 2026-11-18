@@ -1,5 +1,5 @@
 'use client'
-import { useMemo, useId } from 'react'
+import { useMemo, useId, memo } from 'react'
 import { Network } from 'lucide-react'
 import type { MindMap } from '@/lib/store/mindmapStore'
 import { buildEdgePath, computeEdgeEndpoints } from './edgeGeometry'
@@ -15,7 +15,7 @@ const DEFAULT_NODE_COLOR = '#6366f1'
  *   - Updates live as the user edits (no stored thumbnail PNG — just a
  *     reactive render from the live state)
  *   - Handles edge cases: empty map, single node, very wide/tall maps */
-export function MindMapThumbnail({
+export const MindMapThumbnail = memo(function MindMapThumbnail({
   map, height = 140, hover = false,
 }: {
   map: MindMap
@@ -26,8 +26,6 @@ export function MindMapThumbnail({
   // when multiple thumbnails render on the same page.
   const reactId = useId().replace(/:/g, '_')
   const arrowId = `arrow_${reactId}`
-  const arrowHoverId = `arrow_h_${reactId}`
-  const gridId = `grid_${reactId}`
 
   // Geometry: compute the content bounding box, scale to fit, center.
   const geom = useMemo(() => {
@@ -70,13 +68,14 @@ export function MindMapThumbnail({
     )
   }
 
-  // Scale info — needed so strokes don't look too thick when zoomed out
-  // and don't disappear when zoomed in.
-  const scale = Math.min(/* heuristic for stroke compensation */ 1, 1)
-  // Actually we compute an approximate scale factor from the content size
-  // vs typical card width (~300) so stroke widths look consistent.
-  const approxScale = 300 / geom.contentW
+  // Escala aproximada de la miniatura (tarjeta de ~300px de ancho): sirve para
+  // que el trazo no quede ni grueso ni invisible, y para decidir si el texto se lee.
+  const approxScale = Math.min(300 / geom.contentW, height / geom.contentH)
   const strokeFactor = Math.max(0.5, Math.min(3, 1 / approxScale))
+  // El texto de cada nodo es un bloque HTML adentro del SVG: carísimo de
+  // maquetar. Solo lo dibujamos si a este tamaño se llega a leer (letra de 14
+  // que queda en ~5px o más); en un mapa grande la miniatura muestra la forma.
+  const showText = 14 * approxScale >= 5
 
   return (
     <div
@@ -106,7 +105,10 @@ export function MindMapThumbnail({
         preserveAspectRatio="xMidYMid meet"
         width="100%"
         height="100%"
-        className="relative z-10"
+        className="relative z-10 transition-opacity duration-200"
+        // El hover se resuelve en el contenedor: cambiar el color de cada nodo
+        // obligaba a redibujar y repintar el mapa entero al pasar el mouse.
+        style={{ opacity: hover ? 1 : 0.85 }}
       >
         <defs>
           <marker
@@ -118,132 +120,114 @@ export function MindMapThumbnail({
           >
             <path d="M 0 0 L 10 5 L 0 10 z" fill="#71717a" />
           </marker>
-          <marker
-            id={arrowHoverId}
-            viewBox="0 0 10 10"
-            refX={9} refY={5}
-            markerWidth={6} markerHeight={6}
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#a78bfa" />
-          </marker>
-          {/* Soft glow for nodes — pure CSS approach via SVG filter */}
-          <filter id={gridId} x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation={6 * strokeFactor} result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
         </defs>
 
-        {/* Edges UNDER nodes — same path computation as the live canvas so
-            the preview mirrors the real shape (straight/curved/orthogonal). */}
-        {map.edges.map((edge) => {
-          const fromNode = map.nodes.find((n) => n.id === edge.fromNodeId)
-          const toNode   = map.nodes.find((n) => n.id === edge.toNodeId)
-          if (!fromNode || !toNode) return null
-          const shape = edge.shape ?? 'straight'
-          const { start, end } = computeEdgeEndpoints(fromNode, toNode)
-          const d = buildEdgePath(start, end, shape)
-          return (
-            <path
-              key={edge.id}
-              d={d}
-              stroke={hover ? '#a78bfa' : '#52525b'}
-              strokeWidth={1.5 * strokeFactor}
-              fill="none"
-              markerEnd={`url(#${hover ? arrowHoverId : arrowId})`}
-              opacity={hover ? 0.9 : 0.65}
-              style={{ transition: 'stroke 0.2s, opacity 0.2s' }}
-            />
-          )
-        })}
+        <ThumbContent
+          nodes={map.nodes}
+          edges={map.edges}
+          strokeFactor={strokeFactor}
+          showText={showText}
+          arrowId={arrowId}
+        />
+      </svg>
 
-        {/* Nodes — filled rounded rectangles with their accent color +
-            the actual text content rendered inside via foreignObject (which
-            gives us real HTML/CSS text rendering, including wrap, clamp
-            and centering, INSIDE the SVG viewBox). */}
-        {map.nodes.map((node) => {
-          const color = node.color ?? DEFAULT_NODE_COLOR
-          // Font size in CONTENT units. The viewBox handles the scale-down
-          // when the thumbnail shrinks. ~12-14 in content coords ends up
-          // perfectly legible at thumbnail scale.
-          const fontSize = Math.max(10, Math.min(14, node.height * 0.22))
-          const rx = Math.min(12, node.height / 4)
-          // Nodo imagen — miniatura recortada a los bordes redondeados (o al
-          // círculo). Reusamos foreignObject (como el texto) para un <img>
-          // con object-fit, en vez de la caja de color.
-          if (node.imageUrl) {
-            return (
-              <g key={node.id}>
-                <rect
-                  x={node.x} y={node.y}
-                  width={node.width} height={node.height}
-                  rx={node.shape === 'circle' ? node.height / 2 : rx}
-                  fill={color}
-                  opacity={hover ? 0.18 : 0.08}
-                  filter={`url(#${gridId})`}
-                  style={{ transition: 'opacity 0.2s' }}
-                />
-                <foreignObject
-                  x={node.x} y={node.y}
-                  width={node.width} height={node.height}
-                  style={{ pointerEvents: 'none' }}
-                >
-                  <div
-                    style={{
-                      width: '100%', height: '100%', overflow: 'hidden',
-                      borderRadius: node.shape === 'circle' ? '50%' : `${rx}px`,
-                      border: `${2 * strokeFactor}px solid ${color}${hover ? 'FF' : 'BB'}`,
-                    } as React.CSSProperties}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={node.imageUrl}
-                      alt=""
-                      style={{ width: '100%', height: '100%', objectFit: node.imageFit ?? 'cover', display: 'block' }}
-                    />
-                  </div>
-                </foreignObject>
-              </g>
-            )
-          }
+      {/* Subtle node count badge bottom-right */}
+      <div className="absolute bottom-2 right-2 z-20 px-2 py-0.5 rounded-md bg-zinc-900/70 backdrop-blur border border-zinc-800 text-[9px] font-mono uppercase tracking-wider text-zinc-400 flex items-center gap-1 pointer-events-none">
+        <span>{map.nodes.length}</span>
+        <span className="text-zinc-600">·</span>
+        <span>{map.edges.length}</span>
+      </div>
+    </div>
+  )
+})
+
+// Geometry helpers extracted to ./edgeGeometry.ts so canvas + thumbnail
+// share the same path math (no drift between live editor and previews).
+
+const DEFAULT_THUMB_COLOR = DEFAULT_NODE_COLOR
+
+/** Nodos y flechas de la miniatura. Memo propio: el hover y los re-renders de
+ *  la lista no lo tocan; solo se redibuja si cambian los nodos o las flechas. */
+const ThumbContent = memo(function ThumbContent({ nodes, edges, strokeFactor, showText, arrowId }: {
+  nodes: MindMap['nodes']
+  edges: MindMap['edges']
+  strokeFactor: number
+  showText: boolean
+  arrowId: string
+}) {
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  return (
+    <>
+      {/* Edges UNDER nodes — same path computation as the live canvas so
+          the preview mirrors the real shape (straight/curved/orthogonal). */}
+      {edges.map((edge) => {
+        const fromNode = byId.get(edge.fromNodeId)
+        const toNode = byId.get(edge.toNodeId)
+        if (!fromNode || !toNode) return null
+        const { start, end } = computeEdgeEndpoints(fromNode, toNode)
+        return (
+          <path
+            key={edge.id}
+            d={buildEdgePath(start, end, edge.shape ?? 'straight')}
+            stroke="#71717a"
+            strokeWidth={1.5 * strokeFactor}
+            fill="none"
+            markerEnd={`url(#${arrowId})`}
+            opacity={0.75}
+          />
+        )
+      })}
+
+      {nodes.map((node) => {
+        const color = node.color ?? DEFAULT_THUMB_COLOR
+        const rx = node.shape === 'circle' ? node.height / 2 : Math.min(12, node.height / 4)
+        // Nodo imagen — miniatura recortada a los bordes (o al círculo).
+        if (node.imageUrl) {
           return (
-            <g key={node.id}>
-              {/* Subtle glow halo — fades out without hover */}
-              <rect
-                x={node.x} y={node.y}
-                width={node.width} height={node.height}
-                rx={Math.min(12, node.height / 4)}
-                fill={color}
-                opacity={hover ? 0.18 : 0.08}
-                filter={`url(#${gridId})`}
-                style={{ transition: 'opacity 0.2s' }}
-              />
-              {/* The actual rectangle */}
-              <rect
-                x={node.x} y={node.y}
-                width={node.width} height={node.height}
-                rx={Math.min(12, node.height / 4)}
-                fill={color + '25'}
-                stroke={color + (hover ? 'FF' : 'BB')}
-                strokeWidth={2 * strokeFactor}
-                style={{ transition: 'stroke 0.2s' }}
-              />
-              {/* Text content — foreignObject lets us use real HTML text
-                  rendering with wrap and line-clamp inside SVG. SVG <text>
-                  alone doesn't auto-wrap, which would mean long ideas spill
-                  out of their rectangle. */}
+            <foreignObject
+              key={node.id}
+              x={node.x} y={node.y}
+              width={node.width} height={node.height}
+              style={{ pointerEvents: 'none' }}
+            >
+              <div
+                style={{
+                  width: '100%', height: '100%', overflow: 'hidden',
+                  borderRadius: node.shape === 'circle' ? '50%' : `${rx}px`,
+                  border: `${2 * strokeFactor}px solid ${color}DD`,
+                } as React.CSSProperties}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={node.imageUrl}
+                  alt=""
+                  loading="lazy"
+                  style={{ width: '100%', height: '100%', objectFit: node.imageFit ?? 'cover', display: 'block' }}
+                />
+              </div>
+            </foreignObject>
+          )
+        }
+        const fontSize = Math.max(10, Math.min(14, node.height * 0.22))
+        return (
+          <g key={node.id}>
+            <rect
+              x={node.x} y={node.y}
+              width={node.width} height={node.height}
+              rx={rx}
+              fill={color + '25'}
+              stroke={color + 'DD'}
+              strokeWidth={2 * strokeFactor}
+            />
+            {/* Texto — foreignObject para tener wrap y line-clamp de HTML (el
+                <text> de SVG no corta líneas). Solo si a este tamaño se lee. */}
+            {showText && (
               <foreignObject
                 x={node.x} y={node.y}
                 width={node.width} height={node.height}
                 style={{ pointerEvents: 'none' }}
               >
                 <div
-                  // React/JSX handles the SVG → HTML namespace transition
-                  // for foreignObject children automatically — no need
-                  // to set xmlns explicitly (and React rejects it on div).
                   style={{
                     width: '100%',
                     height: '100%',
@@ -263,8 +247,6 @@ export function MindMapThumbnail({
                       fontWeight: 600,
                       lineHeight: 1.15,
                       wordBreak: 'break-word',
-                      // Line clamp so very long ideas don't visually
-                      // explode the proportions of the thumbnail.
                       display: '-webkit-box',
                       WebkitLineClamp: 3,
                       WebkitBoxOrient: 'vertical' as const,
@@ -275,20 +257,10 @@ export function MindMapThumbnail({
                   </span>
                 </div>
               </foreignObject>
-            </g>
-          )
-        })}
-      </svg>
-
-      {/* Subtle node count badge bottom-right */}
-      <div className="absolute bottom-2 right-2 z-20 px-2 py-0.5 rounded-md bg-zinc-900/70 backdrop-blur border border-zinc-800 text-[9px] font-mono uppercase tracking-wider text-zinc-400 flex items-center gap-1 pointer-events-none">
-        <span>{map.nodes.length}</span>
-        <span className="text-zinc-600">·</span>
-        <span>{map.edges.length}</span>
-      </div>
-    </div>
+            )}
+          </g>
+        )
+      })}
+    </>
   )
-}
-
-// Geometry helpers extracted to ./edgeGeometry.ts so canvas + thumbnail
-// share the same path math (no drift between live editor and previews).
+})

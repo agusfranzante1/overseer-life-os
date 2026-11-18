@@ -55,8 +55,19 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
   arrastrar un nodo 48 ms → 7 ms por movimiento (p90 90 → 9), zoom con rueda 39 → 8 ms.**
   Verificado corriendo la app: mover uno redibuja solo sus 3 flechas, multi-selección mueve los dos
   con el mismo delta, editar texto + Enter guarda, duplicar, seleccionar flecha con sus handles.
-  **NO verificado:** conectar con el "+" (arrastrando o con clic): la simulación sintética no lo
-  dispara **ni en la versión vieja**, así que no es una regresión medible acá; probarlo a mano.
+  Con mouse real: tocar el "+" y después otro nodo **conecta bien**.
+  - **La lista de mapas también** (pedido siguiente, *"el menú donde muestran todos los mapas"*): cada
+    miniatura dibujaba el mapa entero con un **blur SVG por nodo** (1.091 filtros con los datos de
+    prueba) + el texto de cada nodo como HTML en `foreignObject`, y el hover recoloreaba todo.
+    Ahora: sin blur, el texto solo si a ese tamaño se lee (`14 * escala >= 5`), hover por opacidad
+    del contenedor, `ThumbContent` con memo y `content-visibility: auto` en las tarjetas. Abrir la
+    lista **388 → 64 ms** sin contar el pintado; DOM 8.454 → 4.037 nodos. Verificado mirándolo:
+    un mapa chico sigue mostrando sus palabras, uno grande muestra la forma.
+  - ⚠️ **Bug PRE-EXISTENTE, no tocado:** arrastrar el "+" y soltarlo en otro lado NO crea la
+    conexión ni el nodo nuevo (la línea punteada sigue al mouse y al soltar queda en "modo
+    conectar"). Probado con mouse real en la versión de ANTES de estos cambios: pasa igual.
+    Probable causa: el "+" se desmonta al empezar a dibujar (`showPlus` exige
+    `drawingFromId !== node.id`), y se pierde el pointer capture con su `pointerup`.
   Sin migración.
 
 - [x] **Billetera: botón "Saldo" para actualizar el saldo a mano** (2026-11-10, pedido: *"dice 500

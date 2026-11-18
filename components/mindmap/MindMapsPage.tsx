@@ -448,6 +448,10 @@ function MapCard({
         borderColor: hover ? '#6366f1AA' : 'rgba(var(--glass-tint), 0.12)',
         boxShadow: hover ? '0 12px 32px -10px #6366f150' : 'none',
         transform: hover ? 'translateY(-2px)' : 'none',
+        // Las tarjetas fuera de pantalla no se maquetan ni se pintan hasta que
+        // se acercan al scroll. El menú de carpeta va por portal: no lo recorta.
+        contentVisibility: 'auto',
+        containIntrinsicSize: 'auto 220px',
       }}
     >
       {/* Preview / thumbnail — live mini-render of the actual map content.
