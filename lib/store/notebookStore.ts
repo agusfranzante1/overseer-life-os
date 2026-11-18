@@ -48,6 +48,54 @@ export interface Sticky {
   rot: number
 }
 
+export type ColorTapa =
+  | 'violeta' | 'medianoche' | 'borgona' | 'bosque' | 'oceano'
+  | 'caramelo' | 'mostaza' | 'rosa' | 'arena' | 'grafito'
+export const COLORES_TAPA: ColorTapa[] = ['violeta', 'medianoche', 'borgona', 'bosque', 'oceano', 'caramelo', 'mostaza', 'rosa', 'arena', 'grafito']
+
+export type EstiloTapa = 'cuero' | 'tela' | 'estrellas' | 'rayas'
+export const ESTILOS_TAPA: EstiloTapa[] = ['cuero', 'tela', 'estrellas', 'rayas']
+
+/** La tapa del cuaderno. Es una PREFERENCIA (no una hoja): viaja en el blob
+ *  `app_preferences` (`notebookTapa`), mergeada por campo como el resto. */
+export interface TapaCuaderno {
+  color: ColorTapa
+  estilo: EstiloTapa
+  /** Lo que va grabado en la tapa. */
+  nombre: string
+}
+export const TAPA_DEFAULT: TapaCuaderno = { color: 'violeta', estilo: 'cuero', nombre: 'Cuaderno' }
+
+export function sanitizeTapa(raw: unknown): TapaCuaderno {
+  const p = (raw ?? {}) as Partial<TapaCuaderno>
+  return {
+    color: COLORES_TAPA.includes(p.color as ColorTapa) ? (p.color as ColorTapa) : TAPA_DEFAULT.color,
+    estilo: ESTILOS_TAPA.includes(p.estilo as EstiloTapa) ? (p.estilo as EstiloTapa) : TAPA_DEFAULT.estilo,
+    nombre: typeof p.nombre === 'string' ? p.nombre.slice(0, 40) : TAPA_DEFAULT.nombre,
+  }
+}
+
+/** Texto escrito en cualquier lugar de la hoja (no solo seguido desde arriba). */
+export interface BloqueTexto {
+  id: string
+  /** Fracción del ancho de la hoja (0–1), igual que las stickies. */
+  x: number
+  /** px desde arriba de la hoja, SIEMPRE múltiplo del renglón: así el texto cae sobre la línea. */
+  y: number
+  texto: string
+}
+
+export type Tinta = 'tinta' | 'azul' | 'rojo' | 'violeta' | 'verde'
+export const TINTAS: Tinta[] = ['tinta', 'azul', 'rojo', 'violeta', 'verde']
+
+/** Una línea recta trazada con la regla. x como fracción del ancho, y en px. */
+export interface Trazo {
+  id: string
+  x1: number; y1: number
+  x2: number; y2: number
+  tinta: Tinta
+}
+
 export type TipoHoja = 'dia' | 'nota'
 
 export interface HojaCuaderno {
@@ -60,6 +108,8 @@ export interface HojaCuaderno {
   texto: string
   papel: Papel
   stickies: Sticky[]
+  bloques: BloqueTexto[]
+  trazos: Trazo[]
   createdAt: string
   updatedAt: string
 }
@@ -70,6 +120,8 @@ type CamposHoja = Partial<Pick<HojaCuaderno, 'titulo' | 'texto' | 'papel'>>
 
 interface State {
   hojas: HojaCuaderno[]
+  tapa: TapaCuaderno
+  setTapa: (patch: Partial<TapaCuaderno>) => void
   /** Escribe en la hoja del día; la crea si todavía no existe (las hojas del
    *  diario no se crean al mirarlas, recién cuando se escribe algo). */
   editarDia: (fecha: string, patch: CamposHoja, papelDefault: Papel) => void
@@ -79,17 +131,25 @@ interface State {
   agregarSticky: (hojaId: string, s: Omit<Sticky, 'id'>) => string
   editarSticky: (hojaId: string, stickyId: string, patch: Partial<Omit<Sticky, 'id'>>) => void
   borrarSticky: (hojaId: string, stickyId: string) => void
+  agregarBloque: (hojaId: string, b: Omit<BloqueTexto, 'id'>) => string
+  editarBloque: (hojaId: string, bloqueId: string, patch: Partial<Omit<BloqueTexto, 'id'>>) => void
+  borrarBloque: (hojaId: string, bloqueId: string) => void
+  agregarTrazo: (hojaId: string, t: Omit<Trazo, 'id'>) => string
+  borrarTrazo: (hojaId: string, trazoId: string) => void
 }
 
 function nuevaHoja(tipo: TipoHoja, fecha: string, papel: Papel, id = genId()): HojaCuaderno {
   const now = nowISO()
-  return { id, tipo, fecha, titulo: '', texto: '', papel, stickies: [], createdAt: now, updatedAt: now }
+  return { id, tipo, fecha, titulo: '', texto: '', papel, stickies: [], bloques: [], trazos: [], createdAt: now, updatedAt: now }
 }
 
 export const useNotebookStore = create<State>()(
   persist(
     (set, get) => ({
       hojas: [],
+      tapa: TAPA_DEFAULT,
+
+      setTapa: (patch) => set((s) => ({ tapa: sanitizeTapa({ ...s.tapa, ...patch }) })),
 
       editarDia: (fecha, patch, papelDefault) => {
         const id = idDia(fecha)
@@ -131,12 +191,39 @@ export const useNotebookStore = create<State>()(
         hojas: st.hojas.map((h) => h.id !== hojaId ? h
           : { ...h, stickies: h.stickies.filter((x) => x.id !== stickyId), updatedAt: nowISO() }),
       })),
+
+      agregarBloque: (hojaId, b) => {
+        const id = genId()
+        set((st) => ({ hojas: st.hojas.map((h) => h.id !== hojaId ? h : { ...h, bloques: [...(h.bloques ?? []), { ...b, id }], updatedAt: nowISO() }) }))
+        return id
+      },
+      editarBloque: (hojaId, bloqueId, patch) => set((st) => ({
+        hojas: st.hojas.map((h) => h.id !== hojaId ? h : {
+          ...h, bloques: (h.bloques ?? []).map((x) => x.id !== bloqueId ? x : { ...x, ...patch }), updatedAt: nowISO(),
+        }),
+      })),
+      borrarBloque: (hojaId, bloqueId) => set((st) => ({
+        hojas: st.hojas.map((h) => h.id !== hojaId ? h
+          : { ...h, bloques: (h.bloques ?? []).filter((x) => x.id !== bloqueId), updatedAt: nowISO() }),
+      })),
+      agregarTrazo: (hojaId, t) => {
+        const id = genId()
+        set((st) => ({ hojas: st.hojas.map((h) => h.id !== hojaId ? h : { ...h, trazos: [...(h.trazos ?? []), { ...t, id }], updatedAt: nowISO() }) }))
+        return id
+      },
+      borrarTrazo: (hojaId, trazoId) => set((st) => ({
+        hojas: st.hojas.map((h) => h.id !== hojaId ? h
+          : { ...h, trazos: (h.trazos ?? []).filter((x) => x.id !== trazoId), updatedAt: nowISO() }),
+      })),
     }),
     {
       name: 'overseer-notebook',
-      partialize: (s) => ({ hojas: s.hojas }),
+      partialize: (s) => ({ hojas: s.hojas, tapa: s.tapa }),
       onRehydrateStorage: () => (state) => {
         if (state && !Array.isArray(state.hojas)) state.hojas = []
+        // Hojas guardadas antes de que existieran bloques y trazos.
+        if (state) state.hojas = state.hojas.map((h) => ({ ...h, bloques: h.bloques ?? [], trazos: h.trazos ?? [] }))
+        if (state) state.tapa = sanitizeTapa(state.tapa)
       },
     },
   ),
@@ -171,6 +258,22 @@ export function sanitizeHoja(raw: unknown): HojaCuaderno {
         y: Math.max(0, num(s.y, 40)),
         rot: Math.min(4, Math.max(-4, num(s.rot, 0))),
       })),
+    bloques: (Array.isArray(p.bloques) ? p.bloques : [])
+      .filter((b): b is BloqueTexto => !!b && typeof b === 'object' && typeof (b as BloqueTexto).id === 'string')
+      .map((b) => ({
+        id: b.id,
+        x: Math.min(1, Math.max(0, num(b.x, 0.1))),
+        y: Math.max(0, num(b.y, 60)),
+        texto: typeof b.texto === 'string' ? b.texto : '',
+      })),
+    trazos: (Array.isArray(p.trazos) ? p.trazos : [])
+      .filter((t): t is Trazo => !!t && typeof t === 'object' && typeof (t as Trazo).id === 'string')
+      .map((t) => ({
+        id: t.id,
+        x1: Math.min(1, Math.max(0, num(t.x1, 0))), y1: Math.max(0, num(t.y1, 0)),
+        x2: Math.min(1, Math.max(0, num(t.x2, 0))), y2: Math.max(0, num(t.y2, 0)),
+        tinta: TINTAS.includes(t.tinta) ? t.tinta : 'tinta',
+      })),
     createdAt: typeof p.createdAt === 'string' ? p.createdAt : now,
     updatedAt: typeof p.updatedAt === 'string' ? p.updatedAt : now,
   }
@@ -180,6 +283,7 @@ export function sanitizeHoja(raw: unknown): HojaCuaderno {
  *  días que solo se miraron). */
 export function hojaTieneAlgo(h: HojaCuaderno): boolean {
   return h.texto.trim().length > 0 || h.stickies.length > 0 || h.titulo.trim().length > 0
+    || (h.bloques ?? []).some((b) => b.texto.trim()) || (h.trazos ?? []).length > 0
 }
 
 /** El índice: días del diario (más nuevo primero) y notas (última editada
@@ -201,7 +305,9 @@ export function correrDia(fecha: string, n: number): string {
 
 /** Primera línea con texto, para el índice. */
 export function resumenHoja(h: HojaCuaderno, max = 60): string {
-  const linea = h.texto.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? ''
+  // El texto de arriba primero; si está vacío, lo escrito más arriba en la hoja.
+  const sueltos = [...(h.bloques ?? [])].sort((a, b) => a.y - b.y || a.x - b.x).map((b) => b.texto)
+  const linea = [h.texto, ...sueltos].join('\n').split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? ''
   if (linea) return linea.length > max ? linea.slice(0, max - 1) + '…' : linea
   if (h.stickies.length > 0) return `${h.stickies.length} nota${h.stickies.length === 1 ? '' : 's'} pegada${h.stickies.length === 1 ? '' : 's'}`
   return ''

@@ -25,7 +25,7 @@ import { useJournalStore } from '@/lib/store/journalStore'
 import { useDecisionsStore } from '@/lib/store/decisionsStore'
 import { useToolsStore } from '@/lib/store/toolsStore'
 import { useMessagesStore } from '@/lib/store/messagesStore'
-import { useNotebookStore, sanitizeHoja, type HojaCuaderno } from '@/lib/store/notebookStore'
+import { useNotebookStore, sanitizeHoja, sanitizeTapa, type HojaCuaderno } from '@/lib/store/notebookStore'
 import { useArcaStore, type ComprobanteArca } from '@/lib/store/arcaStore'
 import { useMeditationsStore } from '@/lib/store/meditationsStore'
 import { useYoutubeStore } from '@/lib/store/youtubeStore'
@@ -3534,6 +3534,9 @@ function appPrefsFields(): Record<string, unknown> {
     // Listas guardadas (smart lists) del task manager. Preferencia real del
     // usuario → viaja en el blob y se mergea por-campo (LWW del array entero).
     savedViews: useTaskUiStore.getState().savedViews,
+    // La tapa del Cuaderno (color, estilo, nombre). Vive en notebookStore,
+    // pero es una preferencia: viaja en el blob, no como hoja.
+    notebookTapa: useNotebookStore.getState().tapa,
     language: s.language,
     timezone: s.timezone,
     autoPurgeCompletedTasks: s.autoPurgeCompletedTasks,
@@ -3611,9 +3614,13 @@ function applyPrefsFields(f: Record<string, unknown>): void {
 }
 
 function applyPrefsFieldsInner(f: Record<string, unknown>): void {
-  const { offerStages, offerCategories, offerGeos, hiddenProjects, savedViews, reviewsSeen, ...appFields } = f as Record<string, unknown> & {
+  const { offerStages, offerCategories, offerGeos, hiddenProjects, savedViews, reviewsSeen, notebookTapa, ...appFields } = f as Record<string, unknown> & {
     offerStages?: unknown; offerCategories?: unknown; offerGeos?: unknown; hiddenProjects?: unknown
-    savedViews?: unknown; reviewsSeen?: unknown
+    savedViews?: unknown; reviewsSeen?: unknown; notebookTapa?: unknown
+  }
+  // La tapa del Cuaderno vive en notebookStore, no en appStore.
+  if (notebookTapa && typeof notebookTapa === 'object') {
+    useNotebookStore.setState({ tapa: sanitizeTapa(notebookTapa) })
   }
   useAppStore.setState((prev) => ({ ...prev, ...appFields }))
   // hiddenProjects y savedViews viven en taskUiStore, no en appStore: los ruteamos ahí.
@@ -5222,6 +5229,9 @@ export function useSupabaseSync() {
       // Sin esta linea, marcar una revision como vista no ensuciaria appPrefs
       // y no se subiria nunca (BASE nº1).
       useReviewsStore.subscribe(onAppPrefsChange)
+      // La tapa del Cuaderno también vive en el blob (las hojas no: esas son
+      // filas propias y no están en appPrefsFields, así que escribir no lo ensucia).
+      useNotebookStore.subscribe(onAppPrefsChange)
       useMindMapStore.subscribe(() => { markModifiedIfNotPulling('mindmaps'); if (state.userId) scheduleMindMaps() })
       useKpisStore.subscribe(() => { markModifiedIfNotPulling('kpis'); if (state.userId) scheduleKpis() })
       useStudyStore.subscribe(() => { markModifiedIfNotPulling('study'); if (state.userId) scheduleStudy() })

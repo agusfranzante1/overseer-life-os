@@ -47,6 +47,40 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **CUADERNO v2 — un cuaderno de verdad que flota** (2026-11-18, mismo día; feedback: *"te
+  pedí que sea como un cuaderno y que se mueva por la pantalla; hoy está fijo y la única opción es
+  el picture-in-picture, que no pedí. Que se vea la tapa, pasar las páginas con swipe, tapas
+  lindas"* y después *"escribir en cualquier línea, no renglón por renglón; hacer líneas con
+  regla"*). Reemplaza el panel lateral y el PiP de la v1 (eliminados).
+  - **Flota y se arrastra** a cualquier lugar agarrándolo de la tapa (el borde alrededor de la hoja,
+    o la tapa entera cerrado); se agranda desde la esquina. Posición por dispositivo
+    (`notebookUiStore.rect`, v1 con `migrarUi` desde la v0). Estados: `oculto` (pestañita con el
+    color de la tapa) · `tapa` (cerrado) · `abierto`. Alt+N muestra/esconde.
+  - **Tapa:** 10 colores × 4 terminaciones (cuero, tela, estrellas, rayas), nombre grabado en
+    dorado/plata (grabado oscuro en las claras), lomo, costura, elástico y canto de hojas.
+    **Sincroniza**: es preferencia, va en el blob `app_preferences` (`notebookTapa`, routeada en
+    `applyPrefsFieldsInner` + subscribe a `onAppPrefsChange`). Se abre girando sobre el lomo con
+    dos caras (frente y adentro). ⚠️ La opacidad NO puede ir en el elemento con
+    `preserve-3d`: aplana el 3D y el nombre se ve al revés — va en la cara de adentro.
+  - **Pasar hojas:** swipe con el dedo, dos dedos de costado en el trackpad, esquinitas dobladas
+    abajo (der = siguiente, izq = anterior), flechas o Alt+←/→. La hoja gira sobre el lomo
+    (AnimatePresence con dirección). Diario = día ±1; notas = nota ±1 por creación; el índice es la
+    primera hoja. El mouse NO hace swipe (arrastrar sobre la hoja es seleccionar texto).
+  - **Escribir en cualquier renglón:** el texto de arriba ya no llena la hoja; tocar papel libre crea
+    un `BloqueTexto` en ese renglón (y múltiplo de LINEA) y en ese x; se mueve con su manija; vacío
+    se descarta. **Regla:** `Trazo` recto (x fracción, y px), se endereza cerca de horizontal/
+    vertical y la horizontal se apoya en el renglón (`enderezar`, con test); 5 tintas; tocar una
+    línea la borra. Los dos en el payload de la hoja → **sin migración** (sanitize los preserva).
+  - **Verificado en Chrome headless** (CDP, eventos de puntero): arrastrar cerrado mueve y no abre;
+    tocar abre; arrastrar abierto desde la tapa mueve, sobre la hoja no; swipe izq/der, vertical no
+    pasa hoja; trackpad; esquina; cerrar; Alt+N; cambiar tapa desde la tapa cerrada; bloque en el
+    renglón 9 con foco; regla horizontal apoyada en 239.5 y vertical enderezada. Capturas de tapa,
+    apertura a mitad de giro, hoja girando, menú, celu. Tests 56/56, `tsc` + `next build` OK.
+  - **NO verificado:** gestos con dedo real en el celu/tablet y trackpad real; el blur que descarta un
+    texto vacío (headless no dispara foco; igual se limpian al tocar otro lado).
+  - ⚠️ Un dispositivo con el build viejo descarta `bloques`/`trazos` al sincronizar y puede pisarlos
+    si edita esa hoja: **recargar los dispositivos**.
+
 - [x] **CUADERNO — el anotador siempre a mano** (2026-11-18, pedido: *"un notepad siempre al
   frente, al costado de la pantalla, super HD y fancy; sticky notes, renglones o puntos, journal;
   una pestañita para ocultarlo y que lo pueda arrastrar cuando lo agrando"*). No es una sección del

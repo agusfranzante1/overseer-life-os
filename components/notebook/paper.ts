@@ -7,14 +7,14 @@
  * un múltiplo de LINEA desde el borde de la hoja, así cada línea de texto
  * termina justo donde está dibujado el renglón.
  */
-import type { Papel, ColorSticky } from '@/lib/store/notebookStore'
+import type { Papel, ColorSticky, Tinta } from '@/lib/store/notebookStore'
 import type { TonoPapel } from '@/lib/store/notebookUiStore'
 
 export const LINEA = 30
 /** Dónde está la línea roja del margen (px desde el borde izquierdo de la hoja). */
 export const MARGEN = 52
 
-export interface Tinta {
+export interface PaletaPapel {
   papel: string
   /** Un tono más oscuro del papel, para el borde y la sombra interior. */
   papelBorde: string
@@ -25,7 +25,7 @@ export interface Tinta {
   punto: string
 }
 
-export const TONOS: Record<TonoPapel, Tinta> = {
+export const TONOS: Record<TonoPapel, PaletaPapel> = {
   crema: {
     papel: '#fbf6ea', papelBorde: '#e9dfc8',
     tinta: '#26283a', tintaSuave: 'rgba(38,40,58,0.42)',
@@ -46,7 +46,7 @@ export const TONOS: Record<TonoPapel, Tinta> = {
 /** Fondo de la hoja según el papel. El margen rojo va en los renglones (como
  *  un cuaderno escolar); puntos y cuadrícula van sin margen (como un bullet
  *  journal). */
-export function fondoPapel(papel: Papel, t: Tinta): React.CSSProperties {
+export function fondoPapel(papel: Papel, t: PaletaPapel): React.CSSProperties {
   const L = LINEA
   switch (papel) {
     case 'renglones':
@@ -85,6 +85,18 @@ export const STICKY: Record<ColorSticky, { fondo: string; tira: string; tinta: s
   celeste: { fondo: '#cfeaff', tira: '#a9d6fb', tinta: '#123b5c' },
   verde: { fondo: '#d4f5d0', tira: '#ade9a6', tinta: '#1d4a1a' },
   lila: { fondo: '#e6dcff', tira: '#cdbcfb', tinta: '#35215f' },
+}
+
+/** Color de cada tinta de la regla; en papel noche, versiones claras. */
+export function colorTinta(tinta: Tinta, tono: TonoPapel): string {
+  const noche = tono === 'noche'
+  switch (tinta) {
+    case 'azul': return noche ? '#86a6ff' : '#2c55c7'
+    case 'rojo': return noche ? '#ff7d86' : '#cf3843'
+    case 'violeta': return noche ? '#b6a2ff' : '#6f4fde'
+    case 'verde': return noche ? '#74d6a0' : '#2b8653'
+    default: return TONOS[tono].tinta
+  }
 }
 
 export const NOMBRE_PAPEL: Record<Papel, string> = {
