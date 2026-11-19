@@ -6,7 +6,7 @@
  * sincronizaría la hoja entera decenas de veces por segundo.
  */
 import { memo, useLayoutEffect, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { Pin, X } from 'lucide-react'
 import { COLORES_STICKY, type Sticky } from '@/lib/store/notebookStore'
 import { STICKY } from './paper'
 
@@ -94,6 +94,16 @@ function StickyNoteBase({ sticky, anchoHoja, onCambiar, onBorrar }: Props) {
           }}
           onPointerCancel={() => { inicio.current = null; setArrastre(null) }}
         >
+          {/* Fijar: la sticky aparece todos los días. Fijada, el pin se ve siempre. */}
+          <button
+            onClick={() => onCambiar(sticky.id, { fijo: !sticky.fijo })}
+            className={`mr-auto w-5 h-5 grid place-items-center rounded hover:bg-black/10 transition-opacity ${sticky.fijo ? 'opacity-100' : 'opacity-0 group-hover/sticky:opacity-70'}`}
+            style={{ color: c.tinta }}
+            title={sticky.fijo ? 'Desfijar (deja de aparecer en los otros días)' : 'Fijar: aparece todos los días'}
+            aria-label={sticky.fijo ? 'Desfijar sticky' : 'Fijar sticky'}
+          >
+            <Pin className={`w-3.5 h-3.5 ${sticky.fijo ? 'rotate-45 fill-current' : ''}`} />
+          </button>
           <button
             onClick={siguienteColor}
             className="w-3.5 h-3.5 rounded-full border border-black/15 opacity-0 group-hover/sticky:opacity-100 transition-opacity"

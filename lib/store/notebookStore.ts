@@ -46,6 +46,8 @@ export interface Sticky {
   y: number
   /** Inclinación en grados (−4 a 4): que parezca pegada a mano. */
   rot: number
+  /** Fijada: aparece en todas las hojas del diario desde el día de su hoja. */
+  fijo?: boolean
 }
 
 export type ColorTapa =
@@ -83,7 +85,15 @@ export interface BloqueTexto {
   /** px desde arriba de la hoja, SIEMPRE múltiplo del renglón: así el texto cae sobre la línea. */
   y: number
   texto: string
+  /** Como en Notion: texto común, tarea con tilde, o viñeta. Sin valor = texto. */
+  tipo?: TipoRenglon
+  /** Solo tareas: tildada (se ve tachada). */
+  hecho?: boolean
+  /** Fijado: aparece en todas las hojas del diario desde el día de su hoja. */
+  fijo?: boolean
 }
+
+export type TipoRenglon = 'texto' | 'tarea' | 'vineta'
 
 export type Tinta = 'tinta' | 'azul' | 'rojo' | 'violeta' | 'verde'
 export const TINTAS: Tinta[] = ['tinta', 'azul', 'rojo', 'violeta', 'verde']
@@ -132,6 +142,10 @@ interface State {
   editarSticky: (hojaId: string, stickyId: string, patch: Partial<Omit<Sticky, 'id'>>) => void
   borrarSticky: (hojaId: string, stickyId: string) => void
   agregarBloque: (hojaId: string, b: Omit<BloqueTexto, 'id'>) => string
+  /** Enter: un renglón nuevo justo debajo; si ya hay algo ahí en esa columna, lo de abajo baja un renglón. */
+  insertarRenglon: (hojaId: string, b: Omit<BloqueTexto, 'id'>) => string
+  /** El texto corrido de antes (`texto`) pasa a renglones sueltos. */
+  pasarTextoARenglones: (hojaId: string, x: number) => void
   editarBloque: (hojaId: string, bloqueId: string, patch: Partial<Omit<BloqueTexto, 'id'>>) => void
   borrarBloque: (hojaId: string, bloqueId: string) => void
   agregarTrazo: (hojaId: string, t: Omit<Trazo, 'id'>) => string
@@ -197,6 +211,20 @@ export const useNotebookStore = create<State>()(
         set((st) => ({ hojas: st.hojas.map((h) => h.id !== hojaId ? h : { ...h, bloques: [...(h.bloques ?? []), { ...b, id }], updatedAt: nowISO() }) }))
         return id
       },
+      insertarRenglon: (hojaId, b) => {
+        const id = genId()
+        set((st) => ({ hojas: st.hojas.map((h) => h.id !== hojaId ? h
+          : { ...h, bloques: insertarEnColumna(h.bloques ?? [], { ...b, id }), updatedAt: nowISO() }) }))
+        return id
+      },
+      pasarTextoARenglones: (hojaId, x) => set((st) => ({
+        hojas: st.hojas.map((h) => h.id !== hojaId || !h.texto.trim() ? h : {
+          ...h,
+          texto: '',
+          bloques: [...textoABloques(h.texto, x, LINEA_CUADERNO * 2), ...(h.bloques ?? [])],
+          updatedAt: nowISO(),
+        }),
+      })),
       editarBloque: (hojaId, bloqueId, patch) => set((st) => ({
         hojas: st.hojas.map((h) => h.id !== hojaId ? h : {
           ...h, bloques: (h.bloques ?? []).map((x) => x.id !== bloqueId ? x : { ...x, ...patch }), updatedAt: nowISO(),
@@ -257,6 +285,7 @@ export function sanitizeHoja(raw: unknown): HojaCuaderno {
         x: Math.min(1, Math.max(0, num(s.x, 0.1))),
         y: Math.max(0, num(s.y, 40)),
         rot: Math.min(4, Math.max(-4, num(s.rot, 0))),
+        ...(s.fijo ? { fijo: true } : {}),
       })),
     bloques: (Array.isArray(p.bloques) ? p.bloques : [])
       .filter((b): b is BloqueTexto => !!b && typeof b === 'object' && typeof (b as BloqueTexto).id === 'string')
@@ -265,6 +294,9 @@ export function sanitizeHoja(raw: unknown): HojaCuaderno {
         x: Math.min(1, Math.max(0, num(b.x, 0.1))),
         y: Math.max(0, num(b.y, 60)),
         texto: typeof b.texto === 'string' ? b.texto : '',
+        ...(b.tipo === 'tarea' || b.tipo === 'vineta' ? { tipo: b.tipo } : {}),
+        ...(b.tipo === 'tarea' && b.hecho ? { hecho: true } : {}),
+        ...(b.fijo ? { fijo: true } : {}),
       })),
     trazos: (Array.isArray(p.trazos) ? p.trazos : [])
       .filter((t): t is Trazo => !!t && typeof t === 'object' && typeof (t as Trazo).id === 'string')
@@ -311,4 +343,66 @@ export function resumenHoja(h: HojaCuaderno, max = 60): string {
   if (linea) return linea.length > max ? linea.slice(0, max - 1) + '…' : linea
   if (h.stickies.length > 0) return `${h.stickies.length} nota${h.stickies.length === 1 ? '' : 's'} pegada${h.stickies.length === 1 ? '' : 's'}`
   return ''
+}
+
+// ─── Renglones estilo Notion ────────────────────────────────────────────────
+
+/** Alto de un renglón del cuaderno (lo mismo que `LINEA` en components/notebook/paper.ts). */
+export const LINEA_CUADERNO = 30
+
+/** ¿Escribió un atajo al principio del renglón? "[] " o "[ ] " = tarea, "[x] " =
+ *  tarea hecha, "- ", "* " o "• " = viñeta. Devuelve el renglón sin el atajo. */
+export function detectarAtajo(texto: string): { tipo: TipoRenglon; hecho: boolean; resto: string } | null {
+  const m = /^(\[\s?\]|\[[xX]\]|[-*•])\s/.exec(texto)
+  if (!m) return null
+  const a = m[1]
+  const resto = texto.slice(m[0].length)
+  if (a.startsWith('[')) return { tipo: 'tarea', hecho: /x/i.test(a), resto }
+  return { tipo: 'vineta', hecho: false, resto }
+}
+
+/** El texto corrido de antes pasa a un renglón por línea (con sus atajos). */
+export function textoABloques(texto: string, x: number, y0: number): BloqueTexto[] {
+  const out: BloqueTexto[] = []
+  texto.split(/\r?\n/).forEach((linea, i) => {
+    if (!linea.trim()) return
+    const a = detectarAtajo(linea)
+    out.push({
+      id: genId(), x, y: y0 + i * LINEA_CUADERNO,
+      texto: a ? a.resto : linea,
+      ...(a && a.tipo !== 'texto' ? { tipo: a.tipo } : {}),
+      ...(a?.hecho ? { hecho: true } : {}),
+    })
+  })
+  return out
+}
+
+/** Mismo "columna" = arrancan casi en el mismo x (como una lista de Notion). */
+const mismaColumna = (a: number, b: number) => Math.abs(a - b) < 0.12
+
+/** Inserta un renglón; si en ese lugar ya hay otro de la misma columna, ese y
+ *  todos los de abajo de esa columna bajan un renglón (como al apretar Enter
+ *  en el medio de una lista). Puro, con test. */
+export function insertarEnColumna(bloques: BloqueTexto[], nuevo: BloqueTexto): BloqueTexto[] {
+  const ocupado = bloques.some((b) => b.y === nuevo.y && mismaColumna(b.x, nuevo.x))
+  const movidos = !ocupado ? bloques : bloques.map((b) =>
+    b.y >= nuevo.y && mismaColumna(b.x, nuevo.x) ? { ...b, y: b.y + LINEA_CUADERNO } : b)
+  return [...movidos, nuevo]
+}
+
+export interface Fijado<T> { origen: string; item: T }
+
+/** Lo fijado en OTRAS hojas que se ve en la hoja del diario `fecha`: renglones
+ *  y stickies con `fijo`, de hojas del mismo día o anteriores. Puro, con test. */
+export function fijadosPara(hojas: HojaCuaderno[], fecha: string, hojaActualId: string): {
+  bloques: Fijado<BloqueTexto>[]; stickies: Fijado<Sticky>[]
+} {
+  const bloques: Fijado<BloqueTexto>[] = []
+  const stickies: Fijado<Sticky>[] = []
+  for (const h of hojas) {
+    if (h.id === hojaActualId || h.fecha > fecha) continue
+    for (const b of h.bloques ?? []) if (b.fijo) bloques.push({ origen: h.id, item: b })
+    for (const s of h.stickies) if (s.fijo) stickies.push({ origen: h.id, item: s })
+  }
+  return { bloques, stickies }
 }

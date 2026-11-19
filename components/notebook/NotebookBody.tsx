@@ -19,7 +19,7 @@ import {
 import {
   useNotebookStore, idDia, hoyLocal, correrDia, indiceCuaderno, resumenHoja,
   PAPELES, COLORES_STICKY, COLORES_TAPA, ESTILOS_TAPA,
-  TINTAS,
+  TINTAS, fijadosPara,
   type HojaCuaderno, type Papel, type Sticky, type ColorSticky, type TapaCuaderno,
   type BloqueTexto, type Trazo, type Tinta,
 } from '@/lib/store/notebookStore'
@@ -27,7 +27,7 @@ import { useNotebookUiStore, type TonoPapel, type Letra } from '@/lib/store/note
 import { LINEA, MARGEN, TONOS, GRANO, STICKY, NOMBRE_PAPEL, fondoPapel, tituloDia, colorTinta } from './paper'
 import { TAPAS, NOMBRE_ESTILO, fondoTapa } from './tapas'
 import { StickyNote } from './StickyNote'
-import { Bloque, CapaRegla } from './HojaLibre'
+import { Renglon, CapaRegla, type Enfoque } from './HojaLibre'
 
 interface Props {
   movil: boolean
@@ -109,12 +109,24 @@ export function NotebookBody({ movil, tapa, onCerrarTapa, onEsconder }: Props) {
     asegurar()
     return useNotebookStore.getState().agregarBloque(hoja.id, { x, y, texto: '' })
   }, [asegurar, hoja.id])
-  const cambiarBloque = useCallback((id: string, patch: Partial<Omit<BloqueTexto, 'id'>>) => {
-    useNotebookStore.getState().editarBloque(hoja.id, id, patch)
-  }, [hoja.id])
-  const borrarBloque = useCallback((id: string) => {
-    useNotebookStore.getState().borrarBloque(hoja.id, id)
-  }, [hoja.id])
+  /** Enter: el renglón nuevo va siempre a la hoja que se está viendo. */
+  const insertarRenglon = useCallback((b: Omit<BloqueTexto, 'id'>) => {
+    asegurar()
+    return useNotebookStore.getState().insertarRenglon(hoja.id, b)
+  }, [asegurar, hoja.id])
+  // Con `origen`: un renglón fijado se ve en todos los días pero se guarda en su hoja.
+  const cambiarBloque = useCallback((origen: string, id: string, patch: Partial<Omit<BloqueTexto, 'id'>>) => {
+    useNotebookStore.getState().editarBloque(origen, id, patch)
+  }, [])
+  const borrarBloque = useCallback((origen: string, id: string) => {
+    useNotebookStore.getState().borrarBloque(origen, id)
+  }, [])
+
+  // Lo fijado en otras hojas (renglones y stickies) aparece en cada día del diario.
+  const fijados = useMemo(
+    () => (hoja.tipo === 'dia' ? fijadosPara(hojas, hoja.fecha, hoja.id) : { bloques: [], stickies: [] }),
+    [hojas, hoja.tipo, hoja.fecha, hoja.id],
+  )
   const trazar = useCallback((tr: Omit<Trazo, 'id'>) => {
     asegurar()
     useNotebookStore.getState().agregarTrazo(hoja.id, tr)
@@ -259,7 +271,8 @@ export function NotebookBody({ movil, tapa, onCerrarTapa, onEsconder }: Props) {
           toque.current = null
           if (!s || s.id !== e.pointerId) return
           const dx = e.clientX - s.x, dy = e.clientY - s.y
-          if ((e.target as HTMLElement).closest('[data-sticky], [data-bloque], [data-regla]')) return
+          // Sobre un renglón escrito el swipe SÍ pasa la hoja; mover un renglón (su manija), una sticky o la regla no.
+          if ((e.target as HTMLElement).closest('[data-sticky], [data-manija], [data-regla]')) return
           if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.6) pasar(dx < 0 ? 1 : -1)
         }}
         onPointerCancel={() => { toque.current = null }}
@@ -307,6 +320,8 @@ export function NotebookBody({ movil, tapa, onCerrarTapa, onEsconder }: Props) {
                   onBorrarSticky={borrarSticky}
                   herramienta={herramienta}
                   tinta={tinta}
+                  fijados={fijados}
+                  onInsertarRenglon={insertarRenglon}
                   onNuevoBloque={nuevoBloque}
                   onCambiarBloque={cambiarBloque}
                   onBorrarBloque={borrarBloque}
@@ -386,26 +401,34 @@ interface HojaProps {
   onBorrarNota: () => void
   herramienta: 'escribir' | 'regla'
   tinta: Tinta
+  fijados: ReturnType<typeof fijadosPara>
+  onInsertarRenglon: (b: Omit<BloqueTexto, 'id'>) => string
   onNuevoBloque: (x: number, y: number) => string
-  onCambiarBloque: (id: string, patch: Partial<Omit<BloqueTexto, 'id'>>) => void
-  onBorrarBloque: (id: string) => void
+  onCambiarBloque: (origen: string, id: string, patch: Partial<Omit<BloqueTexto, 'id'>>) => void
+  onBorrarBloque: (origen: string, id: string) => void
   onTrazar: (t: Omit<Trazo, 'id'>) => void
   onBorrarTrazo: (id: string) => void
 }
 
 function Hoja({
   hoja, onScrollEl, letra, tono, cinta, esHoy, onEditar, onCambiarSticky, onBorrarSticky, onBorrarNota,
-  herramienta, tinta, onNuevoBloque, onCambiarBloque, onBorrarBloque, onTrazar, onBorrarTrazo,
+  herramienta, tinta, fijados, onInsertarRenglon, onNuevoBloque, onCambiarBloque, onBorrarBloque, onTrazar, onBorrarTrazo,
 }: HojaProps) {
   const t = TONOS[tono]
   const scrollRef = useRef<HTMLDivElement>(null)
   const hojaRef = useRef<HTMLDivElement>(null)
-  const areaRef = useRef<HTMLTextAreaElement>(null)
   const [med, setMed] = useState({ ancho: 0, alto: 0 })
-  const [enfocar, setEnfocar] = useState<string | null>(null)
+  const [enfocar, setEnfocar] = useState<Enfoque | null>(null)
   const yaEnfocado = useCallback(() => setEnfocar(null), [])
   const bloques = hoja.bloques ?? []
   const trazos = hoja.trazos ?? []
+  /** Todos los renglones que se ven (los de la hoja + los fijados), de arriba a abajo: para ↑↓. */
+  const todos = useMemo(() => [
+    ...bloques.map((b) => ({ origen: hoja.id, b, prestado: false })),
+    ...fijados.bloques.map((f) => ({ origen: f.origen, b: f.item, prestado: true })),
+  ].sort((a, b) => a.b.y - b.b.y || a.b.x - b.b.x), [bloques, fijados.bloques, hoja.id])
+  const ordenRef = useRef(todos)
+  ordenRef.current = todos
 
   // Ancho de la hoja (las stickies guardan x como fracción) y alto visible
   // (el textarea llena al menos la hoja, así se puede tocar en cualquier renglón).
@@ -427,22 +450,40 @@ function Hoja({
   // La hoja se estira para que entre todo lo que está más abajo.
   const bajoStickies = Math.max(
     hoja.stickies.reduce((m, s) => Math.max(m, s.y + 220), 0),
-    bloques.reduce((m, b) => Math.max(m, b.y + LINEA * 6), 0),
+    todos.reduce((m, x) => Math.max(m, x.b.y + LINEA * 6), 0),
+    fijados.stickies.reduce((m, f) => Math.max(m, f.item.y + 220), 0),
     trazos.reduce((m, t) => Math.max(m, t.y1 + 80, t.y2 + 80), 0),
   )
 
-  useLayoutEffect(() => {
-    const el = areaRef.current
-    if (!el) return
-    el.style.height = '0px'
-    const alto = Math.ceil(el.scrollHeight / LINEA) * LINEA
-    // Solo lo que ocupa (+1 renglón para seguir escribiendo): el resto de la
-    // hoja queda libre para tocar cualquier renglón y escribir ahí.
-    el.style.height = `${Math.max(LINEA, alto + (hoja.texto ? LINEA : 0))}px`
-  }, [hoja.texto, med.ancho, letra])
-
   const conMargen = hoja.papel === 'renglones'
   const padIzq = conMargen ? MARGEN + 14 : 30
+
+  // El texto corrido de las hojas viejas pasa a renglones sueltos (uno por línea),
+  // así todo se escribe igual: con tildes, viñetas y fijados.
+  useEffect(() => {
+    if (!hoja.texto.trim() || !hoja.createdAt || med.ancho <= 0) return
+    useNotebookStore.getState().pasarTextoARenglones(hoja.id, padIzq / med.ancho)
+  }, [hoja.texto, hoja.createdAt, hoja.id, med.ancho, padIzq])
+
+  // ── Teclado estilo Notion ──
+  const alEnter = useCallback((b: BloqueTexto, alto: number, resto: string) => {
+    const tipo = b.tipo === 'tarea' || b.tipo === 'vineta' ? b.tipo : undefined
+    const id = onInsertarRenglon({ x: b.x, y: b.y + alto, texto: resto, ...(tipo ? { tipo } : {}) })
+    setEnfocar({ id, donde: 'inicio' })
+  }, [onInsertarRenglon])
+  const navegar = useCallback((id: string, dir: -1 | 1) => {
+    const lista = ordenRef.current
+    const i = lista.findIndex((x) => x.b.id === id)
+    const otro = lista[i + dir]
+    if (otro) setEnfocar({ id: otro.b.id, donde: dir < 0 ? 'fin' : 'inicio' })
+  }, [])
+  const borrarVacio = useCallback((origen: string, b: BloqueTexto) => {
+    const lista = ordenRef.current
+    const i = lista.findIndex((x) => x.b.id === b.id)
+    const arriba = lista[i - 1]
+    onBorrarBloque(origen, b.id)
+    if (arriba) setEnfocar({ id: arriba.b.id, donde: 'fin' })
+  }, [onBorrarBloque])
   const fuente = useMemo(() => (letra === 'manuscrita'
     ? { fontFamily: 'var(--font-hand), cursive', fontSize: 19, fontWeight: 400 }
     : { fontFamily: 'var(--font-book), Georgia, serif', fontSize: 17, fontWeight: 400 }), [letra])
@@ -456,9 +497,9 @@ function Hoja({
     const x = Math.min(r.width - 110, Math.max(26, e.clientX - r.left - 3))
     // Los textos sueltos que quedaron vacíos no se acumulan (por si el blur
     // no llegó, p. ej. con la ventana sin foco).
-    for (const b of bloques) if (!b.texto.trim()) onBorrarBloque(b.id)
+    for (const b of bloques) if (!b.texto.trim() && !b.tipo && !b.fijo) onBorrarBloque(hoja.id, b.id)
     const id = onNuevoBloque(x / r.width, renglon * LINEA)
-    setEnfocar(id)
+    setEnfocar({ id, donde: 'inicio' })
   }
 
   return (
@@ -513,30 +554,21 @@ function Hoja({
           )}
         </div>
 
-        <textarea
-          ref={areaRef}
-          value={hoja.texto}
-          onChange={(e) => onEditar({ texto: e.target.value })}
-          placeholder={hoja.tipo === 'dia' ? (esHoy ? '¿Qué hay hoy?' : 'Escribí acá…') : 'Escribí acá…'}
-          spellCheck={false}
-          className="relative block w-full resize-none bg-transparent outline-none overflow-hidden placeholder:text-[var(--ph)]"
-          style={{
-            ...fuente,
-            lineHeight: `${LINEA}px`,
-            color: t.tinta,
-            caretColor: '#7457e0',
-            paddingLeft: padIzq,
-            paddingRight: 26,
-            paddingTop: 0,
-            paddingBottom: 0,
-            touchAction: 'pan-y',
-            ['--ph' as string]: t.tintaSuave,
-          } as React.CSSProperties}
-        />
+        {/* hoja vacía: la pista de cómo se escribe */}
+        {todos.length === 0 && (
+          <p aria-hidden className="absolute pointer-events-none" style={{
+            ...fuente, top: cabecera, left: padIzq, lineHeight: `${LINEA}px`, color: t.tintaSuave,
+          }}>
+            {esHoy ? '¿Qué hay hoy? ' : ''}Tocá cualquier renglón para escribir
+          </p>
+        )}
 
-        {med.ancho > 0 && bloques.map((b) => (
-          <Bloque key={b.id} bloque={b} anchoHoja={med.ancho} fuente={fuente} color={t.tinta}
-            enfocar={enfocar === b.id} onEnfocado={yaEnfocado} onCambiar={onCambiarBloque} onBorrar={onBorrarBloque} />
+        {med.ancho > 0 && todos.map(({ origen, b, prestado }) => (
+          <Renglon key={b.id} bloque={b} origen={origen} prestado={prestado} anchoHoja={med.ancho} fuente={fuente}
+            color={t.tinta} acento="#7457e0"
+            enfocar={enfocar?.id === b.id ? enfocar.donde : null} onEnfocado={yaEnfocado}
+            onCambiar={onCambiarBloque} onBorrar={onBorrarBloque}
+            onEnter={alEnter} onBorrarVacio={borrarVacio} onNavegar={navegar} />
         ))}
 
         {med.ancho > 0 && (
@@ -546,6 +578,12 @@ function Hoja({
 
         {med.ancho > 0 && hoja.stickies.map((s) => (
           <StickyNote key={s.id} sticky={s} anchoHoja={med.ancho} onCambiar={onCambiarSticky} onBorrar={onBorrarSticky} />
+        ))}
+        {/* stickies fijadas en días anteriores: se editan en su hoja */}
+        {med.ancho > 0 && fijados.stickies.map(({ origen, item }) => (
+          <StickyNote key={item.id} sticky={item} anchoHoja={med.ancho}
+            onCambiar={(id, patch) => useNotebookStore.getState().editarSticky(origen, id, patch)}
+            onBorrar={(id) => useNotebookStore.getState().borrarSticky(origen, id)} />
         ))}
       </div>
     </div>

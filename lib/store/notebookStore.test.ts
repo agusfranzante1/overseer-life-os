@@ -1,7 +1,7 @@
 /** Cuaderno: helpers puros + acciones del store. Correr: npx tsx lib/store/notebookStore.test.ts */
 import {
   sanitizeHoja, indiceCuaderno, correrDia, resumenHoja, hojaTieneAlgo, idDia,
-  useNotebookStore, sanitizeTapa, TAPA_DEFAULT, type HojaCuaderno,
+  useNotebookStore, sanitizeTapa, TAPA_DEFAULT, detectarAtajo, textoABloques, insertarEnColumna, fijadosPara, type HojaCuaderno,
 } from './notebookStore'
 import { enderezar } from '../../components/notebook/HojaLibre'
 import { encajarRect, rectInicial, migrarUi, useNotebookUiStore } from './notebookUiStore'
@@ -158,6 +158,58 @@ console.log('\n9) Texto en cualquier renglón y líneas con regla')
   st.borrarTrazo(id, hh.trazos[0].id); st.borrarBloque(id, b)
   const h2 = useNotebookStore.getState().hojas[0]
   t('se borran', h2.bloques.length === 0 && h2.trazos.length === 0)
+}
+
+console.log('\n10) Renglones estilo Notion: tareas, viñetas y fijados')
+{
+  t('"[] " = tarea', JSON.stringify(detectarAtajo('[] comprar pan')) === JSON.stringify({ tipo: 'tarea', hecho: false, resto: 'comprar pan' }))
+  t('"[ ] " = tarea', detectarAtajo('[ ] x')?.tipo === 'tarea')
+  t('"[x] " = tarea hecha', detectarAtajo('[x] listo')?.hecho === true)
+  t('"- " = viñeta', detectarAtajo('- idea')?.tipo === 'vineta' && detectarAtajo('- idea')?.resto === 'idea')
+  t('"• " = viñeta', detectarAtajo('• idea')?.tipo === 'vineta')
+  t('sin espacio no es atajo', detectarAtajo('-idea') === null && detectarAtajo('[]x') === null)
+  t('texto común no es atajo', detectarAtajo('hola - chau') === null)
+
+  const bs = textoABloques('Llamar\n\n[] pagar luz\n- idea', 0.15, 60)
+  t('texto viejo → un renglón por línea (sin las vacías)', bs.length === 3)
+  t('cada uno en su renglón', bs[0].y === 60 && bs[1].y === 120 && bs[2].y === 150)
+  t('con sus atajos', bs[1].tipo === 'tarea' && bs[1].texto === 'pagar luz' && bs[2].tipo === 'vineta' && !bs[0].tipo)
+
+  const lista = [
+    { id: 'a', x: 0.15, y: 60, texto: 'a', tipo: 'tarea' as const },
+    { id: 'b', x: 0.15, y: 90, texto: 'b', tipo: 'tarea' as const },
+    { id: 'c', x: 0.6, y: 90, texto: 'otra columna' },
+  ]
+  const ins = insertarEnColumna(lista, { id: 'n', x: 0.15, y: 90, texto: '' })
+  t('Enter en el medio de una lista: lo de abajo baja', ins.find((b) => b.id === 'b')!.y === 120)
+  t('la otra columna no se mueve', ins.find((b) => b.id === 'c')!.y === 90)
+  t('el de arriba tampoco', ins.find((b) => b.id === 'a')!.y === 60)
+  const libre = insertarEnColumna(lista, { id: 'n', x: 0.15, y: 150, texto: '' })
+  t('lugar libre: no mueve nada', libre.find((b) => b.id === 'b')!.y === 90)
+
+  const h = (id: string, fecha: string, extra: Partial<HojaCuaderno> = {}) => mk({ id, fecha, ...extra })
+  const hojas = [
+    h('d15', '2026-11-15', { bloques: [{ id: 'f1', x: 0.1, y: 60, texto: 'tomar agua', tipo: 'tarea', fijo: true }, { id: 'n1', x: 0.1, y: 90, texto: 'no fijo' }] }),
+    h('d18', '2026-11-18', { stickies: [{ id: 's1', texto: 'meta', color: 'rosa', x: 0.5, y: 100, rot: 0, fijo: true }] }),
+    h('d20', '2026-11-20', { bloques: [{ id: 'f2', x: 0.1, y: 60, texto: 'futuro', fijo: true }] }),
+  ]
+  const f19 = fijadosPara(hojas, '2026-11-19', 'nb_dia_2026-11-19')
+  t('lo fijado antes aparece', f19.bloques.map((x) => x.item.id).join() === 'f1')
+  t('lo no fijado no', !f19.bloques.some((x) => x.item.id === 'n1'))
+  t('lo fijado DESPUÉS no aparece en días anteriores', !f19.bloques.some((x) => x.item.id === 'f2'))
+  t('stickies fijadas también, con su origen', f19.stickies.length === 1 && f19.stickies[0].origen === 'd18')
+  const f15 = fijadosPara(hojas, '2026-11-15', 'd15')
+  t('en su propia hoja no se duplica', f15.bloques.length === 0)
+
+  const san = sanitizeHoja({ id: 'z', bloques: [{ id: 'b', x: 0.2, y: 90, texto: 't', tipo: 'tarea', hecho: true, fijo: true }, { id: 'c', x: 0.2, y: 120, texto: 'v', tipo: 'raro', hecho: true }], stickies: [{ id: 's', texto: '', color: 'rosa', x: 0, y: 0, rot: 0, fijo: true }] })
+  t('tipo, hecho y fijo sobreviven al pull (BASE nº2)', san.bloques[0].tipo === 'tarea' && san.bloques[0].hecho === true && san.bloques[0].fijo === true)
+  t('tipo raro → texto, sin hecho', !san.bloques[1].tipo && !san.bloques[1].hecho)
+  t('sticky fijada sobrevive al pull', san.stickies[0].fijo === true)
+
+  useNotebookStore.setState({ hojas: [{ ...mk({ id: 'old', texto: 'uno\n[] dos' }) }] })
+  useNotebookStore.getState().pasarTextoARenglones('old', 0.15)
+  const vieja = useNotebookStore.getState().hojas[0]
+  t('la hoja vieja pasa a renglones y vacía el texto corrido', vieja.texto === '' && vieja.bloques.length === 2 && vieja.bloques[1].tipo === 'tarea')
 }
 
 console.log(`\n${ok} ok, ${fail} fallaron`)

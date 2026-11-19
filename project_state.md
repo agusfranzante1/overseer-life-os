@@ -47,6 +47,30 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
+- [x] **CUADERNO v3 — renglones estilo Notion, tareas y fijados** (2026-11-19, pedido: *"una línea
+  que escribo es una línea de texto; fijar una línea para que aparezca todos los días; tareas con
+  tilde que se tachen, formato Notion; fijar también las stickies"*).
+  - **Todo se escribe en renglones sueltos** (`BloqueTexto`, componente `Renglon` en `HojaLibre`):
+    ya no hay textarea de arriba. El texto corrido de hojas viejas pasa solo a renglones al abrirlas
+    (`pasarTextoARenglones`, uno por línea, con sus atajos). Teclado: Enter abre el renglón de abajo
+    y parte la línea en el cursor (una tarea abre otra tarea; si hay algo en esa columna, baja:
+    `insertarEnColumna`), Enter/Backspace en una tarea vacía la vuelven texto, Backspace en un
+    renglón vacío lo borra y sube, ↑↓ pasan de renglón.
+  - **Tareas y viñetas:** `tipo` `tarea | vineta` + `hecho`. Atajos `[] `, `[x] `, `- `, `* `, `• `
+    (`detectarAtajo`) o la barrita que aparece con el renglón activo. Tildada = tachada y apagada.
+  - **Fijar** (pin en la barrita del renglón o en la sticky): `fijo` en el renglón/sticky. Se ve en
+    toda hoja del diario de ese día en adelante (`fijadosPara`) pero vive y se guarda en SU hoja: no
+    se copia (tildar un fijado en otro día lo tilda en el origen, así que es UNO compartido, no uno
+    por día). En notas no aparecen los fijados.
+  - **Sin migración** (todo en el payload de la hoja; sanitize preserva tipo/hecho/fijo).
+  - **Verificado en Chrome headless:** texto viejo → 2 renglones; `[] pagar luz` → tarea; Enter abre
+    tarea con foco; Enter en el medio parte "llamar a mamá"; tarea vacía + Enter → texto; Backspace
+    borra el vacío; tildar → `line-through`; fijar renglón y sticky → al día siguiente aparecen los
+    dos y la hoja de mañana no recibe copias; tildar el fijado mañana lo guarda en su hoja. Las
+    pruebas de arrastre/swipe/trackpad/tapa siguen pasando (el swipe ahora anda también encima de un
+    renglón escrito; solo la manija de mover queda afuera). Tests 79/79, `tsc` + `next build`.
+  - **NO verificado:** con teclado y dedo reales (todo fue con eventos simulados).
+
 - [x] **CUADERNO v2 — un cuaderno de verdad que flota** (2026-11-18, mismo día; feedback: *"te
   pedí que sea como un cuaderno y que se mueva por la pantalla; hoy está fijo y la única opción es
   el picture-in-picture, que no pedí. Que se vea la tapa, pasar las páginas con swipe, tapas
