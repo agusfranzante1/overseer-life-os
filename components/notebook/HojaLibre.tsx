@@ -1,31 +1,36 @@
 'use client'
 /**
  * Lo que se escribe y se dibuja "en cualquier lado" de la hoja:
- *  - `Renglon`: una línea de texto en cualquier renglón y en cualquier lugar de
- *    la línea, como en Notion: texto, tarea con tilde (tildada = tachada) o
- *    viñeta. Enter abre el renglón de abajo (una tarea abre otra tarea),
- *    Backspace en un renglón vacío lo borra, ↑↓ pasan de renglón. Atajos al
- *    empezar: "[] " tarea, "- " viñeta. El pin lo FIJA: aparece todos los días.
- *    Siempre arranca en un renglón exacto (y múltiplo de LINEA). Se mueve
- *    desde la manija.
+ *  - `Bloque`: un conjunto de líneas escrito en cualquier renglón y en
+ *    cualquier lugar de la línea. Cada línea puede ser texto, tarea con tilde
+ *    (tildada = tachada) o viñeta, como en Notion — pero la checklist entera es
+ *    UN bloque: se mueve junta y se fija junta (el pin la hace aparecer todos
+ *    los días). Enter abre otra línea en el mismo bloque (una tarea abre otra
+ *    tarea), Backspace al principio quita la tilde o junta con la de arriba,
+ *    ↑↓ pasan de línea. Atajos al empezar una línea: "[] " tarea, "- " viñeta.
+ *    Las líneas se guardan como texto con prefijo ("[ ] ", "[x] ", "- ").
  *  - `CapaRegla`: las líneas trazadas con la regla (SVG) y, con la regla en la
  *    mano, la superficie para trazar: se ve una regla de plástico siguiendo el
  *    trazo, la línea se endereza sola cerca de horizontal/vertical y la
  *    horizontal se apoya sobre el renglón más cercano.
  */
-import { memo, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Check, GripVertical, List, ListTodo, Pin, PinOff } from 'lucide-react'
-import { detectarAtajo, type BloqueTexto, type Trazo, type Tinta } from '@/lib/store/notebookStore'
+import {
+  detectarAtajo, parseLineas, unirLineas,
+  type BloqueTexto, type Linea, type Trazo, type Tinta,
+} from '@/lib/store/notebookStore'
 import type { TonoPapel } from '@/lib/store/notebookUiStore'
 import { LINEA, colorTinta } from './paper'
 
-// ─── Renglón ────────────────────────────────────────────────────────────────
+// ─── Bloque de líneas ───────────────────────────────────────────────────────
 
-export type Enfoque = { id: string; donde: 'inicio' | 'fin' }
+/** Pedido de foco desde afuera: entrar al bloque por arriba o por abajo. */
+export type Enfoque = { id: string; linea: 'primera' | 'ultima'; donde: 'inicio' | 'fin' }
 
-interface RenglonProps {
+interface BloqueProps {
   bloque: BloqueTexto
-  /** Hoja donde vive (un renglón fijado se ve en otras hojas pero se guarda en la suya). */
+  /** Hoja donde vive (un bloque fijado se ve en otras hojas pero se guarda en la suya). */
   origen: string
   /** Se está viendo en otra hoja porque está fijado. */
   prestado: boolean
@@ -33,84 +38,154 @@ interface RenglonProps {
   fuente: React.CSSProperties
   color: string
   acento: string
-  enfocar: Enfoque['donde'] | null
+  enfocar: Omit<Enfoque, 'id'> | null
   onEnfocado: () => void
   onCambiar: (origen: string, id: string, patch: Partial<Omit<BloqueTexto, 'id'>>) => void
   onBorrar: (origen: string, id: string) => void
-  /** Enter: renglón nuevo abajo (de la misma clase si es lista) con lo que
-   *  quedaba a la derecha del cursor. */
-  onEnter: (bloque: BloqueTexto, alto: number, resto: string) => void
-  /** Backspace en un renglón vacío: se borra y el foco sube. */
+  /** Backspace en un bloque vacío: se borra y el foco sube al bloque de arriba. */
   onBorrarVacio: (origen: string, bloque: BloqueTexto) => void
+  /** ↑ en la primera línea / ↓ en la última: pasar al bloque vecino. */
   onNavegar: (id: string, dir: -1 | 1) => void
 }
 
-function RenglonBase({
+function BloqueBase({
   bloque, origen, prestado, anchoHoja, fuente, color, acento, enfocar, onEnfocado,
-  onCambiar, onBorrar, onEnter, onBorrarVacio, onNavegar,
-}: RenglonProps) {
-  const area = useRef<HTMLTextAreaElement>(null)
+  onCambiar, onBorrar, onBorrarVacio, onNavegar,
+}: BloqueProps) {
+  const lineas = useMemo(() => parseLineas(bloque.texto), [bloque.texto])
+  const areas = useRef<(HTMLTextAreaElement | null)[]>([])
+  const caja = useRef<HTMLDivElement>(null)
+  // Foco pedido para el próximo render (después de partir o juntar líneas).
+  const [pedido, setPedido] = useState<{ i: number; pos: number | 'fin' } | null>(null)
+  const [activa, setActiva] = useState(0)
   const [mov, setMov] = useState<{ dx: number; dy: number } | null>(null)
   const ini = useRef<{ px: number; py: number } | null>(null)
-  const tipo = bloque.tipo ?? 'texto'
-  const sangria = tipo === 'tarea' ? 27 : tipo === 'vineta' ? 19 : 0
   const left = bloque.x * anchoHoja
   const ancho = Math.max(96, anchoHoja - left - 22)
-  const cambiar = (patch: Partial<Omit<BloqueTexto, 'id'>>) => onCambiar(origen, bloque.id, patch)
+  const guardar = (ls: Linea[]) => onCambiar(origen, bloque.id, { texto: unirLineas(ls) })
+
+  // Cada línea crece con lo que se escribe, de a renglones enteros.
+  useLayoutEffect(() => {
+    for (const el of areas.current) {
+      if (!el) continue
+      el.style.height = '0px'
+      el.style.height = `${Math.max(LINEA, Math.ceil(el.scrollHeight / LINEA) * LINEA)}px`
+    }
+  }, [bloque.texto, ancho])
 
   useLayoutEffect(() => {
-    const el = area.current
-    if (!el) return
-    el.style.height = '0px'
-    el.style.height = `${Math.max(LINEA, Math.ceil(el.scrollHeight / LINEA) * LINEA)}px`
-  }, [bloque.texto, ancho, tipo])
+    if (!pedido) return
+    const el = areas.current[pedido.i]
+    if (el) {
+      el.focus()
+      const pos = pedido.pos === 'fin' ? el.value.length : Math.min(pedido.pos, el.value.length)
+      el.setSelectionRange(pos, pos)
+    }
+    setPedido(null)
+  }, [pedido])
 
   useLayoutEffect(() => {
-    const el = area.current
-    if (!enfocar || !el) return
-    el.focus()
-    const pos = enfocar === 'fin' ? el.value.length : 0
-    el.setSelectionRange(pos, pos)
+    if (!enfocar) return
+    const i = enfocar.linea === 'primera' ? 0 : lineas.length - 1
+    setPedido({ i, pos: enfocar.donde === 'fin' ? 'fin' : 0 })
     onEnfocado()
-  }, [enfocar, onEnfocado])
+  }, [enfocar, onEnfocado, lineas.length])
 
-  const teclas = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const teclas = (i: number) => (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const el = e.currentTarget
+    const l = lineas[i]
     const enInicio = el.selectionStart === 0 && el.selectionEnd === 0
     const enFin = el.selectionStart === el.value.length
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       // Enter en una tarea/viñeta vacía la vuelve texto (como en Notion).
-      if (tipo !== 'texto' && !el.value.trim()) { cambiar({ tipo: 'texto', hecho: false }); return }
-      // Como en Notion: lo que está a la derecha del cursor baja al renglón nuevo.
+      if (l.tipo !== 'texto' && !l.texto.trim()) {
+        guardar(lineas.map((x, k) => (k === i ? { ...x, tipo: 'texto', hecho: false } : x)))
+        return
+      }
+      // Lo que está a la derecha del cursor baja a una línea nueva del mismo tipo.
       const antes = el.value.slice(0, el.selectionStart)
-      const resto = el.value.slice(el.selectionEnd)
-      if (resto) cambiar({ texto: antes })
-      onEnter(bloque, resto ? LINEA : el.offsetHeight, resto)
+      const despues = el.value.slice(el.selectionEnd)
+      const nueva: Linea = { tipo: l.tipo, hecho: false, texto: despues }
+      const ls = [...lineas.slice(0, i), { ...l, texto: antes }, nueva, ...lineas.slice(i + 1)]
+      guardar(ls)
+      setPedido({ i: i + 1, pos: 0 })
       return
     }
     if (e.key === 'Backspace' && enInicio) {
-      if (tipo !== 'texto') { e.preventDefault(); cambiar({ tipo: 'texto', hecho: false }); return }
-      if (!el.value) { e.preventDefault(); onBorrarVacio(origen, bloque); return }
+      if (l.tipo !== 'texto') {
+        e.preventDefault()
+        guardar(lineas.map((x, k) => (k === i ? { ...x, tipo: 'texto', hecho: false } : x)))
+        return
+      }
+      if (i > 0) {
+        // Junta esta línea con la de arriba.
+        e.preventDefault()
+        const arriba = lineas[i - 1]
+        const pos = arriba.texto.length
+        guardar([...lineas.slice(0, i - 1), { ...arriba, texto: arriba.texto + l.texto }, ...lineas.slice(i + 1)])
+        setPedido({ i: i - 1, pos })
+        return
+      }
+      if (lineas.length === 1 && !l.texto) { e.preventDefault(); onBorrarVacio(origen, bloque); return }
     }
-    if (e.key === 'ArrowUp' && enInicio) { e.preventDefault(); onNavegar(bloque.id, -1) }
-    if (e.key === 'ArrowDown' && enFin) { e.preventDefault(); onNavegar(bloque.id, 1) }
+    if (e.key === 'ArrowUp' && enInicio) {
+      e.preventDefault()
+      if (i > 0) setPedido({ i: i - 1, pos: 'fin' })
+      else onNavegar(bloque.id, -1)
+    }
+    if (e.key === 'ArrowDown' && enFin) {
+      e.preventDefault()
+      if (i < lineas.length - 1) setPedido({ i: i + 1, pos: 0 })
+      else onNavegar(bloque.id, 1)
+    }
   }
 
-  const tachado = tipo === 'tarea' && bloque.hecho
+  const cambiarLinea = (i: number, v: string) => {
+    const l = lineas[i]
+    // Pegar varias líneas: cada una queda como línea propia (con sus atajos).
+    if (v.includes('\n')) {
+      const nuevas = parseLineas(v)
+      if (l.tipo !== 'texto' && nuevas[0].tipo === 'texto') nuevas[0] = { ...nuevas[0], tipo: l.tipo, hecho: l.hecho }
+      guardar([...lineas.slice(0, i), ...nuevas, ...lineas.slice(i + 1)])
+      setPedido({ i: i + nuevas.length - 1, pos: 'fin' })
+      return
+    }
+    // Atajos al empezar la línea: "[] " tarea, "- " viñeta.
+    if (l.tipo === 'texto') {
+      const a = detectarAtajo(v)
+      if (a) { guardar(lineas.map((x, k) => (k === i ? { tipo: a.tipo, hecho: a.hecho, texto: a.resto } : x))); return }
+    }
+    guardar(lineas.map((x, k) => (k === i ? { ...x, texto: v } : x)))
+  }
+
+  const formato = (tipo: 'tarea' | 'vineta') => {
+    const i = Math.min(activa, lineas.length - 1)
+    const l = lineas[i]
+    guardar(lineas.map((x, k) => (k === i ? { ...x, tipo: l.tipo === tipo ? 'texto' : tipo, hecho: false } : x)))
+    setPedido({ i, pos: 'fin' })
+  }
+
+  const lineaActiva = lineas[Math.min(activa, lineas.length - 1)]
 
   return (
     <div
+      ref={caja}
       data-bloque={bloque.id}
       className="absolute group/bloque"
       style={{ left: left + (mov?.dx ?? 0), top: bloque.y + (mov?.dy ?? 0), width: ancho, zIndex: mov ? 25 : 10, opacity: mov ? 0.85 : 1 }}
+      onBlur={(e) => {
+        // Salió del bloque entero: si quedó vacío (y no está fijado), no deja nada.
+        if (caja.current?.contains(e.relatedTarget as Node)) return
+        if (!bloque.texto.trim() && !bloque.fijo) onBorrar(origen, bloque.id)
+      }}
     >
-      {/* manija para moverlo */}
+      {/* manija para mover el bloque entero */}
       <div
         data-manija
         className="absolute -left-[18px] top-[6px] w-4 h-[18px] grid place-items-center rounded cursor-grab active:cursor-grabbing opacity-0 group-hover/bloque:opacity-60 hover:!opacity-100 touch-none"
         style={{ color }}
-        title="Arrastrá para mover este renglón"
+        title="Arrastrá para mover este bloque"
         onPointerDown={(e) => {
           e.preventDefault(); e.stopPropagation()
           e.currentTarget.setPointerCapture(e.pointerId)
@@ -125,90 +200,87 @@ function RenglonBase({
           setMov(null)
           const nx = Math.min(anchoHoja - 96, Math.max(24, left + dx))
           const ny = Math.max(LINEA * 2, Math.round((bloque.y + dy) / LINEA) * LINEA)
-          cambiar({ x: anchoHoja > 0 ? nx / anchoHoja : bloque.x, y: ny })
+          onCambiar(origen, bloque.id, { x: anchoHoja > 0 ? nx / anchoHoja : bloque.x, y: ny })
         }}
         onPointerCancel={() => { ini.current = null; setMov(null) }}
       >
         <GripVertical className="w-3.5 h-3.5" />
       </div>
 
-      {/* pin de los fijados: siempre visible, así se sabe que viaja de día en día */}
+      {/* fijado: el pin se ve siempre, así se sabe que viaja de día en día */}
       {bloque.fijo && (
-        <Pin aria-label="Fijado" className="absolute -left-[34px] top-[8px] w-3.5 h-3.5 rotate-45 pointer-events-none group-hover/bloque:opacity-0" style={{ color: acento }} />
+        <Pin aria-label="Fijado" className="absolute -left-[34px] top-[8px] w-3.5 h-3.5 rotate-45 pointer-events-none" style={{ color: acento }} />
       )}
 
-      {/* tilde o viñeta */}
-      {tipo === 'tarea' && (
-        <button
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => cambiar({ hecho: !bloque.hecho })}
-          title={bloque.hecho ? 'Desmarcar' : 'Marcar como hecha'}
-          aria-label={bloque.hecho ? 'Desmarcar tarea' : 'Marcar tarea como hecha'}
-          className="absolute left-0 top-[6px] w-[18px] h-[18px] rounded-[5px] grid place-items-center transition-colors"
-          style={{
-            border: `1.7px solid ${bloque.hecho ? acento : color}`,
-            background: bloque.hecho ? acento : 'transparent',
-            opacity: bloque.hecho ? 1 : 0.75,
-          }}
-        >
-          {bloque.hecho && <Check className="w-3 h-3 text-white" strokeWidth={3.2} />}
-        </button>
-      )}
-      {tipo === 'vineta' && (
-        <span aria-hidden className="absolute left-[4px] top-[12px] w-[6px] h-[6px] rounded-full" style={{ background: color, opacity: 0.85 }} />
-      )}
-
-      {/* barrita de formato: aparece con el renglón activo, a la derecha (ahí la línea de arriba suele estar vacía) */}
+      {/* barrita: formato de la línea activa + fijar el bloque entero */}
       <div
         className="absolute -top-[29px] right-1 hidden group-focus-within/bloque:flex items-center gap-0.5 px-1 py-0.5 rounded-lg shadow-lg border border-black/10 z-30"
         style={{ background: 'rgba(24,21,38,0.94)' }}
         onMouseDown={(e) => e.preventDefault()}
       >
-        <BotonFormato activo={tipo === 'tarea'} titulo="Tarea con tilde ( [] )" onClick={() => cambiar(tipo === 'tarea' ? { tipo: 'texto', hecho: false } : { tipo: 'tarea' })}><ListTodo className="w-3.5 h-3.5" /></BotonFormato>
-        <BotonFormato activo={tipo === 'vineta'} titulo="Viñeta ( - )" onClick={() => cambiar(tipo === 'vineta' ? { tipo: 'texto' } : { tipo: 'vineta', hecho: false })}><List className="w-3.5 h-3.5" /></BotonFormato>
+        <BotonFormato activo={lineaActiva?.tipo === 'tarea'} titulo="Tarea con tilde ( [] )" onClick={() => formato('tarea')}><ListTodo className="w-3.5 h-3.5" /></BotonFormato>
+        <BotonFormato activo={lineaActiva?.tipo === 'vineta'} titulo="Viñeta ( - )" onClick={() => formato('vineta')}><List className="w-3.5 h-3.5" /></BotonFormato>
         <span className="w-px h-4 bg-white/15 mx-0.5" />
-        <BotonFormato activo={!!bloque.fijo} titulo={bloque.fijo ? 'Desfijar (deja de aparecer en los otros días)' : 'Fijar: aparece todos los días'} onClick={() => cambiar({ fijo: !bloque.fijo })}>
+        <BotonFormato activo={!!bloque.fijo} titulo={bloque.fijo ? 'Desfijar (deja de aparecer en los otros días)' : 'Fijar el bloque: aparece todos los días'} onClick={() => onCambiar(origen, bloque.id, { fijo: !bloque.fijo })}>
           {bloque.fijo ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
         </BotonFormato>
         {prestado && <span className="text-[10px] text-zinc-400 pl-1 pr-1.5 whitespace-nowrap">fijado</span>}
       </div>
 
-      <textarea
-        ref={area}
-        value={bloque.texto}
-        onChange={(e) => {
-          const v = e.target.value
-          // Atajos al empezar el renglón: "[] " tarea, "- " viñeta.
-          if (tipo === 'texto') {
-            const a = detectarAtajo(v)
-            if (a) { cambiar({ texto: a.resto, tipo: a.tipo, hecho: a.hecho }); return }
-          }
-          cambiar({ texto: v })
-        }}
-        onKeyDown={teclas}
-        // Un renglón suelto que quedó vacío (y sin tilde ni viñeta) no deja nada.
-        onBlur={(e) => { if (!e.target.value.trim() && tipo === 'texto' && !bloque.fijo) onBorrar(origen, bloque.id) }}
-        spellCheck={false}
-        className="block w-full resize-none bg-transparent outline-none overflow-hidden p-0"
-        style={{
-          ...fuente,
-          lineHeight: `${LINEA}px`,
-          color,
-          caretColor: acento,
-          touchAction: 'pan-y',
-          paddingLeft: sangria,
-          textDecoration: tachado ? 'line-through' : undefined,
-          textDecorationColor: tachado ? acento : undefined,
-          textDecorationThickness: tachado ? '1.5px' : undefined,
-          opacity: tachado ? 0.5 : 1,
-          transition: 'opacity 160ms',
-        }}
-      />
+      {lineas.map((l, i) => {
+        const tachado = l.tipo === 'tarea' && l.hecho
+        return (
+          <div key={i} className="relative">
+            {l.tipo === 'tarea' && (
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => guardar(lineas.map((x, k) => (k === i ? { ...x, hecho: !x.hecho } : x)))}
+                title={l.hecho ? 'Desmarcar' : 'Marcar como hecha'}
+                aria-label={l.hecho ? 'Desmarcar tarea' : 'Marcar tarea como hecha'}
+                className="absolute left-0 top-[6px] w-[18px] h-[18px] rounded-[5px] grid place-items-center transition-colors"
+                style={{
+                  border: `1.7px solid ${l.hecho ? acento : color}`,
+                  background: l.hecho ? acento : 'transparent',
+                  opacity: l.hecho ? 1 : 0.75,
+                }}
+              >
+                {l.hecho && <Check className="w-3 h-3 text-white" strokeWidth={3.2} />}
+              </button>
+            )}
+            {l.tipo === 'vineta' && (
+              <span aria-hidden className="absolute left-[4px] top-[12px] w-[6px] h-[6px] rounded-full pointer-events-none" style={{ background: color, opacity: 0.85 }} />
+            )}
+            <textarea
+              ref={(el) => { areas.current[i] = el }}
+              value={l.texto}
+              rows={1}
+              onChange={(e) => cambiarLinea(i, e.target.value)}
+              onKeyDown={teclas(i)}
+              onFocus={() => setActiva(i)}
+              spellCheck={false}
+              className="block w-full resize-none bg-transparent outline-none overflow-hidden p-0"
+              style={{
+                ...fuente,
+                lineHeight: `${LINEA}px`,
+                color,
+                caretColor: acento,
+                touchAction: 'pan-y',
+                paddingLeft: l.tipo === 'tarea' ? 27 : l.tipo === 'vineta' ? 19 : 0,
+                textDecoration: tachado ? 'line-through' : undefined,
+                textDecorationColor: tachado ? acento : undefined,
+                textDecorationThickness: tachado ? '1.5px' : undefined,
+                opacity: tachado ? 0.5 : 1,
+                transition: 'opacity 160ms',
+              }}
+            />
+          </div>
+        )
+      })}
     </div>
   )
 }
 
-export const Renglon = memo(RenglonBase)
+export const Bloque = memo(BloqueBase)
 
 function BotonFormato({ activo, titulo, onClick, children }: { activo: boolean; titulo: string; onClick: () => void; children: React.ReactNode }) {
   return (

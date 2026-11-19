@@ -1,7 +1,7 @@
 /** Cuaderno: helpers puros + acciones del store. Correr: npx tsx lib/store/notebookStore.test.ts */
 import {
   sanitizeHoja, indiceCuaderno, correrDia, resumenHoja, hojaTieneAlgo, idDia,
-  useNotebookStore, sanitizeTapa, TAPA_DEFAULT, detectarAtajo, textoABloques, insertarEnColumna, fijadosPara, type HojaCuaderno,
+  useNotebookStore, sanitizeTapa, TAPA_DEFAULT, detectarAtajo, textoABloques, fijadosPara, parseLineas, unirLineas, agruparBloques, normalizarBloque, necesitaNormalizar, type HojaCuaderno,
 } from './notebookStore'
 import { enderezar } from '../../components/notebook/HojaLibre'
 import { encajarRect, rectInicial, migrarUi, useNotebookUiStore } from './notebookUiStore'
@@ -170,22 +170,37 @@ console.log('\n10) Renglones estilo Notion: tareas, viñetas y fijados')
   t('sin espacio no es atajo', detectarAtajo('-idea') === null && detectarAtajo('[]x') === null)
   t('texto común no es atajo', detectarAtajo('hola - chau') === null)
 
-  const bs = textoABloques('Llamar\n\n[] pagar luz\n- idea', 0.15, 60)
-  t('texto viejo → un renglón por línea (sin las vacías)', bs.length === 3)
-  t('cada uno en su renglón', bs[0].y === 60 && bs[1].y === 120 && bs[2].y === 150)
-  t('con sus atajos', bs[1].tipo === 'tarea' && bs[1].texto === 'pagar luz' && bs[2].tipo === 'vineta' && !bs[0].tipo)
+  // Una checklist es UN bloque: cada línea con su prefijo.
+  const ls = parseLineas('Pendientes\n[ ] pagar luz\n[x] llamar\n- idea')
+  t('líneas con su tipo', ls.map((l) => l.tipo).join() === 'texto,tarea,tarea,vineta')
+  t('tilde por línea', ls[2].hecho === true && ls[1].hecho === false)
+  t('ida y vuelta canónica', unirLineas(parseLineas('[] a\n[X] b\n* c')) === '[ ] a\n[x] b\n- c')
 
-  const lista = [
-    { id: 'a', x: 0.15, y: 60, texto: 'a', tipo: 'tarea' as const },
-    { id: 'b', x: 0.15, y: 90, texto: 'b', tipo: 'tarea' as const },
-    { id: 'c', x: 0.6, y: 90, texto: 'otra columna' },
+  const bs = textoABloques('Llamar\n\n[] pagar luz\n- idea\n\n', 0.15, 60)
+  t('texto viejo → UN bloque', bs.length === 1 && bs[0].y === 60)
+  t('con sus tareas adentro', bs[0].texto === 'Llamar\n\n[ ] pagar luz\n- idea')
+  t('texto vacío → nada', textoABloques('  \n ', 0.1, 60).length === 0)
+
+  // Lo que la v3 dejó separado (un bloque por tarea) se vuelve a juntar.
+  const v3 = [
+    { id: 'a', x: 0.15, y: 180, texto: 'Pendientes' },
+    { id: 'b', x: 0.15, y: 210, texto: 'pagar luz', tipo: 'tarea' as const, hecho: true },
+    { id: 'c', x: 0.15, y: 240, texto: 'llamar', tipo: 'tarea' as const },
+    { id: 'd', x: 0.6, y: 240, texto: 'otra columna' },
+    { id: 'e', x: 0.15, y: 330, texto: 'Ideas' },
   ]
-  const ins = insertarEnColumna(lista, { id: 'n', x: 0.15, y: 90, texto: '' })
-  t('Enter en el medio de una lista: lo de abajo baja', ins.find((b) => b.id === 'b')!.y === 120)
-  t('la otra columna no se mueve', ins.find((b) => b.id === 'c')!.y === 90)
-  t('el de arriba tampoco', ins.find((b) => b.id === 'a')!.y === 60)
-  const libre = insertarEnColumna(lista, { id: 'n', x: 0.15, y: 150, texto: '' })
-  t('lugar libre: no mueve nada', libre.find((b) => b.id === 'b')!.y === 90)
+  t('v3 necesita normalizar', necesitaNormalizar(v3))
+  const junto = agruparBloques(v3.map(normalizarBloque))
+  const lista = junto.find((b) => b.id === 'a')!
+  t('la checklist quedó en un bloque', lista.texto === 'Pendientes\n[x] pagar luz\n[ ] llamar')
+  t('la otra columna sigue aparte', junto.some((b) => b.id === 'd' && b.texto === 'otra columna'))
+  t('lo que está separado por un renglón vacío no se junta', junto.some((b) => b.id === 'e'))
+  t('ya normalizado no vuelve a tocarse', !necesitaNormalizar(junto))
+  t('sin tipo/hecho sueltos', junto.every((b) => b.tipo === undefined && b.hecho === undefined))
+  const fijos = agruparBloques([{ id: 'x', x: 0.1, y: 60, texto: 'a', fijo: true }, { id: 'y', x: 0.1, y: 90, texto: 'b' }])
+  t('fijado y no fijado no se juntan', fijos.length === 2)
+  const dosLineas = agruparBloques([{ id: 'x', x: 0.1, y: 60, texto: 'a\nb' }, { id: 'y', x: 0.1, y: 120, texto: 'c' }])
+  t('junta contando las líneas del de arriba', dosLineas.length === 1 && dosLineas[0].texto === 'a\nb\nc')
 
   const h = (id: string, fecha: string, extra: Partial<HojaCuaderno> = {}) => mk({ id, fecha, ...extra })
   const hojas = [
@@ -209,7 +224,12 @@ console.log('\n10) Renglones estilo Notion: tareas, viñetas y fijados')
   useNotebookStore.setState({ hojas: [{ ...mk({ id: 'old', texto: 'uno\n[] dos' }) }] })
   useNotebookStore.getState().pasarTextoARenglones('old', 0.15)
   const vieja = useNotebookStore.getState().hojas[0]
-  t('la hoja vieja pasa a renglones y vacía el texto corrido', vieja.texto === '' && vieja.bloques.length === 2 && vieja.bloques[1].tipo === 'tarea')
+  t('la hoja vieja pasa a un bloque y vacía el texto corrido', vieja.texto === '' && vieja.bloques.length === 1 && vieja.bloques[0].texto === 'uno\n[ ] dos')
+
+  useNotebookStore.setState({ hojas: [{ ...mk({ id: 'v3', bloques: v3 }) }] })
+  useNotebookStore.getState().normalizarBloques('v3')
+  const normal = useNotebookStore.getState().hojas[0]
+  t('el store junta la checklist de la v3', normal.bloques.length === 3 && normal.bloques.some((b) => b.texto === 'Pendientes\n[x] pagar luz\n[ ] llamar'))
 }
 
 console.log(`\n${ok} ok, ${fail} fallaron`)

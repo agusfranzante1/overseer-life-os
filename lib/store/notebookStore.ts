@@ -84,12 +84,15 @@ export interface BloqueTexto {
   x: number
   /** px desde arriba de la hoja, SIEMPRE múltiplo del renglón: así el texto cae sobre la línea. */
   y: number
+  /** Varias líneas. Cada una puede ser tarea o viñeta con su prefijo, como
+   *  markdown: "[ ] " tarea, "[x] " tarea hecha, "- " viñeta. Así una checklist
+   *  es UN bloque (se mueve y se fija entero) y viaja como texto plano. */
   texto: string
-  /** Como en Notion: texto común, tarea con tilde, o viñeta. Sin valor = texto. */
+  /** v3 (un renglón por bloque): tipo y tilde del bloque entero. Ya no se
+   *  escribe; `normalizarBloques` lo pasa a prefijo en el texto. */
   tipo?: TipoRenglon
-  /** Solo tareas: tildada (se ve tachada). */
   hecho?: boolean
-  /** Fijado: aparece en todas las hojas del diario desde el día de su hoja. */
+  /** Fijado: el bloque entero aparece en todas las hojas del diario desde el día de su hoja. */
   fijo?: boolean
 }
 
@@ -142,10 +145,10 @@ interface State {
   editarSticky: (hojaId: string, stickyId: string, patch: Partial<Omit<Sticky, 'id'>>) => void
   borrarSticky: (hojaId: string, stickyId: string) => void
   agregarBloque: (hojaId: string, b: Omit<BloqueTexto, 'id'>) => string
-  /** Enter: un renglón nuevo justo debajo; si ya hay algo ahí en esa columna, lo de abajo baja un renglón. */
-  insertarRenglon: (hojaId: string, b: Omit<BloqueTexto, 'id'>) => string
-  /** El texto corrido de antes (`texto`) pasa a renglones sueltos. */
+  /** El texto corrido de antes (`texto`) pasa a un bloque. */
   pasarTextoARenglones: (hojaId: string, x: number) => void
+  /** Lo de la v3 (un bloque por renglón, con tipo propio) vuelve a juntarse. */
+  normalizarBloques: (hojaId: string) => void
   editarBloque: (hojaId: string, bloqueId: string, patch: Partial<Omit<BloqueTexto, 'id'>>) => void
   borrarBloque: (hojaId: string, bloqueId: string) => void
   agregarTrazo: (hojaId: string, t: Omit<Trazo, 'id'>) => string
@@ -211,12 +214,6 @@ export const useNotebookStore = create<State>()(
         set((st) => ({ hojas: st.hojas.map((h) => h.id !== hojaId ? h : { ...h, bloques: [...(h.bloques ?? []), { ...b, id }], updatedAt: nowISO() }) }))
         return id
       },
-      insertarRenglon: (hojaId, b) => {
-        const id = genId()
-        set((st) => ({ hojas: st.hojas.map((h) => h.id !== hojaId ? h
-          : { ...h, bloques: insertarEnColumna(h.bloques ?? [], { ...b, id }), updatedAt: nowISO() }) }))
-        return id
-      },
       pasarTextoARenglones: (hojaId, x) => set((st) => ({
         hojas: st.hojas.map((h) => h.id !== hojaId || !h.texto.trim() ? h : {
           ...h,
@@ -224,6 +221,10 @@ export const useNotebookStore = create<State>()(
           bloques: [...textoABloques(h.texto, x, LINEA_CUADERNO * 2), ...(h.bloques ?? [])],
           updatedAt: nowISO(),
         }),
+      })),
+      normalizarBloques: (hojaId) => set((st) => ({
+        hojas: st.hojas.map((h) => h.id !== hojaId || !necesitaNormalizar(h.bloques ?? []) ? h
+          : { ...h, bloques: agruparBloques((h.bloques ?? []).map(normalizarBloque)), updatedAt: nowISO() }),
       })),
       editarBloque: (hojaId, bloqueId, patch) => set((st) => ({
         hojas: st.hojas.map((h) => h.id !== hojaId ? h : {
@@ -361,33 +362,71 @@ export function detectarAtajo(texto: string): { tipo: TipoRenglon; hecho: boolea
   return { tipo: 'vineta', hecho: false, resto }
 }
 
-/** El texto corrido de antes pasa a un renglón por línea (con sus atajos). */
+// ─── Líneas adentro de un bloque ────────────────────────────────────────────
+
+export interface Linea { tipo: TipoRenglon; hecho: boolean; texto: string }
+
+/** "[ ] x" → tarea, "[x] x" → tarea hecha, "- x" → viñeta, lo demás texto. */
+export function parseLinea(l: string): Linea {
+  const a = detectarAtajo(l)
+  return a ? { tipo: a.tipo, hecho: a.hecho, texto: a.resto } : { tipo: 'texto', hecho: false, texto: l }
+}
+
+/** La forma canónica en que se guarda cada línea. */
+export function lineaATexto(l: Linea): string {
+  if (l.tipo === 'tarea') return `${l.hecho ? '[x]' : '[ ]'} ${l.texto}`
+  if (l.tipo === 'vineta') return `- ${l.texto}`
+  return l.texto
+}
+
+export const parseLineas = (texto: string): Linea[] => texto.split(/\r?\n/).map(parseLinea)
+export const unirLineas = (ls: Linea[]): string => ls.map(lineaATexto).join('\n')
+
+/** El texto corrido de antes pasa a UN bloque (con sus tareas y viñetas). */
 export function textoABloques(texto: string, x: number, y0: number): BloqueTexto[] {
+  const limpio = texto.replace(/\s+$/, '')
+  if (!limpio.trim()) return []
+  return [{ id: genId(), x, y: y0, texto: unirLineas(parseLineas(limpio)) }]
+}
+
+/** Un bloque de la v3 (tipo/hecho del bloque entero) pasa a prefijo en el texto. */
+export function normalizarBloque(b: BloqueTexto): BloqueTexto {
+  if (!b.tipo || b.tipo === 'texto') {
+    if (b.tipo === undefined && b.hecho === undefined) return b
+    const { tipo: _t, hecho: _h, ...resto } = b
+    void _t; void _h
+    return resto
+  }
+  const [primera, ...otras] = b.texto.split(/\r?\n/)
+  const { tipo: _t, hecho: _h, ...resto } = b
+  void _t; void _h
+  return { ...resto, texto: [lineaATexto({ tipo: b.tipo, hecho: !!b.hecho, texto: primera }), ...otras].join('\n') }
+}
+
+/** Mismo "columna" = arrancan casi en el mismo x. */
+const mismaColumna = (a: number, b: number) => Math.abs(a - b) < 0.12
+
+/** Junta los bloques que quedaron pegados uno abajo del otro en la misma
+ *  columna (lo que la v3 separó: una checklist = un bloque por tarea). Solo
+ *  junta si el de abajo empieza JUSTO donde termina el de arriba y los dos
+ *  están igual de fijados. Puro, con test. */
+export function agruparBloques(bloques: BloqueTexto[]): BloqueTexto[] {
+  const orden = [...bloques].sort((a, b) => a.y - b.y || a.x - b.x)
   const out: BloqueTexto[] = []
-  texto.split(/\r?\n/).forEach((linea, i) => {
-    if (!linea.trim()) return
-    const a = detectarAtajo(linea)
-    out.push({
-      id: genId(), x, y: y0 + i * LINEA_CUADERNO,
-      texto: a ? a.resto : linea,
-      ...(a && a.tipo !== 'texto' ? { tipo: a.tipo } : {}),
-      ...(a?.hecho ? { hecho: true } : {}),
-    })
-  })
+  for (const b of orden) {
+    const previo = [...out].reverse().find((o) => mismaColumna(o.x, b.x)
+      && o.y + o.texto.split(/\r?\n/).length * LINEA_CUADERNO === b.y
+      && !!o.fijo === !!b.fijo)
+    if (previo) previo.texto = `${previo.texto}\n${b.texto}`
+    else out.push({ ...b })
+  }
   return out
 }
 
-/** Mismo "columna" = arrancan casi en el mismo x (como una lista de Notion). */
-const mismaColumna = (a: number, b: number) => Math.abs(a - b) < 0.12
-
-/** Inserta un renglón; si en ese lugar ya hay otro de la misma columna, ese y
- *  todos los de abajo de esa columna bajan un renglón (como al apretar Enter
- *  en el medio de una lista). Puro, con test. */
-export function insertarEnColumna(bloques: BloqueTexto[], nuevo: BloqueTexto): BloqueTexto[] {
-  const ocupado = bloques.some((b) => b.y === nuevo.y && mismaColumna(b.x, nuevo.x))
-  const movidos = !ocupado ? bloques : bloques.map((b) =>
-    b.y >= nuevo.y && mismaColumna(b.x, nuevo.x) ? { ...b, y: b.y + LINEA_CUADERNO } : b)
-  return [...movidos, nuevo]
+/** ¿Hay algo de la v3 para normalizar o juntar? */
+export function necesitaNormalizar(bloques: BloqueTexto[]): boolean {
+  if (bloques.some((b) => b.tipo !== undefined || b.hecho !== undefined)) return true
+  return agruparBloques(bloques).length < bloques.length
 }
 
 export interface Fijado<T> { origen: string; item: T }

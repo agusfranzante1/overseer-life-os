@@ -47,29 +47,29 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
 
 ## ✅ Hecho recientemente
 
-- [x] **CUADERNO v3 — renglones estilo Notion, tareas y fijados** (2026-11-19, pedido: *"una línea
-  que escribo es una línea de texto; fijar una línea para que aparezca todos los días; tareas con
-  tilde que se tachen, formato Notion; fijar también las stickies"*).
-  - **Todo se escribe en renglones sueltos** (`BloqueTexto`, componente `Renglon` en `HojaLibre`):
-    ya no hay textarea de arriba. El texto corrido de hojas viejas pasa solo a renglones al abrirlas
-    (`pasarTextoARenglones`, uno por línea, con sus atajos). Teclado: Enter abre el renglón de abajo
-    y parte la línea en el cursor (una tarea abre otra tarea; si hay algo en esa columna, baja:
-    `insertarEnColumna`), Enter/Backspace en una tarea vacía la vuelven texto, Backspace en un
-    renglón vacío lo borra y sube, ↑↓ pasan de renglón.
-  - **Tareas y viñetas:** `tipo` `tarea | vineta` + `hecho`. Atajos `[] `, `[x] `, `- `, `* `, `• `
-    (`detectarAtajo`) o la barrita que aparece con el renglón activo. Tildada = tachada y apagada.
-  - **Fijar** (pin en la barrita del renglón o en la sticky): `fijo` en el renglón/sticky. Se ve en
+- [x] **CUADERNO v3 — bloques con checklist (formato Notion) y fijados** (2026-11-19). Dos vueltas el
+  mismo día: primero cada línea fue un bloque propio; el usuario corrigió *"la checklist se separa,
+  tiene que quedar todo junto en el mismo conjunto de texto, y fijar todo junto"*. Quedó así:
+  - **Un bloque = varias líneas** (`Bloque` en `HojaLibre`). Cada línea puede ser texto, tarea con
+    tilde (tildada = tachada) o viñeta, y se GUARDA como texto con prefijo markdown en `texto`
+    (`[ ] `, `[x] `, `- `; `parseLineas`/`unirLineas`). Así la checklist se mueve y se fija entera y
+    viaja como texto plano (sin migración). Teclado: Enter abre otra línea en el MISMO bloque y
+    parte en el cursor (una tarea abre otra tarea; tarea vacía + Enter → texto), Backspace al
+    principio saca la tilde o junta con la línea de arriba, bloque vacío + Backspace se borra, ↑↓
+    pasan de línea y de bloque. Atajos `[] `, `[x] `, `- `, `* `, `• ` (`detectarAtajo`); pegar
+    varias líneas las separa. Ya no hay textarea de arriba: el texto corrido viejo pasa a un bloque.
+  - **Fijar** (pin en la barrita del bloque o en la sticky): `fijo` en el bloque/sticky. Se ve en
     toda hoja del diario de ese día en adelante (`fijadosPara`) pero vive y se guarda en SU hoja: no
-    se copia (tildar un fijado en otro día lo tilda en el origen, así que es UNO compartido, no uno
+    se copia (tildar una tarea de un bloque fijado la tilda en el origen: es UNO compartido, no uno
     por día). En notas no aparecen los fijados.
-  - **Sin migración** (todo en el payload de la hoja; sanitize preserva tipo/hecho/fijo).
-  - **Verificado en Chrome headless:** texto viejo → 2 renglones; `[] pagar luz` → tarea; Enter abre
-    tarea con foco; Enter en el medio parte "llamar a mamá"; tarea vacía + Enter → texto; Backspace
-    borra el vacío; tildar → `line-through`; fijar renglón y sticky → al día siguiente aparecen los
-    dos y la hoja de mañana no recibe copias; tildar el fijado mañana lo guarda en su hoja. Las
-    pruebas de arrastre/swipe/trackpad/tapa siguen pasando (el swipe ahora anda también encima de un
-    renglón escrito; solo la manija de mover queda afuera). Tests 79/79, `tsc` + `next build`.
-  - **NO verificado:** con teclado y dedo reales (todo fue con eventos simulados).
+  - **Lo que la primera vuelta separó se junta solo** al abrir la hoja (`normalizarBloques`:
+    `tipo`/`hecho` del bloque → prefijo, y `agruparBloques` junta los que quedaron pegados en la misma
+    columna — exactamente uno debajo del otro e igual de fijados).
+  - **Verificado en Chrome headless:** 3 bloques sueltos de la primera vuelta → 1 checklist; bloque
+    nuevo `[] comprar pan` + Enter ×2 → un solo bloque de 3 tareas; Enter en el medio parte y
+    Backspace ×2 lo vuelve a juntar; tilde por línea; fijar el bloque → al día siguiente aparece
+    entero. Arrastre/swipe/trackpad/tapa siguen pasando. Tests 87/87, `tsc` + `next build`.
+  - **NO verificado:** con teclado y dedo reales (todo con eventos simulados).
 
 - [x] **CUADERNO v2 — un cuaderno de verdad que flota** (2026-11-18, mismo día; feedback: *"te
   pedí que sea como un cuaderno y que se mueva por la pantalla; hoy está fijo y la única opción es
