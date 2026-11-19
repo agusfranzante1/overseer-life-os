@@ -237,7 +237,9 @@ function BloqueBase({
                 onClick={() => guardar(lineas.map((x, k) => (k === i ? { ...x, hecho: !x.hecho } : x)))}
                 title={l.hecho ? 'Desmarcar' : 'Marcar como hecha'}
                 aria-label={l.hecho ? 'Desmarcar tarea' : 'Marcar tarea como hecha'}
-                className="absolute left-0 top-[6px] w-[18px] h-[18px] rounded-[5px] grid place-items-center transition-colors"
+                // z-[2]: la línea tildada baja a opacity 0.5 y eso la pinta ENCIMA del tilde (contexto de
+                // apilamiento por opacidad); sin esto no se podía destildar.
+                className="absolute z-[2] left-0 top-[6px] w-[18px] h-[18px] rounded-[5px] grid place-items-center transition-colors"
                 style={{
                   border: `1.7px solid ${l.hecho ? acento : color}`,
                   background: l.hecho ? acento : 'transparent',

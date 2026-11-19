@@ -69,6 +69,9 @@ Todo se guarda solo y **sincroniza entre la compu, la notebook y el celu**.
     nuevo `[] comprar pan` + Enter ×2 → un solo bloque de 3 tareas; Enter en el medio parte y
     Backspace ×2 lo vuelve a juntar; tilde por línea; fijar el bloque → al día siguiente aparece
     entero. Arrastre/swipe/trackpad/tapa siguen pasando. Tests 87/87, `tsc` + `next build`.
+  - **Destildar arreglado:** la línea tildada (opacity 0.5) se pintaba ENCIMA del cuadradito y el
+    segundo clic caía en el texto. Tilde con `z-[2]`. Ojo al probar: `.click()` no lo detecta; hay
+    que hacer clic real por coordenadas (CDP `Input.dispatchMouseEvent`).
   - **NO verificado:** con teclado y dedo reales (todo con eventos simulados).
 
 - [x] **CUADERNO v2 — un cuaderno de verdad que flota** (2026-11-18, mismo día; feedback: *"te
